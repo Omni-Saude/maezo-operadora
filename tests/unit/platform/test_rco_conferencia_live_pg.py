@@ -274,3 +274,72 @@ async def test_escritor_de_desfecho_append_only_e_idempotente_ao_vivo() -> None:
             await raw.close()
     finally:
         await _drop(dsn, tenant)
+
+
+async def test_amostra_inicial_conta_so_glosas_com_efeito_ao_vivo() -> None:
+    """D1 (DL-0182): 40 glosas em sombra nao consomem a revisao inicial; ligado o indicador, as 30 primeiras
+    glosas COM EFEITO sao `inicial` e a 31a cai na amostra aleatoria (HMAC)."""
+    dsn = _default_test_dsn()
+    tenant = await _schema_novo(dsn)
+    revisao = 30
+    parametros = ParametrosAtivacao(revisao, 7, 50, 5, 30, JANELA)
+
+    def plena(decisao: str, habilitado: bool) -> Any:
+        av = avaliar_regra(
+            decision_key="rco_x",
+            sha_dmn="sha256:" + "a" * 64,
+            regra=RegraK1("REGRA-P", "1.0.0", "b" * 64, "plena", False),
+            parametros=parametros,
+            row={"decisao": decisao, "classeAdverso": "administrativo", "motivoTab38": "1801", "fila": "f"},
+            estados=at.EstadosManuais({("REGRA-P", "1.0.0"): "ativa_l2"}),
+            habilitado=habilitado,
+        )
+        assert av is not None
+        return av
+
+    try:
+        store = PostgresRegistroDecisoesRco(dsn=dsn, tenant=tenant)
+        n = 0
+
+        async def decidir(av: Any) -> Any:
+            nonlocal n
+            n += 1
+            ctx = ContextoDecisao(
+                tenant=tenant,
+                chave_idempotencia=chave_idempotencia(tenant, f"p{n}", "rco_x"),
+                chave_negocio=f"AUTH-p{n}",
+                chave_amostra=b"segredo",
+                id_chave_amostra="k1",
+            )
+            assert await store.registrar(av, ctx) is True
+            return (
+                await _linhas(
+                    dsn,
+                    tenant,
+                    "SELECT ordinal, modo, acao, amostrada, motivo_amostra, id_chave_amostra "
+                    "FROM rco_decisao_regra WHERE chave_idempotencia = $1",
+                    ctx.chave_idempotencia,
+                )
+            )[0]
+
+        for _ in range(40):  # sombra: consome ordinais, nunca a revisao inicial com efeito
+            linha = await decidir(plena("glosar", habilitado=False))
+            assert (linha["modo"], linha["acao"]) == ("sombra", "registrar_apenas")
+        for _ in range(5):  # negativas com efeito: outra decisao adversa, nao consomem a da glosa
+            linha = await decidir(plena("negar", habilitado=True))
+            assert (linha["acao"], linha["motivo_amostra"]) == ("efeito_com_amostragem", "inicial")
+        for i in range(revisao):
+            linha = await decidir(plena("glosar", habilitado=True))
+            assert linha["ordinal"] == 41 + 5 + i  # o ordinal segue gravado, consumido pela sombra
+            assert (linha["modo"], linha["acao"], linha["amostrada"], linha["motivo_amostra"]) == (
+                "ativa",
+                "efeito_com_amostragem",
+                True,
+                "inicial",
+            ), i
+        linha = await decidir(plena("glosar", habilitado=True))
+        assert linha["motivo_amostra"] != "inicial"
+        assert linha["id_chave_amostra"] == "k1"  # a 31a e decidida pela chave HMAC
+        assert linha["amostrada"] == (linha["motivo_amostra"] == "aleatoria")
+    finally:
+        await _drop(dsn, tenant)

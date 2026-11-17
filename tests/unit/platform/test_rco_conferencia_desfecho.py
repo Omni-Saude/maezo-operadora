@@ -160,16 +160,48 @@ def test_indicador_desligado_tudo_registrar_apenas_com_qualquer_contagem() -> No
             assert linha.acao == "registrar_apenas"
 
 
-def test_plena_continua_usando_o_ordinal_para_a_amostra_inicial() -> None:
+def test_plena_com_efeito_amostra_inicial_conta_so_efeitos_anteriores_nao_o_ordinal() -> None:
+    """D1 (DL-0182): com o indicador ligado, as primeiras `revisao_inicial_decisoes` (3 aqui) glosas COM
+    EFEITO sao `inicial`, qualquer que seja o ordinal (que a sombra consome); contagem desconhecida
+    amostra."""
     av = _avaliar("glosar", ativacao="plena", classe="contas")
-    for ordinal in (1, 2, 3):
-        linha = reg.montar_linha(av, _ctx(), ordinal, conferencias_confirmadas=None)
-        assert (linha.amostrada, linha.motivo_amostra, linha.acao) == (
-            True,
-            "inicial",
-            "efeito_com_amostragem",
-        )
-    assert reg.montar_linha(av, _ctx(), 4).motivo_amostra != "inicial"
+    assert av.modo == "ativa"
+    for ordinal in (1, 41, 5000):
+        for efeitos in (None, 0, 1, 2):
+            linha = reg.montar_linha(av, _ctx(), ordinal, efeitos_anteriores=efeitos)
+            assert (linha.amostrada, linha.motivo_amostra, linha.acao) == (
+                True,
+                "inicial",
+                "efeito_com_amostragem",
+            ), (ordinal, efeitos)
+    for efeitos in (3, 4, 100):
+        linha = reg.montar_linha(av, _ctx(), 1, efeitos_anteriores=efeitos)
+        assert linha.motivo_amostra != "inicial"
+        assert linha.motivo_amostra == "chave_ausente"  # sem chave HMAC no contexto: a amostra posterior
+
+
+def test_em_sombra_a_amostra_inicial_observacional_segue_o_ordinal() -> None:
+    av = _avaliar("glosar", ativacao="plena", classe="contas", habilitado=False)
+    assert reg.montar_linha(av, _ctx(), 3, efeitos_anteriores=0).motivo_amostra == "inicial"
+    assert reg.montar_linha(av, _ctx(), 4, efeitos_anteriores=0).motivo_amostra != "inicial"
+
+
+@pytest.mark.parametrize("valor", [None, True, "3", 2.0])
+def test_amostra_inicial_por_efeitos_desconhecida_amostra(valor: Any) -> None:
+    assert at.amostra_inicial_por_efeitos(valor, 3) == (True, "inicial")
+    assert at.amostra_inicial_por_efeitos(3, 3) == (False, "")
+
+
+def test_acao_de_efeito_adverso_e_a_unica_saida_adversa_com_efeito() -> None:
+    """`filtrar_saida`: negar/glosar que chegam a efeito saem em `efeito_com_amostragem`, nunca `efeito`."""
+    estado = at.EstadoEfetivo("ativa", "plena")
+    saidas = {
+        at.filtrar_saida(
+            estado, decisao=d, classe_adverso=c, fila="f", exige_aditivo=False, aditivo_cobre=None
+        ).acao
+        for d, c in (("glosar", "contas"), ("glosar", "administrativo"), ("negar", "administrativo"))
+    }
+    assert saidas == {at.ACAO_EFEITO_ADVERSO}
 
 
 # --- 3. registrar: a contagem e lida sob o lock, so para a `conferida` ativa ------------------------
@@ -193,6 +225,7 @@ class _Conn:
         self,
         *,
         confirmadas: int = 0,
+        efeitos: int = 0,
         decisao: dict[str, Any] | None = None,
         ultimo: str | None = None,
         falha: BaseException | None = None,
@@ -200,6 +233,7 @@ class _Conn:
         self.log: list[str] = []
         self.args: list[tuple[str, tuple[Any, ...]]] = []
         self._confirmadas = confirmadas
+        self._efeitos = efeitos
         self._decisao = decisao
         self._ultimo = ultimo
         self._falha = falha
@@ -222,6 +256,9 @@ class _Conn:
         if sql == reg._CONFIRMADAS_SQL:
             self.log.append("confirmadas")
             return self._confirmadas
+        if sql == reg._EFEITOS_ANTERIORES_SQL:
+            self.log.append("efeitos")
+            return self._efeitos
         if sql == reg._ULTIMO_DESFECHO_SQL:
             self.log.append("ultimo")
             return self._ultimo
@@ -260,10 +297,11 @@ def _insert(conn: _Conn) -> tuple[Any, ...]:
 async def test_registrar_le_as_confirmadas_sob_o_lock_e_decide_por_elas(confirmadas: int, acao: str) -> None:
     conn = _Conn(confirmadas=confirmadas)
     assert await _store(conn).registrar(_avaliar("glosar"), _ctx()) is True
-    assert [p for p in conn.log if p in {"lock", "ordinal", "confirmadas", "insert"}] == [
+    assert [p for p in conn.log if p in {"lock", "ordinal", "confirmadas", "efeitos", "insert"}] == [
         "lock",
         "ordinal",
         "confirmadas",
+        "efeitos",
         "insert",
     ]
     linha = _insert(conn)
@@ -271,6 +309,25 @@ async def test_registrar_le_as_confirmadas_sob_o_lock_e_decide_por_elas(confirma
     assert linha[reg.COLUNAS.index("ordinal")] == 77  # o ordinal nao decide a janela
     sql_conf = next(a for sql, a in conn.args if sql == reg._CONFIRMADAS_SQL)
     assert sql_conf == ("amh", "REGRA-1", "1.2.3", "glosar")  # a janela e a da mesma decisao adversa
+
+
+async def test_registrar_le_os_efeitos_anteriores_so_com_efeito_possivel() -> None:
+    conn = _Conn(efeitos=2)
+    await _store(conn).registrar(_avaliar("glosar", ativacao="plena", classe="contas"), _ctx())
+    assert next(a for sql, a in conn.args if sql == reg._EFEITOS_ANTERIORES_SQL) == (
+        "amh",
+        "REGRA-1",
+        "1.2.3",
+        "glosar",
+    )
+    assert _insert(conn)[reg.COLUNAS.index("motivo_amostra")] == "inicial"
+    sombra = _Conn(efeitos=0)
+    await _store(sombra).registrar(
+        _avaliar("glosar", ativacao="plena", classe="contas", habilitado=False), _ctx()
+    )
+    assert "efeitos" not in sombra.log
+    for trecho in ("decisao = $4", "modo = 'ativa'", "acao = 'efeito_com_amostragem'", "tenant = $1"):
+        assert trecho in reg._EFEITOS_ANTERIORES_SQL
 
 
 async def test_registrar_negar_conferida_confere_mesmo_com_mil_confirmadas() -> None:

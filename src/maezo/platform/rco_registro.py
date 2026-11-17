@@ -17,16 +17,21 @@ Tres pecas, da mais pura para a menos:
    sob `pg_advisory_xact_lock` por (tenant, idRegra, versaoRegra): duas avaliacoes concorrentes da mesma
    regra se serializam e nunca recebem o mesmo ordinal (um indice unico parcial e a segunda barreira).
 
+Amostra inicial (DL-0182, decisao D1 do dono: 100% das primeiras glosas COM EFEITO de cada regra). Com
+efeito possivel (`modo = ativa`) conta, sob o lock da regra, as decisoes anteriores gravadas da mesma
+decisao adversa da regra/versao com `modo = ativa` e `acao = efeito_com_amostragem`
+(`_EFEITOS_ANTERIORES_SQL`): sombra e decisao sem efeito nunca a consomem; contagem desconhecida amostra.
+
 Ordinal. Conta so as decisoes que a revisao inicial mira (ADR-0077 §3): as adversas COERENTES COM A
 CLASSE (`glosar` com `contas`/`administrativo`; `negar` com `administrativo`;
 `rco_ativacao.CLASSES_COM_EFEITO`). Contar tambem `liberar` consumiria a janela antes de qualquer glosa;
 contar uma combinacao incoerente (ex.: `negar` clinico, que vai ao humano) consumiria a janela com caso
-que nunca chega a efeito. Qualquer outra decisao: ordinal nulo, nunca amostrada. O ordinal so alimenta a
-amostra inicial da `plena` (`amostra_inicial`); e o MAX+1 das linhas JA GRAVADAS, lido na mesma transacao
-que grava (nunca reservado antes). Linha perdida (DL-0182): com o efeito possivel (`modo` diferente de
-`sombra`) o harness nao completa a tarefa sem a linha gravada (fail-closed; a re-entrega grava com a
-mesma `chave_idempotencia`), entao nenhuma decisao com efeito fica fora da contagem; em `sombra` a perda
-continua fail-open, porque nada age.
+que nunca chega a efeito. Qualquer outra decisao: ordinal nulo, nunca amostrada. O ordinal continua
+gravado e so alimenta a amostra inicial OBSERVACIONAL das linhas sem efeito possivel; e o MAX+1 das
+linhas JA GRAVADAS, lido na mesma transacao que grava (nunca reservado antes). Linha perdida (DL-0182):
+com o efeito possivel (`modo` diferente de `sombra`) o harness nao completa a tarefa sem a linha gravada
+(fail-closed; a re-entrega grava com a mesma `chave_idempotencia`), entao nenhuma decisao com efeito fica
+fora da contagem; em `sombra` a perda continua fail-open, porque nada age.
 
 Janela da `conferida` (DL-0182). NAO e o ordinal: conta so conferencias CONFIRMADAS por humano
 (`rco_ativacao.conferencias_confirmadas`; aqui, `_CONFIRMADAS_SQL`), por (tenant, idRegra, versaoRegra) e
@@ -307,6 +312,7 @@ def montar_linha(
     ordinal: int | None,
     *,
     conferencias_confirmadas: int | None = None,
+    efeitos_anteriores: int | None = None,
 ) -> LinhaDecisao:
     """Funcao pura. `ordinal` e `None` para decisao sem amostragem; para `negar`/`glosar` e o 1-based
     por (idRegra, versaoRegra) dado por quem grava, sob lock.
@@ -316,13 +322,23 @@ def montar_linha(
     A acao e a de `filtrar_saida` (em sombra, `registrar_apenas`). `conferencias_confirmadas` (DL-0182) e
     a contagem da janela da `conferida`, lida por quem grava sob o lock da regra; `None` (desconhecida)
     mantem a janela aberta: a decisao vai a conferencia.
+
+    Amostra inicial (DL-0182, D1): com efeito possivel (`modo = ativa`) conta `efeitos_anteriores`
+    (decisoes anteriores da mesma decisao adversa da regra/versao gravadas com efeito), nunca o ordinal,
+    que a sombra consome; `None` amostra. Sem efeito possivel (sombra, desligada) segue o ordinal, so
+    observacao.
     """
     amostrada, motivo = False, ""
     por_chave = False  # a chave HMAC decidiu a linha (amostrada ou nao): so assim o id dela e gravado
     if av.tem_ordinal:
         if ordinal is None:
             raise ValueError("montar_linha: decisao amostravel exige ordinal")
-        amostrada, motivo = ativ.amostra_inicial(ordinal, av.revisao_inicial_decisoes)
+        if av.modo == "ativa":
+            amostrada, motivo = ativ.amostra_inicial_por_efeitos(
+                efeitos_anteriores, av.revisao_inicial_decisoes
+            )
+        else:
+            amostrada, motivo = ativ.amostra_inicial(ordinal, av.revisao_inicial_decisoes)
         if not amostrada:
             amostrada, motivo = ativ.amostrar(
                 ctx.chave_amostra,
@@ -405,6 +421,14 @@ _CONFIRMADAS_SQL: Final = (
     "AND r.acao = 'conferencia' AND r.modo = 'ativa') "
     "SELECT count(DISTINCT id_decisao) FROM d WHERE concordou = 'sim' AND decisao = $4 "
     "AND id > COALESCE((SELECT max(id) FROM d WHERE concordou = 'nao'), 0)"
+)
+#: Amostra inicial com efeito possivel (DL-0182, D1): decisoes ANTERIORES gravadas da mesma decisao
+#: adversa ($4) da regra/versao que chegaram a efeito (`modo = ativa`, `acao = efeito_com_amostragem`,
+#: `rco_ativacao.ACAO_EFEITO_ADVERSO`). Sombra, conferencia e revisao humana nunca consomem.
+_EFEITOS_ANTERIORES_SQL: Final = (
+    "SELECT count(*) FROM rco_decisao_regra "
+    "WHERE tenant = $1 AND id_regra = $2 AND versao_regra = $3 AND decisao = $4 "
+    f"AND modo = 'ativa' AND acao = '{ativ.ACAO_EFEITO_ADVERSO}'"
 )
 _INSERT_SQL: Final = (
     f"INSERT INTO rco_decisao_regra ({', '.join(COLUNAS)}) "
@@ -596,6 +620,7 @@ class PostgresRegistroDecisoesRco:
                     await conn.execute(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'")
                     ordinal: int | None = None
                     confirmadas: int | None = None
+                    efeitos: int | None = None
                     if avaliacao.tem_ordinal:
                         # O lock vale ate o commit: a segunda transacao da mesma regra espera aqui e,
                         # em READ COMMITTED, o SELECT seguinte ja ve a linha que a primeira gravou.
@@ -619,7 +644,25 @@ class PostgresRegistroDecisoesRco:
                                     avaliacao.decisao,
                                 )
                             )
-                    linha = montar_linha(avaliacao, contexto, ordinal, conferencias_confirmadas=confirmadas)
+                        if avaliacao.modo == "ativa":
+                            # D1 (DL-0182): a amostra inicial conta so glosas/negativas COM EFEITO desta
+                            # regra/versao e decisao, das linhas gravadas, sob o mesmo lock.
+                            efeitos = int(
+                                await conn.fetchval(
+                                    _EFEITOS_ANTERIORES_SQL,
+                                    self._tenant,
+                                    avaliacao.id_regra,
+                                    avaliacao.versao_regra,
+                                    avaliacao.decisao,
+                                )
+                            )
+                    linha = montar_linha(
+                        avaliacao,
+                        contexto,
+                        ordinal,
+                        conferencias_confirmadas=confirmadas,
+                        efeitos_anteriores=efeitos,
+                    )
                     gravado = await conn.fetchval(_INSERT_SQL, *linha.params())
             finally:
                 await _fechar(conn)

@@ -502,8 +502,35 @@ def amostrar(
 
 
 def amostra_inicial(ordinal: int, revisao_inicial_decisoes: int) -> tuple[bool, str]:
-    """As primeiras `revisao_inicial_decisoes` decisoes da regra (ordinal 1-based) sao 100% revistas."""
+    """As primeiras `revisao_inicial_decisoes` decisoes da regra (ordinal 1-based) sao 100% revistas.
+
+    So para linha SEM efeito possivel (sombra, desligada): observacao. Com efeito possivel (`modo = ativa`)
+    a amostra inicial e `amostra_inicial_por_efeitos` (DL-0182, decisao D1 do dono)."""
     if 1 <= ordinal <= revisao_inicial_decisoes:
+        return True, MOTIVO_INICIAL
+    return False, ""
+
+
+#: Acao de uma decisao ADVERSA que chegou a efeito (`filtrar_saida`): `negar`/`glosar` com efeito saem
+#: sempre em `efeito_com_amostragem` (a saida `efeito` de adversa e inalcancavel; `efeito` e so das nao
+#: adversas, que nao tem amostragem). `conferencia` e `revisao_humana` nao sao efeito automatico.
+ACAO_EFEITO_ADVERSO: Final[str] = "efeito_com_amostragem"
+
+
+def amostra_inicial_por_efeitos(
+    efeitos_anteriores: int | None, revisao_inicial_decisoes: int
+) -> tuple[bool, str]:
+    """Amostra inicial com efeito possivel (DL-0182, D1: 100% das primeiras `revisao_inicial_decisoes`
+    glosas COM EFEITO de cada regra). `efeitos_anteriores`: quantas decisoes anteriores da MESMA decisao
+    adversa da regra/versao foram gravadas com `modo = ativa` e `acao = ACAO_EFEITO_ADVERSO`; sombra e
+    decisao sem efeito nunca consomem. Desconhecida (`None`) ou invalida: amostra (lado da revisao)."""
+    if (
+        efeitos_anteriores is None
+        or isinstance(efeitos_anteriores, bool)
+        or not isinstance(efeitos_anteriores, int)
+    ):
+        return True, MOTIVO_INICIAL
+    if efeitos_anteriores < revisao_inicial_decisoes:
         return True, MOTIVO_INICIAL
     return False, ""
 
@@ -524,7 +551,9 @@ __all__ = [
     "EstadoEfetivo",
     "EstadosManuais",
     "VARIAVEL_DO_AMBIENTE",
+    "ACAO_EFEITO_ADVERSO",
     "amostra_inicial",
+    "amostra_inicial_por_efeitos",
     "amostrar",
     "conferencias_confirmadas",
     "janela_de_conferencia_aberta",
