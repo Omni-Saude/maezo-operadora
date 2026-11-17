@@ -12,6 +12,30 @@ ORDEM, e o que cada passo garante:
   5. Real: contato (custodia), janela de 24 h -> texto livre ou template, reserva idempotente ANTES do
      envio (liberada se o envio falhar), pausa entre envios, teto por execucao.
 
+TRAVA DE OPOSICAO DO BENEFICIARIO (CD-25, GT-4 lado de saida). Logo depois do interruptor, ANTES de
+qualquer outra coisa (allowlist, horario, gate, leitura de acesso/cobranca/supressao/opt-out), a rodada
+inteira e o simulador sao recusados com `BENEFICIARY_OPPOSITION_NOT_EXECUTABLE` enquanto nao houver uma
+PORTA DE OPOSICAO EXECUTAVEL para `beneficiario` (`Dependencias.oposicao_beneficiario`). Hoje nenhuma existe:
+SP-OP-SUPP-001 nao registra oposicao de `beneficiario` (GTM-04/D4 aberto). A trava e' incondicional e
+independe do gate e do registro: mesmo com tudo ratificado, sem a porta nada sai. QUAL e' o canal/fonte de
+oposicao do beneficiario e' ponto do DPO (GAP) — este modulo so' declara o ponto de extensao
+(`PortaDeOposicaoBeneficiario`) e nenhuma raiz de producao o preenche.
+
+OUTBOUNDGATE (E-SF-13 / GTM-E-41; ADDENDUM-01 §7 (q), RT-D4). O lembrete e' mensagem PROATIVA a
+beneficiario, entao passa pelo `OutboundGate` (`gateway/communications/outbound_gate.py`), a fonte unica
+das verificacoes de envio proativo:
+  * logo depois do interruptor (e do dry-run/allowlist/horario), UMA pre-verificacao sem dado
+    (`finalidade_aberta`): finalidade `cobranca_lembrete_pre_vencimento` nao ratificada ou titular
+    `beneficiario` sem oposicao executavel => conta `recusado_outbound_<MOTIVO>` e PARA, antes de ler o
+    acesso, a fonte de cobranca ou a supressao;
+  * por candidato, a verificacao COMPLETA (`avaliar`) antes de contar `enviaria` ou enviar; o `Enviador`
+    so' envia com a `AutorizacaoDeEnvio` que o gate emitiu.
+A permissao do candidato e' o consentimento de ATENDIMENTO (`atendimento_whatsapp` / `wa-consent-v2`, a
+selecao de `leitura.py`), que o gate NUNCA aceita como permissao de contato proativo
+(`recontact_permission_unqualified`). Com o registro publicado (nada ratificado), nenhum lembrete sai, com o
+interruptor ligado ou nao. O mecanismo (selecao, regra, janela, reserva, teto) fica como esta' — reuso
+decidido —, a espera da resposta do DPO a RT-D4.
+
 O que SAI do job para log: so' contagens por motivo. Nunca telefone, CPF, valor, nome ou conversation_id.
 """
 
@@ -27,7 +51,16 @@ from typing import Protocol
 import structlog
 
 from maezo.agents.lucas.fonte_cobranca import FatosCobranca, Indisponivel
+from maezo.gateway.communications.outbound_gate import (
+    AutorizacaoDeEnvio,
+    Decisao,
+    Motivo,
+    OutboundGate,
+    PedidoDeEnvio,
+    PermissaoDeContato,
+)
 from maezo.gateway.recipient_custody import RecipientRecord, dentro_da_janela
+from maezo.platform.webhooks.whatsapp.acesso import SHA256_TEXTO_CONSENTIMENTO, VERSAO_TEXTO_CONSENTIMENTO
 
 from .armazenamento import LembreteStore
 from .config import ConfigJob
@@ -36,6 +69,13 @@ from .regras import dentro_do_horario, escolher_competencia, hoje_no_brasil
 from .texto import MensagemLembrete, compor_lembrete, compor_teste
 
 logger = structlog.get_logger(__name__)
+
+#: A finalidade e o template do lembrete no registro `spec/communications/whatsapp-templates.yaml`.
+FINALIDADE_LEMBRETE = "cobranca_lembrete_pre_vencimento"
+TEMPLATE_LEMBRETE = "lembrete_mensalidade_v1"
+TIPO_TITULAR = "beneficiario"
+#: O escopo do consentimento de atendimento (`gateway/amh_interop.py::CONSENT_SCOPE`; teste de paridade).
+ESCOPO_CONSENTIMENTO_ATENDIMENTO = "atendimento_whatsapp"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +87,22 @@ class Beneficiario:
     consent_ref: str = field(repr=False)
 
 
+def permissao_do_acesso(b: Beneficiario) -> PermissaoDeContato:
+    """A UNICA permissao que a selecao do job conhece: o consentimento de ATENDIMENTO do acesso verificado.
+
+    `leitura.py` seleciona por `consent_ref` do escopo `atendimento_whatsapp` (texto `wa-consent-v2`, "nesta
+    conversa"). Isso e' dito aqui com o nome certo para que o gate o recuse como permissao de contato
+    proativo (A9 GT-3; RT-D4). A versao v1 do texto tem o mesmo escopo: a recusa vale pelo escopo.
+    """
+    return PermissaoDeContato(
+        origem="consentimento_atendimento",
+        escopo=ESCOPO_CONSENTIMENTO_ATENDIMENTO,
+        texto_versao=VERSAO_TEXTO_CONSENTIMENTO,
+        texto_sha256=SHA256_TEXTO_CONSENTIMENTO,
+        prova_ref=b.consent_ref,
+    )
+
+
 class LeitorDeAcesso(Protocol):
     async def verificados(self) -> Sequence[Beneficiario]: ...
 
@@ -55,6 +111,20 @@ class LeitorDeFatos(Protocol):
     """Os fatos de cobranca do beneficiario, pela fonte do Lucas (`FonteCobranca`)."""
 
     async def de(self, beneficiario: Beneficiario) -> FatosCobranca | Indisponivel: ...
+
+
+#: Motivo da trava de oposicao do beneficiario (CD-25). Contado como `recusado_<MOTIVO>`.
+BENEFICIARY_OPPOSITION_NOT_EXECUTABLE = "BENEFICIARY_OPPOSITION_NOT_EXECUTABLE"
+
+
+class PortaDeOposicaoBeneficiario(Protocol):
+    """PONTO DE EXTENSAO (GAP / DPO): a oposicao EXECUTAVEL do beneficiario antes de qualquer envio.
+
+    Nenhuma implementacao existe em `src/`: o canal e a fonte de oposicao do beneficiario sao decisao do DPO
+    (GTM-04/D4), nao deste job. `executavel()` diz se a oposicao pode ser honrada AGORA; `False` ou excecao
+    recusam a rodada (desconhecido nunca vira "sem oposicao")."""
+
+    async def executavel(self) -> bool: ...
 
 
 class LeitorDeSupressao(Protocol):
@@ -79,6 +149,21 @@ class Dependencias:
     enviador: Enviador
     chave_de_saida: Callable[[str], str]
     dormir: Callable[[float], Awaitable[None]] = asyncio.sleep
+    #: `None` = o gate de PRODUCAO (registro publicado; fechado). Testes injetam um registro sintetico.
+    outbound: OutboundGate | None = None
+    permissao_de: Callable[[Beneficiario], PermissaoDeContato | None] = permissao_do_acesso
+    #: `None` (o unico valor em producao hoje) = nao ha' oposicao executavel => rodada recusada (CD-25).
+    oposicao_beneficiario: PortaDeOposicaoBeneficiario | None = None
+
+    def __post_init__(self) -> None:
+        if self.outbound is None:
+            self.outbound = OutboundGate.de_producao(supressao=self.supressao)
+
+    @property
+    def gate(self) -> OutboundGate:
+        if self.outbound is None:  # pragma: no cover - __post_init__ sempre preenche
+            raise RuntimeError("lembrete: OutboundGate ausente")
+        return self.outbound
 
 
 @dataclass(slots=True)
@@ -117,11 +202,47 @@ def _suprimido(vigentes: frozenset[tuple[str, str]], b: Beneficiario) -> bool:
     return any(ref == b.portable_ref or canal == b.conversation_id for ref, canal in vigentes)
 
 
+def _pedido(deps: Dependencias, b: Beneficiario, parametros: tuple[str, ...], chave: str) -> PedidoDeEnvio:
+    return PedidoDeEnvio(
+        template_id=TEMPLATE_LEMBRETE,
+        finalidade=FINALIDADE_LEMBRETE,
+        tipo_titular=TIPO_TITULAR,
+        titular_ref=b.portable_ref,
+        canal_ref=b.conversation_id,
+        variaveis=parametros,
+        permissao=deps.permissao_de(b),
+        chave_idempotencia=chave,
+    )
+
+
+def _contar_recusa(resumo: Resumo, decisao: Decisao) -> None:
+    motivo = decisao.motivo.value if decisao.motivo is not None else "sem_autorizacao"
+    resumo.contar(f"recusado_outbound_{motivo}")
+
+
+async def _oposicao_executavel(deps: Dependencias) -> bool:
+    porta = deps.oposicao_beneficiario
+    if porta is None:
+        return False
+    try:
+        return await porta.executavel() is True
+    except Exception:  # porta fora do ar: desconhecido nunca libera envio
+        return False
+
+
+def _fechado(deps: Dependencias) -> Motivo | None:
+    return deps.gate.finalidade_aberta(FINALIDADE_LEMBRETE, tipo_titular=TIPO_TITULAR)
+
+
 async def executar(deps: Dependencias, cfg: ConfigJob, *, agora: datetime) -> Resumo:
     """UMA rodada do job. `agora` e' injetado (testes e relogio unico da rodada)."""
     resumo = Resumo(modo=_modo(cfg), dentro_do_horario=dentro_do_horario(agora))
     if not cfg.habilitado:
         resumo.contar("desligado")
+        return resumo
+    if not await _oposicao_executavel(deps):
+        resumo.contar(f"recusado_{BENEFICIARY_OPPOSITION_NOT_EXECUTABLE}")
+        resumo.registrar()
         return resumo
     real = not cfg.dry_run
     if real and cfg.exigir_allowlist and cfg.allowlist is None:
@@ -130,6 +251,11 @@ async def executar(deps: Dependencias, cfg: ConfigJob, *, agora: datetime) -> Re
         return resumo
     if real and not resumo.dentro_do_horario:
         resumo.contar("fora_do_horario")
+        resumo.registrar()
+        return resumo
+    fechado = _fechado(deps)
+    if fechado is not None:
+        resumo.contar(f"recusado_outbound_{fechado.value}")
         resumo.registrar()
         return resumo
 
@@ -163,14 +289,19 @@ async def executar(deps: Dependencias, cfg: ConfigJob, *, agora: datetime) -> Re
         if await deps.store.ja_lembrado(b.conversation_id, escolhida.competencia):
             resumo.contar("ja_lembrado")
             continue
-        if not real:
-            resumo.contar("enviaria")
-            continue
         mensagem = compor_lembrete(
             competencia=escolhida.competencia,
             valor_total=escolhida.valor_total,
             vencimento=escolhida.vencimento,
         )
+        chave = deps.chave_de_saida(f"lembrete:{b.conversation_id}:{escolhida.competencia}")
+        decisao = await deps.gate.avaliar(_pedido(deps, b, mensagem.parametros_template, chave))
+        if not decisao.permitido or decisao.autorizacao is None:
+            _contar_recusa(resumo, decisao)
+            continue
+        if not real:
+            resumo.contar("enviaria")
+            continue
         entregue = await _enviar_um(
             deps,
             resumo,
@@ -179,7 +310,8 @@ async def executar(deps: Dependencias, cfg: ConfigJob, *, agora: datetime) -> Re
             competencia=escolhida.competencia,
             mensagem=mensagem,
             reservar=True,
-            chave=deps.chave_de_saida(f"lembrete:{b.conversation_id}:{escolhida.competencia}"),
+            chave=chave,
+            autorizacao=decisao.autorizacao,
         )
         if entregue:
             enviados += 1
@@ -199,6 +331,7 @@ async def _enviar_um(
     mensagem: MensagemLembrete,
     reservar: bool,
     chave: str,
+    autorizacao: AutorizacaoDeEnvio,
 ) -> bool:
     contato = await deps.contatos.lookup(tenant_id=deps.tenant_id, conversation_id=conversation_id)
     if contato is None:
@@ -219,6 +352,7 @@ async def _enviar_um(
             mensagem=mensagem,
             via_template=via_template,
             chave=chave,
+            autorizacao=autorizacao,
         )
     except DestinoForaDaAllowlistError:
         if reservar:
@@ -259,11 +393,20 @@ async def simular(
         resumo.modo = MODO_DESLIGADO
         resumo.contar("desligado")
         return resumo
+    if not await _oposicao_executavel(deps):
+        resumo.contar(f"recusado_{BENEFICIARY_OPPOSITION_NOT_EXECUTABLE}")
+        resumo.registrar()
+        return resumo
     if cfg.allowlist is None or not cfg.allowlist.permite(conversation_id):
         resumo.contar("recusado_fora_da_allowlist")
         return resumo
     if not cfg.dry_run and not ignorar_horario and not resumo.dentro_do_horario:
         resumo.contar("fora_do_horario")
+        return resumo
+    fechado = _fechado(deps)
+    if fechado is not None:
+        resumo.contar(f"recusado_outbound_{fechado.value}")
+        resumo.registrar()
         return resumo
     if conversation_id in await deps.store.optouts():
         resumo.contar("optout")
@@ -275,6 +418,20 @@ async def simular(
         valor_total="123.45",
         vencimento=vencimento,
     )
+    beneficiario = next(
+        (b for b in await deps.acesso.verificados() if b.conversation_id == conversation_id), None
+    )
+    if beneficiario is None:
+        # Sem acesso verificado nao ha' titular nem permissao a apresentar ao gate: nada sai.
+        resumo.contar("recusado_sem_acesso_verificado")
+        resumo.registrar()
+        return resumo
+    chave = deps.chave_de_saida(f"lembrete-teste:{conversation_id}:{int(agora.timestamp())}")
+    decisao = await deps.gate.avaliar(_pedido(deps, beneficiario, mensagem.parametros_template, chave))
+    if not decisao.permitido or decisao.autorizacao is None:
+        _contar_recusa(resumo, decisao)
+        resumo.registrar()
+        return resumo
     if cfg.dry_run:
         resumo.contar("simularia")
         resumo.registrar()
@@ -287,7 +444,8 @@ async def simular(
         competencia="teste",
         mensagem=mensagem,
         reservar=False,
-        chave=deps.chave_de_saida(f"lembrete-teste:{conversation_id}:{int(agora.timestamp())}"),
+        chave=chave,
+        autorizacao=decisao.autorizacao,
     )
     resumo.registrar()
     return resumo

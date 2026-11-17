@@ -81,6 +81,7 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "consent_record",  # ConsentRecordPort adapter (acesso, DL-0083; manifest v1.3): fail-closed sem pin
         "document_resolution",  # DocumentResolutionPort adapter (telefone sem cadastro, DL-0084; v1.3)
         "commercial",  # C6 proposed command codec; exact injected schema, never publication
+        "commercial_fences",  # E-SF-04 zero-health/closed-vocabulary fences the C6 codec applies
         "commercial_http",  # C6 source-guarded HTTP command/public-read transport, not a broker consumer
         "contract",  # fail-closed runtime loader for the immutable pin
         "mapping",  # decoded wire event <-> canonical port value types
@@ -253,8 +254,9 @@ def test_adapter_modules_discovered() -> None:
         f"{sorted(_EXPECTED_MODULES)}. Adding a module changes the adapter's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 14, (
-        f"expected exactly 14 modules (prior 12 + C6 codec and HTTP transport), found {sorted(mods)}"
+    assert len(mods) == 15, (
+        "expected exactly 15 modules (prior 12 + C6 codec, HTTP transport and the E-SF-04 fences), "
+        f"found {sorted(mods)}"
     )
     assert "consumer" not in mods, (
         "consumer.py exists — phase A must NOT ship a consumer: WorkItemSource.ack may only report "
