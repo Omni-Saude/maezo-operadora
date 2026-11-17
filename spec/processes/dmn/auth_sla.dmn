@@ -68,7 +68,7 @@
         <inputEntry id="r4i2"><text>-</text></inputEntry>
         <outputEntry id="r4o1"><text>"PT2H"</text></outputEntry>
         <outputEntry id="r4o2"><text>"PT1H"</text></outputEntry>
-        <outputEntry id="r4o3"><text>"Fail-safe: carater nao classificado tratado como urgencia (mesmo prazo de r1; Lei 9.656/1998 art. 35-C, imediato) — DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r4o3"><text>"Fail-safe: carater nao classificado recebe o prazo de r1 (urgencia) por decisao da coordenacao de 17/11/2026, nao por norma; valor de referencia: Lei 9.656/1998 art. 35-C — DRAFT/verify"</text></outputEntry>
         <outputEntry id="r4o4"><text>null</text></outputEntry>
       </rule>
     </decisionTable>
