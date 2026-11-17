@@ -39,7 +39,7 @@ userTask do comprador: formulário de ATÉ CINCO dados — região, modalidade, 
       <bpmn:sequenceFlow id="Flow_C3_Abandona" name="Abandona o formulário — emite 'ABANDONO-E02' (par F2)" sourceRef="Gateway_Continua" targetRef="Event_AbandonoE02" />
       <bpmn:sequenceFlow id="Flow_C3a_FimAbandono" name="Abandono sinalizado à frente F2 — recuperação segue lá (nunca aqui)" sourceRef="Event_AbandonoE02" targetRef="EndEvent_Abandono" />
       <bpmn:sequenceFlow id="Flow_C4_Contato" name="Segue para aceite de contato" sourceRef="Gateway_Continua" targetRef="Task_CapturaAceiteUnico"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">comprador segue para aceite de contato (OS-05)</bpmn:conditionExpression></bpmn:sequenceFlow>
-      <bpmn:sequenceFlow id="Flow_C5_Registra" name="Contato registrado — emite 'E02-HUMANO' (par F3)" sourceRef="Task_CapturaAceiteUnico" targetRef="Event_HumanoE02" />
+      <bpmn:sequenceFlow id="Flow_C5_Registra" name="Aceite registrado — emite 'E02-HUMANO' (par F3)" sourceRef="Task_CapturaAceiteUnico" targetRef="Event_HumanoE02" />
       <bpmn:sequenceFlow id="Flow_C5a_Registra" name="Aceite de contato registrado" sourceRef="Event_HumanoE02" targetRef="EndEvent_AceiteRegistrado" />
       <bpmn:textAnnotation id="Annotation_OS05"><bpmn:text>ACEITE ÚNICO DE CONTATO (OS-05) na captura do telefone. Envio proativo = RL-SF-066 FECHADO (Frente F2) — anotado, caminho não desenhado. Nenhuma mensagem proativa a beneficiário (missão §8).</bpmn:text></bpmn:textAnnotation>
     <bpmn:association id="Association_OS05" sourceRef="Task_CapturaAceiteUnico" targetRef="Annotation_OS05" />
@@ -69,7 +69,7 @@ Cria sessão de prospect SEM conta, com persistência só do declarado (≤5 cam
       <bpmn:sequenceFlow id="Flow_S1_Vitrine" name="Prospect da vitrine" sourceRef="StartEvent_LeadDaVitrine" targetRef="Task_ApresentaFormulario" />
       <bpmn:sequenceFlow id="Flow_S2_Exibe" name="Formulário exibido" sourceRef="Task_ApresentaFormulario" targetRef="EndEvent_FormularioApresentado" />
       <bpmn:sequenceFlow id="Flow_S3_Sessao" name="Sessão autorizada" sourceRef="StartEvent_SessaoMinima" targetRef="Task_CriaSessaoProspectA2" />
-      <bpmn:sequenceFlow id="Flow_S4_Qualifica" name="1º prospect.save — emite 'E02-ORIGEM' (par F3)" sourceRef="Task_CriaSessaoProspectA2" targetRef="Event_OrigemE02" />
+      <bpmn:sequenceFlow id="Flow_S4_Qualifica" name="Prospect qualificado — emite 'E02-ORIGEM' (par F3)" sourceRef="Task_CriaSessaoProspectA2" targetRef="Event_OrigemE02" />
       <bpmn:sequenceFlow id="Flow_S4a_Qualifica" name="Prospect qualificado" sourceRef="Event_OrigemE02" targetRef="EndEvent_Qualificado" />
       <bpmn:textAnnotation id="Annotation_Nivel2"><bpmn:text>NÍVEL 2: nenhum SP-OP-* de qualificação existe — GAP. Épicos: E-SF-04 cercas de wire zero saúde (PR 1273, em CI após reparo); E-SF-04r (AGUARDA-RATIFICAÇÃO); E-SF-40r entrada de lead/sessão de prospect A2/retomada (AGUARDA-RATIFICAÇÃO, omni). Nenhum executável criado nesta missão.</bpmn:text></bpmn:textAnnotation>
     <bpmn:association id="Association_Nivel2" sourceRef="Task_CriaSessaoProspectA2" targetRef="Annotation_Nivel2" />

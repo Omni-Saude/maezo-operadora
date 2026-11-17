@@ -12,7 +12,7 @@
 | Artefato | sha |
 |---|---|
 | E01-entrada-com-preco | `93fd477961f4370f` |
-| E02-qualificacao | `93136fc59c59553b` |
+| E02-qualificacao | `efe8fd5b014b1aa4` |
 | E03-cotacao-e-comparador | `c17788b7e86bb519` |
 | E04-proposta-e-termos | `59750d6e0933c094` |
 | E05-aceite | `378a4b269ba0bb1c` |
