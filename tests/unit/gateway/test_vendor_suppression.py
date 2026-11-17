@@ -7,8 +7,8 @@ Corações do pacote (§GP11 do ANSWERS-V1, insumos ACEITOS pelo dono 2026-10-07
   é o que PASSOU a fronteira); classe desconhecida ⇒ recusa (OP20 §3); célula C2/C6 < k=100 ⇒
   LINHA suprimida (e contada); audiência < 300 ⇒ exportação INTEIRA recusada; store ausente
   ⇒ `SOURCE_UNAVAILABLE` (UNKNOWN ≠ conjunto vazio).
-- **Positivos:** calendário own-code seg–sex SEM feriados (limite documentado) produz o
-  relógio 50/80/100 determinístico; célula ≥ k passa; lista constrói COM honra preventiva;
+- **Positivos:** calendário seg–sex menos feriados nacionais (`maezo.platform.calendario`,
+  E-SF-08) produz o relógio 50/80/100 determinístico; célula ≥ k passa; lista constrói COM honra preventiva;
   KPI computado (nunca constante) e moldável.
 """
 
@@ -39,6 +39,7 @@ from maezo.gateway.vendor_suppression import (
     prepare_egress_export,
     suppression_ref_of,
 )
+from maezo.platform.calendario import FUSO_NEGOCIO, eh_dia_util
 
 _T0 = datetime(2026, 10, 7, 10, 0, tzinfo=UTC)  # quarta-feira
 
@@ -56,15 +57,14 @@ def _line(n: str, tuple_value: tuple[str, ...], *fields: DeclaredField) -> Egres
 
 
 # ----------------------------------------------------------------------------------
-# Calendário own-code seg–sex — SEM feriados (limite documentado) e relógio 50/80/100
+# Calendário seg–sex menos feriados nacionais (E-SF-08) e relógio 50/80/100
 # ----------------------------------------------------------------------------------
 
 
-def test_o_calendario_pula_fim_de_semana_e_nao_conhece_feriado() -> None:
-    """§4c: dias úteis = seg–sex. Sexta + 1 dia útil = segunda; o calendário own-code NÃO
-    observa feriado (limite documentado — feriados exigiriam tabela custodiada RATIFY-LATER
-    e ninguém a inventa aqui)."""
-    friday = datetime(2026, 10, 9, 10, 0, tzinfo=UTC)  # sexta-feira
+def test_o_calendario_pula_fim_de_semana() -> None:
+    """§4c: sexta + 1 dia útil = segunda quando a segunda não é feriado nacional (o feriado é
+    coberto por `test_e_sf_08_supp_calendar.py::test_supp_deadline_skips_national_holiday`)."""
+    friday = datetime(2026, 10, 16, 10, 0, tzinfo=UTC)  # sexta-feira; segunda 19/10 é útil
     assert friday.weekday() == 4
     monday = add_business_days(friday, 1)
     assert monday.weekday() == 0
@@ -86,7 +86,7 @@ def _business_days(start: datetime, end: datetime) -> int:
     cursor = start
     while cursor < end:
         cursor += timedelta(days=1)
-        if cursor.weekday() < 5:
+        if eh_dia_util(cursor.astimezone(FUSO_NEGOCIO).date()):
             days += 1
     return days
 

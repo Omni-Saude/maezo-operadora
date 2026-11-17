@@ -273,7 +273,8 @@ class TestMainEndToEnd:
         # R-076 (#1149): +reembolso_auto_approval.dmn (faixa B dormente) -> 69 DMN.
         # DEC-31 D31-2: +pagto_comite_coordenacao.dmn (assuncao do comite pela coordenacao) -> 70 DMN.
         # ADR-0075 secao b: o pacote K1 (`dmn/rco/`) sai numa contagem propria — hoje so' o exemplo.
-        assert "17 BPMN, 70 DMN, 1 DMN rco" in out  # VW4/GP11; DL-0104: +helena_triage_admissibility
+        # E-SF-08: +funnel_deadline_catalog.dmn (catalogo DRAFT, sem consumidor) -> 71 DMN.
+        assert "17 BPMN, 71 DMN, 1 DMN rco" in out  # VW4/GP11; DL-0104: +helena_triage_admissibility
 
     def test_deploy_mode_engine_rejection_is_nonzero_exit(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

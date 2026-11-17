@@ -51,7 +51,7 @@ Dez classes. Cada uma tem referente real de runtime (`file:line`), verificado po
 | `negativa_notificacao` | Notifica negativa já decidida por humano — `auth.py:1369`, `reembolso.py:813` | O envio da notificação (não a decisão, que é L0 hard e nasce em User Task) | **Sim** |
 | `submissao_regulatoria_ans` | Envio/retransmissão ANS, resposta NIP, recurso — `ans_submit.py:900`/`:911`, `nip.py:552`, `recurso.py:1090` | A submissão oficial ao canal ANS | **Sim** |
 | `pagamento_emissao` | Libera pagamento a prestador/beneficiário — `pagto.py:896`/`:898`, `reembolso.py:808` | A liberação do pagamento | **Sim** |
-| `vinculo_contratual_mudanca` | Suspensão, cancelamento, descredenciamento — `inadimplencia.py:753`, `cancel.py:731`/`:737`, `credenciamento.py:770` | A mudança de vínculo | **Sim** |
+| `vinculo_contratual_mudanca` | Suspensão, cancelamento, descredenciamento — `inadimplencia.py:1441`, `cancel.py:824`/`:830`, `credenciamento.py:911` | A mudança de vínculo | **Sim** |
 | `acusacao_fraude_registro` | Registra acusação / encaminha ao jurídico — `fraude.py:999`/`:1002` | O registro e o encaminhamento | **Sim** |
 | `comunicacao_beneficiario` | Contato proativo, resposta DSR LGPD, pedido de prova — `programa.py:673`, `lgpd.py:765`/`:763`; WhatsApp `mcp_whatsapp/server.py:111` | O contato externo com o titular | **Sim** (exceto o WhatsApp direto) |
 | `inicio_processo_regulatorio` | Inicia instância SP-OP-* — `contas.py:1055`/`:1061`, `adequacao.py:689`, `fraude.py:1005`/`:1011`, `inadimplencia.py:757`, `nip.py:562`; agente `mcp_cibseven/transport.py:1052` (`start_process_idempotent`) | O start do processo | **Sim** (exceto o start por agente) |
