@@ -166,3 +166,28 @@ Status enviado à mescladora.
 ## 2026-11-17 ~08:00Z
 
 #1288: o `portal-e2e` falhou porque a aba nova mostrava "não habilitada" e a R-071 exige o painel real. O reparo `47970eb` liga a tela só no harness local `scripts/dev/run_portal_journey.py` ("flag ON local" do EP-CORE-15a); esse arquivo não está na tabela de posse, a deriva está declarada no PR e o default de produção segue OFF. A jornada local deu 4/4. O `unit (ci)` falhou em `test_release_floor_interruptions::test_real_sigterm_reaps_measurement_group`, uma corrida alheia ao PR (leu `child-pgid` vazio). O novo run de CI está em andamento.
+
+## 2026-11-17 ~09:05Z
+
+- PRONTO maezo-operadora #1288 head 47970eb54cb6860fb45aeea07ecaa19874010ecc checks verdes (integração lida do junit: 5 shards, 1403 testes, 0 falhas). O merge com a main d9e2c568 foi simulado (12955 passed, só falhas ambientais) e o pronto foi direto à mescladora (CD-48). MESCLADO; main 22d76a42.
+- ACHADO (CD-47): `test_release_floor_interruptions::test_real_sigterm_reaps_measurement_group` é corrida alheia (leu `child-pgid` vazio). Teve uma reexecução, verde.
+
+## RELATÓRIO FINAL — W-MZO-GATE (onda 1)
+
+Os 7 épicos estão mesclados; revisão independente com PASS final em todos; sem push depois de cada PRONTO.
+- E-SF-02 #1268: igualdade de conjunto de signatários A1–A5; TB-07-b pela rota. Revisor: FAIL, depois PASS. Não verificado: nada além do ambiental.
+- E-SF-03 #1270: A1 fecha os comandos derivados do catálogo e `plan_choices`; ADR 0078 (Proposto), sync pull-first sem callback. Revisor: FAIL, depois PASS. Deriva: contagens em AGENTS, README e PLANS (CD-23).
+- E-SF-04 #1273: cercas zero-saúde e vocabulário fechado em `adapters/amh/commercial_fences.py`. Portões: lista de finalidades e vocabulário de labels vazios; classe desconhecida tratada como PHI. GAP-04-1 a 04-4. Deriva: o reason_code não está no fio C6-4.
+- E-SF-06 #1278: custódia SupportGatedCodec; marcador de SLA; allowlist a7 fixada; pedido CR-F5 registrado. GAP-06-1 a 06-6. Não feito: TB-E-16-b. A CD-30 liberou os caminhos para a GATE, mas o filho não entrou na onda.
+- E-SF-10 #1285: recusa `lifecycle_unqualified` no intake até a matriz de retenção ser ratificada, portão fechado (CD-37). GAP-10-1 a 10-3. Não feito: o ACHADO do texto "dias úteis sem feriados" no BPMN SP-OP-SUPP-001:27,97 (CD-23) segue aberto.
+- E-SF-36 #1287: checklist de divulgação, módulo não ligado ao gateway (CD-39). GAP-36-1 a 36-4; incisos elididos com verbatim nulo.
+- E-SF-20 #1288: hold do coletivo self-service no catálogo público; tela staff dormente. Flag `collective_legitimacy_screen` OFF, ligada só no harness local (CD-47). Q-03 (A) segue PROVISÓRIO: um catálogo misto é recusado inteiro. GAP-ESF20-TERMS. Deriva: a guarda fica no catálogo e não em `offer.terms`.
+- Portões fechados por construção, em todos os épicos: nenhuma mensagem proativa, nenhum evento de medição, nenhuma regra DMN ratificada, nenhum valor de comissão.
+- Demandas de sucessor C6-4 já entregues à W-AMH (CD-33): reason_code PHI, protocolo de contato, reason_ref, retention_class, e catálogo só-PF ou campo de retenção (Q-03 C).
+- Pushes de CI depois do PR: #1273 com 2 (pureza do adaptador; noqa inerte); #1288 com 1 (harness do portal-e2e).
+- Pendente do dono ou da mescladora: descrições já publicadas que citam documentos do pacote (anteriores à CD-48).
+- Linhas de ledger pedidas: nenhuma (CD-08).
+- DL sugeridas (texto, sem número, CD-49):
+  - DL-a: "Onda 1 do funil: o catálogo público que oferece plano coletivo `usable` é recusado inteiro (fail-closed), porque a custódia por digest do C6-4 impede filtrar. O caminho PF segue. Reabrir quando houver sucessor C6-4 com catálogo só-PF ou campo de retenção."
+  - DL-b: "Intake comercial (`prospect.save`, `contact.request`, `journey.save`) recusa `lifecycle_unqualified` até a matriz de retenção ser ratificada pelo DPO (TB-25 i)."
+DONE 47970eb54cb6860fb45aeea07ecaa19874010ecc linhas=17
