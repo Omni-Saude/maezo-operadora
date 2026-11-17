@@ -195,6 +195,7 @@ def test_comparacao_ignora_so_os_carimbos_de_instante() -> None:
         {"would_block": True},
         {"opportunity_ref": "opportunity-2"},
         {"legal_entity_ref": "pj-outra"},
+        {"contract_kind": "adesao"},
         {"contracting_form": "administradora"},
         {"reconfirmation_due_at": None},
         {"art39_signaled": True, "art39_anchor": "RN 557/2022, art. 39"},
@@ -209,6 +210,22 @@ def test_comparacao_ignora_so_os_carimbos_de_instante() -> None:
 )
 def test_comparacao_conta_todo_campo_de_conteudo_e_o_autor(change: dict[str, object]) -> None:
     assert not same_screen_revision_content(_record(), _record(**change))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"art39_anchor": "RN 557/2022, art. 39"},  # âncora sozinha, sem o sinal
+        {"art39_signaled": True},  # sinal sozinho, sem a âncora
+    ],
+)
+def test_comparacao_conta_cada_campo_do_par_art39_isolado(change: dict[str, object]) -> None:
+    """Cada metade do par exclusivo conta POR SI: o modelo recusa a metade solta na
+    construção, então o isolamento é feito com `model_copy` (sem revalidação) — a prova é
+    que a comparação não depende do outro campo do par para enxergar a diferença."""
+    base = _record()
+    assert not same_screen_revision_content(base, base.model_copy(update=change))
+    assert not same_screen_revision_content(base.model_copy(update=change), base)
 
 
 # ----------------------------------------------------------------------------------
