@@ -63,3 +63,5 @@ PRONTO maezo-operadora #1274 head 3ebad170ee6a0edc8d64b89eb5f628dda4a45e5c check
 E-SF-18: PR #1276 aberto 2026-11-17 ~00:08Z (revisão independente PASS), CI em curso.
 
 pronto: maezo-operadora #1276, head 099d399da433f16931188ce6fdb81f38e3b5756e, checks verdes (integração lida do junit: cancel-contas 136/0 falhas, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0; flip-path-review-gate verde). Enviado à mescladora (CD-42).
+
+- 2026-11-17 01:12Z: #1274 (E-SF-13) mesclado. Próximo: #1276 (Update branch pela mescladora), depois PR de E-SF-17.
