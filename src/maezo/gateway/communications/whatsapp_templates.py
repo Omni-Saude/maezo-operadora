@@ -267,7 +267,8 @@ CLASSES_RESOLVIDAS_PELA_FONTE: Final[frozenset[str]] = frozenset({"primeiro_nome
 #: Classes FECHADAS de variavel e o validador de VALOR de cada uma. NAO existe classe de texto livre: classe
 #: declarada sem entrada aqui (nem em `CLASSES_RESOLVIDAS_PELA_FONTE`) recusa o registro
 #: (`VARIABLE_CLASS_NOT_CLOSED`). Os validadores abaixo checam so' FORMATO: as classes de data, valor,
-#: contagem, protocolo e link aceitam so' digitos, separadores e hex, que nao codificam palavra; a resolucao
+#: contagem, protocolo e link aceitam so' digitos, separadores, hex ou nome de mes fixo, que nao
+#: codificam palavra livre; a resolucao
 #: pela fonte delas e' linha propria, ainda nao feita. As seis primeiras sao as do
 #: YAML publicado (formatos EXATOS do produtor de lembretes, `platform/lembretes/texto.py`; paridade fixada em
 #: `tests/unit/gateway/test_cd87_classes_fechadas.py`); as quatro ultimas sao da decisao CD-87.

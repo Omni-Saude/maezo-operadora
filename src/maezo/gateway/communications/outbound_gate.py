@@ -24,7 +24,8 @@ ORDEM das verificacoes (a primeira que falha decide; o motivo e' um token, nunca
      `VARIABLE_VALUE_INVALID`      (ainda no passo 4, depois do detector) o VALOR de uma variavel nao passa
                                    no validador da SUA classe fechada (`VALIDADORES_DE_CLASSE`; classe sem
                                    validador nunca valida). Esta e' a garantia; o detector e' a defesa extra.
-     `VARIABLE_VALUE_FROM_CALLER`  variavel de classe resolvida pela fonte (`CLASSES_RESOLVIDAS_PELA_FONTE`,
+     `VARIABLE_VALUE_FROM_CALLER`  (antes do validador de valor) variavel de classe resolvida pela fonte
+                                   (`CLASSES_RESOLVIDAS_PELA_FONTE`,
                                    p.ex. `primeiro_nome`) com qualquer valor que nao seja o marcador
                                    `VALOR_PELA_FONTE`: valor do chamador nunca vale.
      `VARIABLE_SOURCE_UNAVAILABLE` com o marcador, o gate teria de resolver o valor pela custodia do
