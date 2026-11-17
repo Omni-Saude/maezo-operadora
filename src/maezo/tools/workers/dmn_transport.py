@@ -317,14 +317,14 @@ class DmnVersion:
         return self.audit_pair(row)[0]
 
     def audit_pair(
-        self, row: Mapping[str, Any] | None = None
+        self, row: Mapping[str, Any] | None = None, *, sombra: bool = False
     ) -> tuple[dict[str, Any], AvaliacaoRegra | None]:
         """`to_audit_dict(row)` e a avaliacao da regra K1 casada (ADR-0077 §4, 5c-2), calculadas juntas.
 
         A avaliacao e `None` para tabela Maezo e para linha sem regra K1 identificada com `ativacao`.
         """
         entry: dict[str, Any] = {"version": self.version, "id": self.id, "deploymentId": self.deployment_id}
-        campos, avaliacao = rco_avaliacao(self.key, row)
+        campos, avaliacao = rco_avaliacao(self.key, row, sombra=sombra)
         entry.update(campos)
         return entry, avaliacao
 
@@ -638,6 +638,8 @@ def evaluate_sync(
     *,
     tenant: str | None = None,
     entradas_rco: Mapping[str, Any] | None = None,
+    sombra: bool = False,
+    prazo_s: float | None = None,
 ) -> tuple[list[dict[str, Any]], DmnVersion]:
     """Bridge `dmn.evaluate(...)` into the SYNC worker entry-function boundary.
 
@@ -655,22 +657,29 @@ def evaluate_sync(
     ~11 migrated tables.
 
     `entradas_rco` (MZO-3): audit of the K1 input builder for an `rco_` table, merged into its
-    `dmn_versions` entry (`_audit_ctx.record_dmn_version`); never an engine variable.
+    `dmn_versions` entry (`_audit_ctx.record_dmn_version`); never an engine variable. `sombra` (MZO-3):
+    the evaluation is the montador's SHADOW — the K1 effect indicator is not read, `modo` is always
+    `sombra` and the K1 rule evaluation never consumes a sampling ordinal (`AvaliacaoRegra.sombra`).
+    `prazo_s`: deadline for the engine call (`asyncio.wait_for`); on expiry `TimeoutError` is raised
+    and nothing is recorded.
     """
     # MZO-5a (ADR-0075 §(f)): an `rco_` table the pin does not attest is refused BEFORE it is
     # evaluated — its audit entry could not carry a genuine `shaDmn`. No-op for Maezo tables.
     rco_pinned_table(decision_key)
     try:
-        rows, version = asyncio.run(dmn.evaluate(decision_key, variables, tenant=tenant))
+        chamada = dmn.evaluate(decision_key, variables, tenant=tenant)
+        rows, version = asyncio.run(chamada if prazo_s is None else asyncio.wait_for(chamada, prazo_s))
     except DmnDeterministicEvaluationError as exc:
         # MZO-1c: the version WAS resolved before the evaluation failed, and it is exactly what the
         # refusal audit row must attest (which table version could not be evaluated). No row
         # matched authoritatively, so an rco entry carries `shaDmn` but no `idRegra`.
         if exc.version is not None:
-            record_dmn_version(exc.version, entradas_rco=entradas_rco)
+            record_dmn_version(exc.version, entradas_rco=entradas_rco, sombra=sombra)
         raise
     # `idRegra` is read only from a single authoritative row (UNIQUE/FIRST); otherwise it is absent.
-    record_dmn_version(version, row=rows[0] if len(rows) == 1 else None, entradas_rco=entradas_rco)
+    record_dmn_version(
+        version, row=rows[0] if len(rows) == 1 else None, entradas_rco=entradas_rco, sombra=sombra
+    )
     return rows, version
 
 

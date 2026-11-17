@@ -1905,6 +1905,12 @@ DECISAO_RCO_PRAZOS_CONTA = rco_montador.DECISAO_PRAZOS_CONTA
 #: `tipo_lote` (contrato SP-OP-CONTAS-001) -> o regime que a formula de `diasAteApresentacao` nomeia: a
 #: guia de resumo de internacao (`dataFinalFaturamento`, a alta) e a guia SP/SADT (`dataExecucao`). Os
 #: demais tipos (`consulta`, `honorario`, `opme`, `misto`) nao sao nenhuma das duas guias: regime nulo.
+#: Mapeamento conservador confirmado pela coordenacao ROOT (17/11/2026); o rco vai publicar o de-para
+#: tipo de guia -> regime. LACUNA A FECHAR ANTES DE LIGAR QUALQUER PRODUTOR DE DATA (DL-0172):
+#: - guia SP/SADT com `regimeAtendimento` 02, 03, 04 ou 05 (TISS) nao e atendimento ambulatorial;
+#: - guia de internacao com `tipoFaturamento` parcial ou complementar: `dataFinalFaturamento` nao e a alta.
+#: Hoje nenhum termo de data tem produtor (`TERMOS_SEM_PRODUTOR_CONTAS`), entao o regime nao chega a
+#: escolher data nenhuma; quem ligar o produtor resolve essas duas ambiguidades primeiro.
 _REGIME_POR_TIPO_LOTE: Mapping[str, str] = MappingProxyType(
     {"internacao": rco_montador.REGIME_INTERNACAO, "sadt": rco_montador.REGIME_AMBULATORIAL}
 )

@@ -399,7 +399,7 @@ def rco_pinned_table(decision_key: str) -> RcoPinnedTable | None:
 
 
 def rco_avaliacao(
-    decision_key: str, row: Mapping[str, Any] | None = None
+    decision_key: str, row: Mapping[str, Any] | None = None, *, sombra: bool = False
 ) -> tuple[dict[str, str], AvaliacaoRegra | None]:
     """Campos extras da entrada de `dmn_versions` e, quando ha regra K1 casada num manifesto MAJOR 2, a
     avaliacao que alimenta o registro de decisoes (ADR-0077 §4, 5c-2).
@@ -407,6 +407,9 @@ def rco_avaliacao(
     `{}`/`None` para Maezo. Para rco: `shaDmn` (+ `idRegra`, `versaoRegra`, `ativacaoPacote`,
     `exigeAditivo`); e, so com `ativacaoPacote` (mesma regra de presenca), `estadoManual`,
     `ativacaoEfetiva` e `modo`, calculados UMA vez aqui para que a auditoria e o registro digam o mesmo.
+
+    `sombra=True` (MZO-3, avaliacao da sombra do montador): o indicador `efeito_k1_habilitado` NAO e lido
+    (vale desligado), entao `modo` e sempre `sombra`, e a avaliacao sai marcada para nao consumir ordinal.
     """
     pinned = rco_pinned_table(decision_key)
     if pinned is None:
@@ -434,7 +437,8 @@ def rco_avaliacao(
             parametros=parametros,
             row=row,
             estados=estados_em_cache(),
-            habilitado=efeito_k1_habilitado(),
+            habilitado=False if sombra else efeito_k1_habilitado(),
+            sombra=sombra,
         )
     if avaliacao is not None:
         fields.update(avaliacao.campos_de_auditoria())

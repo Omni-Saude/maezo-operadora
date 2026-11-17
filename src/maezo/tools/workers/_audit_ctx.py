@@ -61,6 +61,7 @@ def record_dmn_version(
     *,
     row: Mapping[str, Any] | None = None,
     entradas_rco: Mapping[str, Any] | None = None,
+    sombra: bool = False,
 ) -> None:
     """Record one consulted DMN version into the current task's collector, if one is set.
 
@@ -77,11 +78,13 @@ def record_dmn_version(
     (`rco_sombra.auditoria_das_entradas`: `derivacoes` with `diasBrutos`/`toleranciaAplicada`/
     `valorEntregue`/`motivoTolerancia`, and `entradasNulas` with the null reason per input — integers
     and codes only, never case data). Merged into the entry of an `rco_` table only; ignored for a
-    Maezo table, so a Maezo entry keeps exactly `{version, id, deploymentId}`.
+    Maezo table, so a Maezo entry keeps exactly `{version, id, deploymentId}`. `sombra` (MZO-3): the
+    evaluation is the montador's shadow (`DmnVersion.audit_pair(sombra=True)`): `modo=sombra` always and
+    no sampling ordinal in the K1 decision record.
     """
     collector = _DMN_AUDIT_COLLECTOR.get()
     if collector is not None:
-        entry, avaliacao = version.audit_pair(row)
+        entry, avaliacao = version.audit_pair(row, sombra=sombra)
         if entradas_rco and "shaDmn" in entry:
             entry.update(entradas_rco)
         collector[version.key] = entry

@@ -192,10 +192,14 @@ interruptivo imediatamente — correto (prazo de fato estourado; coordenacao hum
 Avaliada por `operadora.contas.identify_glosa` DEPOIS de montada a saida do intake, por
 `src/maezo/tools/workers/rco_sombra.py` (`avaliar_em_sombra`), com as entradas do montador
 (`src/maezo/tools/workers/rco_montador.py`; fatos em `contas.fatos_prazo_conta_rco`). **Nao produz efeito:**
-nenhuma variavel de processo nasce ou muda, as linhas da tabela sao descartadas, toda falha vira log e o
-indicador `efeito_k1_habilitado` nao e lido nem mudado. Rastro so na auditoria: a entrada `rco_` de
-`dmn_versions` leva `derivacoes` (`diasBrutos`, `toleranciaAplicada`, `valorEntregue`, `motivoTolerancia`),
-`entradasNulas` e `versaoDicionarioEntradas`. Inerte enquanto o pin do rco estiver `sem_pacote`. Hoje os
+nenhuma variavel de processo nasce ou muda e as linhas da tabela sao descartadas. A avaliacao e sempre
+`modo=sombra`: o indicador `efeito_k1_habilitado` nao e lido no caminho da sombra, e a avaliacao da regra
+nao consome ordinal nem amostragem da revisao inicial (DL-0172). Falha esperada (pin, dicionario, montador,
+motor, prazo de 5 s) vira codigo de desfecho; qualquer outra excecao vira log ERROR (so o tipo) e a metrica
+`maezo_rco_sombra_total{desfecho="erro_de_programacao"}`, sem mudar o desfecho do worker. Rastro so na
+auditoria: a entrada `rco_` de `dmn_versions` leva `derivacoes` (`diasBrutos`, `toleranciaAplicada`,
+`valorEntregue`, `motivoTolerancia`), `entradasNulas`, `versaoDicionarioEntradas` e
+`origemAvaliacao=sombra_montador`; nunca chave de negocio, guia, lote, beneficiario ou prestador. Inerte enquanto o pin do rco estiver `sem_pacote`. Hoje os
 termos de `diasAteApresentacao` nao tem produtor neste processo (o contrato nao traz as datas da guia nem o
 prazo do contrato do prestador, e `data_recebimento_lote` pode ser o padrao de HOJE do intake): entram
 nulos, e nulo nunca nega nem glosa. Nenhuma variavel de entrada ou saida deste contrato mudou.

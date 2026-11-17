@@ -17,6 +17,7 @@ O pin e montado no teste (`RcoRulesPin` com a decisao do recorte real do K1) e o
 
 from __future__ import annotations
 
+import asyncio
 import functools
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -26,12 +27,21 @@ from typing import Any, cast
 import pytest
 import structlog
 
+from maezo.adapters.amh.contract import AmhContractPinError
 from maezo.platform import rco_ativacao as at
+from maezo.platform.rco_manifesto import ManifestoK1InvalidoError
 from maezo.tools.workers import contas, rco_pin, rco_sombra
 from maezo.tools.workers import rco_montador as mt
 from maezo.tools.workers._audit_ctx import collect_dmn_versions, collect_rco_avaliacoes
 from maezo.tools.workers.base import FunctionWorker
-from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from maezo.tools.workers.dmn_transport import (
+    DmnDeterministicEvaluationError,
+    DmnEvaluationError,
+    DmnNoResultError,
+    DmnVariableDecodeError,
+    DmnVersion,
+    FakeDmnTransport,
+)
 from maezo.tools.workers.harness import ExternalTask, FakeAuditSink, FakeWorkerTransport, WorkerHarness
 from tests.unit.tools.workers import rco_recorte
 
@@ -170,34 +180,152 @@ def test_dominio_sem_mapeamento(pin_com_prazos: rco_pin.RcoRulesPin, monkeypatch
     assert dmn.calls == []
 
 
-@pytest.mark.parametrize("onde", ["motor", "fatos", "pin"])
-def test_falha_nunca_sai_da_sombra(
-    pin_com_prazos: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch, onde: str
+class _MotorQueLevanta:
+    """Transporte DMN que levanta `exc` (ou dorme `dorme` segundos) ao avaliar."""
+
+    def __init__(self, exc: BaseException | None = None, dorme: float = 0.0) -> None:
+        self._exc = exc
+        self._dorme = dorme
+        self.calls = 0
+
+    async def evaluate(
+        self, decision_key: str, variables: dict[str, Any], *, tenant: str | None = None
+    ) -> tuple[list[dict[str, Any]], DmnVersion]:
+        self.calls += 1
+        if self._dorme:
+            await asyncio.sleep(self._dorme)
+        if self._exc is not None:
+            raise self._exc
+        return [dict(ROW_SEM_REGRA)], DmnVersion(key=decision_key, id="x", version=1, deployment_id="d")
+
+    async def close(self) -> None:
+        return None
+
+
+def _levanta(exc: BaseException) -> Any:
+    def _f(*_a: Any, **_k: Any) -> Any:
+        raise exc
+
+    return _f
+
+
+@pytest.fixture
+def metrica(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    contados: list[str] = []
+    monkeypatch.setattr(rco_sombra, "record_rco_sombra", contados.append)
+    return contados
+
+
+def _logs_da_sombra(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [e for e in logs if str(e["event"]).startswith("rco_sombra")]
+
+
+@pytest.mark.parametrize(
+    ("onde", "exc", "desfecho"),
+    [
+        ("pin", rco_pin.RcoRulesPinError("pin ilegivel"), rco_sombra.PIN_INDISPONIVEL),
+        ("dicionario", ManifestoK1InvalidoError(["entradas.json invalido"]), rco_sombra.DICIONARIO_RECUSADO),
+        ("amh", AmhContractPinError(["pin AMH ilegivel"]), rco_sombra.PIN_AMH_INDISPONIVEL),
+        ("montador", mt.MontadorEntradasError("divergente"), rco_sombra.MONTADOR_RECUSOU),
+        ("montador", mt.DominioNaoSuportadoError("outro"), rco_sombra.DOMINIO_NAO_SUPORTADO),
+        ("motor", DmnEvaluationError("motor fora"), rco_sombra.AVALIACAO_FALHOU),
+        ("motor", DmnNoResultError(CHAVE), rco_sombra.AVALIACAO_FALHOU),
+        ("motor", DmnDeterministicEvaluationError(CHAVE), rco_sombra.AVALIACAO_FALHOU),
+        ("motor", DmnVariableDecodeError(CHAVE, "decisao", ValueError("x")), rco_sombra.AVALIACAO_FALHOU),
+        ("motor", rco_pin.RcoRulesPinError("idRegra fora do padrao"), rco_sombra.AVALIACAO_FALHOU),
+    ],
+)
+def test_falha_esperada_vira_desfecho(
+    pin_com_prazos: rco_pin.RcoRulesPin,
+    monkeypatch: pytest.MonkeyPatch,
+    metrica: list[str],
+    onde: str,
+    exc: Exception,
+    desfecho: str,
 ) -> None:
     dmn: Any = _dmn()
-    montar = _fatos_com_datas(45)
-    if onde == "motor":
-        dmn = FakeDmnTransport()  # tabela nao registrada: o fake levanta
-    elif onde == "fatos":
-
-        def montar(_v: tuple[int, int]) -> mt.FatosDoCaso:
-            raise RuntimeError("dado de caso que nao pode ir ao log")
-
+    if onde == "pin":
+        monkeypatch.setattr(rco_pin, "rco_rules_pin", _levanta(exc))
+    elif onde == "dicionario":
+        monkeypatch.setattr(rco_sombra, "_dicionario", _levanta(exc))
+    elif onde == "amh":
+        monkeypatch.setattr(rco_sombra, "_versao_k3_pinada", _levanta(exc))
+    elif onde == "montador":
+        monkeypatch.setattr(mt, "montar_entradas", _levanta(exc))
     else:
-
-        def quebrado() -> rco_pin.RcoRulesPin:
-            raise rco_pin.RcoRulesPinError("pin ilegivel")
-
-        monkeypatch.setattr(rco_pin, "rco_rules_pin", quebrado)
+        dmn = _MotorQueLevanta(exc)
     with structlog.testing.capture_logs() as logs:
-        assert rco_sombra.avaliar_em_sombra(dmn, CHAVE, montar) is None
-    [log] = logs
-    assert "dado de caso" not in str(log)
+        assert rco_sombra.avaliar_em_sombra(dmn, CHAVE, _fatos_com_datas(45), topico=TOPICO) is None
+    [log] = _logs_da_sombra(logs)
+    assert (log["event"], log["log_level"], log["desfecho"]) == ("rco_sombra", "info", desfecho)
+    assert metrica == [desfecho]
+
+
+def test_prazo_total_esgotado_vira_desfecho(
+    pin_com_prazos: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch, metrica: list[str]
+) -> None:
+    monkeypatch.setattr(rco_sombra, "PRAZO_SOMBRA_S", 0.05)
+    lento = _MotorQueLevanta(dorme=5.0)
+    with collect_dmn_versions() as versoes, structlog.testing.capture_logs() as logs:
+        rco_sombra.avaliar_em_sombra(lento, CHAVE, _fatos_com_datas(45))
+    assert lento.calls == 1
+    assert metrica == [rco_sombra.PRAZO_ESGOTADO]
+    assert _logs_da_sombra(logs)[0]["desfecho"] == rco_sombra.PRAZO_ESGOTADO
+    assert versoes == {}  # nada auditado de uma avaliacao que nao terminou
+
+
+def test_prazo_padrao_e_5_segundos() -> None:
+    assert rco_sombra.PRAZO_SOMBRA_S == 5.0
+
+
+@pytest.mark.parametrize(
+    ("onde", "exc"),
+    [
+        ("fatos", TypeError("dado de caso que nao pode ir ao log")),
+        ("fatos", KeyError("guia-123")),
+        ("motor", RuntimeError("dado de caso que nao pode ir ao log")),  # RuntimeError cru nao e do motor
+        ("motor", AttributeError("x")),
+        ("montador", ValueError("bug")),  # ValueError que nao e `MontadorEntradasError`
+    ],
+)
+def test_erro_de_programacao_conta_e_loga_so_o_tipo(
+    pin_com_prazos: rco_pin.RcoRulesPin,
+    monkeypatch: pytest.MonkeyPatch,
+    metrica: list[str],
+    onde: str,
+    exc: Exception,
+) -> None:
+    """Nao e engolido em silencio (metrica + ERROR), mas tambem nao sobe: subir faria o worker falhar."""
+    dmn: Any = _dmn()
+    montar: Any = _fatos_com_datas(45)
     if onde == "fatos":
-        assert (log["event"], log["erro"]) == ("rco_sombra_falhou", "RuntimeError")
+        montar = _levanta(exc)
+    elif onde == "motor":
+        dmn = _MotorQueLevanta(exc)
     else:
-        esperado = rco_sombra.AVALIACAO_FALHOU if onde == "motor" else rco_sombra.PIN_INDISPONIVEL
-        assert (log["event"], log["desfecho"]) == ("rco_sombra", esperado)
+        monkeypatch.setattr(mt, "montar_entradas", _levanta(exc))
+    with structlog.testing.capture_logs() as logs:
+        assert rco_sombra.avaliar_em_sombra(dmn, CHAVE, montar, topico=TOPICO) is None
+    [log] = _logs_da_sombra(logs)
+    assert log == {
+        "event": "rco_sombra_erro_de_programacao",
+        "log_level": "error",
+        "decision_key": CHAVE,
+        "erro": type(exc).__name__,
+        "topico": TOPICO,
+    }
+    assert metrica == [rco_sombra.ERRO_DE_PROGRAMACAO]
+
+
+def test_avaliar_deixa_o_erro_de_programacao_subir(pin_com_prazos: rco_pin.RcoRulesPin) -> None:
+    with pytest.raises(TypeError):
+        rco_sombra.avaliar(_dmn(), CHAVE, _levanta(TypeError("bug")))
+
+
+def test_vocabulario_da_metrica_e_o_dos_desfechos() -> None:
+    from maezo.platform.observability import RCO_SOMBRA_DESFECHOS
+
+    assert rco_sombra.DESFECHOS == RCO_SOMBRA_DESFECHOS
 
 
 # --- o intake de SP-OP-CONTAS-001: ligado, sem efeito --------------------------------------------------
