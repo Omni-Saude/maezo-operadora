@@ -18,7 +18,8 @@ FAIL-CLOSED (contrato §4 e §5):
 - digest em toda parte no formato `sha256:<64 hex minusculos>`; hex cru e recusado (§1 — o hex cru
   dispara o detector de segredos; mesma notacao do K2, HEL-3a);
 - `formato_manifesto` com MAJOR 1 ou 2 e MINOR ate o que este leitor conhece (2.1: `provas[]`, obrigatorio
-  a partir de 2.1.0 e campo desconhecido, logo recusado, antes); outro e recusado.
+  a partir de 2.1.0 e campo desconhecido, logo recusado, antes; 2.2: `composicoes[]`, opcional a partir de
+  2.2.0 — ausente vale lista vazia — e campo desconhecido, logo recusado, antes); outro e recusado.
   MAJOR 2 (contrato-k1.md 2.0.0, PROG-RCO-8, estavel na branch `prog/rco/ativacao-k1` do rco no
   commit 75015304, ainda NAO em `main` do rco): cada regra tem exatamente `idRegra`,
   `versaoRegra`, `situacao`, `validacao_status`, `classe_adverso`, `ativacao`, `exige_aditivo` e
@@ -37,6 +38,11 @@ FAIL-CLOSED (contrato §4 e §5):
 - o conjunto de `idRegra` literais nao vazios que a tabela emite e exatamente o de `regras[]` (§3: uma
   entrada por `idRegra` emitido); linha adversa (`combinacao.adversas` de `vocabulario.json`) tem
   preenchidos os campos de `combinacao.adversa_exige_preenchidos` (§6), `idRegra` incluido;
+- `composicoes[]` (2.2.0, DL-0174): cada grupo com exatamente `nome`, `decisoes`, `regra` e `padrao`;
+  `nome` unico; ao menos 2 decisoes, sem repeticao, todas em `decisoes[]` e com a saida `idRegra`;
+  nenhuma decisao em dois grupos; `padrao` e a ultima de `decisoes`; `regra` no vocabulario fechado
+  `REGRAS_COMPOSICAO`. Como e o leitor que recusa, gate e runtime recusam o pin pela MESMA checagem. A
+  semantica da composicao (avaliar o grupo inteiro e escolher) e de `maezo.platform.rco_composicao`;
 - `provas_ausentes_no_pin`: pacote abaixo de 2.1.0 (sem `provas[]`) ou com `provas[]` vazia e recusado NO
   PIN (o leitor ainda o le para diagnostico; decisao da ROOT, 16/11/2026);
 - `ativacao_nao_suportada`: pacote MAJOR 2 com regra fora de `ativacao: plena` sem aditivo e
@@ -75,11 +81,22 @@ PREFIXO_DECISAO: Final[str] = "rco_"
 #: MAJOR 2 (contrato-k1.md 2.0.0, PROG-RCO-8): por regra, sai `ratificavel_automatico` e entram
 #: `ativacao` (conjunto fechado) e `exige_aditivo` (booleano); `vocabulario.json` ganha o bloco
 #: `ativacao` (`valores` + `parametros`). Campo a mais ou a menos continua recusado.
-FORMATOS_SUPORTADOS: Final[Mapping[int, int]] = MappingProxyType({1: 0, 2: 1})
+#: 2.2.0 (DL-0174, decisao da ROOT de 17/11/2026): campo de topo aditivo `composicoes[]`.
+FORMATOS_SUPORTADOS: Final[Mapping[int, int]] = MappingProxyType({1: 0, 2: 2})
 #: Primeiro `(MAJOR, MINOR)` com o campo obrigatorio `provas[]` (contrato-k1.md §3, PROG-RCO-8, 2.1.0).
 #: Abaixo disso o campo e desconhecido e recusado (leitor estrito).
 FORMATO_COM_PROVAS: Final[tuple[int, int]] = (2, 1)
 PROVAS_DIR: Final[str] = "provas"
+#: Primeiro `(MAJOR, MINOR)` com o campo opcional `composicoes[]` (DL-0174). Abaixo disso o campo e
+#: desconhecido e recusado (leitor estrito); a partir dele, ausente vale lista vazia.
+FORMATO_COM_COMPOSICOES: Final[tuple[int, int]] = (2, 2)
+CAMPO_TOPO_COMPOSICOES: Final[str] = "composicoes"
+CAMPOS_COMPOSICAO: Final[frozenset[str]] = frozenset({"nome", "decisoes", "regra", "padrao"})
+#: Regra de composicao `primeira_com_idRegra` (contrato-k1.md §11 item 14): vale a primeira decisao, na
+#: ordem, cujo resultado traz `idRegra` preenchido; se nenhuma antes do padrao trouxer, vale o padrao.
+REGRA_PRIMEIRA_COM_ID_REGRA: Final[str] = "primeira_com_idRegra"
+#: Vocabulario FECHADO de `composicoes[].regra`. Valor fora dele recusa o pin.
+REGRAS_COMPOSICAO: Final[frozenset[str]] = frozenset({REGRA_PRIMEIRA_COM_ID_REGRA})
 #: Valores de `regras[].ativacao` (MAJOR 2, contrato §7). Valor fora do conjunto reprova (fail-closed).
 ATIVACOES: Final[frozenset[str]] = frozenset({"plena", "conferida", "em_correcao"})
 #: Chaves EXATAS de `vocabulario.json` `ativacao.parametros` (MAJOR 2). Os numeros vem do pacote,
@@ -247,6 +264,21 @@ class ProvaK1:
 
 
 @dataclass(frozen=True, slots=True)
+class ComposicaoK1:
+    """Um grupo de `composicoes[]` (formato 2.2.0, DL-0174): decisoes avaliadas juntas, em ORDEM."""
+
+    nome: str
+    decisoes: tuple[str, ...]  # ids `rco_` de `decisoes[]`, na ordem de avaliacao; a ultima e o padrao
+    regra: str  # em `REGRAS_COMPOSICAO`
+    padrao: str  # == decisoes[-1]
+
+    @property
+    def anteriores(self) -> tuple[str, ...]:
+        """As decisoes antes do padrao, na ordem de avaliacao."""
+        return self.decisoes[:-1]
+
+
+@dataclass(frozen=True, slots=True)
 class ManifestoK1:
     """O manifesto K1 ja validado na forma."""
 
@@ -262,10 +294,16 @@ class ManifestoK1:
     dicionario_entradas_sha256: str = ""
     #: `provas[]` (so `formato_manifesto` >= 2.1.0; vazio antes). Nunca entram no lock.
     provas: tuple[ProvaK1, ...] = ()
+    #: `composicoes[]` (so `formato_manifesto` >= 2.2.0; vazio antes ou quando ausente).
+    composicoes: tuple[ComposicaoK1, ...] = ()
 
     @property
     def major(self) -> int:
         return int(self.formato_manifesto.split(".", 1)[0])
+
+    def composicao_de(self, decisao_id: str) -> ComposicaoK1 | None:
+        """O grupo de `composicoes[]` que contem `decisao_id` (no maximo um: o leitor recusa dois)."""
+        return next((c for c in self.composicoes if decisao_id in c.decisoes), None)
 
     def decisao_por_caminho(self) -> dict[str, DecisaoK1]:
         return {d.caminho_consumidor: d for d in self.decisoes.values()}
@@ -592,8 +630,10 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
     ):
         raise ManifestoK1InvalidoError(problemas)
     com_provas = _formato_tem_provas(dados)
+    com_composicoes = _formato_ao_menos(dados, FORMATO_COM_COMPOSICOES)
     campos_topo = CAMPOS_TOPO | {CAMPO_TOPO_PROVAS} if com_provas else CAMPOS_TOPO
-    topo = _objeto(dados, campos_topo, "manifesto", problemas)
+    opcionais_topo = frozenset({CAMPO_TOPO_COMPOSICOES}) if com_composicoes else frozenset()
+    topo = _objeto(dados, campos_topo, "manifesto", problemas, opcionais=opcionais_topo)
     if topo is None:
         raise ManifestoK1InvalidoError(problemas)
 
@@ -638,6 +678,11 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
                     exemplos.append(caminho)
 
     provas = _ler_provas(topo[CAMPO_TOPO_PROVAS], problemas) if com_provas else ()
+    composicoes = (
+        _ler_composicoes(topo[CAMPO_TOPO_COMPOSICOES], decisoes, problemas)
+        if com_composicoes and CAMPO_TOPO_COMPOSICOES in topo
+        else ()
+    )
 
     if problemas or versao_pacote is None or origem is None:
         raise ManifestoK1InvalidoError(problemas or ["manifesto invalido"])
@@ -652,13 +697,12 @@ def ler_manifesto(raw: bytes) -> ManifestoK1:
         dicionario_entradas_versao=str(topo["dicionario_entradas"].get("versao", "")),
         dicionario_entradas_sha256=str(topo["dicionario_entradas"].get("sha256", "")),
         provas=provas,
+        composicoes=composicoes,
     )
 
 
-def _formato_tem_provas(dados: object) -> bool:
-    """`True` se `formato_manifesto` e do MAJOR de `FORMATO_COM_PROVAS` com MINOR >= o dele.
-
-    A forma do topo depende disso (`provas` obrigatorio daqui em diante, desconhecido antes).
+def _formato_ao_menos(dados: object, minimo: tuple[int, int]) -> bool:
+    """`True` se `formato_manifesto` e do MAJOR de `minimo` com MINOR >= o dele.
 
     Formato ilegivel devolve `False`: `_ler_formato` registra a recusa depois.
     """
@@ -668,7 +712,96 @@ def _formato_tem_provas(dados: object) -> bool:
     if not isinstance(formato, str) or _SEMVER.fullmatch(formato) is None:
         return False
     major, minor, _ = (int(p) for p in formato.split("."))
-    return major == FORMATO_COM_PROVAS[0] and minor >= FORMATO_COM_PROVAS[1]
+    return major == minimo[0] and minor >= minimo[1]
+
+
+def _formato_tem_provas(dados: object) -> bool:
+    """`True` a partir de `FORMATO_COM_PROVAS`: a forma do topo depende disso (`provas` obrigatorio daqui
+    em diante, desconhecido antes)."""
+    return _formato_ao_menos(dados, FORMATO_COM_PROVAS)
+
+
+def _ler_composicoes(
+    no: object, decisoes: Mapping[str, DecisaoK1], problemas: list[str]
+) -> tuple[ComposicaoK1, ...]:
+    """`composicoes[]` (2.2.0, DL-0174). Cada recusa leva um codigo estavel `composicao-*` na mensagem.
+
+    Forma estrita por grupo; cruzamento com `decisoes[]` (ja lidas): decisao fora do manifesto, decisao
+    sem a saida `idRegra`, decisao em dois grupos, `padrao` diferente da ultima e `regra` fora do
+    vocabulario fechado recusam o manifesto — e, como gate e runtime usam este leitor, o pin.
+    """
+    if not isinstance(no, list):
+        problemas.append("composicoes: composicao-forma: tem de ser lista (vazia = sem composicao)")
+        return ()
+    grupos: list[ComposicaoK1] = []
+    nomes: set[str] = set()
+    dono: dict[str, str] = {}  # decisao -> nome do primeiro grupo que a contem
+    for i, item in enumerate(no):
+        rotulo = f"composicoes[{i}]"
+        forma: list[str] = []
+        obj = _objeto(item, CAMPOS_COMPOSICAO, rotulo, forma)
+        if obj is None:
+            problemas.extend(f"{p} (composicao-forma)" for p in forma)
+            continue
+        nome = _texto(obj["nome"], f"{rotulo}.nome", forma, _NOME_PLANO)
+        regra = _texto(obj["regra"], f"{rotulo}.regra", forma)
+        padrao = _texto(obj["padrao"], f"{rotulo}.padrao", forma)
+        lista = obj["decisoes"]
+        if not isinstance(lista, list) or not all(isinstance(d, str) and d for d in lista):
+            forma.append(f"{rotulo}.decisoes: tem de ser lista de ids de decisao (texto nao vazio)")
+            lista = None
+        problemas.extend(f"{p} (composicao-forma)" for p in forma)
+        if forma or nome is None or regra is None or padrao is None or lista is None:
+            continue
+        ids = tuple(str(d) for d in lista)
+        ok = True
+        if nome in nomes:
+            problemas.append(f"{rotulo}: composicao-nome-repetido: nome {nome!r} repetido")
+            ok = False
+        nomes.add(nome)
+        if len(ids) < 2:
+            problemas.append(
+                f"{rotulo}: composicao-poucas-decisoes: grupo {nome!r} exige ao menos 2 decisoes"
+            )
+            ok = False
+        repetidas = sorted({d for d in ids if ids.count(d) > 1})
+        if repetidas:
+            problemas.append(
+                f"{rotulo}: composicao-decisao-repetida: {repetidas} repetida(s) no grupo {nome!r}"
+            )
+            ok = False
+        if regra not in REGRAS_COMPOSICAO:
+            problemas.append(
+                f"{rotulo}: composicao-regra-desconhecida: regra {regra!r} "
+                f"fora de {sorted(REGRAS_COMPOSICAO)}"
+            )
+            ok = False
+        if not ids or padrao != ids[-1]:
+            problemas.append(
+                f"{rotulo}: composicao-padrao-nao-e-ultima: padrao {padrao!r} tem de ser a ultima de decisoes"
+            )
+            ok = False
+        for d in dict.fromkeys(ids):
+            decisao = decisoes.get(d)
+            if decisao is None:
+                problemas.append(
+                    f"{rotulo}: composicao-decisao-fora-do-manifesto: {d!r} nao esta em decisoes[]"
+                )
+                ok = False
+            elif SAIDA_ID_REGRA not in decisao.saidas:
+                problemas.append(
+                    f"{rotulo}: composicao-decisao-sem-idRegra: {d!r} nao declara a saida {SAIDA_ID_REGRA!r}"
+                )
+                ok = False
+            outro = dono.setdefault(d, nome)
+            if outro != nome:
+                problemas.append(
+                    f"{rotulo}: composicao-decisao-em-dois-grupos: {d!r} ja esta no grupo {outro!r}"
+                )
+                ok = False
+        if ok:
+            grupos.append(ComposicaoK1(nome, ids, regra, padrao))
+    return tuple(grupos)
 
 
 def _caminho_de_prova(no: object, rotulo: str, id_prova: str | None, problemas: list[str]) -> str | None:
@@ -1392,6 +1525,12 @@ __all__ = [
     "AnexoK1",
     "ArquivoProvaK1",
     "CAMPO_TOPO_PROVAS",
+    "CAMPO_TOPO_COMPOSICOES",
+    "CAMPOS_COMPOSICAO",
+    "ComposicaoK1",
+    "FORMATO_COM_COMPOSICOES",
+    "REGRA_PRIMEIRA_COM_ID_REGRA",
+    "REGRAS_COMPOSICAO",
     "FORMATO_COM_PROVAS",
     "PROVAS_DIR",
     "ProvaK1",

@@ -10,7 +10,7 @@ Formato padrao: `formato_manifesto` 2.1.0 com uma prova sintetica (`com_provas`)
 `provas[]` (decisao da ROOT, 16/11/2026). Regras com `ativacao`/`exige_aditivo` e `vocabulario.json` com
 o bloco `ativacao` (valores + parametros, numeros inventados — nao sao os provisorios do rco).
 `montar(raiz, provas=False)` gera o 2.0.0 e `montar(raiz, major=1)` o 1.0.0: o leitor os le, o pin os
-recusa (`pin-sem-provas`).
+recusa (`pin-sem-provas`). `com_composicoes` promove a 2.2.0 com `composicoes[]` (DL-0174).
 
 `montar(raiz)` escreve a arvore e o pin em estado `fixado`; `regravar(raiz, manifesto)` reescreve o
 manifesto em bytes canonicos e atualiza `manifest_pin.sha256`, para testar uma mutacao por vez.
@@ -324,5 +324,38 @@ def provas_vazias(raiz: Path, manifesto: dict[str, Any]) -> dict[str, Any]:
     manifesto["formato_manifesto"] = "2.1.0"
     manifesto["provas"] = []
     shutil.rmtree(raiz / K1_DIR / "provas", ignore_errors=True)
+    regravar(raiz, manifesto)
+    return manifesto
+
+
+#: Grupo sintetico de `composicoes[]` (formato 2.2.0, DL-0174) sobre as duas tabelas do pacote:
+#: `rco_sint_a` avaliada primeiro, `rco_sint_b` e o padrao (a ultima).
+COMPOSICAO_NOME = "grupo_sint"
+COMPOSICAO: dict[str, Any] = {
+    "decisoes": ["rco_sint_a", "rco_sint_b"],
+    "nome": COMPOSICAO_NOME,
+    "padrao": "rco_sint_b",
+    "regra": "primeira_com_idRegra",
+}
+
+
+def com_composicoes(
+    raiz: Path,
+    manifesto: dict[str, Any],
+    composicoes: list[dict[str, Any]] | None = None,
+    *,
+    campo: bool = True,
+) -> dict[str, Any]:
+    """Promove o pacote (ja 2.1.0 com provas) a `formato_manifesto` 2.2.0 com `composicoes[]`.
+
+    `composicoes` padrao: `[COMPOSICAO]`. `campo=False`: 2.2.0 sem o campo (vale lista vazia).
+    """
+    if "provas" not in manifesto:
+        com_provas(raiz, manifesto)
+    manifesto["formato_manifesto"] = "2.2.0"
+    if campo:
+        manifesto["composicoes"] = copy.deepcopy([COMPOSICAO] if composicoes is None else composicoes)
+    else:
+        manifesto.pop("composicoes", None)
     regravar(raiz, manifesto)
     return manifesto
