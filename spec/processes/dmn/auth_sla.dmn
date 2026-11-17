@@ -6,7 +6,7 @@
              name="SLA de analise de autorizacao previa"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    auth_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar
+    auth_sla v0.2.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar
     texto vigente com regulatorio (RN 259/2011 revogada pela RN 566/2022 art. 16;
     RN 395/2016 revogada pela RN 623/2024 art. 28; docs/review-queue.md). Ancora do prazo de
     RESPOSTA (R-004, achado F-016): RN 623/2024 art. 12 (I urgencia/emergencia: imediata;
@@ -63,13 +63,13 @@
         <outputEntry id="r3o4"><text>5</text></outputEntry>
       </rule>
       <rule id="r4">
-        <description>Catch-all FAIL-SAFE: carater desconhecido tratado como prazo curto</description>
+        <description>Catch-all FAIL-SAFE: carater nulo, vazio ou desconhecido recebe o MENOR prazo da tabela (o de r1, urgencia) — dado ausente nunca cai no tratamento mais lento</description>
         <inputEntry id="r4i1"><text>-</text></inputEntry>
         <inputEntry id="r4i2"><text>-</text></inputEntry>
-        <outputEntry id="r4o1"><text>"P5D"</text></outputEntry>
-        <outputEntry id="r4o2"><text>"P3D"</text></outputEntry>
-        <outputEntry id="r4o3"><text>"Fail-safe: prazo conservador na ausencia de classificacao — DRAFT/verify"</text></outputEntry>
-        <outputEntry id="r4o4"><text>5</text></outputEntry>
+        <outputEntry id="r4o1"><text>"PT2H"</text></outputEntry>
+        <outputEntry id="r4o2"><text>"PT1H"</text></outputEntry>
+        <outputEntry id="r4o3"><text>"Fail-safe: carater nao classificado recebe o prazo de r1 (urgencia) por decisao da coordenacao de 17/11/2026, nao por norma; valor de referencia: Lei 9.656/1998 art. 35-C — DRAFT/verify"</text></outputEntry>
+        <outputEntry id="r4o4"><text>null</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>

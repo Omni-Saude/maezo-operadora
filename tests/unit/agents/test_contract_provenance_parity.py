@@ -157,7 +157,14 @@ _CASES: list[tuple[str, str, dict[str, Any], str, dict[str, Any], str, frozenset
         "RafaelGraph",
         {"fhir": None},
         "start_process",
-        {"tenant_id": "amh", "business_key": "AUTH-amh-1", "route": "auto_approve", "guia_id": "G1"},
+        # DL-0170: o carater e' afirmado pelo caso de teste — o grafo nao o presume mais.
+        {
+            "tenant_id": "amh",
+            "business_key": "AUTH-amh-1",
+            "route": "auto_approve",
+            "guia_id": "G1",
+            "carater_atendimento": "eletivo",
+        },
         "SP-OP-AUTH-001",
         frozenset({"source_agent_id", "source_agent_version", "dossie_rafael", "rafael_route"}),
         frozenset(

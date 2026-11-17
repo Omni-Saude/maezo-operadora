@@ -1194,6 +1194,10 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         # R-101 / F-139: primitivos de business key + compositor UNICO de SP-OP-CONTAS-001,
         # aqui (SDK de agente, ADR-0067) para Marina e o worker CONTAS chamarem o MESMO codigo.
         "chave_de_negocio.py",
+        # DL-0170: dominio fechado de `carater_atendimento` da autorizacao previa, aqui (SDK de
+        # agente, ADR-0067) para a rota de ingresso, a origem A2A (Helena) e o Rafael aplicarem a
+        # MESMA regra.
+        "carater_atendimento.py",
     }
 )
 
@@ -1368,7 +1372,7 @@ def test_domain_modules_discovered() -> None:
     assert set(modules) == _EXPECTED_MODULES, (
         f"maezo.domain module set drifted: found {sorted(modules)}, expected {sorted(_EXPECTED_MODULES)}"
     )
-    assert len(modules) == 20
+    assert len(modules) == 21
 
 
 def test_import_extraction_is_not_vacuous() -> None:

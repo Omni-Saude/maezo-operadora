@@ -57,6 +57,10 @@ the A2A card vocabulary (`a2a.capabilities` / `a2a.skills` / `a2a.accepted_task_
 catalogue `maezo.gateway.effect_classes.OPERATIONS` to the autonomy action it exercises). This
 validator READS the hard set; it never defines or edits it (`spec/policies/autonomy/` is
 CODEOWNERS-guarded).
+
+Since E-SF-17 (GTM-E-12) it ALSO enforces the ceiling of the commercial agent (`comercial`): General
+Zone, no process key, no PHI/member-data action or tool (`COMMERCIAL_PHI_ACTION_FORBIDDEN`), and
+nothing outside the closed allowlist of actions/tools (`COMMERCIAL_ACTION_NOT_ALLOWED`).
 """
 
 from __future__ import annotations
@@ -230,7 +234,9 @@ _WHATSAPP_SEND_TOOL = "mcp-whatsapp.send_message"
 #: interruptor, e o token do interruptor. `inbound: true` sem condicao continua exclusivo da
 #: Helena; o Lucas so' recebe com `MAEZO_ROTEADOR_LUCAS` ligado, e nunca texto (o `handoff`
 #: tipado da Helena, `platform/webhooks/whatsapp/lucas_turno.py`).
-_INBOUND_CONDICIONADO: dict[str, str] = {"lucas": "roteador_lucas"}
+_INBOUND_CONDICIONADO: dict[str, str] = {"lucas": "roteador_lucas", "comercial": "roteador_comercial"}
+# E-SF-17 / GTM-E-13: o agente `comercial` tambem so' recebe atras de um interruptor
+# (`roteador_comercial`, desligado), e so' a passagem tipada da Helena (referencia, nunca texto).
 
 
 def _validate_whatsapp_channel_posture(path: Path, definition: AgentDefinition, report: Report) -> None:
@@ -265,7 +271,8 @@ def _validate_whatsapp_channel_posture(path: Path, definition: AgentDefinition, 
                 path,
                 "channels.whatsapp.inbound_condicao is only valid as "
                 "`inbound: true` + the agent's own switch token (ADR-0062: lucas -> "
-                f"{_INBOUND_CONDICIONADO['lucas']!r}); no other agent receives WhatsApp inbound "
+                f"{_INBOUND_CONDICIONADO['lucas']!r}; E-SF-17: comercial -> "
+                f"{_INBOUND_CONDICIONADO['comercial']!r}); no other agent receives WhatsApp inbound "
                 "behind a switch",
             )
     elif whatsapp["inbound"] is not (definition.id == "helena"):
@@ -326,6 +333,86 @@ def _validate_no_hard_action(path: Path, definition: AgentDefinition, report: Re
             )
 
 
+#: E-SF-17 / GTM-E-12: os agentes da Faixa Assistida (venda). Hoje so' `comercial`.
+_AGENTES_COMERCIAIS: frozenset[str] = frozenset({"comercial"})
+
+#: O TETO do agente comercial, como allowlist fechada (GTM-01 D3): informacao publicada, roteamento
+#: ao humano/Helena e o envio ao prospect na sessao que ele iniciou. Tudo fora daqui e' recusa.
+_ACOES_COMERCIAIS: frozenset[str] = frozenset(
+    {"informational_response", "triage_and_routing", "send_prospect_message"}
+)
+
+#: O unico tool do agente comercial: a resposta pelo WhatsApp na sessao do prospect.
+_TOOLS_COMERCIAIS: frozenset[str] = frozenset({_WHATSAPP_SEND_TOOL})
+
+#: Classes de efeito de leitura PHI/populacional (`gateway.effect_classes`): um tool que cai numa
+#: delas e' PHI para o agente comercial, qualquer que seja o nome.
+_CLASSES_PHI: frozenset[str] = frozenset({"leitura_phi_clinica", "leitura_populacional"})
+
+
+def _acao_phi(action: str) -> bool:
+    """Acao de autonomia que le dado de saude ou do beneficiario (Zona PHI / fatos do membro)."""
+    token = _action_token(action) or ""
+    return token in {"read_phi_data", "generate_model_inference_phi", "erase_patient_memory"} or (
+        token.startswith("read_member_")
+    )
+
+
+def _validate_commercial_agent(path: Path, definition: AgentDefinition, report: Report) -> None:
+    """E-SF-17 / GTM-E-12: a fronteira do agente comercial, recusada no gate de artefatos.
+
+    Nunca dado de saude como insumo comercial (LGPD art. 11 §§4-5): acao PHI ou tool que le PHI ->
+    `COMMERCIAL_PHI_ACTION_FORBIDDEN`. Zona Geral e nenhum processo. Fora disso, so' as acoes e o
+    tool do teto (`_ACOES_COMERCIAIS`, `_TOOLS_COMERCIAIS`). Acao `hard` continua com a recusa
+    propria de `_validate_no_hard_action` ("declares the hard action").
+    """
+    if definition.id not in _AGENTES_COMERCIAIS:
+        return
+    if definition.security_zone != "general":
+        report.error(
+            path,
+            f"COMMERCIAL_ZONE_NOT_GENERAL: security_zone '{definition.security_zone}' — the commercial "
+            "agent lives only in the General Zone (ADR-0006); health data is never commercial input",
+        )
+    if definition.process_keys:
+        report.error(
+            path,
+            f"COMMERCIAL_PROCESS_FORBIDDEN: process_keys {list(definition.process_keys)} — the commercial "
+            "agent starts no process (`process_keys: []`, GTM-E-12)",
+        )
+    phi_tools = {
+        spec.tool_id
+        for spec in OPERATIONS.values()
+        if spec.tool_id is not None and spec.action_class in _CLASSES_PHI
+    }
+    for action in definition.autonomy_actions:
+        if _acao_phi(action):
+            report.error(
+                path,
+                f"COMMERCIAL_PHI_ACTION_FORBIDDEN: autonomy_actions declares '{action}' — health or "
+                "member data is never commercial input (LGPD art. 11 §§4-5, GTM-01 D3)",
+            )
+        elif _action_token(action) not in _ACOES_COMERCIAIS and _action_token(action) not in HARD_ACTIONS:
+            report.error(
+                path,
+                f"COMMERCIAL_ACTION_NOT_ALLOWED: autonomy_actions declares '{action}' — outside the "
+                f"commercial ceiling {sorted(_ACOES_COMERCIAIS)} (GTM-01 D3)",
+            )
+    for tool in definition.tools:
+        if tool in phi_tools or (_tool_server(tool) or "") in {"fhir", "amh"}:
+            report.error(
+                path,
+                f"COMMERCIAL_PHI_ACTION_FORBIDDEN: tool '{tool}' reads health or member data — never "
+                "commercial input (LGPD art. 11 §§4-5, GTM-01 D3)",
+            )
+        elif tool not in _TOOLS_COMERCIAIS:
+            report.error(
+                path,
+                f"COMMERCIAL_ACTION_NOT_ALLOWED: tool '{tool}' is outside the commercial ceiling "
+                f"{sorted(_TOOLS_COMERCIAIS)} (GTM-01 D3)",
+            )
+
+
 def validate_file(
     path: Path,
     mcp_servers: frozenset[str],
@@ -365,6 +452,7 @@ def validate_file(
 
     _validate_whatsapp_channel_posture(path, definition, report)
     _validate_no_hard_action(path, definition, report)
+    _validate_commercial_agent(path, definition, report)
 
     # HEL-12 spec-first fence. ADDITIVE: it validates the keys an agent DECLARES. An agent that
     # declares NO `process_keys` at all is not caught here — that is the separate, OPEN,

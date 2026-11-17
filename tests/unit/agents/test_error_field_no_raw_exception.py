@@ -363,6 +363,7 @@ async def _drive_evaluate_dmn(agent_id: str) -> dict[str, Any]:
 _GRAFOS_SEM_EVALUATE_DMN = {
     "_template": "scaffold do contrato canonico — nao avalia DMN",
     "beatriz": "agente de leitura FHIR — nao avalia DMN",
+    "comercial": "E-SF-17: conduz e encaminha, sem DMN nem LLM (flag desligada)",
     "lucas": "avalia a DMN INLINE em `assess` — coberto pela prova dedicada abaixo",
 }
 

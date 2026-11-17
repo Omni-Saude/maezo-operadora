@@ -485,6 +485,10 @@ def test_actual_agent_builders_and_dynamic_fields_preserved(agent, family, flow)
         motivo_humano="outro",
         grupo_humano="synthetic-group",
     )
+    if agent == "rafael":
+        # DL-0170: o Rafael so' le carater do dominio fechado {urgencia, eletivo}; o "synthetic"
+        # generico desta tabela seria recusado antes de montar as variaveis de start.
+        state["carater_atendimento"] = "urgencia"
     method = {"lucas": "_escalation_variables", "fernando": "_inadimplencia_variables"}.get(
         agent, "_contract_variables"
     )

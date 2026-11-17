@@ -16,7 +16,12 @@ from typing import Any, Final, Literal
 
 import httpx
 
-from maezo.adapters.amh.commercial import AmhCommercialAdapter, CommercialWire
+from maezo.adapters.amh.commercial import MAX_BODY_BYTES, AmhCommercialAdapter, CommercialWire
+from maezo.adapters.amh.commercial_fences import (
+    CommercialFenceError,
+    CommercialFenceRefusal,
+    sla_claim_marker,
+)
 from maezo.adapters.amh.commercial_http import (
     AmhCommercialAuthority,
     AmhPublicCatalogAuthority,
@@ -27,11 +32,16 @@ from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
 from maezo.gateway.commercial_acceptance_admission import A3_ADMITTED_COMMANDS, AcceptanceRecordAdmission
 from maezo.gateway.commercial_catalog_admission import CatalogSourceAdmission
 from maezo.gateway.commercial_coverage_admission import CoverageReadAdmission
+from maezo.gateway.commercial_portability_admission import (
+    PortabilityPayloadError,
+    refuse_portability_verdict_payload,
+)
 from maezo.gateway.commercial_sales_admission import SalesSessionAdmission
 from maezo.gateway.commercial_support_admission import (
     A5_ADMITTED_COMMANDS,
     SupportHandoffAdmission,
 )
+from maezo.platform.lifecycle.legal_bases_matrix import RetentionMatrixUnavailableError, qualify_lead_intake
 from maezo.ports.commercial import (
     CommercialCodec,
     CommercialCommand,
@@ -59,6 +69,17 @@ from maezo.ports.commercial import (
 # - disclosure leg: source-qualified `plan_choices` (catalog/version/product selectors) in
 #   a `journey.get` result never cross the disclosure boundary (`CatalogGatedCodec`).
 A1_CATALOG_DERIVED_COMMANDS: Final = frozenset({"offer.quote"})
+
+# The REAL lead intake commands (E-SF-10; TB-25 (i): "`prospect.save`, `contact.request`,
+# `journey.save` com dado pessoal"). C6-4 :445 puts the lifecycle gate before any REAL form;
+# the lifecycle gate is `qualify_lead_intake` (ratified matrix + lead categories +
+# source-resolved `retention_class`). Unqualified, each refuses `unavailable/lifecycle_unqualified`
+# (C6-4 refusal vocabulary) at the first phase that knows the command, before any source
+# step — on every composition, with or without A1/A3/A5. The command name rides inside the
+# C6-4 body, so the gate cannot key it before the structural parse; no intake value leaves
+# the codec before it. EP-REG-04b suggested purpose_denied/SOURCE_UNAVAILABLE;
+# lifecycle_unqualified is used because TB-25 (i) anchors the gate on C6-4 :445 lifecycle.
+LEAD_INTAKE_COMMANDS: Final = frozenset({"prospect.save", "contact.request", "journey.save"})
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -137,6 +158,11 @@ class AuthenticatedSalesAdmission(SalesAdmission):
         phase: Literal["before_body", "before_source", "before_effect", "before_disclosure"],
         command: CommercialCommand | None = None,
     ) -> CommercialScope:
+        if command is not None and command.command in LEAD_INTAKE_COMMANDS:
+            try:
+                qualify_lead_intake()
+            except RetentionMatrixUnavailableError as exc:
+                raise CommercialRefusalError("unavailable", "lifecycle_unqualified") from exc
         return await self._authority.current(scope, phase=phase, command=command)
 
 
@@ -338,32 +364,81 @@ class CatalogGatedCodec(CommercialCodec):
         return result
 
 
+@dataclass(frozen=True, slots=True)
+class _SupportCarrier:
+    """One disclosure carrier of support case arms plus the refs its custody is checked against."""
+
+    arms: tuple[dict[str, Any], ...]
+    labels: tuple[str, ...]
+    # `support.handoff` carriers carry the source receipt; journey snapshots carry none.
+    receipt_bound: bool
+    receipt_ref: str | None
+    # Refs a protocol must never be derived from: the caller's command refs (the current
+    # one, the recovered target and the snapshot's pending operations) …
+    command_refs: frozenset[str]
+    # … and the OP03 acceptance receipts of the same journey (support is never acceptance).
+    acceptance_refs: frozenset[str]
+
+
+def _refuse_support_handoff_verdict_fields(body: bytes) -> None:
+    """EP-CORE-05b: a `support.handoff` payload never carries a portability-of-waiting-period verdict.
+
+    The structural guard of A7 (`refuse_portability_verdict_payload`, admission-independent)
+    runs on the support payload before the codec, so the typed `PortabilityPayloadError`
+    is the refusal's cause; the wire answer stays the codec's own `denied/invalid_request`.
+    Bodies that are not a JSON object naming `support.handoff` are left to the codec.
+    """
+    if type(body) is not bytes or len(body) > MAX_BODY_BYTES:
+        return
+    try:
+        value = json.loads(body)
+    except (ValueError, RecursionError):
+        return
+    if not isinstance(value, dict) or value.get("command") != "support.handoff":
+        return
+    try:
+        refuse_portability_verdict_payload(value.get("payload"))
+    except PortabilityPayloadError as exc:
+        raise CommercialRefusalError("denied", "invalid_request") from exc
+
+
 class SupportGatedCodec(CommercialCodec):
     """Sales codec whose support case-projection dimension stays admission-gated.
 
     The frozen contract carries a source-asserted support case projection
     (`CustomerSupportRead` `status: "projection"` — `caseKind`/`caseStatus`/`caseRef`/
-    `vocabularyRef`) on three disclosure carriers: the journey snapshot's `support` arm
-    (`journey.get`), the SAME arm inside the recovery envelope (`operation.get` with
-    `original_command == "journey.get"`), and the `case_read` arm of a recovered
-    `support.handoff` original result (both recovery carriers keyed only when the
-    recovered original result `succeeded`: a failed original carries `data: null` — no
-    case arm exists in it — and passes byte-exact, never an error or a refusal). The
-    published case vocabulary those fields name
-    does not exist (CR-F5 `BROKER_CONSUMER_ABSENT_FROM_AMH_ADAPTER_PACKAGE`; the dossier's
-    `DeclaredCaseKind`/`DeclaredCaseStatus` members are empty until publication), and the
-    contract only allows a case resolution to be displayed "under its current published
-    semantics and receipt" (`x-customer-journey.support_readback`). Without the registered
-    A5 record (`commercial_support_admission`) a projection arm does not cross the
-    disclosure boundary on ANY carrier: this gate refuses it with the shipped
+    `vocabularyRef`/`protocolRef`) on four disclosure carriers: the `support.handoff`
+    result's `case_read`, the journey snapshot's `support` arm (`journey.get`), the SAME
+    arm inside the recovery envelope (`operation.get` with `original_command ==
+    "journey.get"`), and the `case_read` arm of a recovered `support.handoff` original
+    result (both recovery carriers keyed only when the recovered original result
+    `succeeded`: a failed original carries `data: null` — no case arm exists in it — and
+    passes byte-exact, never an error or a refusal). The published case vocabulary those
+    fields name does not exist (CR-F5 `BROKER_CONSUMER_ABSENT_FROM_AMH_ADAPTER_PACKAGE`; the
+    dossier's `DeclaredCaseKind`/`DeclaredCaseStatus` members are empty until publication),
+    and the contract only allows a case resolution to be displayed "under its current
+    published semantics and receipt" (`x-customer-journey.support_readback`). Without the
+    registered A5 record (`commercial_support_admission`) a projection arm does not cross
+    the disclosure boundary on ANY carrier: this gate refuses it with the shipped
     `denied/purpose_denied` refusal before one byte of it is disclosed, and the gateway's
     post-dispatch custody discipline answers `uncertain/reconciliation_required` — the
     read executed at the source, the unadmitted fact is never disclosed, and nothing is
     re-dispatched. The `refused` renderings (bounded outcome enum), the journey's
     `support_topics` list and every other dimension stay exactly as shipped — the gate
-    never synthesizes, upgrades or rewrites a case fact, and resolution confirmation is
-    never derived from OP03 vocabulary. With the registered A5 record the gate is inert
-    and the source-owned projection passes unchanged.
+    never synthesizes, upgrades or rewrites a case fact. With the registered A5 record the
+    admission gate is inert and the source-owned projection passes unchanged.
+
+    Three custody checks hold with or without the A5 record (E-SF-06), each refused with
+    the same `denied/purpose_denied` before disclosure:
+    - protocol only with the OP07 receipt (EP-CORE-04a; DEC-CORE CORE-04 item 2: "nunca
+      minta protocolo"): on a `support.handoff` carrier a non-null `protocolRef` without
+      `source_receipt_ref` is refused, and on every carrier a `protocolRef` equal to a
+      caller command ref (current, recovered target or pending operation) is refused;
+    - resolution never via OP03 (`support_readback`: "support is never acceptance"): a
+      projection whose `protocolRef`/`caseRef` is an acceptance receipt of the same journey
+      is refused;
+    - no prazo before Q1/DEC-18 (EP-REG-01a): a case label or support topic label stating a
+      numeric deadline is refused (`unratified_sla_claim`, `commercial_fences`).
     """
 
     def __init__(self, inner: CommercialCodec, *, gated: bool) -> None:
@@ -375,6 +450,7 @@ class SupportGatedCodec(CommercialCodec):
         return self._inner.schema_digest
 
     def parse_command(self, body: bytes) -> CommercialCommand:
+        _refuse_support_handoff_verdict_fields(body)
         return self._inner.parse_command(body)
 
     def parse_public_result(self, body: bytes) -> bytes:
@@ -386,33 +462,100 @@ class SupportGatedCodec(CommercialCodec):
         return self._inner.refusal(status, reason_code, operation_ref)
 
     @staticmethod
-    def _snapshot_case_arms(value: dict[str, Any]) -> list[dict[str, Any]]:
-        return [journey["support"] for journey in value["data"]["journeys"]]
+    def _journey_carriers(data: dict[str, Any], command_refs: frozenset[str]) -> list[_SupportCarrier]:
+        carriers = []
+        for journey in data["journeys"]:
+            pending = {
+                ref
+                for operation in journey["pending_operations"]
+                for ref in (operation["command_ref"], operation["operation_ref"])
+            }
+            acceptance = journey["acceptance"]
+            commercial = journey["commercial_acceptance"]
+            acceptance_refs = {
+                ref
+                for ref in (
+                    acceptance.get("acceptanceRef"),
+                    commercial["acceptance_receipt_ref"] if commercial else None,
+                )
+                if ref is not None
+            }
+            arm = journey["support"]
+            carriers.append(
+                _SupportCarrier(
+                    arms=(arm,),
+                    labels=(
+                        *(topic["label"] for topic in journey["support_topics"]),
+                        *(arm[key] for key in ("caseKindLabel", "caseStatusLabel") if key in arm),
+                    ),
+                    receipt_bound=False,
+                    receipt_ref=None,
+                    command_refs=command_refs | pending,
+                    acceptance_refs=frozenset(acceptance_refs),
+                )
+            )
+        return carriers
 
-    def parse_result(self, body: bytes, command: CommercialCommand) -> OperationalResult:
-        result = self._inner.parse_result(body, command)
-        if not self._gated or result.status != "succeeded":
-            return result
-        value = json.loads(result.wire_bytes)
+    @staticmethod
+    def _handoff_carrier(data: dict[str, Any], command_refs: frozenset[str]) -> _SupportCarrier:
+        arm = data["case_read"]
+        return _SupportCarrier(
+            arms=(arm,),
+            labels=tuple(arm[key] for key in ("caseKindLabel", "caseStatusLabel") if key in arm),
+            receipt_bound=True,
+            receipt_ref=data["source_receipt_ref"],
+            command_refs=command_refs,
+            acceptance_refs=frozenset(),
+        )
+
+    def _carriers(self, value: dict[str, Any], command: CommercialCommand) -> list[_SupportCarrier]:
+        refs = frozenset({command.command_ref})
         if command.command == "journey.get":
-            arms = self._snapshot_case_arms(value)
-        elif (
+            return self._journey_carriers(value["data"], refs)
+        if command.command == "support.handoff":
+            return [self._handoff_carrier(value["data"], refs)]
+        if (
             command.command == "operation.get"
             and isinstance(value["data"].get("original_result"), dict)
             and value["data"]["original_result"].get("status") == "succeeded"
         ):
-            original = value["data"]["original_result"]
+            original = value["data"]["original_result"]["data"]
+            target = value["data"].get("target_command_ref")
+            refs = refs | ({target} if isinstance(target, str) else set())
             original_command = value["data"].get("original_command")
             if original_command == "journey.get":
-                arms = self._snapshot_case_arms(original)
-            elif original_command == "support.handoff":
-                arms = [original["data"]["case_read"]]
-            else:
-                return result
-        else:
+                return self._journey_carriers(original, refs)
+            if original_command == "support.handoff":
+                return [self._handoff_carrier(original, refs)]
+        return []
+
+    @staticmethod
+    def _custody_violated(carrier: _SupportCarrier) -> bool:
+        for arm in carrier.arms:
+            if arm["status"] != "projection":
+                continue
+            protocol = arm["protocolRef"]
+            if protocol is not None and (
+                (carrier.receipt_bound and carrier.receipt_ref is None) or protocol in carrier.command_refs
+            ):
+                return True
+            if {protocol, arm["caseRef"]} & carrier.acceptance_refs:
+                return True
+        return False
+
+    def parse_result(self, body: bytes, command: CommercialCommand) -> OperationalResult:
+        result = self._inner.parse_result(body, command)
+        if result.status != "succeeded":
             return result
-        if any(arm["status"] == "projection" for arm in arms):
+        carriers = self._carriers(json.loads(result.wire_bytes), command)
+        if self._gated and any(arm["status"] == "projection" for carrier in carriers for arm in carrier.arms):
             raise CommercialRefusalError("denied", "purpose_denied")
+        if any(self._custody_violated(carrier) for carrier in carriers):
+            raise CommercialRefusalError("denied", "purpose_denied")
+        if any(sla_claim_marker(label) for carrier in carriers for label in carrier.labels):
+            raise CommercialRefusalError("denied", "purpose_denied") from CommercialFenceError(
+                CommercialFenceRefusal.UNRATIFIED_SLA_CLAIM
+            )
         return result
 
 
@@ -458,9 +601,13 @@ def compose_commercial_gateway(
     a bound session refuses those commands before any source step and the codec keeps the
     case-projection arms gated — `refused` renderings and every other dimension are
     unchanged. Each closed dimension is independent: no admission re-grids another's
-    surface. Schema bytes are exact source-owned candidate bytes; a hash never
-    establishes live publication. No process-global mutation or environment activation
-    exists.
+    surface. The REAL lead intake (`LEAD_INTAKE_COMMANDS`) is gated by lifecycle, not by an
+    admission record: every session refuses it `unavailable/lifecycle_unqualified` before any
+    source step until `qualify_lead_intake` qualifies (E-SF-10; never true on the C6-4 wire,
+    which carries no source-resolved `retention_class`). Schema bytes are exact source-owned
+    candidate bytes; a hash never establishes live publication. No process-global mutation
+    or environment activation exists: the lifecycle gate's matrix path is read to refuse,
+    and on this wire it can never open the intake.
     """
     wire = CommercialWire(
         schema_bytes,
