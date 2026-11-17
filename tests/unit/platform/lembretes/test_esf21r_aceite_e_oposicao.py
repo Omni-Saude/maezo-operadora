@@ -188,11 +188,12 @@ async def test_parar_tem_efeito_imediato_sobre_quem_tem_aceite() -> None:
     "c",
     [
         competencia(vencimento="2026-10-12"),  # ja' venceu (hoje = 2026-10-13)
-        competencia(situacao="vencida", vencimento="2026-10-10"),
+        competencia(situacao="vencida", vencimento="2026-10-16"),  # na janela, mas nao em aberto
         competencia(situacao="paga"),
         competencia(situacao="cancelada"),
+        competencia(vencimento="2026-10-17"),  # depois de hoje + 3
     ],
-    ids=["vencimento-passado", "vencida", "paga", "cancelada"],
+    ids=["vencimento-passado", "vencida", "paga", "cancelada", "alem-da-janela"],
 )
 def test_lembrete_so_sai_antes_do_vencimento(c: object) -> None:
     from datetime import date
@@ -208,3 +209,42 @@ def test_lembrete_nunca_e_notificacao_de_inadimplencia() -> None:
     textos = " ".join([CORPO_TEMPLATE_META, mensagem.texto, *mensagem.parametros_template]).casefold()
     for termo in ("inadimpl", "atraso", "atrasad", "vencida", "débito", "debito", "suspens", "cancelamento"):
         assert termo not in textos, termo
+
+
+@pytest.mark.parametrize("vencimento", ["2026-10-13", "2026-10-16"], ids=["hoje", "hoje-mais-3"])
+def test_lembrete_sai_nas_bordas_da_janela_antes_do_vencimento(vencimento: str) -> None:
+    from datetime import date
+
+    escolhida, _ = escolher_competencia(
+        fatos(competencia(vencimento=vencimento)), hoje=date(2026, 10, 13), dias_antecedencia=3
+    )
+    assert escolhida is not None and escolhida.vencimento == date.fromisoformat(vencimento)
+
+
+@pytest.mark.asyncio
+async def test_job_nao_lembra_competencia_ja_vencida() -> None:
+    c = _cenario(_Aceites(_aceite()))
+    c.fatos.por_conversa[CONV_A] = fatos(competencia(vencimento="2026-10-12"))
+    resumo = await executar(c.deps, c.cfg, agora=AGORA)
+    assert resumo.contadores["sem_competencia_na_janela"] == 1 and c.cliente.total == 0
+
+
+@pytest.mark.asyncio
+async def test_simular_conta_o_mesmo_motivo_sem_aceite() -> None:
+    from maezo.platform.lembretes.job import simular
+
+    c = _cenario(None)
+    resumo = await simular(c.deps, c.cfg, conversation_id=CONV_A, agora=AGORA)
+    assert resumo.contadores == {"sem_aceite_finalidade_cobranca": 1}
+    assert c.cliente.total == 0
+
+
+@pytest.mark.asyncio
+async def test_permissao_de_que_levanta_nao_aborta_a_rodada() -> None:
+    def _quebra(_b: Beneficiario) -> None:
+        raise RuntimeError("fonte de teste fora")
+
+    c = _cenario(None)
+    c.deps.permissao_de = _quebra  # type: ignore[assignment]
+    resumo = await executar(c.deps, c.cfg, agora=AGORA)
+    assert resumo.contadores["sem_aceite_finalidade_cobranca"] == 1 and c.cliente.total == 0

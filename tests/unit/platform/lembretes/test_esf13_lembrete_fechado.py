@@ -111,7 +111,11 @@ def test_a_unica_porta_de_oposicao_e_o_parar_e_nenhuma_raiz_a_monta() -> None:
         arquivo
         for arquivo in raiz.rglob("*.py")
         for no in ast.walk(ast.parse(arquivo.read_text(encoding="utf-8")))
-        if isinstance(no, ast.Call) and isinstance(no.func, ast.Name) and no.func.id == "OposicaoPeloParar"
+        if isinstance(no, ast.Call)
+        and (
+            (isinstance(no.func, ast.Name) and no.func.id == "OposicaoPeloParar")
+            or (isinstance(no.func, ast.Attribute) and no.func.attr == "OposicaoPeloParar")
+        )
     ]
     assert instancias == []
 

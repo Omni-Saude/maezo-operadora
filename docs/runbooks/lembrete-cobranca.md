@@ -10,8 +10,9 @@ sistema manda **sem ser chamado**: poucos dias antes do vencimento, "Sua mensali
 > `cobranca_lembrete_pre_vencimento` **não está ratificada** no registro
 > `spec/communications/whatsapp-templates.yaml`: a base do envio proativo é pergunta ao DPO (**RT-D4**,
 > RATIFY-LATER-DPO; ADDENDUM-01 §7 (q)). O consentimento do acesso (`atendimento_whatsapp` / `wa-consent-v2`,
-> "nesta conversa"), que a seleção abaixo exige, **não vale** como permissão de contato proativo: o gate o
-> recusa (`recontact_permission_unqualified`). Resultado: com o interruptor ligado ou não, em dry-run, real ou
+> "nesta conversa") só identifica a conversa verificada e **não vale** como permissão de contato proativo:
+> se apresentado ao gate, é recusado (`recontact_permission_unqualified`); o critério é o aceite do termo
+> (ver abaixo). Resultado: com o interruptor ligado ou não, em dry-run, real ou
 > `--simular`, **nenhum lembrete sai**; o resumo conta `recusado_outbound_PURPOSE_NOT_RATIFIED` e o job para
 > antes de ler o acesso, a cobrança ou a supressão. 2ª via e vencimento ficam só em resposta a conversa
 > iniciada pelo beneficiário. **Trava adicional (CD-25):** antes de qualquer leitura, a rodada inteira (e o
@@ -130,7 +131,7 @@ se algum faltar, o job **recusa montar** (`lembrete_cobranca_nao_montou`), nunca
    No log (`/ecs/<name>/lembrete-cobranca`) aparece **uma linha** `lembrete_cobranca_resumo` só com
    contagens: `candidatos`, `enviaria`, `optout`, `suprimido`, `pagador_nao_e_pessoa_fisica`,
    `cobranca_da_administradora`, `sem_competencia_na_janela`, `ja_lembrado`, `fora_da_allowlist`,
-   `fonte_indisponivel_*`. Nenhum telefone, CPF, valor ou id de conversa entra no log nem em métrica.
+   `sem_aceite_finalidade_cobranca`, `fonte_indisponivel_*`. Nenhum telefone, CPF, valor ou id de conversa entra no log nem em métrica.
 3. **Modo de teste do dono** (`--simular`). O dono é beneficiário de empresa (PJ), então nunca receberia um
    lembrete real. O simulador manda **um** `[TESTE] ...` com fatos **sintéticos** (competência do mês do
    vencimento, R$ 123,45, vencimento hoje + N) a **uma** conversa da allowlist; não lê a cobrança de

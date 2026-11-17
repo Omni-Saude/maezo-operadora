@@ -6,8 +6,9 @@ ORDEM, e o que cada passo garante:
   1. Envio REAL exige (a) allowlist quando `exigir_allowlist` (padrao) e (b) 08:00-20:00 America/Sao_Paulo.
   2. Allowlist: com a lista definida, a conversa fora dela e' descartada ANTES de qualquer leitura da fonte
      de cobranca (nem a cobranca dela e' consultada). O `Enviador` repete a trava no envio.
-  3. Por candidato: opt-out, supressao (SP-OP-SUPP-001), fatos de cobranca (fonte do Lucas), regra de
-     selecao (PF, em aberto, N dias), ja' lembrado.
+  3. Por candidato: opt-out, supressao (SP-OP-SUPP-001), aceite do termo com a finalidade 2 (E-SF-21r;
+     sem ele a cobranca nem e' lida), fatos de cobranca (fonte do Lucas), regra de selecao (PF, em aberto,
+     N dias), ja' lembrado.
   4. DRY-RUN (o padrao): para aqui e so' CONTA (`enviaria`). Nao grava, nao envia.
   5. Real: contato (custodia), janela de 24 h -> texto livre ou template, reserva idempotente ANTES do
      envio (liberada se o envio falhar), pausa entre envios, teto por execucao.
@@ -210,11 +211,12 @@ def _suprimido(vigentes: frozenset[tuple[str, str]], b: Beneficiario) -> bool:
 
 async def _permissao(deps: Dependencias, b: Beneficiario) -> PermissaoDeContato | None:
     """O criterio de selecao (E37): o aceite do termo, finalidade 2. Fonte que falha = nenhuma."""
-    if deps.permissao_de is not None:
-        return deps.permissao_de(b)
-    if deps.aceites is None:
+    if deps.permissao_de is None and deps.aceites is None:
         return None
     try:
+        if deps.permissao_de is not None:
+            return deps.permissao_de(b)
+        assert deps.aceites is not None
         return permissao_do_aceite(await deps.aceites.de(b))
     except Exception:  # fonte de aceite fora do ar: desconhecido nunca vira aceite
         return None
@@ -454,6 +456,10 @@ async def simular(
         return resumo
     chave = deps.chave_de_saida(f"lembrete-teste:{conversation_id}:{int(agora.timestamp())}")
     permissao = await _permissao(deps, beneficiario)
+    if permissao is None:
+        resumo.contar("sem_aceite_finalidade_cobranca")
+        resumo.registrar()
+        return resumo
     decisao = await deps.gate.avaliar(_pedido(beneficiario, mensagem.parametros_template, chave, permissao))
     if not decisao.permitido or decisao.autorizacao is None:
         _contar_recusa(resumo, decisao)
