@@ -44,3 +44,4 @@ PRONTO maezo-operadora #1280 head 92002ee3b53af285768db546c2ee7c265c5ea12a check
 - Citações ao pacote privado em PRs mesclados (#1267, #1272; e #1270, #1273 de GATE): listadas à mescladora; PR de higiene oferecido.
 - Ledger pedido: linhas para E-SF-30 (#1267), E-SF-31 (#1280), E-SF-32 (#1272). DL sugeridos: (a) teste `integration` só em tests/integration ou tests/unit (partição do runner); (b) nada de inventário de repo privado em repo público; (c) gitleaks: nome de constante com TOKEN_ + string dispara generic-api-key.
 - CI: #1267 2 pushes, #1272 2 pushes (+2 updates da mescladora), #1280 2 pushes (+1 update), #1281 1 push + 1 rerun (HTTP 502).
+DONE f4e7cad52f79ca69146128a22f222e22a5714dc6 linhas=47
