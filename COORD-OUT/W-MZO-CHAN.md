@@ -75,3 +75,5 @@ pronto: maezo-operadora #1276, head d0f463793c4e5137e7ea9c60b52b51eac648d44c, ch
 pronto: maezo-operadora #1279, head b14ba0d77e8c9c50b57156a8efae111e6ba97efe, checks verdes (integração lida do junit: cancel-contas 136/0, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0; job Java verde na rerodada única; exceto flip-path-review-gate = aprovação do security-team). Enviado à mescladora.
 
 - 2026-11-17 ~02:55Z: #1279 aguarda #1278 e Update branch pela mescladora. Respondidas à mescladora: (a) teste Java ContinuousPossessionCustodyTest:327 (censo de descritores do processo, 90 vs 91) não depende do diff; (b) nenhum teste confere digests de contracts.json/administrative-contracts.md com source-readiness.json.
+
+pronto: maezo-operadora #1279, head 128237cc570f046cac0208003672625ffa132949, checks verdes (após Update branch, main 2b421e5a; junit de integração: cancel-contas 136/0, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0; job Java verde de primeira; exceto flip-path-review-gate = aprovação do security-team). Enviado à mescladora.
