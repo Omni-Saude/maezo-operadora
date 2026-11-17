@@ -15,7 +15,11 @@ reconfirmação vencida. É só registro: nenhuma postura aplica efeito a partir
   resultado nem status e não muda o vencimento: ele só torna o aniversário visível como
   revisão própria, à espera da revalidação humana.
 - Não sinaliza o art. 39: o aniversário não é ingresso de beneficiário. O sinal do art. 39
-  continua sendo da postura do guard, sobre um comando do caminho coletivo.
+  continua sendo da postura do guard, sobre um comando do caminho coletivo: a idempotência
+  do guard é a cabeça já carregar `art39_signaled`, não `would_block`, então a linha do
+  aniversário não suprime a linha do guard.
+- O eixo é a PJ (como no guard: "tela verde" é atributo da PJ): o aniversário registrado é
+  o da última revisão da PJ, não o de um contrato específico que tenha disparado o evento.
 - Não tem efeito adverso: não chama gateway comercial, comunicação, processo nem efeito.
   Rescisão (`contract_termination`) é item hard L0 e nunca nasce aqui.
 - Não está montado: nenhuma composição de `src/` instancia este gatilho; quem o agenda é ato
@@ -93,11 +97,14 @@ class LegitimacyAnniversaryTrigger:
         self._clock = clock or (lambda: datetime.now(UTC))
 
     async def on_anniversary(self, legal_entity_ref: str) -> LegitimacyScreenRecord | None:
-        """Registra o aniversário da PJ; devolve a linha salva, ou `None` se nada a registrar."""
+        """Registra o aniversário da PJ; devolve a linha escrita, ou `None` se nada foi escrito."""
         head = await self._store.latest_for_legal_entity(self._tenant, legal_entity_ref)
         if head is None:
             return None
         revision = anniversary_revision(head, now=self._clock())
         if revision is None:
             return None
-        return await self._store.save(revision)
+        saved = await self._store.save(revision)
+        # `save` é INSERT … ON CONFLICT DO NOTHING: perdida a corrida (guard ou staff na mesma
+        # revisão), devolve a linha do outro escritor — então nada foi escrito por este.
+        return saved if saved.created_by == ANNIVERSARY_ACTOR else None

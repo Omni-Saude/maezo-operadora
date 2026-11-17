@@ -373,10 +373,10 @@ class LegitimacyScreenGateway(CommercialGateway):
         Nova revisão da MESMA instância (mesmo `screen_ref`/`opportunity_ref`), critérios
         do recibo copiados (critério→resultado→referência — o guard não inventa critério),
         `would_block`/`art39_signaled` da postura, âncora canônica do art. 39. Cabeça que
-        já carrega o sinal, aprovação, e PJ sem recibo: nada a escrever — idempotente.
+        já carrega o sinal do art. 39, aprovação, e PJ sem recibo: nada a escrever.
         """
         receipt = evaluation.receipt
-        if receipt is None or not evaluation.would_block or receipt.would_block:
+        if receipt is None or not evaluation.would_block or receipt.art39_signaled:
             return
         now = self._clock()
         await self.store.save(
