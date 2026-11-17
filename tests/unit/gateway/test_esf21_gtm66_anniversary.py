@@ -256,6 +256,8 @@ async def test_guarda_shadow_na_corrida_com_o_aniversario_nao_altera_a_resposta(
 async def test_guarda_enforcing_na_corrida_com_o_aniversario_recusa_indisponivel() -> None:
     # Na enforcing a mesma corrida nunca vira passagem: recusa com o par fixo de
     # indisponibilidade, antes de qualquer passo de fonte.
+    # O motivo (`source_unavailable` em vez de `legitimacy_unproven`) é o comportamento
+    # atual da enforcing não montada, não contrato: o PR que montar a enforcing decide.
     head = _valid_head()
     racing = _AnniversaryRace(head, _anniversary_row(head))
     gateway, _, source = _enforcing(racing)
