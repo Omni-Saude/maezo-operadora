@@ -24,6 +24,11 @@ from maezo.platform import observability, rco_composicao
 from maezo.platform import rco_manifesto as k1
 from maezo.platform.rco_manifesto import ComposicaoK1
 from maezo.tools.workers import rco_pin
+from maezo.tools.workers.dmn_transport import (
+    DmnDeterministicEvaluationError,
+    DmnHitPolicyViolationError,
+    DmnVersion,
+)
 from tests.unit.platform import rco_k1_sintetico as sint
 
 # --- leitor ------------------------------------------------------------------------------------------
@@ -202,22 +207,63 @@ def test_gate_recusa_campo_no_21(tmp_path: Path) -> None:
         rco_pin.load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
 
 
-# --- guarda: membro nao padrao nunca avaliado sozinho -----------------------------------------------
+# --- guarda: nenhum membro de grupo (padrao inclusive) avaliado sozinho ------------------------------
 
 
-def test_guarda_recusa_avaliar_membro_nao_padrao_sozinho(pacote_22: tuple[Path, dict[str, Any]]) -> None:
+def test_guarda_recusa_avaliar_membro_sozinho(pacote_22: tuple[Path, dict[str, Any]]) -> None:
     raiz, _ = pacote_22
     pin = rco_pin.load_rco_rules_pin(raiz / sint.LOCK_REL, rules_dir=raiz / sint.RULES_DIR)
-    assert rco_composicao.membro_nao_padrao(pin, _A) is True
-    assert rco_composicao.membro_nao_padrao(pin, _B) is False  # o padrao
-    assert rco_composicao.membro_nao_padrao(pin, "rco_fora_de_grupo") is False
-    with pytest.raises(rco_composicao.DecisaoSoEmComposicaoError, match="grupo_sint"):
+    assert rco_composicao.membro_de_composicao(pin, _A) is True
+    assert rco_composicao.membro_de_composicao(pin, "rco_fora_de_grupo") is False
+    with pytest.raises(rco_composicao.DecisaoSoEmComposicaoError, match="membro da composicao 'grupo_sint'"):
         rco_composicao.exigir_avaliacao_isolada(pin, _A)
-    rco_composicao.exigir_avaliacao_isolada(pin, _B)
     rco_composicao.exigir_avaliacao_isolada(pin, "rco_fora_de_grupo")
     # O manifesto serve de fonte igual ao pin.
     assert pin.manifesto is not None
-    assert rco_composicao.membro_nao_padrao(pin.manifesto, _A) is True
+    assert rco_composicao.membro_de_composicao(pin.manifesto, _A) is True
+
+
+def test_guarda_recusa_avaliar_o_padrao_sozinho(pacote_22: tuple[Path, dict[str, Any]]) -> None:
+    """Mais estrito que "membro nao padrao": o padrao sozinho perde os pares e erra para pagar (DL-0174)."""
+    raiz, _ = pacote_22
+    pin = rco_pin.load_rco_rules_pin(raiz / sint.LOCK_REL, rules_dir=raiz / sint.RULES_DIR)
+    assert pin.composicoes[0].padrao == _B
+    assert rco_composicao.membro_de_composicao(pin, _B) is True
+    with pytest.raises(rco_composicao.DecisaoSoEmComposicaoError, match="padrao da composicao 'grupo_sint'"):
+        rco_composicao.exigir_avaliacao_isolada(pin, _B)
+
+
+# --- grupo de TRES decisoes pelo leitor (forma da ortopedia: duas anteriores e o padrao) ------------
+
+
+@pytest.fixture
+def pacote_22_tres(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
+    manifesto = sint.com_tabela_c(tmp_path, sint.montar(tmp_path))
+    sint.com_composicoes(tmp_path, manifesto, [sint.COMPOSICAO_TRES])
+    return tmp_path, manifesto
+
+
+def test_grupo_de_tres_pelo_leitor_gate_e_runtime(pacote_22_tres: tuple[Path, dict[str, Any]]) -> None:
+    raiz, _ = pacote_22_tres
+    lido = _ler(raiz)
+    (grupo,) = lido.composicoes
+    assert grupo.decisoes == (_A, "rco_sint_c", _B)
+    assert grupo.anteriores == (_A, "rco_sint_c")
+    assert k1.verificar_pacote(lido, k1_dir=raiz / sint.K1_DIR, rules_dir=raiz / sint.RULES_DIR) == []
+    assert verify_lock(sint.lock(raiz), repo_root=raiz) == []
+    pin = rco_pin.load_rco_rules_pin(raiz / sint.LOCK_REL, rules_dir=raiz / sint.RULES_DIR)
+    assert pin.composicoes == (grupo,)
+    assert set(pin.tables) == {_A, _B, "rco_sint_c"}
+    for decisao in grupo.decisoes:
+        with pytest.raises(rco_composicao.DecisaoSoEmComposicaoError):
+            rco_composicao.exigir_avaliacao_isolada(pin, decisao)
+    # A segunda anterior vence quando so ela traz idRegra; o padrao, quando nenhuma traz.
+    respostas = {_A: [], "rco_sint_c": [_linha("SINT-C-0001")], _B: [_linha("SINT-B-0001", "informar")]}
+    r = rco_composicao.compor(grupo, _Fake(respostas), _ENTRADAS)
+    assert (r.decisao_vencedora, r.pelo_padrao) == ("rco_sint_c", False)
+    respostas["rco_sint_c"] = [_linha("")]
+    r = rco_composicao.compor(grupo, _Fake(respostas), _ENTRADAS)
+    assert (r.decisao_vencedora, r.pelo_padrao) == (_B, True)
 
 
 # --- semantica `primeira_com_idRegra` -----------------------------------------------------------------
@@ -342,8 +388,16 @@ def test_padrao_sem_linha_vale_sem_linha() -> None:
 
 @pytest.mark.parametrize(
     "linha_anterior",
-    [{"decisao": "liberar"}, _linha(None), _linha("")],
-    ids=["sem-chave", "null", "vazio"],
+    [
+        {"decisao": "liberar"},
+        _linha(None),
+        _linha(""),
+        _linha("   "),
+        _linha("\t\n"),
+        _linha('""'),
+        _linha(' "" '),
+    ],
+    ids=["sem-chave", "null", "vazio", "espacos", "tab-quebra", "literal-aspas", "literal-aspas-espacos"],
 )
 def test_id_regra_nulo_ou_vazio_conta_como_ausente(linha_anterior: dict[str, Any]) -> None:
     r = rco_composicao.compor(
@@ -451,3 +505,129 @@ def test_metrica_real_conta_a_violacao() -> None:
 
 def test_motivos_fechados_em_paridade_com_a_metrica() -> None:
     assert rco_composicao.MOTIVOS == observability.RCO_COMPOSICAO_MOTIVOS
+
+
+def test_id_regra_com_espacos_em_volta_conta_como_presente() -> None:
+    r = rco_composicao.compor(_G, _Fake({_P1: [_linha(" A ")], _P2: [], _PADRAO: [_linha("D")]}), _ENTRADAS)
+    assert r.decisao_vencedora == _P1
+
+
+# --- contrato do avaliador: (linhas, DmnVersion) de `DmnTransport.evaluate` ---------------------------
+
+
+def _versao(decisao: str) -> DmnVersion:
+    return DmnVersion(key=decisao, id=f"{decisao}:1:x", version=1, deployment_id="dep-1")
+
+
+def test_forma_tupla_com_dmn_version_leva_as_versoes_ao_resultado() -> None:
+    respostas = {
+        _P1: ([], _versao(_P1)),
+        _P2: ([_linha("B")], _versao(_P2)),
+        _PADRAO: ([_linha("D")], _versao(_PADRAO)),
+    }
+    r = rco_composicao.compor(_G, _Fake(respostas), _ENTRADAS)
+    assert (r.decisao_vencedora, r.linhas) == (_P2, (_linha("B"),))
+    assert dict(r.versoes) == {d: _versao(d) for d in _G.decisoes}
+
+
+def test_formas_misturadas_e_versoes_em_revisao_humana(contados: list[str]) -> None:
+    respostas = {_P1: ([_linha("A")], _versao(_P1)), _P2: [_linha("B")], _PADRAO: []}
+    r = rco_composicao.compor(_G, _Fake(respostas), _ENTRADAS)
+    assert (r.desfecho, r.motivo) == ("revisao_humana", "violacao_prova_rco")
+    assert dict(r.versoes) == {_P1: _versao(_P1)}  # so quem a devolveu
+
+
+def test_linhas_vencedoras_sao_copias_profundas() -> None:
+    linha = {"decisao": "glosar", "idRegra": "A", "detalhe": {"itens": [1]}}
+    r = rco_composicao.compor(_G, _Fake({_P1: [linha], _P2: [], _PADRAO: []}), _ENTRADAS)
+    (copia,) = r.linhas
+    assert copia == linha and copia is not linha
+    copia["detalhe"]["itens"].append(2)
+    assert linha["detalhe"] == {"itens": [1]}
+
+
+# --- sobreposicao UNIQUE nomeada pelo motor e o limite do CIB Seven 2.1.0 ----------------------------
+
+
+class _Levanta:
+    def __init__(self, decisao: str, exc: Exception) -> None:
+        self.decisao, self.exc = decisao, exc
+        self.chamadas: list[str] = []
+
+    def __call__(self, decisao: str, entradas: Mapping[str, Any]) -> Any:
+        self.chamadas.append(decisao)
+        if decisao == self.decisao:
+            raise self.exc
+        return ([], _versao(decisao))
+
+
+def test_hit_policy_violation_do_motor_e_violacao_cmp08(contados: list[str]) -> None:
+    fake = _Levanta(_P2, DmnHitPolicyViolationError(_P2, version=_versao(_P2)))
+    with structlog.testing.capture_logs() as logs:
+        r = rco_composicao.compor(_G, fake, _ENTRADAS)
+    assert (r.desfecho, r.motivo, r.linhas) == ("revisao_humana", "violacao_prova_rco", ())
+    assert fake.chamadas == [_P1, _P2]
+    assert [(e["event"], e["decisoes"], e["codigo"]) for e in logs] == [
+        ("rco_composicao_violacao_prova", [_P2], "CMP08_UNIQUE")
+    ]
+    assert dict(r.versoes) == {_P1: _versao(_P1), _P2: _versao(_P2)}
+    assert contados == ["violacao_prova_rco"]
+
+
+def test_erro_deterministico_generico_do_cib_seven_210_fica_avaliador_falhou(contados: list[str]) -> None:
+    """Limite documentado: o 2.1.0 nao nomeia a causa; o desfecho continua `revisao_humana`."""
+    fake = _Levanta(_PADRAO, DmnDeterministicEvaluationError(_PADRAO, version=_versao(_PADRAO)))
+    with structlog.testing.capture_logs() as logs:
+        r = rco_composicao.compor(_G, fake, _ENTRADAS)
+    assert (r.desfecho, r.motivo) == ("revisao_humana", "avaliador_falhou")
+    assert [(e["decisoes"], e["codigo"]) for e in logs] == [([_PADRAO], "DmnDeterministicEvaluationError")]
+    assert contados == ["avaliador_falhou"]
+
+
+# --- async: copia por chamada e falha no meio do grupo -------------------------------------------------
+
+
+def test_compor_async_copia_profunda_por_chamada() -> None:
+    vistas: list[dict[str, Any]] = []
+
+    async def avaliador(decisao: str, entradas: Mapping[str, Any]) -> list[dict[str, Any]]:
+        vistas.append(copy.deepcopy(dict(entradas)))
+        assert isinstance(entradas, dict)
+        entradas["lista"].append(99)
+        entradas["novo"] = decisao
+        return []
+
+    r = asyncio.run(rco_composicao.compor_async(_G, avaliador, _ENTRADAS))
+    assert vistas == [_ENTRADAS, _ENTRADAS, _ENTRADAS]
+    assert _ENTRADAS == {"codigoPrincipal": "X", "lista": [1, 2]}
+    assert (r.decisao_vencedora, r.pelo_padrao) == (_PADRAO, True)
+
+
+def test_compor_async_falha_no_meio_do_grupo(contados: list[str]) -> None:
+    chamadas: list[str] = []
+
+    async def avaliador(decisao: str, entradas: Mapping[str, Any]) -> Any:
+        chamadas.append(decisao)
+        if decisao == _P2:
+            raise ConnectionError("motor fora")
+        return ([_linha("A")], _versao(decisao))
+
+    r = asyncio.run(rco_composicao.compor_async(_G, avaliador, _ENTRADAS))
+    assert (r.desfecho, r.motivo, r.linhas, r.decisao_vencedora) == (
+        "revisao_humana",
+        "avaliador_falhou",
+        (),
+        None,
+    )
+    assert chamadas == [_P1, _P2]
+    assert r.avaliadas == (_P1,)
+    assert contados == ["avaliador_falhou"]
+
+
+def test_motivo_fora_do_vocabulario_vira_outro_na_metrica() -> None:
+    registro = observability.get_metrics_collector().registry
+    nome = "maezo_rco_composicao_revisao_humana_total"
+    antes = registro.get_sample_value(nome, {"motivo": "outro"}) or 0.0
+    observability.record_rco_composicao_revisao("motivo_inventado")
+    assert registro.get_sample_value(nome, {"motivo": "outro"}) == antes + 1
+    assert registro.get_sample_value(nome, {"motivo": "motivo_inventado"}) is None

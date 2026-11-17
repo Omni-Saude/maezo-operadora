@@ -359,3 +359,48 @@ def com_composicoes(
         manifesto.pop("composicoes", None)
     regravar(raiz, manifesto)
     return manifesto
+
+
+#: Terceira tabela sintetica (so com `com_tabela_c`), para um grupo na forma da ortopedia: duas
+#: decisoes anteriores (`rco_sint_a`, `rco_sint_c`) e o padrao (`rco_sint_b`).
+_TABELA_C: tuple[list[str], list[list[str]], list[str]] = (
+    SAIDAS_OBRIGATORIAS,
+    [
+        ['"glosar"', '"1801"', '"SINT-C-0001"', '"cadastro"', '"administrativo"'],
+        ['"liberar"', '""', '""', '""', '""'],
+    ],
+    ["SINT-C-0001"],
+)
+COMPOSICAO_TRES: dict[str, Any] = {
+    "decisoes": ["rco_sint_a", "rco_sint_c", "rco_sint_b"],
+    "nome": "grupo_sint_tres",
+    "padrao": "rco_sint_b",
+    "regra": "primeira_com_idRegra",
+}
+
+
+def com_tabela_c(raiz: Path, manifesto: dict[str, Any]) -> dict[str, Any]:
+    """Acrescenta a tabela `rco_sint_c` ao pacote (DMN, `decisoes[]` e `artifacts` do lock) e repina."""
+    saidas, linhas, ids = _TABELA_C
+    raw = dmn_bytes("rco_sint_c", saidas, linhas)
+    (raiz / RULES_DIR / "sint_c.dmn").write_bytes(raw)
+    modelo = copy.deepcopy(manifesto["decisoes"][0])
+    modelo.update(
+        {
+            "arquivo": "dmn/sint_c.dmn",
+            "caminho_consumidor": f"{RULES_DIR}/sint_c.dmn",
+            "id": "rco_sint_c",
+            "id_original": "sint_c",
+            "regras": [_regra(i, f"1.0.{n}", 2, ("plena", False)) for n, i in enumerate(ids)],
+            "saidas": [{"nome": s, "nome_snake": s.lower(), "typeRef": "string"} for s in saidas],
+            "sha256": sha(raw),
+        }
+    )
+    manifesto["decisoes"] = sorted([*manifesto["decisoes"], modelo], key=lambda d: d["id"])
+    atual = lock(raiz)
+    atual["artifacts"] = [
+        {"path": d["caminho_consumidor"], "sha256": d["sha256"]} for d in manifesto["decisoes"]
+    ]
+    gravar_lock(raiz, atual)
+    regravar(raiz, manifesto)
+    return manifesto

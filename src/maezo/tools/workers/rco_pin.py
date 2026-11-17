@@ -170,7 +170,7 @@ class RcoRulesPin:
     def composicoes(self) -> tuple[rco_manifesto.ComposicaoK1, ...]:
         """`composicoes[]` do manifesto pinado (formato 2.2.0, DL-0174); vazio sem pacote ou abaixo de 2.2.
 
-        Uma decisao que nao e o padrao do seu grupo nunca e avaliada sozinha: quem avalia usa
+        Nenhuma decisao de um grupo (padrao inclusive) e avaliada sozinha: quem avalia usa
         `maezo.platform.rco_composicao.exigir_avaliacao_isolada` antes e `compor` para o grupo.
         """
         return self.manifesto.composicoes if self.manifesto is not None else ()
