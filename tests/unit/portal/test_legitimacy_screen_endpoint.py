@@ -29,7 +29,7 @@ Fail-closed proofs in this module:
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -50,6 +50,7 @@ from tests.unit.portal.test_human_session import membership as staff_membership
 from maezo.gateway.commercial_legitimacy_screen import (
     LegitimacyScreenRecord,
     LegitimacyScreenStoreError,
+    same_screen_revision_content,
 )
 from maezo.portal.api.app import create_app
 from maezo.portal.api.legitimacy_screen import (
@@ -76,26 +77,35 @@ _SHA = "b" * 64
 class RecordingStore:
     """Test double of the substrate port (#1022): in-memory, with the SAME semantics.
 
-    `save` is idempotent on the instance key and refuses a second instance of the same
-    opportunity+revision under another `screen_ref` (`contract_mismatch` — the store-level
-    refusal the boundary translates to `screen_conflict`).
+    `save` is idempotent on the instance key ONLY for a resend (same content and author —
+    `same_screen_revision_content`), raises `revision_taken` when the key holds another
+    writer's record, and refuses a second instance of the same opportunity+revision under
+    another `screen_ref` (`contract_mismatch` — the store-level refusal the boundary
+    translates to `screen_conflict`). `before_save` lets a test interleave a concurrent
+    writer between the service's head read and its write (the revalidation race).
     """
 
     def __init__(self) -> None:
         self.rows: dict[tuple[str, str, int], LegitimacyScreenRecord] = {}
         self.opportunities: dict[tuple[str, str, int], str] = {}
         self.calls: list[str] = []
+        self.before_save: Callable[[], Awaitable[None]] | None = None
 
     async def save(self, record: LegitimacyScreenRecord) -> LegitimacyScreenRecord:
         self.calls.append("save")
+        if self.before_save is not None:
+            interleave, self.before_save = self.before_save, None
+            await interleave()
         key = (record.tenant, record.screen_ref, record.screen_revision)
+        existing = self.rows.get(key)
+        if existing is not None:
+            if not same_screen_revision_content(existing, record):
+                raise LegitimacyScreenStoreError("revision_taken")
+            return existing
         binding = (record.tenant, record.opportunity_ref, record.screen_revision)
         owner = self.opportunities.get(binding)
         if owner is not None and owner != record.screen_ref:
             raise LegitimacyScreenStoreError("contract_mismatch")
-        existing = self.rows.get(key)
-        if existing is not None:
-            return existing
         self.rows[key] = record
         self.opportunities[binding] = record.screen_ref
         return record
@@ -629,6 +639,61 @@ async def test_revalidacao_cria_nova_revisao_e_stale_e_409() -> None:
         assert stale.status_code == 409
         assert stale.json() == {"code": "stale_revision"}
         assert app.store.rows[("test-tenant", ref, 2)].created_by == "human-internal-1"
+
+
+@pytest.mark.asyncio
+async def test_corrida_de_revalidacao_e_409_stale_e_nunca_201_com_a_linha_do_outro() -> None:
+    """Outro escritor grava a revisão N+1 entre a leitura da cabeça e a escrita: o store
+    responde `revision_taken` e a fronteira devolve 409 `stale_revision` — nunca 201 com os
+    critérios/estado/autor do outro. Sem retry automático: uma única tentativa de escrita."""
+    async with LegitimacyApp(flag=True, bind=True) as app:
+        csrf = await session_csrf(app)
+        primeira = (await post(app, csrf, body())).json()
+        ref = primeira["screen_ref"]
+        head = app.store.rows[("test-tenant", ref, 1)]
+        other = head.model_copy(
+            update={"screen_revision": 2, "status": "invalid", "created_by": "staff-outro"}
+        )
+
+        async def outro_escritor() -> None:
+            app.store.rows[("test-tenant", ref, 2)] = other
+
+        app.store.before_save = outro_escritor
+        saves_antes = app.store.calls.count("save")
+        corrida = await post(
+            app,
+            csrf,
+            body(vinculo_beneficiario_contratante={"result": "pending"}, screen_revision=1),
+            path=f"{ROUTE}/{ref}",
+        )
+        assert corrida.status_code == 409
+        assert corrida.json() == {"code": "stale_revision"}
+        assert app.store.calls.count("save") == saves_antes + 1  # sem retry automático
+        assert app.store.rows[("test-tenant", ref, 2)] is other  # a linha do vencedor intacta
+
+
+@pytest.mark.asyncio
+async def test_primeira_criacao_com_chave_tomada_e_screen_conflict_e_reenvio_e_idempotente(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Na criação o cliente não ecoa revisão: chave (ref cunhado, 1) já ocupada por OUTRO
+    registro é colisão de identidade ⇒ 409 `screen_conflict`; o MESMO registro (só os
+    carimbos mudam) é reenvio idempotente ⇒ 201 com a linha existente."""
+    import maezo.portal.api.legitimacy_screen as surface
+
+    fixed = "scr-" + "c" * 32
+    monkeypatch.setattr(surface, "_new_screen_ref", lambda: fixed)
+    async with LegitimacyApp(flag=True, bind=True) as app:
+        csrf = await session_csrf(app)
+        primeira = await post(app, csrf, body())
+        assert primeira.status_code == 201
+        reenvio = await post(app, csrf, body())
+        assert reenvio.status_code == 201
+        assert reenvio.json() == primeira.json()  # a linha EXISTENTE, carimbos inclusos
+        outra = await post(app, csrf, body(vinculo_beneficiario_contratante={"result": "pending"}))
+        assert outra.status_code == 409
+        assert outra.json() == {"code": "screen_conflict"}
+        assert app.store.rows[("test-tenant", fixed, 1)].status == "valid"
 
 
 @pytest.mark.asyncio

@@ -17,13 +17,36 @@ Tres pecas, da mais pura para a menos:
    sob `pg_advisory_xact_lock` por (tenant, idRegra, versaoRegra): duas avaliacoes concorrentes da mesma
    regra se serializam e nunca recebem o mesmo ordinal (um indice unico parcial e a segunda barreira).
 
-Ordinal. Conta so as decisoes que a revisao inicial e a conferencia inicial miram (ADR-0077 §3): as
-adversas COERENTES COM A CLASSE (`glosar` com `contas`/`administrativo`; `negar` com `administrativo`;
-`rco_ativacao.CLASSES_COM_EFEITO`). Contar tambem `liberar` consumiria a janela de 30 antes de qualquer
-glosa; contar uma combinacao incoerente (ex.: `negar` clinico, que vai ao humano) consumiria a janela
-com caso que nunca chega a efeito. Qualquer outra decisao: ordinal nulo, nunca amostrada.
-ATENCAO (5d/5e): a linha perdida no caminho FAIL-OPEN do harness desloca os ordinais seguintes (o MAX+1
-nao ve a linha que nao entrou); antes de ligar qualquer efeito a janela inicial precisa de outra fonte.
+Amostra inicial (DL-0182, decisao D1 do dono: 100% das primeiras glosas COM EFEITO de cada regra). Com
+efeito possivel (`modo = ativa`) conta, sob o lock da regra, as decisoes anteriores gravadas da mesma
+decisao adversa da regra/versao com `modo = ativa` e `acao = efeito_com_amostragem`
+(`_EFEITOS_ANTERIORES_SQL`): sombra e decisao sem efeito nunca a consomem; contagem desconhecida amostra.
+
+Ordinal. Conta so as decisoes que a revisao inicial mira (ADR-0077 §3): as adversas COERENTES COM A
+CLASSE (`glosar` com `contas`/`administrativo`; `negar` com `administrativo`;
+`rco_ativacao.CLASSES_COM_EFEITO`). Contar tambem `liberar` consumiria a janela antes de qualquer glosa;
+contar uma combinacao incoerente (ex.: `negar` clinico, que vai ao humano) consumiria a janela com caso
+que nunca chega a efeito. Qualquer outra decisao: ordinal nulo, nunca amostrada. O ordinal continua
+gravado e so alimenta a amostra inicial OBSERVACIONAL das linhas sem efeito possivel; e o MAX+1 das
+linhas JA GRAVADAS, lido na mesma transacao que grava (nunca reservado antes). Linha perdida (DL-0182):
+com o efeito possivel (`modo` diferente de `sombra`) o harness nao completa a tarefa sem a linha gravada
+(fail-closed; a re-entrega grava com a mesma `chave_idempotencia`), entao nenhuma decisao com efeito fica
+fora da contagem; em `sombra` a perda continua fail-open, porque nada age.
+
+Janela da `conferida` (DL-0182). NAO e o ordinal: conta so conferencias CONFIRMADAS por humano
+(`rco_ativacao.conferencias_confirmadas`; aqui, `_CONFIRMADAS_SQL`), por (tenant, idRegra, versaoRegra) e
+pela MESMA decisao adversa do caso (a janela da `glosar` conta so `glosar`): desfecho `sim` de decisao com
+`acao = conferencia`, depois do `nao` mais recente da regra/versao. Sombra e decisao que nao foi
+conferencia nunca consomem a janela; versao nova comeca do zero pela chave. Lida sob o MESMO lock da
+regra que `registrar_desfecho` toma, entao um `nao` gravado antes ja fecha a decisao seguinte.
+
+Desfecho (`registrar_desfecho`, DL-0182). O clique de uma conferencia (`confirmar` -> `sim`, `rejeitar`
+-> `nao`; `sem_desfecho` para a conferencia que nao saiu) vira LINHA NOVA em
+`rco_decisao_regra_desfecho` (append-only). So decisao com `acao = conferencia`; o mesmo desfecho
+repetido (re-tentativa) nao grava de novo; `sem_desfecho` nao sobrescreve `sim`/`nao`. Um `nao` zera a
+janela e alerta a coordenacao (log estruturado so com codigos e ids, e a metrica
+`maezo_rco_conferencia_rejeitada_total`). O alerta e best-effort DEPOIS do commit: uma queda entre o
+commit e o log/metrica perde esse alerta, e a re-tentativa (idempotente) nao alerta de novo.
 
 Idempotencia. `chave_idempotencia` = sha256 de `tenant:task_id:decision_key`: a re-entrega da mesma
 tarefa externa nao grava de novo nem consome ordinal (o INSERT cai em `ON CONFLICT DO NOTHING`).
@@ -45,12 +68,19 @@ import os
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
+from types import MappingProxyType
 from typing import Any, Final, Protocol, runtime_checkable
+
+import structlog
 
 from maezo.gateway.audit_postgres import normalize_dsn, schema_for_tenant
 from maezo.platform import rco_ativacao as ativ
+from maezo.platform.observability import record_rco_conferencia_rejeitada
 from maezo.platform.rco_manifesto import ParametrosAtivacao, RegraK1
 from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
+
+logger = structlog.get_logger(__name__)
 
 #: Segredo da amostragem (§4) e o identificador (NAO secreto) da chave que decidiu a linha. Provisionados
 #: por humano; nenhum arquivo de deploy os define em 5c-2. Sem os dois, toda decisao amostravel e
@@ -276,21 +306,39 @@ class LinhaDecisao:
         return tuple(getattr(self, c) for c in COLUNAS)
 
 
-def montar_linha(av: AvaliacaoRegra, ctx: ContextoDecisao, ordinal: int | None) -> LinhaDecisao:
+def montar_linha(
+    av: AvaliacaoRegra,
+    ctx: ContextoDecisao,
+    ordinal: int | None,
+    *,
+    conferencias_confirmadas: int | None = None,
+    efeitos_anteriores: int | None = None,
+) -> LinhaDecisao:
     """Funcao pura. `ordinal` e `None` para decisao sem amostragem; para `negar`/`glosar` e o 1-based
     por (idRegra, versaoRegra) dado por quem grava, sob lock.
 
     Amostragem (§4): so `negar`/`glosar`. As primeiras `revisao_inicial_decisoes` sao `inicial`; depois,
     HMAC com a chave do ambiente (`aleatoria`), ou `chave_ausente` sem chave (toda adversa amostrada).
-    A acao e a de `filtrar_saida` (em sombra, `registrar_apenas`); `conferencia_inicial` e o caso entre as
-    primeiras `conferencia_negativa_admin_decisoes`.
+    A acao e a de `filtrar_saida` (em sombra, `registrar_apenas`). `conferencias_confirmadas` (DL-0182) e
+    a contagem da janela da `conferida`, lida por quem grava sob o lock da regra; `None` (desconhecida)
+    mantem a janela aberta: a decisao vai a conferencia.
+
+    Amostra inicial (DL-0182, D1): com efeito possivel (`modo = ativa`) conta `efeitos_anteriores`
+    (decisoes anteriores da mesma decisao adversa da regra/versao gravadas com efeito), nunca o ordinal,
+    que a sombra consome; `None` amostra. Sem efeito possivel (sombra, desligada) segue o ordinal, so
+    observacao.
     """
     amostrada, motivo = False, ""
     por_chave = False  # a chave HMAC decidiu a linha (amostrada ou nao): so assim o id dela e gravado
     if av.tem_ordinal:
         if ordinal is None:
             raise ValueError("montar_linha: decisao amostravel exige ordinal")
-        amostrada, motivo = ativ.amostra_inicial(ordinal, av.revisao_inicial_decisoes)
+        if av.modo == "ativa":
+            amostrada, motivo = ativ.amostra_inicial_por_efeitos(
+                efeitos_anteriores, av.revisao_inicial_decisoes
+            )
+        else:
+            amostrada, motivo = ativ.amostra_inicial(ordinal, av.revisao_inicial_decisoes)
         if not amostrada:
             amostrada, motivo = ativ.amostrar(
                 ctx.chave_amostra,
@@ -311,7 +359,9 @@ def montar_linha(av: AvaliacaoRegra, ctx: ContextoDecisao, ordinal: int | None) 
         fila=av.fila,
         exige_aditivo=av.exige_aditivo,
         aditivo_cobre=None,
-        conferencia_inicial=ordinal is not None and ordinal <= av.conferencia_negativa_admin_decisoes,
+        conferencia_inicial=ativ.janela_de_conferencia_aberta(
+            conferencias_confirmadas, av.conferencia_negativa_admin_decisoes
+        ),
         amostrada=amostrada,
     )
     return LinhaDecisao(
@@ -358,6 +408,38 @@ _ORDINAL_SQL: Final = (
     "SELECT COALESCE(MAX(ordinal), 0) + 1 FROM rco_decisao_regra "
     "WHERE tenant = $1 AND id_regra = $2 AND versao_regra = $3"
 )
+#: Janela da `conferida` (DL-0182): espelho SQL de `rco_ativacao.conferencias_confirmadas`. So desfechos
+#: de decisao da regra com `acao = conferencia` (logo `modo = ativa`: sombra nunca entra; inclui as dadas
+#: sob `conferencia_integral`); conta as decisoes distintas da MESMA `decisao` ($4) com `sim` de id maior
+#: que o do `nao` mais recente da regra/versao (de qualquer decisao: um `nao` zera todas). Indices da 0035:
+#: `rco_decisao_regra_regra_idx` e `rco_decisao_regra_desfecho_fk_idx`.
+#: LIMITADA por $5 (o tamanho da janela; NULL = sem limite): devolve min(contagem, $5), porque so importa
+#: saber se a janela fechou, e o registro e fail-closed sob `statement_timeout`. O ultimo `nao` sai pelo
+#: id decrescente com LIMIT 1 (para no primeiro achado).
+_CONFIRMADAS_SQL: Final = (
+    "SELECT count(*) FROM ("
+    "SELECT DISTINCT f.rco_decisao_regra_id "
+    "FROM rco_decisao_regra_desfecho f JOIN rco_decisao_regra r ON r.id = f.rco_decisao_regra_id "
+    "WHERE r.tenant = $1 AND r.id_regra = $2 AND r.versao_regra = $3 "
+    "AND r.acao = 'conferencia' AND r.modo = 'ativa' AND r.decisao = $4 AND f.concordou = 'sim' "
+    "AND f.id > COALESCE(("
+    "SELECT n.id FROM rco_decisao_regra_desfecho n JOIN rco_decisao_regra rn "
+    "ON rn.id = n.rco_decisao_regra_id "
+    "WHERE rn.tenant = $1 AND rn.id_regra = $2 AND rn.versao_regra = $3 "
+    "AND rn.acao = 'conferencia' AND rn.modo = 'ativa' AND n.concordou = 'nao' "
+    "ORDER BY n.id DESC LIMIT 1), 0) "
+    "LIMIT $5) s"
+)
+#: Amostra inicial com efeito possivel (DL-0182, D1): decisoes ANTERIORES gravadas da mesma decisao
+#: adversa ($4) da regra/versao que chegaram a efeito (`modo = ativa`, `acao = efeito_com_amostragem`,
+#: `rco_ativacao.ACAO_EFEITO_ADVERSO`). Sombra, conferencia e revisao humana nunca consomem.
+#: LIMITADA por $5 (`revisao_inicial_decisoes`): so importa saber se a revisao inicial ja foi cumprida.
+_EFEITOS_ANTERIORES_SQL: Final = (
+    "SELECT count(*) FROM (SELECT 1 FROM rco_decisao_regra "
+    "WHERE tenant = $1 AND id_regra = $2 AND versao_regra = $3 AND decisao = $4 "
+    f"AND modo = 'ativa' AND acao = '{ativ.ACAO_EFEITO_ADVERSO}' "
+    "LIMIT $5) s"
+)
 _INSERT_SQL: Final = (
     f"INSERT INTO rco_decisao_regra ({', '.join(COLUNAS)}) "
     f"VALUES ({', '.join(f'${i}' for i in range(1, len(COLUNAS) + 1))}) "
@@ -385,7 +467,127 @@ async def _fechar(conn: Any) -> None:
 
 
 def _chave_lock(tenant: str, id_regra: str, versao_regra: str) -> str:
+    """Lock da REGRA: serializa ordinal, janela da `conferida` e desfecho da mesma (idRegra, versaoRegra)."""
     return f"rco-ordinal|{tenant}|{id_regra}|{versao_regra}"
+
+
+def _usa_janela_de_conferencia(av: AvaliacaoRegra) -> bool:
+    """So a `conferida` com efeito possivel le a contagem; em sombra nada age e a consulta nao roda."""
+    return av.tem_ordinal and av.modo == "ativa" and av.ativacao_efetiva == "conferida"
+
+
+# ---------------------------------------------------------------------------
+# Desfecho da conferencia (DL-0182)
+# ---------------------------------------------------------------------------
+
+#: Contrato da conferencia de um clique (a UI do 5d-2 envia o clique; o banco guarda `concordou`).
+CLIQUES_DA_CONFERENCIA: Final[Mapping[str, str]] = MappingProxyType(
+    {"confirmar": ativ.CONCORDOU_SIM, "rejeitar": ativ.CONCORDOU_NAO, "sem_desfecho": ativ.SEM_DESFECHO}
+)
+#: Codigos de recusa do escritor de desfecho (vocabulario fechado; vai em log e na excecao, nunca dado).
+RECUSAS_DESFECHO: Final[frozenset[str]] = frozenset(
+    {
+        "clique_desconhecido",
+        "id_decisao_invalido",
+        "desfecho_em_ausente",
+        "desfecho_em_sem_fuso",
+        "desfecho_em_em_sem_desfecho",
+        "decisao_inexistente",
+        "acao_nao_e_conferencia",
+        "conferencia_ja_decidida",
+    }
+)
+
+
+class DesfechoRecusadoError(ValueError):
+    """O desfecho nao pode ser gravado. `codigo` e um de `RECUSAS_DESFECHO`; nada foi escrito."""
+
+    def __init__(self, codigo: str) -> None:
+        super().__init__(codigo)
+        self.codigo = codigo
+
+
+@dataclass(frozen=True, slots=True)
+class ResultadoDesfecho:
+    """`gravado=False`: o ultimo desfecho da decisao ja era este (re-tentativa), nada foi escrito.
+    `janela_reiniciada`: um `nao` novo foi gravado e zerou a janela da regra (e o alerta saiu)."""
+
+    gravado: bool
+    concordou: str
+    id_desfecho: int | None = None
+    janela_reiniciada: bool = False
+
+
+def concordancia_do_clique(clique: str) -> str:
+    """`confirmar` -> `sim`, `rejeitar` -> `nao`, `sem_desfecho` -> `sem_desfecho`; outro: recusa."""
+    concordou = CLIQUES_DA_CONFERENCIA.get(clique) if isinstance(clique, str) else None
+    if concordou is None:
+        raise DesfechoRecusadoError("clique_desconhecido")
+    return concordou
+
+
+def validar_desfecho_em(concordou: str, desfecho_em: datetime | None) -> None:
+    """`sim`/`nao` exigem o instante da decisao humana, com fuso; `sem_desfecho` nao tem instante."""
+    if concordou == ativ.SEM_DESFECHO:
+        if desfecho_em is not None:
+            raise DesfechoRecusadoError("desfecho_em_em_sem_desfecho")
+        return
+    if not isinstance(desfecho_em, datetime):
+        raise DesfechoRecusadoError("desfecho_em_ausente")
+    if desfecho_em.tzinfo is None or desfecho_em.utcoffset() is None:
+        raise DesfechoRecusadoError("desfecho_em_sem_fuso")
+
+
+def decidir_desfecho(*, acao: str, concordou: str, ultimo: str | None) -> bool:
+    """Funcao pura: grava (`True`), ja gravado (`False`, idempotente) ou recusa.
+
+    - So decisao com `acao = conferencia`: o clique de um clique so existe para ela. Desfecho de sombra
+      ou de revisao (K5, monitor do 5e) e outra porta, com contrato proprio; nao entra pela conferencia
+      nem conta para a janela.
+    - O mesmo desfecho que o ULTIMO da decisao e re-tentativa: nao grava de novo.
+    - `sem_desfecho` depois de `sim`/`nao` e recusado: conferencia decidida nao volta a ser indecisa.
+    - `sim` <-> `nao` e correcao humana: grava linha nova (vale o ultimo por `id`, migracao 0035).
+    """
+    if acao != "conferencia":
+        raise DesfechoRecusadoError("acao_nao_e_conferencia")
+    if ultimo == concordou:
+        return False
+    if concordou == ativ.SEM_DESFECHO and ultimo in (ativ.CONCORDOU_SIM, ativ.CONCORDOU_NAO):
+        raise DesfechoRecusadoError("conferencia_ja_decidida")
+    return True
+
+
+#: Alerta a coordenacao quando uma conferencia e rejeitada (a janela da regra volta a zero).
+EVENTO_CONFERENCIA_REJEITADA: Final[str] = "rco_conferencia_rejeitada_janela_reiniciada"
+
+
+def _alertar_rejeicao(
+    *, tenant: str, id_regra: str, versao_regra: str, decisao_id: int, ativacao: str
+) -> None:
+    """Log estruturado (so codigos e ids: nunca chave de negocio, guia ou beneficiario) e a metrica."""
+    logger.warning(
+        EVENTO_CONFERENCIA_REJEITADA,
+        tenant=tenant,
+        id_regra=id_regra,
+        versao_regra=versao_regra,
+        rco_decisao_regra_id=decisao_id,
+        ativacao_efetiva=ativacao,
+    )
+    record_rco_conferencia_rejeitada(ativacao)
+
+
+_DECISAO_SQL: Final = (
+    "SELECT id_regra, versao_regra, acao, ativacao_efetiva FROM rco_decisao_regra "
+    "WHERE id = $1 AND tenant = $2"
+)
+_ULTIMO_DESFECHO_SQL: Final = (
+    "SELECT concordou FROM rco_decisao_regra_desfecho "
+    "WHERE rco_decisao_regra_id = $1 ORDER BY id DESC LIMIT 1"
+)
+_INSERT_DESFECHO_SQL: Final = (
+    "INSERT INTO rco_decisao_regra_desfecho (rco_decisao_regra_id, concordou, desfecho_em) "
+    "VALUES ($1, $2, $3) RETURNING id"
+)
 
 
 class PostgresRegistroDecisoesRco:
@@ -427,6 +629,8 @@ class PostgresRegistroDecisoesRco:
                     await conn.execute(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'")
                     await conn.execute(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'")
                     ordinal: int | None = None
+                    confirmadas: int | None = None
+                    efeitos: int | None = None
                     if avaliacao.tem_ordinal:
                         # O lock vale ate o commit: a segunda transacao da mesma regra espera aqui e,
                         # em READ COMMITTED, o SELECT seguinte ja ve a linha que a primeira gravou.
@@ -439,7 +643,38 @@ class PostgresRegistroDecisoesRco:
                                 _ORDINAL_SQL, self._tenant, avaliacao.id_regra, avaliacao.versao_regra
                             )
                         )
-                    linha = montar_linha(avaliacao, contexto, ordinal)
+                        if _usa_janela_de_conferencia(avaliacao):
+                            # Sob o mesmo lock que `registrar_desfecho` toma: um `nao` ja gravado conta.
+                            confirmadas = int(
+                                await conn.fetchval(
+                                    _CONFIRMADAS_SQL,
+                                    self._tenant,
+                                    avaliacao.id_regra,
+                                    avaliacao.versao_regra,
+                                    avaliacao.decisao,
+                                    avaliacao.conferencia_negativa_admin_decisoes,
+                                )
+                            )
+                        if avaliacao.modo == "ativa":
+                            # D1 (DL-0182): a amostra inicial conta so glosas/negativas COM EFEITO desta
+                            # regra/versao e decisao, das linhas gravadas, sob o mesmo lock.
+                            efeitos = int(
+                                await conn.fetchval(
+                                    _EFEITOS_ANTERIORES_SQL,
+                                    self._tenant,
+                                    avaliacao.id_regra,
+                                    avaliacao.versao_regra,
+                                    avaliacao.decisao,
+                                    avaliacao.revisao_inicial_decisoes,
+                                )
+                            )
+                    linha = montar_linha(
+                        avaliacao,
+                        contexto,
+                        ordinal,
+                        conferencias_confirmadas=confirmadas,
+                        efeitos_anteriores=efeitos,
+                    )
                     gravado = await conn.fetchval(_INSERT_SQL, *linha.params())
             finally:
                 await _fechar(conn)
@@ -452,22 +687,122 @@ class PostgresRegistroDecisoesRco:
             ) from None
         return gravado is not None
 
+    async def _em_transacao(self, corpo: Callable[[Any], Awaitable[Any]]) -> Any:
+        """Uma conexao, o schema do tenant, uma transacao com os tetos do registro; erro vira tipo so."""
+        try:
+            conn = await self._conectar()
+            try:
+                await conn.execute(f'SET search_path TO "{self._schema}", public')
+                async with conn.transaction(isolation="read_committed"):
+                    await conn.execute(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'")
+                    await conn.execute(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'")
+                    return await corpo(conn)
+            finally:
+                await _fechar(conn)
+        except PROGRAMMING_ERRORS:
+            raise  # bug do proprio codigo: sobe com a pilha
+        except DesfechoRecusadoError:
+            raise  # recusa de contrato: o codigo ja diz o motivo, nada foi escrito
+        except Exception as exc:
+            raise RegistroRcoIndisponivelError(
+                f"rco_decisao_regra indisponivel: {type(exc).__name__}"
+            ) from None
+
+    async def contar_conferencias_confirmadas(
+        self, id_regra: str, versao_regra: str, decisao: str, *, limite: int | None = None
+    ) -> int:
+        """A contagem da janela da `conferida` (DL-0182) da `decisao` adversa de uma regra deste tenant,
+        como `registrar` a le; `limite` devolve `min(contagem, limite)` (`None`: sem limite)."""
+
+        async def corpo(conn: Any) -> int:
+            return int(
+                await conn.fetchval(_CONFIRMADAS_SQL, self._tenant, id_regra, versao_regra, decisao, limite)
+            )
+
+        return int(await self._em_transacao(corpo))
+
+    async def registrar_desfecho(
+        self, rco_decisao_regra_id: int, clique: str, *, desfecho_em: datetime | None
+    ) -> ResultadoDesfecho:
+        """Grava o desfecho humano de UMA conferencia (DL-0182). APPEND-ONLY: so INSERT.
+
+        Contrato: `clique` em `CLIQUES_DA_CONFERENCIA`; `desfecho_em` com fuso em `confirmar`/`rejeitar`
+        e `None` em `sem_desfecho`. Recusa (`DesfechoRecusadoError`, nada escrito): clique ou instante
+        invalido, decisao de outro tenant ou inexistente, decisao cuja `acao` nao e `conferencia`,
+        `sem_desfecho` sobre conferencia ja decidida. Idempotente: se o ultimo desfecho da decisao ja e
+        o pedido, devolve `gravado=False`. Le o ultimo desfecho e grava sob o lock da REGRA (o mesmo de
+        `registrar`), entao duas re-tentativas simultaneas gravam uma vez e a decisao seguinte da regra ja
+        ve o desfecho. Um `nao` novo zera a janela e alerta a coordenacao depois do commit.
+        """
+        concordou = concordancia_do_clique(clique)
+        validar_desfecho_em(concordou, desfecho_em)
+        if isinstance(rco_decisao_regra_id, bool) or not isinstance(rco_decisao_regra_id, int):
+            raise DesfechoRecusadoError("id_decisao_invalido")
+        if rco_decisao_regra_id <= 0:
+            raise DesfechoRecusadoError("id_decisao_invalido")
+
+        async def corpo(conn: Any) -> tuple[ResultadoDesfecho, Any]:
+            decisao = await conn.fetchrow(_DECISAO_SQL, rco_decisao_regra_id, self._tenant)
+            if decisao is None:
+                raise DesfechoRecusadoError("decisao_inexistente")
+            if decisao["acao"] != "conferencia":
+                raise DesfechoRecusadoError("acao_nao_e_conferencia")
+            await conn.execute(
+                _LOCK_SQL, _chave_lock(self._tenant, decisao["id_regra"], decisao["versao_regra"])
+            )
+            ultimo = await conn.fetchval(_ULTIMO_DESFECHO_SQL, rco_decisao_regra_id)
+            if not decidir_desfecho(acao=decisao["acao"], concordou=concordou, ultimo=ultimo):
+                return ResultadoDesfecho(gravado=False, concordou=concordou), decisao
+            id_desfecho = await conn.fetchval(
+                _INSERT_DESFECHO_SQL, rco_decisao_regra_id, concordou, desfecho_em
+            )
+            reinicio = concordou == ativ.CONCORDOU_NAO
+            return (
+                ResultadoDesfecho(
+                    gravado=True,
+                    concordou=concordou,
+                    id_desfecho=int(id_desfecho),
+                    janela_reiniciada=reinicio,
+                ),
+                decisao,
+            )
+
+        resultado: ResultadoDesfecho
+        resultado, decisao = await self._em_transacao(corpo)
+        if resultado.janela_reiniciada:
+            _alertar_rejeicao(
+                tenant=self._tenant,
+                id_regra=decisao["id_regra"],
+                versao_regra=decisao["versao_regra"],
+                decisao_id=rco_decisao_regra_id,
+                ativacao=decisao["ativacao_efetiva"],
+            )
+        return resultado
+
 
 __all__ = [
+    "CLIQUES_DA_CONFERENCIA",
     "COLUNAS",
     "CONCORDOU",
+    "EVENTO_CONFERENCIA_REJEITADA",
+    "RECUSAS_DESFECHO",
     "MOTIVOS_AMOSTRA",
     "VARIAVEL_CHAVE_AMOSTRA",
     "VARIAVEL_ID_CHAVE_AMOSTRA",
     "AvaliacaoRegra",
     "ContextoDecisao",
+    "DesfechoRecusadoError",
     "LinhaDecisao",
     "PostgresRegistroDecisoesRco",
     "RegistroDecisoesRco",
     "RegistroRcoIndisponivelError",
+    "ResultadoDesfecho",
     "avaliar_regra",
     "chave_amostra_do_ambiente",
     "chave_idempotencia",
+    "concordancia_do_clique",
     "contexto_da_tarefa",
+    "decidir_desfecho",
     "montar_linha",
+    "validar_desfecho_em",
 ]

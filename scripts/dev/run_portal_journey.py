@@ -57,6 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover - annotations only
 from maezo.gateway.commercial_legitimacy_screen import (  # noqa: E402
     LegitimacyScreenRecord,
     LegitimacyScreenStoreError,
+    same_screen_revision_content,
 )
 from maezo.portal.api.config import PortalSettings  # noqa: E402
 from maezo.portal.api.legitimacy_screen import LegitimacyScreenService  # noqa: E402
@@ -126,8 +127,11 @@ class LocalTestLegitimacyScreenStore:
     EP-CORE-15a: "flag ON local: 5 critérios com rótulos idênticos ao manifesto". The
     production composition has no default factory for the OP21 screen (the slot answers
     503), so this local-test session binds the REAL `LegitimacyScreenService` over this
-    in-memory store — same semantics as the Postgres store: idempotent `save` on the
-    instance key, `contract_mismatch` for a second instance of the same opportunity+revision.
+    in-memory store — same semantics as the Postgres store: `save` is idempotent on the
+    instance key ONLY for a resend (same content and author; only `created_at`/`updated_at`
+    may differ — `same_screen_revision_content`), raises `revision_taken` when the key holds
+    a different record, and `contract_mismatch` for a second instance of the same
+    opportunity+revision under another `screen_ref`.
     No commercial gateway is bound here, so the SHADOW guard is never composed.
     """
 
@@ -137,13 +141,15 @@ class LocalTestLegitimacyScreenStore:
 
     async def save(self, record: LegitimacyScreenRecord) -> LegitimacyScreenRecord:
         key = (record.tenant, record.screen_ref, record.screen_revision)
+        existing = self.rows.get(key)
+        if existing is not None:
+            if not same_screen_revision_content(existing, record):
+                raise LegitimacyScreenStoreError("revision_taken")
+            return existing
         binding = (record.tenant, record.opportunity_ref, record.screen_revision)
         owner = self.opportunities.get(binding)
         if owner is not None and owner != record.screen_ref:
             raise LegitimacyScreenStoreError("contract_mismatch")
-        existing = self.rows.get(key)
-        if existing is not None:
-            return existing
         self.rows[key] = record
         self.opportunities[binding] = record.screen_ref
         return record
