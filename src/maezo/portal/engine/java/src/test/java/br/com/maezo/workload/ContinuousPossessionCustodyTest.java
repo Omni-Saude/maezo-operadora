@@ -110,6 +110,27 @@ class ContinuousPossessionCustodyTest {
     return ((Number) Files.readAttributes(file, "unix:ino", LinkOption.NOFOLLOW_LINKS).get("ino")).longValue();
   }
 
+  /**
+   * The census restricted to the descriptors of the given files, by (dev, ino) as read
+   * through /proc/self/fd. The full census carries every regular-file descriptor of the
+   * JVM, so unrelated concurrent opens (classloading, surefire, logging) are excluded;
+   * the subset under test is still asserted exactly.
+   */
+  private static Map<Path, Map<String, Object>> censusOf(Path... files) throws Exception {
+    var identities = new java.util.HashSet<List<Object>>();
+    for (Path file : files) {
+      var identity = Files.readAttributes(file, "unix:dev,ino", LinkOption.NOFOLLOW_LINKS);
+      identities.add(List.of(((Number) identity.get("dev")).longValue(), ((Number) identity.get("ino")).longValue()));
+    }
+    var subset = new java.util.HashMap<Path, Map<String, Object>>();
+    for (var entry : RuntimeObservationAdmission.descriptorCensus().entrySet()) {
+      var attributes = entry.getValue();
+      if (identities.contains(List.of(((Number) attributes.get("dev")).longValue(),
+          ((Number) attributes.get("ino")).longValue()))) subset.put(entry.getKey(), attributes);
+    }
+    return subset;
+  }
+
   private static byte[] instrumentReadFile(Path path, String expected, int bound) throws Exception {
     Method read = ProviderNativeIndependentMeasurement.class.getDeclaredMethod(
         "readFile", Path.class, String.class, int.class, long.class, Runnable.class);
@@ -204,13 +225,13 @@ class ContinuousPossessionCustodyTest {
     assumeTrue(linux());
     Path path = protectedFile("admission.json", "{\"nonce\":\"one\"}".getBytes(StandardCharsets.US_ASCII));
     String digest = digestOf(Files.readAllBytes(path));
-    var before = RuntimeObservationAdmission.descriptorCensus();
+    assertEquals(0, censusOf(path).size());
     assertArrayEquals(Files.readAllBytes(path), RuntimeObservationAdmission.readProtected(path, digest, 65536));
-    var possessed = RuntimeObservationAdmission.descriptorCensus();
-    assertEquals(before.size() + 1, possessed.size());
+    var possessed = censusOf(path);
+    assertEquals(1, possessed.size());
     for (int round = 0; round < 3; round++) {
       assertArrayEquals(Files.readAllBytes(path), RuntimeObservationAdmission.readProtected(path, digest, 65536));
-      assertEquals(possessed, RuntimeObservationAdmission.descriptorCensus());
+      assertEquals(possessed, censusOf(path));
     }
     assertTrue(registry("RuntimeObservationAdmission", "POSSESSIONS").containsKey(path));
   }
@@ -321,13 +342,13 @@ class ContinuousPossessionCustodyTest {
     assumeTrue(linux() && instrumentChainIsCompliant());
     Path path = instrumentFile("material.jar", new byte[] {5, 6, 7, 8});
     String digest = digestOf(Files.readAllBytes(path));
-    var before = RuntimeObservationAdmission.descriptorCensus();
+    assertEquals(0, censusOf(path).size());
     assertArrayEquals(Files.readAllBytes(path), instrumentReadFile(path, digest, 32 * 1024 * 1024));
-    var possessed = RuntimeObservationAdmission.descriptorCensus();
-    assertEquals(before.size() + 1, possessed.size());
+    var possessed = censusOf(path);
+    assertEquals(1, possessed.size());
     for (int round = 0; round < 3; round++) {
       assertArrayEquals(Files.readAllBytes(path), instrumentReadFile(path, digest, 32 * 1024 * 1024));
-      assertEquals(possessed, RuntimeObservationAdmission.descriptorCensus());
+      assertEquals(possessed, censusOf(path));
     }
     assertTrue(registry("ProviderNativeIndependentMeasurement", "PINNED_FILES").containsKey(path));
   }
@@ -413,10 +434,10 @@ class ContinuousPossessionCustodyTest {
     assumeTrue(instrumentChainIsCompliant());
     Path first = instrumentFile("lib-one.jar", new byte[] {1, 2, 3});
     Path second = instrumentFile("lib-two.jar", new byte[] {4, 5, 6});
-    var before = RuntimeObservationAdmission.descriptorCensus();
+    assertEquals(Map.of(), censusOf(first, second));
     instrumentDigestInventoryFile(first, digestOf(Files.readAllBytes(first)));
     instrumentDigestInventoryFile(second, digestOf(Files.readAllBytes(second)));
-    assertEquals(before, RuntimeObservationAdmission.descriptorCensus());
+    assertEquals(Map.of(), censusOf(first, second));
     assertTrue(registry("ProviderNativeIndependentMeasurement", "PINNED_FILES").isEmpty());
     assertThrows(IllegalStateException.class, () -> instrumentDigestRefusing(first, digestOf(new byte[] {9, 9, 9})));
   }
