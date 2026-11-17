@@ -10,6 +10,11 @@ Tres travas, todas AQUI (nao so' na selecao):
 
 Texto livre dentro da janela de 24 h; fora dela, o TEMPLATE aprovado na Meta, com as mesmas tres variaveis.
 Numero, texto e variaveis nunca sao logados.
+
+QUARTA trava (E-SF-13 / GTM-E-41): `enviar` EXIGE a `AutorizacaoDeEnvio` que o `OutboundGate` emitiu para
+ESTAS variaveis (`outbound_gate.exigir_autorizacao`), nos dois caminhos (texto e template). Sem ela, ou com
+variaveis diferentes das que o gate conferiu, recusa antes do gate do principal e antes do cliente. No
+template, nome/idioma/variaveis saem da autorizacao (o `WhatsAppServer.send_template` confere de novo).
 """
 
 from __future__ import annotations
@@ -17,6 +22,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
+
+from maezo.gateway.communications.outbound_gate import AutorizacaoDeEnvio, exigir_autorizacao
 
 from .config import Allowlist
 from .texto import MensagemLembrete
@@ -37,11 +44,7 @@ class ClienteWhatsApp(Protocol):
     async def send_template(
         self,
         to: str,
-        template_name: str,
-        parameters: list[str],
-        *,
-        language: str = "pt_BR",
-        idempotency_key: str | None = None,
+        autorizacao: AutorizacaoDeEnvio,
     ) -> dict[str, Any]: ...
 
 
@@ -54,9 +57,8 @@ class ResultadoEnvio:
 @dataclass(frozen=True, slots=True)
 class _Envio:
     texto: str
-    parametros: tuple[str, str, str]
-    template_nome: str | None
-    template_idioma: str
+    autorizacao: AutorizacaoDeEnvio
+    via_template: bool
 
 
 class _RemetentePorEnvio:
@@ -72,14 +74,10 @@ class _RemetentePorEnvio:
         if to_hash != self._expected_hash:
             raise ValueError("lembrete: o destino nao bate com a conversa — recusando enviar")
         e = self._envio
-        if e.template_nome is not None:
-            return await self._client.send_template(
-                self._raw_to,
-                e.template_nome,
-                list(e.parametros),
-                language=e.template_idioma,
-                idempotency_key=idempotency_key,
-            )
+        if e.via_template:
+            # A chave de dedup do template e' a da autorizacao (selada); `idempotency_key` do gate do
+            # principal e' a mesma chave (`job._pedido` usa `chave` nos dois).
+            return await self._client.send_template(self._raw_to, e.autorizacao)
         return await self._client.send_message(self._raw_to, text, idempotency_key=idempotency_key)
 
 
@@ -113,21 +111,22 @@ class Enviador:
         mensagem: MensagemLembrete,
         via_template: bool,
         chave: str,
+        autorizacao: AutorizacaoDeEnvio,
     ) -> ResultadoEnvio:
         """Envia UMA mensagem. `entregue=False` quando o cliente suprimiu (duplicata ou faixa sintetica)."""
         if self._allowlist is not None and not self._allowlist.permite(conversation_id):
             raise DestinoForaDaAllowlistError("lembrete: conversa fora da allowlist")
         if not conversation_id.startswith(self._prefixo):
             raise ValueError("lembrete: conversa de outro tenant")
+        aut = exigir_autorizacao(autorizacao, parametros=mensagem.parametros_template)
         if via_template and not self._template_nome:
             raise ValueError("lembrete: template nao configurado")
+        if via_template and (
+            aut.template_name != self._template_nome or aut.language != self._template_idioma
+        ):
+            raise ValueError("lembrete: template configurado difere do registro")
         phone_hash = conversation_id[len(self._prefixo) :]
-        envio = _Envio(
-            texto=mensagem.texto,
-            parametros=mensagem.parametros_template,
-            template_nome=self._template_nome if via_template else None,
-            template_idioma=self._template_idioma,
-        )
+        envio = _Envio(texto=mensagem.texto, autorizacao=aut, via_template=via_template)
         remetente = self._gate(
             _RemetentePorEnvio(client=self._client, raw_to=raw_to, expected_hash=phone_hash, envio=envio)
         )

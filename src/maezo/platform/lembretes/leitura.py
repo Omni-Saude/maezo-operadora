@@ -21,6 +21,11 @@ from .job import Beneficiario
 #: (`consent_ref`), nao revogado, nada pendente de gravacao no lago e a referencia pseudonima presente.
 #: O estado `verificado` fica ate' a proxima mensagem depois da validade da verificacao; o que limita o
 #: tempo e' a custodia do telefone (30 dias desde a ultima mensagem: sem telefone, nao ha' envio).
+#:
+#: RT-D4 (ADDENDUM-01 §7 (q); E-SF-13): o consentimento selecionado aqui e' o de ATENDIMENTO (escopo
+#: `atendimento_whatsapp`, texto `wa-consent-v2`, "nesta conversa"). Ele NAO habilita envio proativo: o job
+#: o apresenta ao `OutboundGate` como tal (`job.permissao_do_acesso`) e o gate o recusa
+#: (`recontact_permission_unqualified`). Esta selecao continua sendo so' o universo de candidatos.
 _VERIFICADOS_SQL: Final[str] = """
 SELECT conversation_id, portable_subject_ref, consent_ref
 FROM conversa_acesso_beneficiario
