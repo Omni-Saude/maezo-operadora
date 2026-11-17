@@ -1922,7 +1922,7 @@
       "primary_family": "F3",
       "feature_disposition": "ADOPT_TRANSFORMED",
       "lead_proposed": [
-        "lucas"
+        "especialista_comercial"
       ],
       "conditional_specialists": [
         "rafael"
@@ -1961,8 +1961,7 @@
       "primary_family": "F2",
       "feature_disposition": "ADOPT_TRANSFORMED",
       "lead_proposed": [
-        "helena",
-        "lucas"
+        "especialista_comercial"
       ],
       "conditional_specialists": [],
       "operations": [
@@ -1991,7 +1990,7 @@
       "primary_family": "F3",
       "feature_disposition": "ADOPT_TRANSFORMED",
       "lead_proposed": [
-        "lucas"
+        "especialista_comercial"
       ],
       "conditional_specialists": [],
       "operations": [
@@ -2018,7 +2017,7 @@
       "primary_family": "F3",
       "feature_disposition": "ADOPT_TRANSFORMED",
       "lead_proposed": [
-        "lucas"
+        "especialista_comercial"
       ],
       "conditional_specialists": [
         "rafael"

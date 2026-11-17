@@ -1630,6 +1630,7 @@ class HelenaState(TypedDict, total=False):
     cobranca_foco: CobrancaFoco | None
     #: Onda (e): a passagem ao Lucas, escrita SO' pelo no' `handoff_cobranca`.
     handoff: HandoffCobranca | None
+    handoff_comercial: _passagem_comercial.HandoffComercial | None  # E-SF-17: so' `handoff_comercial`
     #: CONSULTA DO PLANO (DL de 07/10/2026): o subtipo validado (`None` fora de `consulta_plano`) e os
     #: literais do cadastro que a resposta deste turno carrega — as cercas de saida os leem APAGADOS
     #: (`consultas_plano.texto_para_cerca`): um status "em analise" do cadastro e' fato, nao invencao.
@@ -1781,6 +1782,7 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "cobranca_competencia": None,
     "cobranca_foco": None,
     "handoff": None,
+    "handoff_comercial": None,
     "consulta_subtipo": None,
     # F2 (ADR-0066): a habilidade que o roteador ativo escolheu; zera a cada turno (nunca vaza
     # para o proximo).
@@ -4245,30 +4247,18 @@ def _validate_extraction(
 PREFIXO_RELATO_NAO_VERIFICADO: str = "Relato do beneficiário (não verificado): "
 
 
-# ADR-0067 §5: os metodos desta habilidade moram em `travas_entrada` (importado AQUI, depois
-# dos helpers de modulo que ele usa, para o import circular ser seguro).
-# ADR-0067 §5: os metodos desta habilidade moram em `roteador` (importado AQUI, depois
-# dos helpers de modulo que ele usa, para o import circular ser seguro).
+# ADR-0067 §5: os metodos das habilidades moram nos modulos abaixo, importados AQUI, depois dos helpers de
+# modulo que eles usam (import circular seguro). Porta unica da saude: DL-0160/DL-0165, so' a DMN decide.
 from . import modelo_allowlist as _ma  # noqa: E402
 from . import roteador as _roteador  # noqa: E402
 from . import travas_entrada as _travas_entrada  # noqa: E402
-
-# ADR-0067 §5: os metodos desta habilidade moram em `habilidades.atendimento_humano.escalar` (importado
-# AQUI, depois dos helpers de modulo que ele usa, para o import circular ser seguro).
 from .habilidades.atendimento_humano import escalar as _escalar  # noqa: E402
 from .habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
 from .habilidades.atendimento_humano import recusa as _recusa  # noqa: E402
-
-# ADR-0067 §5: os metodos desta habilidade moram em `habilidades.conversa.fluxo` (importado AQUI, depois
-# dos helpers de modulo que ele usa, para o import circular ser seguro).
 from .habilidades.conversa import depois_do_lucas as _depois_do_lucas  # noqa: E402
 from .habilidades.conversa import fluxo as _conversa  # noqa: E402
-
-# ADR-0067 §5: os metodos desta habilidade moram em `habilidades.plano.consulta` (importado AQUI, depois
-# dos helpers de modulo que ele usa, para o import circular ser seguro).
+from .habilidades.passagem import comercial as _passagem_comercial  # noqa: E402
 from .habilidades.plano import consulta as _plano_consulta  # noqa: E402
-
-# A porta unica da saude (DL-0160/DL-0165): o modelo so' le, a tabela DMN decide.
 from .habilidades.saude_original import fluxo as _saude_original  # noqa: E402
 
 
@@ -4291,6 +4281,7 @@ class HelenaGraph:
         agent_version: str = "helena@v0",
         memoria_clinica_enabled: bool = True,
         roteador_lucas_enabled: bool = False,
+        roteador_comercial_enabled: bool = False,
         nome_operadora: str = NOME_OPERADORA_PADRAO,
         historico_enabled: bool = False,
         consultas_plano: FonteDeFatosDoPlano | None = None,
@@ -4395,6 +4386,7 @@ class HelenaGraph:
         # `handoff_cobranca` existe. So' a composicao do receptor com `MAEZO_ROTEADOR_LUCAS` ligado
         # passa `True` (`platform/webhooks/whatsapp/dispatch.py`).
         self._roteador_lucas_enabled = roteador_lucas_enabled is True
+        self._roteador_comercial_enabled = roteador_comercial_enabled is True  # E-SF-17: desligado
         self._dmn = dmn
         self._cibseven = cibseven
         # MEMORIA CLINICA (Frente 2.1): LIGADA por default, e a escolha e' deliberada. A memoria
@@ -6823,6 +6815,8 @@ class HelenaGraph:
 
     _respond_com_sombra = _roteador._respond_com_sombra
 
+    handoff_comercial = _passagem_comercial.handoff_comercial
+
     # -- Graph assembly -----------------------------------------------------------------------
 
     def compile_graph(self) -> StateGraph[HelenaState]:
@@ -6857,7 +6851,7 @@ class HelenaGraph:
         aresta = self._route_com_roteador if self._roteador_lucas_enabled else self._route
         if self._consultas is not None:
             aresta = self._route_com_consultas
-        g.add_conditional_edges("classify", aresta, destinos)
+        g.add_conditional_edges("classify", _passagem_comercial.ligar(self, g, destinos, aresta), destinos)
         g.add_edge("inform", "respond")
         g.add_edge("schedule", "respond")
         g.add_edge("escalate", "respond")
@@ -6933,6 +6927,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         agent_version=agent_version,
         memoria_clinica_enabled=memoria_clinica_enabled,
         roteador_lucas_enabled=roteador_lucas_enabled,
+        roteador_comercial_enabled=cfg.get("roteador_comercial_enabled", False) is True,
         nome_operadora=nome_operadora if isinstance(nome_operadora, str) else NOME_OPERADORA_PADRAO,
         historico_enabled=historico_enabled,
         consultas_plano=consultas if isinstance(consultas, FonteDeFatosDoPlano) else None,

@@ -152,6 +152,11 @@ _DECLARED_NOT_WIRED_TOOLS: Final[dict[tuple[str, str], str]] = {
     # (NEW-04/NEW-09/BEA-13) — por isso nao ha mais entradas aqui: carolina e beatriz passaram a
     # chamar exatamente o id que declaram, e helena deixou de declarar o que nao chama. O unico
     # residuo FHIR e o de helena logo abaixo, que e um PIN DE CATALOGO e nao uma deriva.
+    # E-SF-17: o agente comercial (flag desligada) nao envia nada pelo grafo: devolve o texto e a acao
+    # `send_prospect_message` ao despachante, que ainda nao existe para ele (ativacao = OWNER-DEPLOY).
+    ("comercial", "mcp-whatsapp.send_message"): (
+        "E-SF-17: flag desligada; o envio e' do despachante (inexistente hoje), nunca do grafo"
+    ),
     ("helena", "mcp-fhir.read_coverage"): (
         "OWNER-GATED: unico agent.yaml que ainda declara o id, exigido por "
         "test_every_catalogued_tool_id_is_declared_by_some_agent (tirar do catalogo exigiria "
@@ -179,6 +184,10 @@ _ACTION_NOT_TOOL_SHAPED: Final[frozenset[str]] = frozenset(
     {
         "informational_response",
         "reminders_nudges",
+        # E-SF-17 (agente comercial): rota ao humano/Helena e resposta ao prospect, devolvidas ao
+        # despachante como dado (rota + acao de envio); nenhuma chamada de tool no grafo.
+        "triage_and_routing",
+        "send_prospect_message",
         "ans_official_submission",
         "nip_response",
         # Lucas: leitura dos fatos de cobranca/identidade pelo contrato da AMH. Nao ha' tool MCP:
