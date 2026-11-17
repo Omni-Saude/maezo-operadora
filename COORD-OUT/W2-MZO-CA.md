@@ -112,3 +112,18 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
 - Arquivos tocados (4): `src/maezo/gateway/communications/outbound_gate.py`; `src/maezo/gateway/communications/whatsapp_templates.py`; `tests/unit/gateway/test_cd87_classes_fechadas.py` (novo); `tests/unit/platform/lembretes/test_optout_config_envio.py` (uma linha, CD-91).
 - Simulação de merge sobre `093357a2` (clone isolado, abortada): limpa, só os 4 arquivos.
 - Pronto enviado à coordenação do programa por `send_message`.
+
+## 2026-11-17 ~22:45Z — #1304 mesclado; CD-94/CD-95 lidas; ordem
+
+- maezo-operadora #1304 mesclado; main `4826d014`.
+- Ordem: a coordenação do programa (mensagem de 22:26Z) pediu o conserto do `primeiro_nome` primeiro e depois a linha da visão do console; a CD-94 punha a visão antes. Sigo a coordenação do programa (posterior; é quem mescla). Depois: GTM-E-63 → E-SF-23 → E-SF-15 → E-SF-22r.
+- CD-95 item 2 (o corpo do #1304 já tinha sido mesclado; a lista vai aqui e no PR do conserto): classes validadas só por formato e o que aceitariam indevidamente:
+  - `primeiro_nome`: qualquer palavra latina (ex.: nome de medicamento). → passa a ser resolvida pela fonte; valor do chamador recusado.
+  - `competencia_mes_ano`: qualquer mês por extenso + ano de 4 dígitos (mês/ano que não é o da cobrança).
+  - `valor_cobranca_reais`, `valor_centavos_formatado`: qualquer valor no formato (valor que não é o cobrado).
+  - `data_vencimento_dia_mes`, `data`, `data_publicacao_fonte`: qualquer data válida (data que não é a do fato).
+  - `contagem`: qualquer inteiro.
+  - `protocolo_ref`: qualquer sequência de dígitos com hífen (protocolo inexistente).
+  - `link_opaco_jornada`: qualquer hexadecimal/UUID ou URL com token hex (link que não é da jornada).
+  - `produto_catalogo`: já é conjunto fechado (vazio por falta de catálogo).
+- Q-W2-MZO-CA-03: CD-95 manda resolver pela fonte ou fechar em conjunto TODAS as classes da lista. Fonte de primeiro nome não existe no repositório (a custódia do destinatário guarda só telefone). Proposta (A, recomendada): neste PR, `primeiro_nome` passa a "resolvida pela fonte" — o chamador não informa o valor; sem fonte (GAP), todo modelo com essa classe é recusado. As classes de data, valor, contagem, protocolo e link usam só dígitos/separadores/hex (não codificam palavra, logo não carregam termo de saúde); a resolução pela fonte delas exige mudar o produtor de lembretes (caminho da W2-MZO-GP, E-SF-21r) e as fontes de cobrança: linha própria, com a lista acima como pré-condição de D20–D22. (B) resolver todas agora: fora de posse e sem fontes. Sigo (A), `PROVISÓRIO-aguarda-coordenador`.
