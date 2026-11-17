@@ -20,3 +20,4 @@ Recomendação: (a), adotada; (b) mexe em registro de ratificação e fica para 
 ACHADO docs/compliance/legal/MANIFEST.sha256 — a linha de `R-054-RATIFICACAO-CITACOES-POR-LINHA.md` não confere desde `581fc51` (arquivo editado depois da selagem); confirmado em `211c6ae`. A janela não re-hasheou (re-selar seria forjar custódia).
 ACHADO docs/plans/maezo-completion-program.md:251 — cita MAPA-ELEMENTOS-V4:106; após E-SF-30 o alvo está em :108 (caminho fora da janela).
 PRONTO maezo-operadora #1267 head 0a39b325cffb8c0dd7153e5fe37a1a573d627b12 checks verdes (integração: 5 shards verdes; o PR não traz teste de integração próprio; 2 pushes, o 2º corrige S307 do test_noqa_hygiene)
+PRONTO maezo-operadora #1272 head 1333992760eb45a5d20d95a3acc2123574acbea9 checks verdes (integração: 5 shards verdes; o PR não traz teste de integração próprio; 2 pushes, o 2º corrige falso positivo do gitleaks)
