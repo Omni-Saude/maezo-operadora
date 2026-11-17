@@ -192,6 +192,23 @@ def test_valores_do_produtor_de_lembretes_passam_nas_classes_do_template() -> No
                 assert not any(contem_dado_de_saude(v) for v in msg.parametros_template)
 
 
+def test_valores_reais_do_lembrete_passam_e_fora_do_formato_recusa() -> None:
+    """CD-91 item 3: os valores REAIS que o produtor de lembretes de cobranca gera hoje (mes por extenso,
+    valor, data) passam nos validadores das classes do template; fora do formato, recusa."""
+    msg = compor_lembrete(competencia="2026-10", valor_total="320.25", vencimento=date(2026, 10, 16))
+    assert msg.parametros_template == ("outubro de 2026", "320,25", "16/10")
+    classes = ("competencia_mes_ano", "valor_cobranca_reais", "data_vencimento_dia_mes")
+    assert all(valor_valido_para_classe(c, v) for c, v in zip(classes, msg.parametros_template, strict=True))
+    fora = {
+        "competencia_mes_ano": ("2026-10", "Outubro de 2026", "outubro 2026", "asma de 2026"),
+        "valor_cobranca_reais": ("320.25", "R$ 320,25", "320", "-320,25"),
+        "data_vencimento_dia_mes": ("2026-10-16", "16/10/2026", "32/10", "16 de outubro"),
+    }
+    for classe, valores in fora.items():
+        for valor in valores:
+            assert not valor_valido_para_classe(classe, valor), (classe, valor)
+
+
 def test_marca_de_teste_do_produtor_passa_na_classe_fechada() -> None:
     """`compor_teste` poe o literal `[TESTE] ` na variavel 1; a classe aceita SO' esse prefixo fixo."""
     msg = compor_teste(competencia="2026-10", valor_total="320.25", vencimento=date(2026, 10, 20))
