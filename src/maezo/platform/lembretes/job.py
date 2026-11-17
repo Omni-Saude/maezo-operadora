@@ -211,13 +211,13 @@ def _suprimido(vigentes: frozenset[tuple[str, str]], b: Beneficiario) -> bool:
 
 async def _permissao(deps: Dependencias, b: Beneficiario) -> PermissaoDeContato | None:
     """O criterio de selecao (E37): o aceite do termo, finalidade 2. Fonte que falha = nenhuma."""
-    if deps.permissao_de is None and deps.aceites is None:
-        return None
+    resolver, aceites = deps.permissao_de, deps.aceites
     try:
-        if deps.permissao_de is not None:
-            return deps.permissao_de(b)
-        assert deps.aceites is not None
-        return permissao_do_aceite(await deps.aceites.de(b))
+        if resolver is not None:
+            return resolver(b)
+        if aceites is None:
+            return None
+        return permissao_do_aceite(await aceites.de(b))
     except Exception:  # fonte de aceite fora do ar: desconhecido nunca vira aceite
         return None
 
