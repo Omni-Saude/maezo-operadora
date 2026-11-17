@@ -19,6 +19,12 @@ GAP that only TIGHTENS when it lands (the purpose allowlist is injected, never d
   successor) for score/segment/health slots.
 - TB-21-c (anti-benchmark) lives with the D-36 draft structures it fences, under
   `maezo.portal.contracts` (the A8 src vocabulary pin keeps that vocabulary there).
+- E-SF-06 (EP-REG-01a): `sla_claim_marker` flags a numeric deadline promise ("responderemos
+  em 7 dias úteis": marker + number + unit) in a source-provided support label; no prazo is
+  shown before Q1/DEC-18 are ratified, so the support disclosure gate refuses it (`unratified_sla_claim`).
+  The refusal-vocabulary (EP-REG-29a / TB-E-08-a) and personalization (EP-REG-02b) lints are
+  CI checks over contract documents and live with their tests (`tests/unit/gateway/
+  test_esf06_*.py`): this gate path carries no age/disability identifier (E-SF-04 pin).
 
 The refusal token travels on the C6-4 wire as the codec's closed `invalid_request` /
 `source_unavailable`: `phi_in_commercial_input` is not in the frozen `reason_code` enum and
@@ -50,6 +56,7 @@ __all__ = [
     "result_score_slots",
     "screen_commercial_input",
     "screen_journey_labels",
+    "sla_claim_marker",
     "validate_intake_descriptor",
 ]
 
@@ -122,6 +129,29 @@ DS_CONCEPTS: Final = (
 )
 
 
+# EP-REG-01a: a prazo PROMISE is a deadline marker ("em", "até", "dentro de", "prazo",
+# "retorno", "resposta"), optional qualifiers ("no máximo", "de", "cerca de"), then a number
+# (digits or pt-BR cardinals, "setenta e duas"; "2 (dois)"; a range "2 a 3") and a time unit.
+# A bare number + unit ("Atendimento 24 horas", "Carência de 180 dias") is a product fact.
+_SLA_NUMBER: Final = (
+    r"(?<![a-z0-9])(?:\d+|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|quinze"
+    r"|vinte|trinta|quarenta|cinquenta|sessenta|setenta|oitenta|noventa|cem)"
+)
+_SLA_MARKER: Final = (
+    r"(?:\bem\b|\bate\b|dentro de|\bprazo\b|\bretorno\b|\bresposta\b)[^0-9a-z]*"
+    r"(?:(?:no\s+)?(?:maximo|minimo|ate|de|cerca de|aproximadamente)[^0-9a-z]*)*"
+)
+_SLA_CLAIM_PATTERN: Final = re.compile(
+    _SLA_MARKER
+    + _SLA_NUMBER
+    + r"(?:\s+e\s+"
+    + _SLA_NUMBER
+    + r")*(?:\s*\([a-z ]+\))?(?:\s*(?:a|ou|-)\s*"
+    + _SLA_NUMBER
+    + r")?\s*(?:dias?|horas?|hs?|min|minutos?|semanas?|mes|meses|days?|hours?|weeks?|months?)\b"
+)
+
+
 @final
 class CommercialFenceRefusal(StrEnum):
     """Closed refusal vocabulary of the E-SF-04 fences — never diagnostic text."""
@@ -129,6 +159,8 @@ class CommercialFenceRefusal(StrEnum):
     PHI_IN_COMMERCIAL_INPUT = "PHI_IN_COMMERCIAL_INPUT"
     PROSPECT_FREE_TEXT = "PROSPECT_FREE_TEXT"
     PROSPECT_FIELD_LIMIT = "PROSPECT_FIELD_LIMIT"
+    #: EP-REG-01a: a numeric deadline claim reached a support disclosure before Q1/DEC-18.
+    UNRATIFIED_SLA_CLAIM = "unratified_sla_claim"
 
 
 @final
@@ -155,6 +187,18 @@ def health_marker(text: str) -> bool:
         for concept in DS_CONCEPTS
         for index in range(len(tokens) - len(concept) + 1)
     )
+
+
+def sla_claim_marker(text: str) -> bool:
+    """True when `text` promises a numeric deadline (EP-REG-01a: "em 7 dias úteis", "até 72 horas").
+
+    This is a marker HEURISTIC (deadline marker + number + unit), not a complete detector: a
+    prazo phrased without one of the markers passes. The full guarantee of "no prazo before
+    Q1" is the closed state — no wait clock or prazo value exists anywhere until Q1/DEC-18
+    are ratified; this fence only catches a source label that states one anyway.
+    """
+    folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").casefold()
+    return _SLA_CLAIM_PATTERN.search(folded) is not None
 
 
 def _refuse(reason: CommercialFenceRefusal = CommercialFenceRefusal.PHI_IN_COMMERCIAL_INPUT) -> NoReturn:

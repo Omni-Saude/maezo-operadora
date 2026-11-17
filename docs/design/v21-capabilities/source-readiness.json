@@ -442,6 +442,50 @@
         "S4 confirms only through OP07 after source resolution receipt and current customer manifestation; no OP03.",
         "Publish disagreement/timeout/closed-without-confirmation mapping without silence-as-resolved."
       ],
+      "minimum_vocabulary_request": {
+        "request_id": "CR-F5-COMMERCIAL-VOCABULARY-REQUEST-1",
+        "origin": "E-SF-06 (EP-CORE-04a, EP-CORE-05b); DEC-CORE CORE-04 items 2, 4 and 7; CORE-05 item 3",
+        "status": "requested_not_published",
+        "published_vocabulary": null,
+        "publication_must_declare": "Versioned DeclaredCaseKind/DeclaredCaseStatus members with audience/role, vocabularyRef/revision and approved labels, plus origin_duty_coverage mapping every duty_id below to one published caseKind member (diff of contract reviewed by the A5 owners).",
+        "origin_duty_case_kinds": [
+          {
+            "duty_id": "origin_plan_information",
+            "requested_kind": "informações do plano de origem",
+            "audience": "beneficiário, por qualquer canal de atendimento",
+            "anchors": [
+              {
+                "norm": "RN 438/2018 art. 14 §4º",
+                "verbatim": "§ 4° A operadora do plano de origem deverá fornecer aos seus beneficiários, quando solicitada por meio de quaisquer de seus canais de atendimento, as informações referentes ao plano de origem, tais como data de vinculação ao plano, número do registro da operadora e número do registro do plano."
+              },
+              {
+                "norm": "RN 438/2018 art. 8º-A §1º (acrescido pela RN 585/2023 art. 27)",
+                "verbatim": "§ 1º Na situação prevista no caput, a operadora do plano de origem deverá fornecer aos seus beneficiários, quando solicitada, por meio de quaisquer de seus canais de atendimento, as informações referentes ao plano de origem, tais como data de vinculação ao plano, número do registro da operadora, número do registro do plano, município de contratação do plano e os dados referentes ao descredenciamento do prestador hospitalar."
+              }
+            ],
+            "baseline": "NORMATIVE-BASELINE-v2 §2.7 (P-438-07, P-585-01)"
+          },
+          {
+            "duty_id": "origin_payment_and_permanence_declarations",
+            "requested_kind": "declarações de adimplemento e de prazo de permanência",
+            "audience": "beneficiário, por qualquer canal de atendimento",
+            "anchors": [
+              {
+                "norm": "RN 438/2018 art. 16 parágrafo único",
+                "verbatim": "Parágrafo único. A operadora do plano de origem deverá fornecer aos seus beneficiários, quando solicitada por meio de quaisquer de seus canais de atendimento, as declarações de adimplemento e de prazo de permanência indicados nos incisos I e II do caput deste artigo."
+              }
+            ],
+            "baseline": "NORMATIVE-BASELINE-v2 §2.7 (P-438-08)"
+          }
+        ],
+        "case_state_requirements": [
+          "OP07 on the happy path returns protocol_ref in the same response; without the OP07 receipt the surface shows the request as registered awaiting protocol and never a minted protocol.",
+          "Resolution only through OP07 receipt custody of the source, never OP03.",
+          "confirmation_timeout and closed_without_confirmation are distinct statuses; silence is never resolved.",
+          "A negativa status carries the reanalysis offer (RN 623/2024 art. 16 §2º: \"[...] deverá constar do script de qualquer canal de atendimento da operadora, sendo executado no momento da negativa [...]\").",
+          "Wait clocks belong to the case authority; values only after DEC-18/Q1 ratification, no prazo displayed before."
+        ]
+      },
       "missing_gates": [
         "SRC-OWNER",
         "SRC-CONTRACT",
