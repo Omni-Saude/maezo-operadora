@@ -53,3 +53,8 @@ ACHADO: o catálogo GT-GTM-018/099 não existe no pacote (busca por id em todo o
 - Arquivos tocados (9): `src/maezo/agents/comercial/graph.py`; `src/maezo/agents/lucas/administrative/{graph,identity,runtime,state}.py`; `src/maezo/runtime/turn_telemetry.py`; `tests/unit/agents/test_gtm_e11_administrative_identity.py`; `tests/unit/agents/test_terminal_nodes_emit_desfecho.py`; `tests/unit/runtime/test_turn_telemetry_comercial_fechada.py`.
 - Simulação de merge sobre a main `dd52a051` (clone isolado, abortada): limpa, só os 9 arquivos. Ramo contém `a5fedc8e`; um merge atrás (#1300, 2 arquivos de documentação, disjuntos — CD-80).
 - Pronto enviado à coordenação do programa por `send_message`.
+
+## 2026-11-17 ~19:55Z — CAMINHO (linha nova de CD-87/88, classes fechadas)
+
+- Arquivo: `tests/unit/platform/lembretes/test_optout_config_envio.py`, uma linha em `test_send_template_recusa_autorizacao_alterada_e_faixa_sintetica`: a autorização sintética usa valores placeholder `("a","b","c")`, que o gate agora recusa por classe (`VARIABLE_VALUE_INVALID`). Troca proposta: valores no formato do produtor de lembretes (`("outubro de 2026","320,25","16/10")`). Nenhuma asserção muda. Fora da posse da W2-MZO-CA (pasta de lembretes). Espero a CD antes do PR; o PR só abre depois do merge de ADD01-02.
+- Estado: linha 2 (ADD01-02) em verificação local para o PR; linha nova implementada em ramo `sf-w2/mzo-ca/classes-fechadas` (sem PR); linha 3 (GTM-E-63) implementada em ramo `sf-w2/mzo-ca/gtm-e-63` (sem PR). Ordem: ADD01-02 → classes fechadas → GTM-E-63 → E-SF-23 → E-SF-15 → E-SF-22r → E-SF-16/16r.
