@@ -13,7 +13,7 @@ o texto do MAPA nao mente sobre o XML; nao julga nenhum estado.
 - D3 `test_todo_elemento_contado_e_citado_exatamente_uma_vez`: cada ID do denominador aparece
   exatamente uma vez na 1a coluna das tabelas §3-§6 (na secao do seu arquivo) e nada alem deles.
 - sha256 de cada `.bpmn` == coluna sha256 do §1 == JSON; JSON versionado == regeneracao.
-- Flips (§7.1): nenhum flip aplicado sem disposicao `adotado` do dono de D-02.
+- Flips (§7.1): nenhum flip aplicado sem disposicao `adotado` (dono de D-02 ou delegação registrada).
 
 Cada modo de falha tem caso negativo em fixture (`tmp_path` ou texto mutado em memoria).
 """
@@ -609,7 +609,7 @@ def test_negativo_flip_aplicado_sem_disposicao_adotada() -> None:
         "`acesso.py` sem ramo de prospect | adotado |",
         "`acesso.py` sem ramo de prospect | pendente |",
     )
-    assert any("CP_Start_NovoBeneficiario" in p for p in problemas_flips(texto))
+    assert any("CP_Start_NovoBeneficiario" in p and "exige estado CASA" in p for p in problemas_flips(texto))
 
 
 def test_negativo_disposicao_fora_do_vocabulario() -> None:
@@ -637,7 +637,7 @@ def test_negativo_flip_aplicado_com_estado_vigente_reescrito() -> None:
         "| 1 | `CP_Start_NovoBeneficiario` | CA_1 | CASA | DO |",
         "| 1 | `CP_Start_NovoBeneficiario` | CA_1 | LACUNA | DO |",
     )
-    assert any("CP_Start_NovoBeneficiario" in p for p in problemas_flips(texto))
+    assert any("CP_Start_NovoBeneficiario" in p and "nao e flip" in p for p in problemas_flips(texto))
 
 
 def test_negativo_flip_rejeitado_aplicado_mesmo_assim() -> None:
@@ -650,10 +650,10 @@ def test_negativo_flip_rejeitado_aplicado_mesmo_assim() -> None:
     ids = linha.split("|")[1]
     sem = ids.replace(", `CP_End_SemConsentimento`", "")
     texto = _mutar(_mapa(), linha, linha.replace(ids, sem))
-    texto = texto.replace(
+    texto = _mutar(
+        texto,
         "| — | LACUNA→wiring sobre C-10 (não é candidato a processo novo) | LACUNA |",
         "| — | LACUNA→wiring sobre C-10 (não é candidato a processo novo) | LACUNA |\n"
         "| `CP_End_SemConsentimento` | endEvent | consentimento | — | C-6 | **CASA** |",
-        1,
     )
-    assert any("CP_End_SemConsentimento" in p for p in problemas_flips(texto))
+    assert any("CP_End_SemConsentimento" in p and "exige estado LACUNA" in p for p in problemas_flips(texto))

@@ -96,7 +96,7 @@ Famílias: **L3C** oferta/agenda de compra (casa parcial = autoridade comercial 
 | `CP_End_DireitoEncerrado` | endEvent | encerramento de direito (contrato) | **SP-OP-CANCEL-001** | C-8 | **CASA** |
 | `CP_Start_Necessidade`, `CP_Start_Reacao`, `CP_Start_NovaNecessidade`, `CP_Start_ConsumoNaoRealizado`, `CP_GW_MergeIntencao`, `CP_CA_C1`, `CP_GW_Proposta`, `CP_CA_C2`, `CP_GW_Decisao`, `CP_End_Recusa`, `CP_End_SemDecisao`, `CP_GW_MergeHabilitar`, `CP_CA_C3`, `CP_GW_Habilitado`, `CP_End_DireitoHabilitado`, `CP_CA_C4`, `CP_GW_Manutencao`, `CP_GW_MergeSuporte`, `CP_End_SemConsentimento`, `CP_End_Nutrir`, `CP_GW_SemOferta`, `CP_GW_TipoDireito`, `CP_End_VendaPerdida`, `CP_End_Beneficiario` | 24 (starts×4, cA×4, gw×8, end×8) | orquestração compra/oferta/nutrição (L3C; a casa da transação é C-10, a orquestração destes nós é wiring futuro) | — | LACUNA→wiring sobre C-10 (não é candidato a processo novo) | LACUNA |
 | `Process_CA_COMPRA_C1_EntenderRecomendar` | process | entender/recomendar — NBA (L4) + oferta (L3C) sem runtime | — | LACUNA→SP-OP-NBA-001 + wiring C-10 | LACUNA |
-| `C1_Start` | startEvent | intake de intenção de compra de prospect — sem rota montada (motor de jornadas desmontado; flip §7.1 #2 adotado) | — | LACUNA→wiring sobre C-10 | LACUNA |
+| `C1_Start` | startEvent | intake de intenção de compra de prospect — sem rota montada (motor de jornadas desmontado; passagem Helena→comercial construída e desligada; flip §7.1 #2 adotado) | — | LACUNA→wiring sobre C-10 | LACUNA |
 | `C1_CA_H1` | callActivity | gate H1 | **SP-OP-LGPD-DSR-001** (via H1) | C-6 | **CASA** |
 | `C1_CA_NBA`, `C1_T_Reward` | callActivity+serviceTask (2) | chamada do recomendador + registro de adesão (L4) | — | LACUNA→SP-OP-NBA-001 | LACUNA |
 | `C1_T_Agenda`, `C1_T_Capacidade` | serviceTask (2) | agenda em tempo real + política de capacidade (`schedulingAIAgent`, `capacityPolicyService` — 0 hits; L6/L3C) | — | LACUNA→SP-OP-AGENDA-001 | LACUNA |
@@ -140,7 +140,7 @@ Famílias: **L6** agenda/no-show/slot · **L1** comunicação (evento clínico, 
 | `U1_Start`, `U1_GW_Preparo`, `U1_GW_Merge`, `U1_B_Lembrete`, `U1_EV_Lembrete`, `U1_End_Lembrete` | start+gw×2+boundary+throw+end (6) | jornada de preparo + lembrete D-1 (L6/L1) | — | LACUNA→SP-OP-AGENDA-001 / SP-OP-NOTIF-001 | LACUNA |
 | `Process_CA_UTILIZACAO_U2_Receber` | process | receber o cuidado — casa parcial (marcos/escalação com casa) | — | — | **CASA** (parcial) |
 | `U2_Start` | startEvent | início do atendimento — produtor (U1) sem runtime (flip §7.1 #6 adotado; L6) | — | LACUNA→SP-OP-AGENDA-001 | LACUNA |
-| `U2_GW_Chegada`, `U2_T_Aguardar`, `U2_EV_EmAtendimento`, `U2_EV_Realizado`, `U2_End_Realizado`, `U2_B_SLA`, `U2_EV_Escalar`, `U2_End_Escalado` | EBG+receive+throw×2+boundary+end×2+catch (8) | espera correlacionada, marcos factuais, escalação SLA 2h | **SP-OP-ESCALATION-001** (SLA) + C-5 + C-7 | C-4, C-5 | **CASA** |
+| `U2_GW_Chegada`, `U2_T_Aguardar`, `U2_EV_EmAtendimento`, `U2_EV_Realizado`, `U2_End_Realizado`, `U2_B_SLA`, `U2_EV_Escalar`, `U2_End_Escalado` | EBG+receive+throw×3+boundary+end×2 (8) | espera correlacionada, marcos factuais, escalação SLA 2h | **SP-OP-ESCALATION-001** (SLA) + C-5 + C-7 | C-4, C-5 | **CASA** |
 | `U2_EV_Chegou`, `U2_EV_NoShow`, `U2_T_NoShow`, `U2_End_NoShow` | catch+boundary+task+end (4) | chegada física + registro de no-show/liberação de slot (`noShowRecorder`; L6) | — | LACUNA→SP-OP-AGENDA-001 | LACUNA |
 | `Process_CA_UTILIZACAO_U3_Acompanhar` | process | acompanhamento de resultado | — | — | **CASA** (parcial) |
 | `U3_Start` | startEvent | acompanhamento de resultado — produtor (U2) sem runtime (flip §7.1 #7 adotado; L6) | — | LACUNA→SP-OP-AGENDA-001 | LACUNA |
@@ -229,9 +229,9 @@ Estados terminais (contagem deste documento, somada por arquivo): CA_0 29 CASA +
 
 ### §7.1 Divergências element-level registradas (Reconciliação §6.2) — 8 flips: 7 adotados e aplicados, 1 rejeitado
 
-Fonte: `SALES-FUNNEL-AUDIT-2026-11/FUNNEL-INVENTORY-RECONCILIATION.md` §6.2 (base `fc4cd9448`; sha256 do documento declarado no rodapé dele: `831700b04b129dc64c75fba36d0eba22605258d6ed268a94941978e9891f673b`). O eixo deste mapa (CASA/LACUNA, D-02, ver cabeçalho) difere da regra do auditor (start/receptor sem receptor montado → DO). **Adotar um flip é ato do dono de D-02**; enquanto a coluna de disposição não disser `adotado`, o elemento fica no estado vigente de §3–§6 (o teste de sync recusa flip aplicado sem disposição `adotado`).
+Fonte: `SALES-FUNNEL-AUDIT-2026-11/FUNNEL-INVENTORY-RECONCILIATION.md` §6.2 (base `fc4cd9448`; sha256 do documento declarado no rodapé dele: `831700b04b129dc64c75fba36d0eba22605258d6ed268a94941978e9891f673b`). O eixo deste mapa (CASA/LACUNA, D-02, ver cabeçalho) difere da regra do auditor (start/receptor sem receptor montado → DO). **Adotar um flip é ato do dono de D-02 ou de quem ele delegue (a disposição de 2026-11-17 é operacional por delegação, não ratificação)**; enquanto a coluna de disposição não disser `adotado`, o elemento fica no estado vigente de §3–§6 (o teste de sync recusa flip aplicado sem disposição `adotado`).
 
-| # | Elemento | Arquivo | Estado de partida no MAPA | Reconciliação §6.2 | Evidência do auditor (resumo) | disposição do dono (adotado \| rejeitado \| pendente) |
+| # | Elemento | Arquivo | Estado de partida no MAPA | Reconciliação §6.2 | Evidência do auditor (resumo) | disposição (adotado \| rejeitado \| pendente) |
 |---|---|---|---|---|---|---|
 | 1 | `CP_Start_NovoBeneficiario` | CA_1 | CASA | DO | `cadastro.py` não é onboarding; `acesso.py` sem ramo de prospect | adotado |
 | 2 | `C1_Start` | CA_1 | CASA | DO | sem rota de intake de intenção de compra de prospect; journeys desmontados | adotado |
@@ -242,7 +242,7 @@ Fonte: `SALES-FUNNEL-AUDIT-2026-11/FUNNEL-INVENTORY-RECONCILIATION.md` §6.2 (ba
 | 7 | `U3_Start` | CA_2 | CASA | DO | produtor (U2) sem runtime | adotado |
 | 8 | `CP_End_SemConsentimento` | CA_1 | LACUNA | IMPL | máquina determinística de consentimento `acesso.py` | rejeitado |
 
-Disposição de 2026-11-17 (decisão operacional por delegação da coordenação do programa, registrada como tal — não é ratificação): #1 e #4 adotados; #2, #3, #5, #6 e #7 adotados depois de reconferência no head `da078bc0` (nenhum ingresso montado: a composição de produção `src/maezo/portal/api/production.py` não liga fábrica de intake comercial nem motor de jornadas; o único start por mensagem implantado é o de SP-OP-AUTH-001; nenhum dos cinco IDs aparece em `src/`); #8 rejeitado (o consentimento construído é o do beneficiário no WhatsApp, não o fim de jornada do prospect). Aritmética, recontada sobre a main do momento: CASA 214 − 7 = **207**; LACUNA 153 + 7 = **160** (o #8 rejeitado não move nada).
+Disposição de 2026-11-17 (decisão operacional por delegação da coordenação do programa, registrada como tal — não é ratificação): #1 e #4 adotados; #2, #3, #5, #6 e #7 adotados depois de reconferência no head `da078bc0` (nenhum ingresso montado: a composição de produção `src/maezo/portal/api/production.py` não liga fábrica de intake comercial nem motor de jornadas; os starts por mensagem implantados (SP-OP-AUTH-001 `Start_IntakePortal`, SP-OP-NIP-001 `Start_NipInstruct` e o subprocesso de evento `Start_EncerramentoAPedido` de SP-OP-ESCALATION-001) não correspondem a nenhum dos cinco; nenhum dos cinco IDs aparece em `src/`); #8 rejeitado (o consentimento construído é o do beneficiário no WhatsApp, não o fim de jornada do prospect). Aritmética, recontada sobre a main do momento: CASA 214 − 7 = **207**; LACUNA 153 + 7 = **160** (o #8 rejeitado não move nada).
 
 ## §8 Veredito Gate-3 set-level (re-derivado na árvore nova)
 
