@@ -25,8 +25,9 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import functools
+import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -1897,7 +1898,113 @@ def _normalize_data_recebimento_lote(raw: Any) -> tuple[str, bool]:
             pass
         else:
             return candidate, False
-    return datetime.now(UTC).strftime("%Y-%m-%d"), True
+    return _hoje_utc().isoformat(), True
+
+
+def _hoje_utc() -> date:
+    """O relogio do processo: a data de HOJE em UTC.
+
+    O MESMO relogio do default fail-safe da ancora (`_normalize_data_recebimento_lote`) e do teste
+    de data futura de `data_recebimento_lote_informada` (DL-0174); isolado aqui so para os testes
+    poderem fixa-lo (monkeypatch). `date.isoformat()` e byte-identico ao antigo
+    `strftime("%Y-%m-%d")`: a ancora nao muda de comportamento.
+    """
+    return datetime.now(UTC).date()
+
+
+# ---------------------------------------------------------------------------
+# DL-0174: `data_recebimento_lote_informada` — a data de recebimento CRUA, separada da ancora
+# ---------------------------------------------------------------------------
+
+#: A data em que a operadora recebeu o lote, EXATAMENTE como o lote a informou: anulavel e NUNCA
+#: defaultada. Existe porque a ancora `data_recebimento_lote` e defaultada para HOJE/UTC quando o
+#: lote nao a traz (os timers de SLA precisam de uma ancora) e, na reentrada por
+#: `BME_LinhasAtualizadas`, o valor padrao e indistinguivel do recebido.
+DATA_RECEBIMENTO_INFORMADA_VAR = "data_recebimento_lote_informada"
+#: O motivo, em vocabulario FECHADO, de a variavel acima ser nula (`None` quando a data e valida).
+DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR = "data_recebimento_lote_informada_motivo"
+MOTIVO_DATA_INFORMADA_AUSENTE = "ausente"
+MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO = "formato_invalido"
+MOTIVO_DATA_INFORMADA_FUTURA = "data_futura"
+MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA = "instancia_legada"
+MOTIVOS_DATA_RECEBIMENTO_INFORMADA: frozenset[str] = frozenset(
+    {
+        MOTIVO_DATA_INFORMADA_AUSENTE,
+        MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO,
+        MOTIVO_DATA_INFORMADA_FUTURA,
+        MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA,
+    }
+)
+#: Marcador de REENTRADA do intake — um FATO DO PROCESSO, nunca "a variavel nova existe" (o que
+#: confundiria uma instancia legada, iniciada antes de DL-0174, com uma primeira passagem e
+#: recalcularia a data a partir da ancora ja defaultada). Escolha: `has_glosas`, porque
+#: - e escrita por ESTE worker em TODA conclusao (`dataclasses.asdict(GlosaIdentified)`, sempre
+#:   um booleano, desde antes desta mudanca) e por nenhum outro worker (`calculate_impact` nao a
+#:   devolve);
+#: - NADA antes de `ST_ApurarDivergencias` a inicializa no BPMN: o start event nao tem saida, e
+#:   `ST_PublishReceived` so inicializa `decisao_contas` e `vencimento_ausente`;
+#: - nenhum produtor de start a semeia: o contrato SP-OP-CONTAS-001 declara `has_glosas` "nunca
+#:   seeded/ecoada" e `MarinaGraph._contract_variables` nao a escreve. `divergencia_valor` e
+#:   `denial_ratio` foram descartados: Marina os pode semear no start.
+#: Logo: `has_glosas` presente nas variaveis buscadas <=> `ST_ApurarDivergencias` ja concluiu
+#: nesta instancia <=> esta execucao e a reentrada por `Flow_Reavalia_Apurar`.
+MARCADOR_REENTRADA_INTAKE = "has_glosas"
+#: `AAAA-MM-DD` estrito, ASCII (`\d` casaria digitos Unicode). Datetime completo, data sem zero a
+#: esquerda e qualquer outro formato sao `formato_invalido` — a variavel e CRUA, nao normalizada.
+_DATA_ISO_ESTRITA = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def _avaliar_data_recebimento_informada(raw: Any, *, hoje: date) -> tuple[str | None, str | None]:
+    """Primeira passagem: `(data, None)` se `raw` e uma data valida, senao `(None, motivo)`.
+
+    Valida = `AAAA-MM-DD` estrito (so os espacos nas pontas sao removidos), data real do
+    calendario (`2026-02-30` nao e) e nao posterior a `hoje` (o relogio do processo). Nunca
+    defaulta e nunca le a ancora `data_recebimento_lote` normalizada.
+    """
+    if raw is None:
+        return None, MOTIVO_DATA_INFORMADA_AUSENTE
+    if not isinstance(raw, str):
+        return None, MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO
+    text = raw.strip()
+    if not text:
+        return None, MOTIVO_DATA_INFORMADA_AUSENTE
+    if _DATA_ISO_ESTRITA.fullmatch(text) is None:
+        return None, MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO
+    try:
+        informada = date.fromisoformat(text)
+    except ValueError:
+        return None, MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO
+    if informada > hoje:
+        return None, MOTIVO_DATA_INFORMADA_FUTURA
+    return text, None
+
+
+def _resolver_data_recebimento_informada(
+    variables: Mapping[str, Any], raw: Any
+) -> tuple[str | None, str | None, bool]:
+    """`(data, motivo, primeira_passagem)` de `data_recebimento_lote_informada` (DL-0174).
+
+    - Reentrada (`MARCADOR_REENTRADA_INTAKE` presente) com a variavel presente (mesmo `None`):
+      ECOA a variavel e o motivo verbatim. Nunca recalcula: na reentrada a ancora pode ser o HOJE
+      que a primeira passagem defaultou.
+    - Reentrada com a variavel AUSENTE (instancia iniciada antes de DL-0174): `None` com motivo
+      `instancia_legada`. Nunca derivada da ancora.
+    - Primeira passagem: `_avaliar_data_recebimento_informada` sobre o valor CRU do lote.
+
+    A presenca por chave funciona porque o harness escreve `None` como variavel nula (tipo
+    `String`, `harness._to_camunda_var`) e o `fetchAndLock` devolve a chave com `value: null`,
+    que `harness._from_camunda_var` decodifica para `None` sem descarta-la.
+    """
+    if MARCADOR_REENTRADA_INTAKE in variables:
+        if DATA_RECEBIMENTO_INFORMADA_VAR in variables:
+            return (
+                variables[DATA_RECEBIMENTO_INFORMADA_VAR],
+                variables.get(DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR),
+                False,
+            )
+        return None, MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA, False
+    data, motivo = _avaliar_data_recebimento_informada(raw, hoje=_hoje_utc())
+    return data, motivo, True
 
 
 #: MZO-3: a decisao K1 do rco de prazo de apresentacao da conta, avaliada em SOMBRA no intake.
@@ -1920,7 +2027,10 @@ _REGIME_POR_TIPO_LOTE: Mapping[str, str] = MappingProxyType(
 #: - `dataRecebimentoLote`: `data_recebimento_lote` existe, mas o proprio intake a reescreve com a data
 #:   de HOJE quando o lote nao a traz (`_normalize_data_recebimento_lote`) e a devolve como variavel de
 #:   processo; na reentrada por `BME_LinhasAtualizadas` o valor padrao e indistinguivel do recebido.
-#:   Usa-la poria a data de hoje na formula: fica sem produtor ate o contrato ter uma fonte nao padronizada;
+#:   Usa-la poria a data de hoje na formula. A fonte nao padronizada JA EXISTE: a variavel crua
+#:   `data_recebimento_lote_informada` (DL-0174; anulavel, nunca defaultada, ecoada na reentrada).
+#:   Liga-la a este termo e uma unidade SEPARADA, que so pode vir depois de fechada a lacuna de regime
+#:   de DL-0172 (acima); ate la o termo segue sem produtor;
 #: - `prazoApresentacaoContratualDias`: nenhum cadastro de contrato do prestador no Maezo o entrega;
 #: - `dataDemonstrativoAnalise`, `dataRecebimentoLoteRecurso`: datas do recurso de glosa, fora deste processo.
 TERMOS_SEM_PRODUTOR_CONTAS: frozenset[str] = frozenset(
@@ -1972,6 +2082,12 @@ def identify_glosa_entry(
 
     * `data_recebimento_lote` — the SLA anchor. Normalised, and defaulted FAIL-SAFE to today/UTC
       with a warning when the lote does not carry it (never a fabricated past date).
+    * `data_recebimento_lote_informada` (+ `data_recebimento_lote_informada_motivo`) — DL-0174: the
+      SAME date exactly as the lote informed it, NULLABLE and NEVER defaulted (strict `AAAA-MM-DD`,
+      real calendar date, not in the future; otherwise `None` plus a closed-vocabulary motivo).
+      On the `BME_LinhasAtualizadas` re-entry (detected by `MARCADOR_REENTRADA_INTAKE`, a fact of
+      the process) it is ECHOED, never recomputed from the anchor, which may by then be the
+      defaulted today; a legacy instance without it gets `None` / `instancia_legada`.
     * `data_vencimento` — the payment obligation's due date, read from the lote/termo contratual
       (origin DRAFT/verify, ADR-0040 OQ-2). ECHOED verbatim (stripped), **never defaulted**: an
       invented due date is a false deadline, and `handoff_pagamento` refuses it blank. What the
@@ -2015,6 +2131,23 @@ def identify_glosa_entry(
             usada=data_recebimento,
         )
     out["data_recebimento_lote"] = data_recebimento
+
+    # DL-0174: a data CRUA, separada da ancora acima (que segue defaultada para os timers).
+    data_informada, motivo_informada, primeira_passagem = _resolver_data_recebimento_informada(
+        variables, input_data.data_recebimento_lote
+    )
+    if motivo_informada is not None and (
+        primeira_passagem or motivo_informada == MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA
+    ):
+        # So o codigo do motivo: o valor bruto NUNCA vai ao log (pode carregar qualquer coisa).
+        logger.warning(
+            "contas.identify_glosa.data_recebimento_lote_informada_nula",
+            tenant_id=input_data.tenant_id,
+            numero_lote_tiss=input_data.numero_lote_tiss,
+            motivo=motivo_informada,
+        )
+    out[DATA_RECEBIMENTO_INFORMADA_VAR] = data_informada
+    out[DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR] = motivo_informada
 
     data_vencimento = str(input_data.data_vencimento or "").strip()
     vencimento_ausente = not data_vencimento
@@ -2271,8 +2404,12 @@ _CONTAS_FETCH_SCOPES: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "competencia",
             "conta_origem_ref",
             "data_recebimento_lote",
+            # DL-0174: a data crua e o seu motivo (ecoados na reentrada) e o marcador de reentrada.
+            "data_recebimento_lote_informada",
+            "data_recebimento_lote_informada_motivo",
             "data_vencimento",
             "documentacao_anexa",
+            "has_glosas",
             "indicio_fraude_sinalizado",
             "instrumento_pagamento",
             "item_conforme_tabela",

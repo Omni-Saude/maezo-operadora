@@ -19,7 +19,7 @@ ratificacao:
 rotulo: 'recomendacao — pendente de assinatura de regulatorio + auditoria de contas'
 rotulos_a_remover_na_sessao:
   - arquivo: docs/processes/contracts/SP-OP-CONTAS-001.md
-    linha: 214
+    linha: 216
     ancora: "**Nota de taxonomia (OQ-6"
     descricao: "Nota de taxonomia OQ-6: `auditoria-contas` e `coordenacao-contas` sao nomes **PROPOSTOS**"
   - arquivo: docs/processes/contracts/SP-OP-RECURSO-001.md
@@ -87,7 +87,7 @@ linhas:
     termo_pagador_proposto: "worker `registrar_glosa` / topico `operadora.contas.registrar_glosa`"
     razao: "Q1: o worker materializa o ato da operadora. O nome pt-BR alinha-se ao dominio (`registrar_glosa`), e o topico e a superficie que o BPMN chama."
     arquivo: src/maezo/tools/workers/contas.py
-    linha: 493
+    linha: 494
     ancora: "def registrar_glosa(input_data: GlosaRegistroInput)"
   - id: C07
     cadeia: CONTAS
@@ -123,7 +123,7 @@ linhas:
     termo_pagador_proposto: "desfechos `{pagar_integral, pagamento_aprovado_humano, glosa_aplicada_humano, pagamento_parcial_humano, conta_devolvida_humano, encaminhada_fraude}`"
     razao: "Q4: o evento de dominio e a declaracao publica do que o processo fez. Um desfecho `encaminhada_recurso` afirma que quem publicou recorreu."
     arquivo: docs/processes/contracts/SP-OP-CONTAS-001.md
-    linha: 150
+    linha: 152
     ancora: "`pagar_integral`"
   - id: C11
     cadeia: CONTAS
