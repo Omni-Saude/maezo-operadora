@@ -140,3 +140,8 @@ pronto: maezo-operadora #1278, head c4be57001609c4aeb63c5e73d2de97e38a62fa58, ch
 - `flip-path-review-gate`: falta aprovação humana do code owner de retention.
 - O head está 3 commits atrás da main bb998791, só o #1284 (auth_sla), em arquivos disjuntos. A simulação local do merge passou: validate com 0 erros; 7323 passed e só a falha ambiental de root.
 Status enviado à mescladora.
+
+## 2026-11-17 ~05:30Z
+
+- #1285 (E-SF-10) mesclado; main 60262572.
+- E-SF-36: main trazida por merge num clone isolado (diff com 2 arquivos); checks e suítes rodando antes do push e do PR.
