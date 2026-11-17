@@ -1,0 +1,154 @@
+# Registro FECHADO de templates WhatsApp (E-SF-13 / GTM-E-42).
+#
+# Leitor unico: src/maezo/gateway/communications/whatsapp_templates.py (esquema).
+# Consumidor: src/maezo/gateway/communications/outbound_gate.py (OutboundGate).
+# Validador de CI: scripts/ci/check_whatsapp_templates.py.
+#
+# ESTADO PUBLICADO = FECHADO. Zero finalidades ratificadas, zero templates aprovados, zero textos de
+# permissao de contato publicados, zero tipos de titular com oposicao executavel, taxonomia de classes nao
+# ratificada. Com isso o OutboundGate recusa 100% dos envios proativos com PURPOSE_NOT_RATIFIED e nenhum
+# POST acontece. tests/unit/gateway/test_esf13_template_registry.py fixa este estado.
+#
+# Mudar qualquer `ratified`, `meta_status: approved`, `contact_permission_texts` ou
+# `opposition_executable_subject_kinds` e' ATO REGISTRADO de quem tem a autoridade (dono, DPO, juridico),
+# nunca de agente; cada um cita a ratificacao em `ratification_ref` / `content_review_ref`.
+
+schema: maezo.whatsapp-templates.v1
+versao: 1
+
+# Vocabulario FECHADO de classes de variavel. `pessoal_contratual` fica recusado pelo gate
+# (VARIABLE_CLASS_PENDING_DPO) ate' a taxonomia final de classes ser ratificada pelo DPO
+# (residuo registrado tambem em src/maezo/gateway/communications/vendor_notice.py). Classes de saude
+# (CPT, DS/DPP, CID, condicao, recusa por saude, utilizacao assistencial) nunca entram aqui: o esquema
+# recusa (whatsapp_templates.CLASSES_DE_SAUDE).
+variable_classes:
+  - id: competencia_mes_ano
+    tipo: pessoal_contratual
+  - id: valor_cobranca_reais
+    tipo: pessoal_contratual
+  - id: data_vencimento_dia_mes
+    tipo: pessoal_contratual
+  - id: contagem
+    tipo: nao_pessoal
+  - id: data_publicacao_fonte
+    tipo: nao_pessoal
+  - id: link_opaco_jornada
+    tipo: nao_pessoal
+
+variable_class_taxonomy_ratified: false
+
+purposes:
+  # Lembrete proativo de cobranca pre-vencimento a beneficiario. A base do envio proativo e' pergunta ao
+  # DPO (RT-D4, RATIFY-LATER-DPO; ADDENDUM-01 §7 (q)). O consentimento de atendimento `wa-consent-v2`
+  # nunca vale como permissao de contato proativo (A9 GT-3).
+  - id: cobranca_lembrete_pre_vencimento
+    ratified: false
+    ratification_ref: null
+  # Avisos de renovacao/reajuste e recibo (RT-01; RATIFY-LATER-juridico) — mensagem proativa a
+  # beneficiario fechada (ADDENDUM-01 §7 (a)).
+  - id: retencao_renovacao_reajuste
+    ratified: false
+    ratification_ref: null
+  # Boas-vindas e check-in D+7 (RT-09 onboarding) — fechado pelo mesmo §7 (a).
+  - id: retencao_onboarding
+    ratified: false
+    ratification_ref: null
+
+# Textos de permissao de contato PUBLICADOS (aceite unico OS-05 para prospect; termo E-SF-62 para
+# beneficiario). Nenhum existe como texto adotado (GAP-CONSENT-ADMISSAO; E-SF-62 so' minuta), entao a
+# lista e' vazia e todo pedido com permissao e' recusado `recontact_permission_unqualified`.
+contact_permission_texts: []
+
+# Tipos de titular com oposicao EXECUTAVEL antes do envio. Lead: SP-OP-SUPP-001 cobre "vendedor ou lead",
+# mas a admissao A6 nao esta' registrada. Beneficiario: GTM-04/D4 aberto. Lista vazia => SUBJECT_KIND_CLOSED.
+opposition_executable_subject_kinds: []
+
+templates:
+  # Migrado de docs/runbooks/lembrete-cobranca.md (secao "Template a submeter"). O corpo e' o de
+  # src/maezo/platform/lembretes/texto.py::CORPO_TEMPLATE_META (teste de paridade). A submissao a Meta
+  # nao esta' comprovada no repositorio: `unverified` (GAP), nunca `approved`.
+  - id: lembrete_mensalidade_v1
+    name: lembrete_mensalidade_v1
+    language: pt_BR
+    category: utility
+    meta_status: unverified
+    meta_template_ref: null
+    purpose_ref: cobranca_lembrete_pre_vencimento
+    subject_kind: beneficiario
+    content_review_ref: null
+    publicity: false
+    body: "Sua mensalidade de {{1}} (R$ {{2}}) vence em {{3}}. Para a 2ª via, acesse o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento. Para não receber lembretes, responda PARAR."
+    variables:
+      - {pos: 1, class: competencia_mes_ano}
+      - {pos: 2, class: valor_cobranca_reais}
+      - {pos: 3, class: data_vencimento_dia_mes}
+    origem: docs/runbooks/lembrete-cobranca.md
+
+  # Templates `ret.*` (ADD-RETENTION RT-09, catalogo `ret.*`; ADDENDUM-01 §6 linha E-SF-13): REGISTRADOS
+  # SEM APROVACAO. Corpo, variaveis e classificacao de publicidade dependem da revisao de conteudo
+  # (juridico) — nada foi escrito aqui para nao inventar texto. O gate recusa todos.
+  - id: ret.aviso_r0.v1
+    name: ret_aviso_r0_v1
+    language: pt_BR
+    category: utility
+    meta_status: not_submitted
+    meta_template_ref: null
+    purpose_ref: retencao_renovacao_reajuste
+    subject_kind: beneficiario
+    content_review_ref: null
+    publicity: null
+    body: null
+    variables: []
+    origem: "ADD-RETENTION RT-01/RT-09 (ret.aviso_r0.enviado)"
+  - id: ret.aviso_r1.v1
+    name: ret_aviso_r1_v1
+    language: pt_BR
+    category: utility
+    meta_status: not_submitted
+    meta_template_ref: null
+    purpose_ref: retencao_renovacao_reajuste
+    subject_kind: beneficiario
+    content_review_ref: null
+    publicity: null
+    body: null
+    variables: []
+    origem: "ADD-RETENTION RT-01/RT-09 (ret.aviso_r1.enviado)"
+  - id: ret.recibo_renovacao.v1
+    name: ret_recibo_renovacao_v1
+    language: pt_BR
+    category: utility
+    meta_status: not_submitted
+    meta_template_ref: null
+    purpose_ref: retencao_renovacao_reajuste
+    subject_kind: beneficiario
+    content_review_ref: null
+    publicity: null
+    body: null
+    variables: []
+    origem: "ADD-RETENTION RT-01/RT-09 (ret.recibo_renovacao.enviado)"
+  - id: ret.boas_vindas.v1
+    name: ret_boas_vindas_v1
+    language: pt_BR
+    category: utility
+    meta_status: not_submitted
+    meta_template_ref: null
+    purpose_ref: retencao_onboarding
+    subject_kind: beneficiario
+    content_review_ref: null
+    publicity: null
+    body: null
+    variables: []
+    origem: "ADD-RETENTION RT-09 (ret.boas_vindas.enviada)"
+  - id: ret.checkin_d7.v1
+    name: ret_checkin_d7_v1
+    language: pt_BR
+    category: utility
+    meta_status: not_submitted
+    meta_template_ref: null
+    purpose_ref: retencao_onboarding
+    subject_kind: beneficiario
+    content_review_ref: null
+    publicity: null
+    body: null
+    variables: []
+    origem: "ADD-RETENTION RT-09 (ret.checkin_d7.enviado)"

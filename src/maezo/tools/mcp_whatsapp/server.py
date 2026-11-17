@@ -36,6 +36,7 @@ from prometheus_client import Counter
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from maezo.gateway.communications.outbound_gate import AutorizacaoDeEnvio, exigir_autorizacao
 from maezo.platform.driver_idempotency import DedupRegistry
 from maezo.platform.observability import get_metrics_collector
 from maezo.tools.mcp_whatsapp.media import (
@@ -321,35 +322,48 @@ class WhatsAppServer:
     async def send_template(
         self,
         to: str,
-        template_name: str,
-        parameters: list[str],
-        *,
-        language: str = "pt_BR",
-        idempotency_key: str | None = None,
+        autorizacao: AutorizacaoDeEnvio,
     ) -> dict[str, Any]:
-        """Send a Meta-approved TEMPLATE message (needed outside the 24h customer-service window).
+        """Send a Meta-approved TEMPLATE message — the PROACTIVE path (outside the 24h window).
 
-        `parameters` are the body variables in order (`{{1}}`, `{{2}}`, ...). Same fences as
-        `send_message` — synthetic-range refusal, fail-closed config, durable outbound dedup — because
-        both go through `_enviar`. The template NAME and parameters are never logged (parameters carry
-        the beneficiary's facts).
+        E-SF-13 (GTM-E-41): a template send is proactive by definition, so it requires an
+        `AutorizacaoDeEnvio` emitted by the `OutboundGate`
+        (`gateway/communications/outbound_gate.py`), the single source of every proactive-send
+        check (ratified purpose, approved template, no health data, executable opposition, qualified
+        contact permission, suppression). Without a valid authorization the send is REFUSED before
+        anything else — no synthetic-range short-circuit, no dedup claim, no POST
+        (`EnvioProativoRecusadoError`, token `OUTBOUND_NOT_AUTHORIZED`). The template NAME, language
+        and parameters come FROM the authorization, so a caller cannot send a different template or
+        different values than the gate checked. The published registry ratifies nothing, so no
+        authorization is ever emitted in production today.
+
+        The 1:1 reply path (`send_message`, used by `dispatch.py`) is deliberately NOT gated here.
+        REPLAY: there is no `idempotency_key` parameter. The durable dedup key is ALWAYS the
+        authorization's own `chave_idempotencia` (sealed with the other fields), so presenting the same
+        authorization twice yields at most one POST; an instance without a dedup registry refuses
+        (`WhatsAppIdempotencyUnsupportedError`), never sends unprotected.
+
+        Same fences as `send_message` after the authorization — synthetic-range refusal, fail-closed
+        config, durable outbound dedup — because both go through `_enviar`. Name and parameters are
+        never logged.
         """
-        if not template_name or not template_name.strip():
+        aut = exigir_autorizacao(autorizacao)
+        if not aut.template_name or not aut.template_name.strip():
             raise ValueError("WhatsApp template name is empty — refusing to send")
         conteudo: dict[str, Any] = {
             "type": "template",
             "template": {
-                "name": template_name,
-                "language": {"code": language},
+                "name": aut.template_name,
+                "language": {"code": aut.language},
                 "components": [
                     {
                         "type": "body",
-                        "parameters": [{"type": "text", "text": p} for p in parameters],
+                        "parameters": [{"type": "text", "text": p} for p in aut.parametros],
                     }
                 ],
             },
         }
-        return await self._enviar(to, conteudo, idempotency_key=idempotency_key)
+        return await self._enviar(to, conteudo, idempotency_key=aut.chave_idempotencia)
 
     async def _enviar(
         self,
