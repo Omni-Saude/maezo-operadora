@@ -18,6 +18,11 @@ from urllib.parse import urlsplit
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from maezo.adapters.amh.commercial_fences import (
+    screen_commercial_input,
+    screen_journey_labels,
+    validate_intake_descriptor,
+)
 from maezo.ports.commercial import (
     CommercialCodec,
     CommercialCommand,
@@ -109,6 +114,8 @@ class CommercialWire(CommercialCodec):
         hosted_origins: dict[str, frozenset[str]] | None = None,
         issuer_document_origins: IssuerDocumentOrigins | None = None,
         delivery_origins: CommercialDeliveryOrigins | None = None,
+        intake_purpose_allowlist: frozenset[str] = frozenset(),
+        journey_label_vocabulary: frozenset[str] = frozenset(),
     ) -> None:
         try:
             if hashlib.sha256(schema_bytes).hexdigest() != CANDIDATE_SCHEMA_SHA256:
@@ -118,6 +125,21 @@ class CommercialWire(CommercialCodec):
             self._commands: dict[str, Any] = document["x-commands"]
             if set(self._commands) != set(get_args(CommercialOperation)):
                 raise ValueError
+            # E-SF-04 fences: each command's declared payload keys, and the closed pre-DS
+            # purpose allowlist (source/DPO-published; empty = every descriptor and every
+            # intake value refused) and the closed journey label vocabulary (empty = every
+            # pending/next-action label refused).
+            self._payload_keys = {
+                name: frozenset(document["$defs"][spec["payload_schema"].rsplit("/", 1)[1]]["properties"])
+                for name, spec in self._commands.items()
+            }
+            if (
+                type(intake_purpose_allowlist) is not frozenset
+                or type(journey_label_vocabulary) is not frozenset
+            ):
+                raise ValueError
+            self._intake_purposes = intake_purpose_allowlist
+            self._journey_labels = journey_label_vocabulary
             self._request = Draft202012Validator(
                 {"$ref": "#/$defs/Command", "$defs": document["$defs"]},
                 format_checker=FormatChecker(),
@@ -172,6 +194,11 @@ class CommercialWire(CommercialCodec):
                 raise ValueError
             name = value["command"]
             payload = value["payload"]
+            screen_commercial_input(payload, declared_keys=self._payload_keys[name])
+            # No published purpose list = no pre-DS descriptor crossed, so no intake value
+            # (of any field class, known or UNKNOWN) may be submitted either.
+            if name in {"prospect.save", "party.submit"} and payload["values"] and not self._intake_purposes:
+                raise ValueError
             if (
                 name == "payment.create"
                 and payload["method"] not in self._provider_methods[payload["provider"]]
@@ -509,6 +536,10 @@ class CommercialWire(CommercialCodec):
         ):
             if ref in payload and payload[ref] is not None and ref in data and payload[ref] != data[ref]:
                 raise ValueError
+        if data["kind"] in {"intake_descriptor", "party_preparation"}:
+            validate_intake_descriptor(data["descriptor"], purpose_allowlist=self._intake_purposes)
+        if data["kind"] == "journey_snapshot":
+            screen_journey_labels(data["journeys"], vocabulary=self._journey_labels)
         if data["kind"] == "catalog":
             self._catalog_rows(data["rows"])
             if (
