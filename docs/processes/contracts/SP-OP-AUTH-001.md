@@ -584,7 +584,7 @@ caso nao e' urgente). Sem saida de aprovacao nem de negativa. Avaliada pelo engi
 
 ### `auth_sla` (FIRST — DRAFT, todos os prazos DRAFT/verify)
 in: `carater_atendimento: string`, `categoria_procedimento: string`
-out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria: string`, `prazo_resposta_dias_uteis: integer` (R-005: 10 PAC/internacao eletiva — art. 12 II "b"; 5 eletivo e fail-safe — art. 12 II "a"; nulo na urgencia — art. 12 I, resposta imediata)
+out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria: string`, `prazo_resposta_dias_uteis: integer` (R-005: 10 PAC/internacao eletiva — art. 12 II "b"; 5 eletivo — art. 12 II "a"; nulo na urgencia — art. 12 I, resposta imediata — e no fail-safe). Catch-all r4 (fail-safe, decisao do coordenador de 17/11/2026 em nome do dono): carater nulo, vazio ou desconhecido recebe os MESMOS prazos de r1 (urgencia: `PT2H`, alerta `PT1H`, dias uteis nulo), nunca o prazo do eletivo — dado ausente nao cai no tratamento mais lento.
 
 ## Papeis humanos
 
@@ -610,6 +610,7 @@ out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria
 | Analise (urgencia) | PT2H | interruptivo -> coordenacao assume | Lei 9.656 art. 35-C ("imediato") — **DRAFT/verify** |
 | Analise (eletivo alta complexidade/OPME/internacao) | P10D | idem | RN 623/2024 art. 12, II, b (PAC/internacao eletiva: resposta em ate 10 dias uteis); os 21 dias uteis da RN 566/2022 sao prazo de REALIZACAO (RN 623 art. 12 §4) — **DRAFT/verify** |
 | Analise (eletivo padrao) | P5D | idem | RN 623/2024 art. 12, II, a (resposta em ate 5 dias uteis) — **DRAFT/verify** |
+| Analise (carater nulo, vazio ou desconhecido — fail-safe r4) | PT2H | idem | mesmo prazo de r1 (urgencia): dado ausente nunca cai no prazo mais lento — **DRAFT/verify** |
 | Alerta de risco | 50–70% do SLA (DMN `sla_alerta`) | nao-interruptivo -> notify_sla_risk -> escalonamento humano `ESC-{tenant_id}-sla-auth-{numero_guia_tiss}` (WP-J1-09, decisao do dono #17; emenda em `SP-OP-ESCALATION-001.md` + ADR-0051). NAO interrompe a analise e NAO move a titularidade: a retomada continua sendo `BT_SlaAnalise` -> `UT_CoordenacaoAssume`, dentro deste processo | politica interna |
 | Pendencia de documentacao | P5D | event gateway -> `UT_DecidirPendenciaExpirada` (humano decide destino) | **DRAFT/verify** (suspensao de prazo durante pendencia: confirmar regra RN) |
 | Negativa por escrito | registro COMPOSTO pelo worker `send_denial_notice`; entrega ao beneficiario MANUAL pelo medico auditor ate existir canal com comprovante — ver "Negativa por escrito — entrega (R-004)" | dentro do prazo de resposta do art. 12 (mesmas linhas acima) | RN 623/2024 art. 14 (independe de solicitacao; §2 imprimivel/download) + art. 16 §§1-3 (Ouvidoria) — **DRAFT/verify** |

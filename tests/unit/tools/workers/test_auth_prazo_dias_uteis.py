@@ -3,7 +3,7 @@
 O que estes testes fixam:
 
 * QUANTOS dias uteis vem da DMN `auth_sla` (coluna `prazo_resposta_dias_uteis`: 10 para PAC/
-  internacao eletiva, 5 nos demais eletivos e no fail-safe, nulo na urgencia). O worker
+  internacao eletiva, 5 nos demais eletivos, nulo na urgencia e no fail-safe). O worker
   `operadora.auth.compute_response_deadline` so faz a aritmetica de calendario.
 * Desligada (`MAEZO_AUTH_PRAZO_DIAS_UTEIS`, padrao), o worker escreve tres nulos e o timer
   `BT_SlaAnalise` segue no ISO corrido da DMN — comportamento de antes.
@@ -217,8 +217,9 @@ def _coluna_dias_uteis() -> dict[str, str]:
 
 
 def test_dmn_dias_uteis_do_art_12() -> None:
-    # r1 urgencia (imediata: sem conversao) | r2 PAC/internacao eletiva | r3 eletivo | r4 fail-safe
-    assert _coluna_dias_uteis() == {"r1": "null", "r2": "10", "r3": "5", "r4": "5"}
+    # r1 urgencia (imediata: sem conversao) | r2 PAC/internacao eletiva | r3 eletivo
+    # r4 fail-safe = r1 (carater nulo/desconhecido recebe o menor prazo, nunca o eletivo)
+    assert _coluna_dias_uteis() == {"r1": "null", "r2": "10", "r3": "5", "r4": "null"}
 
 
 def test_dmn_iso_corrido_preservado() -> None:
@@ -231,7 +232,7 @@ def test_dmn_iso_corrido_preservado() -> None:
     valores = [
         (r.findall(f"{_D}outputEntry")[idx].findtext(f"{_D}text") or "") for r in table.findall(f"{_D}rule")
     ]
-    assert valores == ['"PT2H"', '"P10D"', '"P5D"', '"P5D"']
+    assert valores == ['"PT2H"', '"P10D"', '"P5D"', '"PT2H"']
 
 
 # --- BPMN: a task fica imediatamente antes da UT e o timer cai no ISO quando nulo ---------------
