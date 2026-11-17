@@ -123,9 +123,11 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
     ),
-    # COMERCIAL (E-SF-17, flag desligada): SO' a declaracao do vocabulario fechado que
-    # `agents/comercial/graph.py` escreve no estado. O agente NAO chama `emit_turn_desfecho` (nenhuma
-    # medicao e' emitida, A9 UNMEASURED); ligar a telemetria dele e' ato da ativacao (OWNER-DEPLOY).
+    # COMERCIAL (E-SF-17, flag desligada): vocabulario fechado que `agents/comercial/graph.py`
+    # escreve no estado. Desde a correcao de telemetria da onda 2 o no terminal `finalize` do
+    # agente CHAMA `emit_turn_desfecho` (a cerca de frota o cobre), mas a gravacao no contador fica
+    # FECHADA por `_AGENTES_SEM_MEDICAO_ADMITIDA` abaixo (A9 nao executavel; `saida_clinica` e' um
+    # sinal de saude que so' vira rotulo de metrica com decisao do encarregado).
     "comercial": frozenset(
         {
             "saida_clinica",
@@ -306,6 +308,15 @@ _ROUTE_VOCAB: Final[dict[str, frozenset[str]]] = {
         {"inform", "schedule", "escalate", "collect", "falha_tecnica_start", "retomada", "handoff"}
     ),
     "lucas": frozenset({"respond_member", "escalate_human", "retomada"}),
+    # COMERCIAL: o estado chama o campo de `rota`; o no terminal passa o valor via override.
+    "comercial": frozenset(
+        {
+            "devolver_helena",
+            "fila_humana_sales_operations",
+            "conversa_comercial",
+            "nota_interna_especialista",
+        }
+    ),
     "marina": frozenset({"auto_route", "human_review"}),
     "rafael": frozenset({"auto_approve", "human_auditor"}),
     "valentina": frozenset({"auto_route", "human_review"}),
@@ -330,6 +341,15 @@ _MOTIVO_CATEGORIA_VOCAB: Final[dict[str, frozenset[str]]] = {
     # nunca mais `outro` — que continua sendo so' o token de normalizacao deste modulo.
     "lucas": frozenset({"cobranca", "solicitacao_humano", "falha_tecnica"}),
 }
+
+
+#: Agentes cujo desfecho de turno NAO e' gravado no contador: o no terminal chama
+#: `emit_turn_desfecho`, o valor e' validado e normalizado, e a gravacao para aqui. Fechado por
+#: construcao (sem chave de configuracao): retirar um agente deste conjunto e' PR proprio, com a
+#: medicao admitida (A9) e a decisao do encarregado sobre os rotulos derivados de sinal de saude
+#: (`saida_clinica`). Uma cerca (`tests/unit/runtime/test_turn_telemetry_comercial_fechada.py`)
+#: afirma o conjunto exato e a ausencia de gravacao.
+_AGENTES_SEM_MEDICAO_ADMITIDA: Final[frozenset[str]] = frozenset({"comercial"})
 
 
 def _normalize(value: str | None, vocab: frozenset[str] | None, *, agent_id: str, field: str) -> str | None:
@@ -411,6 +431,11 @@ def emit_turn_desfecho(
         final_motivo = _normalize(
             raw_motivo, _MOTIVO_CATEGORIA_VOCAB.get(agent_id), agent_id=agent_id, field="motivo_categoria"
         )
+
+        if agent_id in _AGENTES_SEM_MEDICAO_ADMITIDA:
+            # Medicao nao admitida: nada chega ao contador. O log carrega so' o agente.
+            logger.debug("agent_desfecho_medicao_nao_admitida", agent_id=agent_id)
+            return
 
         observability.record_agent_desfecho(
             agent_id=agent_id,

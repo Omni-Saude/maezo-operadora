@@ -115,6 +115,9 @@ _TERMINAL_NODES: dict[str, tuple[str, ...]] = {
     "andre": ("finalize",),
     "beatriz": ("finalize",),
     "carolina": ("finalize",),
+    # Correcao de telemetria (onda 2): o agente comercial passa a ter no terminal com a chamada; a
+    # gravacao no contador continua fechada (`test_turn_telemetry_comercial_fechada.py`).
+    "comercial": ("finalize",),
     "fernando": ("notify", "start_process"),
     "gustavo": ("finalize",),
     "helena": ("respond",),
