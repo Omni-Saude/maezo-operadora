@@ -18,6 +18,14 @@ sistema manda **sem ser chamado**: poucos dias antes do vencimento, "Sua mensali
 > `--simular`) é recusada com `recusado_BENEFICIARY_OPPOSITION_NOT_EXECUTABLE` enquanto não existir oposição
 > executável para `beneficiario` (SP-OP-SUPP-001 não a registra hoje; o canal é ponto do DPO). Os passos de "Como ligar" abaixo descrevem o mecanismo (reuso decidido) e só
 > passam a valer depois de RT-D4 e do registro ratificado.
+>
+> **Critério de seleção (E-SF-21r, 17/11/2026).** A base decidida é o consentimento do termo de contato,
+> finalidade 2 (cobrança). O job seleciona pelo **aceite** dessa finalidade (`lembretes/aceite.py`), lido
+> antes de qualquer fato de cobrança; o consentimento de atendimento só identifica a conversa verificada.
+> Não há fonte de aceite em produção (termo em minuta, registro de aceites não publicado): ninguém é
+> selecionado (`sem_aceite_finalidade_cobranca`). A oposição pelo PARAR (`OposicaoPeloParar`) só é
+> executável com o gancho de entrada ligado no despachante, e nenhuma composição a monta. O lembrete só sai
+> antes do vencimento e nunca é notificação de inadimplência. Envio real fechado.
 
 ## O texto (fixo, guia de tom)
 
@@ -32,6 +40,8 @@ ao beneficiário, mesma base legal), e o texto é uma constante (`texto.py`).
 
 ## Quem recebe (todas as condições)
 
+0. **Aceite do termo de contato com a finalidade 2** (cobrança), não revogado, com o canal WhatsApp
+   (E-SF-21r). Sem ele a pessoa não é selecionada e a cobrança dela nem é lida.
 1. Acesso **verificado** e **consentimento** em vigor (`conversa_acesso_beneficiario`, DL-0083): estado
    `verificado`, consentimento dado e gravado na AMH (`consent_ref`), não revogado (REVOGAR tira a pessoa),
    nada pendente de gravação no lago.

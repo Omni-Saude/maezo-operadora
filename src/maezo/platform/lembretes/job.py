@@ -30,11 +30,12 @@ das verificacoes de envio proativo:
     acesso, a fonte de cobranca ou a supressao;
   * por candidato, a verificacao COMPLETA (`avaliar`) antes de contar `enviaria` ou enviar; o `Enviador`
     so' envia com a `AutorizacaoDeEnvio` que o gate emitiu.
-A permissao do candidato e' o consentimento de ATENDIMENTO (`atendimento_whatsapp` / `wa-consent-v2`, a
-selecao de `leitura.py`), que o gate NUNCA aceita como permissao de contato proativo
-(`recontact_permission_unqualified`). Com o registro publicado (nada ratificado), nenhum lembrete sai, com o
-interruptor ligado ou nao. O mecanismo (selecao, regra, janela, reserva, teto) fica como esta' — reuso
-decidido —, a espera da resposta do DPO a RT-D4.
+CRITERIO DE SELECAO (E-SF-21r, E37): a permissao do candidato e' o ACEITE do termo de contato, finalidade 2
+(cobranca), lido pela porta `Dependencias.aceites` (`aceite.py`) ANTES de qualquer fato de cobranca. O
+consentimento de ATENDIMENTO (`atendimento_whatsapp` / `wa-consent-v2`) so' identifica a conversa
+verificada; nunca e' apresentado como permissao. Nenhuma fonte de aceite existe em producao (termo em
+minuta, registro de aceites nao publicado), entao ninguem e' selecionado; e mesmo com aceite, o gate
+recusa enquanto a finalidade nao for ratificada. Envio real fechado.
 
 O que SAI do job para log: so' contagens por motivo. Nunca telefone, CPF, valor, nome ou conversation_id.
 """
@@ -62,6 +63,7 @@ from maezo.gateway.communications.outbound_gate import (
 from maezo.gateway.recipient_custody import RecipientRecord, dentro_da_janela
 from maezo.platform.webhooks.whatsapp.acesso import SHA256_TEXTO_CONSENTIMENTO, VERSAO_TEXTO_CONSENTIMENTO
 
+from .aceite import LeitorDeAceiteDeContato, permissao_do_aceite
 from .armazenamento import LembreteStore
 from .config import ConfigJob
 from .envio import DestinoForaDaAllowlistError, Enviador
@@ -88,11 +90,11 @@ class Beneficiario:
 
 
 def permissao_do_acesso(b: Beneficiario) -> PermissaoDeContato:
-    """A UNICA permissao que a selecao do job conhece: o consentimento de ATENDIMENTO do acesso verificado.
+    """O consentimento de ATENDIMENTO do acesso verificado, com o nome certo. NAO e' o criterio de selecao.
 
-    `leitura.py` seleciona por `consent_ref` do escopo `atendimento_whatsapp` (texto `wa-consent-v2`, "nesta
-    conversa"). Isso e' dito aqui com o nome certo para que o gate o recuse como permissao de contato
-    proativo (A9 GT-3; RT-D4). A versao v1 do texto tem o mesmo escopo: a recusa vale pelo escopo.
+    Desde E-SF-21r (E37) o job seleciona pelo aceite do termo de contato (`aceite.py`). Esta funcao fica
+    para provar que, se alguem apresentar o consentimento de atendimento ao gate, ele e' recusado como
+    permissao de contato proativo (A9 GT-3; RT-D4).
     """
     return PermissaoDeContato(
         origem="consentimento_atendimento",
@@ -151,7 +153,11 @@ class Dependencias:
     dormir: Callable[[float], Awaitable[None]] = asyncio.sleep
     #: `None` = o gate de PRODUCAO (registro publicado; fechado). Testes injetam um registro sintetico.
     outbound: OutboundGate | None = None
-    permissao_de: Callable[[Beneficiario], PermissaoDeContato | None] = permissao_do_acesso
+    #: E-SF-21r (E37): a fonte do aceite do termo de contato (finalidade 2). `None` (o unico valor em
+    #: producao hoje) = ninguem tem aceite => ninguem e' selecionado.
+    aceites: LeitorDeAceiteDeContato | None = None
+    #: So' testes: permissao ja' resolvida, no lugar da fonte de aceite.
+    permissao_de: Callable[[Beneficiario], PermissaoDeContato | None] | None = None
     #: `None` (o unico valor em producao hoje) = nao ha' oposicao executavel => rodada recusada (CD-25).
     oposicao_beneficiario: PortaDeOposicaoBeneficiario | None = None
 
@@ -202,7 +208,21 @@ def _suprimido(vigentes: frozenset[tuple[str, str]], b: Beneficiario) -> bool:
     return any(ref == b.portable_ref or canal == b.conversation_id for ref, canal in vigentes)
 
 
-def _pedido(deps: Dependencias, b: Beneficiario, parametros: tuple[str, ...], chave: str) -> PedidoDeEnvio:
+async def _permissao(deps: Dependencias, b: Beneficiario) -> PermissaoDeContato | None:
+    """O criterio de selecao (E37): o aceite do termo, finalidade 2. Fonte que falha = nenhuma."""
+    if deps.permissao_de is not None:
+        return deps.permissao_de(b)
+    if deps.aceites is None:
+        return None
+    try:
+        return permissao_do_aceite(await deps.aceites.de(b))
+    except Exception:  # fonte de aceite fora do ar: desconhecido nunca vira aceite
+        return None
+
+
+def _pedido(
+    b: Beneficiario, parametros: tuple[str, ...], chave: str, permissao: PermissaoDeContato | None
+) -> PedidoDeEnvio:
     return PedidoDeEnvio(
         template_id=TEMPLATE_LEMBRETE,
         finalidade=FINALIDADE_LEMBRETE,
@@ -210,7 +230,7 @@ def _pedido(deps: Dependencias, b: Beneficiario, parametros: tuple[str, ...], ch
         titular_ref=b.portable_ref,
         canal_ref=b.conversation_id,
         variaveis=parametros,
-        permissao=deps.permissao_de(b),
+        permissao=permissao,
         chave_idempotencia=chave,
     )
 
@@ -278,6 +298,12 @@ async def executar(deps: Dependencias, cfg: ConfigJob, *, agora: datetime) -> Re
         if _suprimido(vigentes, b):
             resumo.contar("suprimido")
             continue
+        # Criterio de selecao (E37) ANTES de ler qualquer fato de cobranca: sem aceite da finalidade 2,
+        # a cobranca da pessoa nem e' lida.
+        permissao = await _permissao(deps, b)
+        if permissao is None:
+            resumo.contar("sem_aceite_finalidade_cobranca")
+            continue
         fatos = await deps.fatos.de(b)
         if isinstance(fatos, Indisponivel):
             resumo.contar(f"fonte_indisponivel_{fatos.motivo}")
@@ -295,7 +321,7 @@ async def executar(deps: Dependencias, cfg: ConfigJob, *, agora: datetime) -> Re
             vencimento=escolhida.vencimento,
         )
         chave = deps.chave_de_saida(f"lembrete:{b.conversation_id}:{escolhida.competencia}")
-        decisao = await deps.gate.avaliar(_pedido(deps, b, mensagem.parametros_template, chave))
+        decisao = await deps.gate.avaliar(_pedido(b, mensagem.parametros_template, chave, permissao))
         if not decisao.permitido or decisao.autorizacao is None:
             _contar_recusa(resumo, decisao)
             continue
@@ -427,7 +453,8 @@ async def simular(
         resumo.registrar()
         return resumo
     chave = deps.chave_de_saida(f"lembrete-teste:{conversation_id}:{int(agora.timestamp())}")
-    decisao = await deps.gate.avaliar(_pedido(deps, beneficiario, mensagem.parametros_template, chave))
+    permissao = await _permissao(deps, beneficiario)
+    decisao = await deps.gate.avaliar(_pedido(beneficiario, mensagem.parametros_template, chave, permissao))
     if not decisao.permitido or decisao.autorizacao is None:
         _contar_recusa(resumo, decisao)
         resumo.registrar()
