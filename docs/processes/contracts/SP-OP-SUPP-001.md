@@ -7,7 +7,7 @@
 
 ## Contrato tipado (request → result)
 
-`SuppressionCommand → SuppressionRecord` — registro preventivo, honrado na **construção de lista** (antes do contato). Implementação tipada: `src/maezo/gateway/vendor_suppression.py` (pydantic fechado, recusas `SuppressionRefusalReason`, business key nomeada, relógio `EscalationClock` computado no nascimento, calendário own-code seg–sex **sem feriados** — limite documentado; store 0021 `PostgresSuppressionStore`).
+`SuppressionCommand → SuppressionRecord` — registro preventivo, honrado na **construção de lista** (antes do contato). Implementação tipada: `src/maezo/gateway/vendor_suppression.py` (pydantic fechado, recusas `SuppressionRefusalReason`, business key nomeada, relógio `EscalationClock` computado no nascimento, calendário seg–sex menos feriados **nacionais** do calendário versionado `maezo.platform.calendario` (R-005/DEC-02; sem UF — vencimento nunca posterior ao de um calendário completo; E-SF-08); store 0021 `PostgresSuppressionStore`).
 
 ## Business key (NO-DUPLICATE-INSTANCE, correlação por NOME)
 
@@ -47,7 +47,7 @@
 ## Invariantes
 
 - Minimização art. 10 §1º: identificador + data + canal, nada mais; `subject_ref` OPACO (ADR-0006).
-- RELÓGIO POR REGISTRO (§4c, insumos aceitos): deadline computado NO NASCIMENTO (calendário own-code seg–sex SEM feriados — limite documentado); escalonamento 50/80/100 com timers `timeDate` absolutos; registro sem deadline = recusa do store. NENHUM outro timer de SLA. TTL de limpeza de histórico do engine (`historyTimeToLive`: BPMN 1825 / DMN P180D = precedente LGPD-DSR) NÃO é o prazo de retenção de negócio — o engine roda `enforceTTL` (ENGINE-12018, prova local: sem TTL o deploy é RECUSADO); retenção de negócio segue VW0-D12 RATIFY DPO (downgrade da 0021 recusa store populado).
+- RELÓGIO POR REGISTRO (§4c, insumos aceitos): deadline computado NO NASCIMENTO (calendário seg–sex menos feriados nacionais — `maezo.platform.calendario`, E-SF-08); escalonamento 50/80/100 com timers `timeDate` absolutos; registro sem deadline = recusa do store. NENHUM outro timer de SLA. TTL de limpeza de histórico do engine (`historyTimeToLive`: BPMN 1825 / DMN P180D = precedente LGPD-DSR) NÃO é o prazo de retenção de negócio — o engine roda `enforceTTL` (ENGINE-12018, prova local: sem TTL o deploy é RECUSADO); retenção de negócio segue VW0-D12 RATIFY DPO (downgrade da 0021 recusa store populado).
 - Sem PHI em nenhuma superfície (G-PHI absoluto — OP20 é a superfície de teste da invariante); sem RATE/comparação entre operadoras (G-CADE).
 - Honrar registro = `REGISTRO_HONRADO` EXPLÍCITO da DMN + plano de lista — nunca automática por omissão; recusa tipada ≠ violação (§4e critério 4).
 - KPI: `supressões honradas no SLA / total` observável pelos eventos `sla_*`; `phi_egress_violations == 0` (§4e — violação é conteúdo proibido que PASSOU a fronteira, nunca a recusa).

@@ -136,6 +136,7 @@ O Lucas coleta uma pergunta por vez e abre o processo **so depois** de a benefic
 - **in:** `dias_desde_atendimento: integer`
 - **out:** `situacao_prazo: string` (`DENTRO` | `FORA` | `NAO_AVALIADO`)
 - **So informativa**: alimenta o dossie do analista e **nao roteia** (todo pedido vai para a analise humana). Hoje so tem o catch-all `NAO_AVALIADO`, porque o prazo contratual/regulatorio **nao esta confirmado**. Quando o juridico definir, entram as linhas `DENTRO`/`FORA` (o prazo vive na DMN, nunca em Python). A coluna e hoje "dead input" no baseline de `test_dmn_dead_inputs_fence`; sai de la quando as linhas entrarem.
+- **Prazo de PAGAMENTO (Lei 9.656/1998 art. 12, VI) nao vive aqui** (E-SF-08 / TB-E-16-a): esta tabela mede dias desde o ATENDIMENTO. O dispositivo de pagamento esta' no catalogo `spec/processes/dmn/funnel_deadline_catalog.dmn` (linha `Lei9656-art12-VI`, DRAFT): so' urgencia/emergencia, relogio a partir do fato `documentacao_adequada_em` registrado pelo analista (nunca da submissao), enquadramento so' do registro assistencial do analista (nunca autodeclaracao). Nenhum prazo e' exibido ao beneficiario ate' a ratificacao (RL-REG-44); cercas em `tests/unit/dmn/test_reembolso_prazo.py`.
 
 ### `reembolso_auto_approval` (hitPolicy FIRST — DRAFT, PRETENDIDA, ATIVACAO DESLIGADA) — arquivo `spec/processes/dmn/reembolso_auto_approval.dmn`
 - **R-070 opcao B** (decisao do dono, 2026-10-31, #1084 — https://github.com/Omni-Saude/maezo-operadora/issues/1084#issuecomment-6545662766; faixa dormente sobre a v2 por decisao do dono de 2026-11-01 no PR #1149, e PRETENDIDA desde a DEC-31 D31-1 de 2026-11-02 (DL-0164); bloco de assinatura do dono + atuaria em `docs/compliance/human-windows/R-070-dec-teto-d07.md` §6 segue EM BRANCO). As comparacoes NOVAS da opcao B (limite contratual, teto sobre o solicitado, exposicao, orcamento) vivem nesta DMN; o worker `validate_auto_criteria` as RELAIA sem comparar. Na v1, `dentro_tabela` e `dentro_teto_l2` eram computados no worker (pre-existentes, GAP F-1/T1.9); sairam com o `ST_CalculateAmount` na DL-0161 e nao voltaram — esta DMN nao le booleano de comparacao vindo do worker. (`register_auto_approval` refaz R-058 + valor igual ao solicitado + teto como GUARDA de efeito — recusa e' incidente, nunca roteamento.)
@@ -183,6 +184,8 @@ Campos obrigatorios por decisao (validacao do formulario do portal e do guard do
 | Pendencia de informacao/documentos | P5D | `GW_AguardarDocs` (mensagem OU timer) → `UT_DecidirPendenciaExpirada` (humano decide destino) | **DRAFT/verify** (suspensao de prazo durante pendencia) |
 
 `conceder_prazo_extra` volta a `GW_AguardarDocs` (rearma o timer); `seguir_analise` volta a `ST_PrepararDossie`; `cancelar_solicitacao` encerra com desfecho neutro. **A expiracao nunca auto-nega.**
+
+Nenhum destes timers e' exibido ao beneficiario (sao SLA interno DRAFT; E-SF-08 / TB-E-16-a, `draft_timers_never_buyer_visible`).
 
 ## Codigos de erro
 

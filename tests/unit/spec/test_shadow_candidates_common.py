@@ -223,7 +223,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     all_dmns = [p for p in artifacts if p.suffix == ".dmn"]
     dmns = {p.name for p in all_dmns if p.parent.name != "rco"}
     rco = {p.relative_to(DMN_DIR).as_posix() for p in all_dmns if p.parent.name == "rco"}
-    assert len(dmns) == 70
+    assert len(dmns) == 71
     assert rco == {"rco/rco_exemplo_sintetico.dmn"}
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
@@ -253,6 +253,9 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     # de assuncao do comite de pagamentos pela coordenacao apos o SLA (BRT_AssuncaoComite, dark atras
     # do comite colegiado); nomeada aqui para o censo nao mudar calado.
     assert "pagto_comite_coordenacao.dmn" in dmns
+    # E-SF-08 (2026-11-16): 70 -> 71 com funnel_deadline_catalog.dmn — catalogo DRAFT de prazos normativos do
+    # funil, sem consumidor (orphans-allowlist); nomeado aqui para o censo nao mudar calado.
+    assert "funnel_deadline_catalog.dmn" in dmns
     assert "auth_junta_admissibility.dmn" in dmns, (
         "o censo subiu para 66 por causa de `auth_junta_admissibility.dmn` (R-064, #1121 — RN 424/2017 "
         "art. 3 I, junta medica vedada em urgencia/emergencia; dark atras de "
