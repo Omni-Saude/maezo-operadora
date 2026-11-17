@@ -1,0 +1,492 @@
+{
+ "dmn": "dmn/ortopedia-opme/mex_ortop.dmn",
+ "decisao": "mex_ortop",
+ "casos": [
+  {
+   "id": "C001",
+   "tipo": "positivo",
+   "descricao": "ATQ + osteotomia de colo na mesma data e mesma via: par só interpretativo, item pendente na fila faturamento (sem glosa automática)",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724058",
+    "codigoSecundario": "30724236",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C002",
+   "tipo": "borda",
+   "descricao": "ATQ + artrotomia por via diferente (pode ser o outro lado): a auditoria médica confere, sem liberação automática",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724058",
+    "codigoSecundario": "30724104",
+    "viaAcessoSecundario": "3"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "auditoria_medica"
+   }
+  },
+  {
+   "id": "C003",
+   "tipo": "borda",
+   "descricao": "ATQ + artroplastia parcial sem via informada, mesma data: item pendente na fila faturamento",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724058",
+    "codigoSecundario": "30724082"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C004",
+   "tipo": "positivo",
+   "descricao": "Revisão de ATQ + ATQ primária na mesma data e via: par por construção (o descritor TUSS do 30724279 diz \"com retirada de componentes e implante de prótese\", que inclui a artroplastia de quadril), glosa 3202; era glosa na main e continua",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30724058",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "glosar",
+    "motivoTab38": "3202",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C019",
+   "tipo": "negativo",
+   "descricao": "Principal sem pares ORTOP",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30725127",
+    "codigoSecundario": "30724058",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  },
+  {
+   "id": "C020",
+   "tipo": "borda",
+   "descricao": "Vigência: véspera não aplica",
+   "entradas": {
+    "dataExecucao": 20261102,
+    "codigoPrincipal": "30724058",
+    "codigoSecundario": "30724236",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  },
+  {
+   "id": "C021",
+   "tipo": "positivo",
+   "descricao": "Revisão de ATQ + retirada dos componentes da artroplastia infectada, mesma data e via: par por construção (o descritor da revisão inclui a retirada de componentes), glosa 3202",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30724066",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "glosar",
+    "motivoTab38": "3202",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento",
+    "classeAdverso": "contas"
+   }
+  },
+  {
+   "id": "C022",
+   "tipo": "positivo",
+   "descricao": "Revisão de ATQ + retirada de prótese de substituição, mesma data e via: par por construção, glosa 3202",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30710065",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "glosar",
+    "motivoTab38": "3202",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento",
+    "classeAdverso": "contas"
+   }
+  },
+  {
+   "id": "C023",
+   "tipo": "borda",
+   "descricao": "Par por construção em datas de execução diferentes na mesma guia (par só em outra data, atendimento em 2026-12-16): restrição, item pendente na fila faturamento, sem pagamento",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30724279",
+    "viaAcessoSecundario": "2",
+    "codigoSecundarioOutraData": "30724066",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C040",
+   "tipo": "borda",
+   "descricao": "Par por construção em datas de execução diferentes na mesma guia (par só em outra data, atendimento em 2026-12-15): libera, como na main (a restrição só vale desde 2026-12-16)",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30724279",
+    "viaAcessoSecundario": "2",
+    "codigoSecundarioOutraData": "30724066",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  },
+  {
+   "id": "C024",
+   "tipo": "borda",
+   "descricao": "Par por construção com data de execução nula em uma das linhas (data de execução ausente em linha de par, atendimento em 2026-12-16): pede a descrição cirúrgica, nunca glosa",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30724279",
+    "dataExecucaoInformada": false
+   },
+   "esperado": {
+    "decisao": "exigir_documento",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C041",
+   "tipo": "borda",
+   "descricao": "Par por construção com data de execução nula em uma das linhas (data de execução ausente, atendimento em 2026-12-15): sem efeito, libera, como na main",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30724279",
+    "dataExecucaoInformada": false,
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  },
+  {
+   "id": "C025",
+   "tipo": "borda",
+   "descricao": "Par por construção por via diferente (pode ser a revisão do outro quadril): a auditoria médica confere, sem glosa automática",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30710065",
+    "viaAcessoSecundario": "3"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "auditoria_medica"
+   }
+  },
+  {
+   "id": "C026",
+   "tipo": "borda",
+   "descricao": "Par por construção com via única (1): a auditoria médica confere o lado, sem glosa automática",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30724066",
+    "viaAcessoSecundario": "1"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "auditoria_medica"
+   }
+  },
+  {
+   "id": "C027",
+   "tipo": "borda",
+   "descricao": "Par por construção sem via informada: a auditoria médica confere o lado, sem glosa automática",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30710065"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "auditoria_medica"
+   }
+  },
+  {
+   "id": "C034",
+   "tipo": "borda",
+   "descricao": "ATQ + artrotomia em datas de execução diferentes na mesma guia (par só em outra data, atendimento em 2026-12-16): restrição, item pendente na fila faturamento, sem pagamento",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30724058",
+    "viaAcessoSecundario": "2",
+    "codigoSecundarioOutraData": "30724104",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C047",
+   "tipo": "borda",
+   "descricao": "ATQ + artrotomia em datas de execução diferentes na mesma guia (par só em outra data, atendimento em 2026-12-15): libera, como na main (a restrição só vale desde 2026-12-16)",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30724058",
+    "viaAcessoSecundario": "2",
+    "codigoSecundarioOutraData": "30724104",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  },
+  {
+   "id": "C035",
+   "tipo": "borda",
+   "descricao": "Vigência: véspera do início, o par por construção não se aplica",
+   "entradas": {
+    "dataExecucao": 20261102,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30724066",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  },
+  {
+   "id": "C036",
+   "tipo": "borda",
+   "descricao": "Vigência: primeiro dia, o par por construção é glosado",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30724066",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "glosar",
+    "motivoTab38": "3202",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento",
+    "classeAdverso": "contas"
+   }
+  },
+  {
+   "id": "C038",
+   "tipo": "borda",
+   "descricao": "Data de execução do principal ausente: revisão da regulação, sem glosa",
+   "entradas": {
+    "dataExecucao": null,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30724066",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "regulacao"
+   }
+  },
+  {
+   "id": "C039",
+   "tipo": "borda",
+   "descricao": "ATQ + artrotomia na mesma data com via única (1): par só interpretativo sem exceção declarada, fila faturamento",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724058",
+    "codigoSecundario": "30724104",
+    "viaAcessoSecundario": "1"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C048",
+   "tipo": "borda",
+   "descricao": "Revisão de ATQ + ATQ primária por via diferente (pode ser o outro quadril): auditoria médica, sem glosa",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30724058",
+    "viaAcessoSecundario": "3"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "auditoria_medica"
+   }
+  },
+  {
+   "id": "C049",
+   "tipo": "negativo",
+   "descricao": "Par em outra data de um principal sem outro código na guia, atendimento em 2026-12-16 com datas informadas: libera",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30724058",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  },
+  {
+   "id": "C050",
+   "tipo": "borda",
+   "descricao": "Mesmo caso com dataExecucaoInformada nulo (guia não extraída): nunca vira pedido de documento nem glosa, libera",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30724058"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  },
+  {
+   "id": "C051",
+   "tipo": "borda",
+   "descricao": "Par por construção só em outra data (revisão de ATQ e retirada de componentes em datas diferentes), 2026-12-15: libera, como na main",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30724279",
+    "codigoSecundarioOutraData": "30724066",
+    "dataExecucaoInformada": true,
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  },
+  {
+   "id": "C052",
+   "tipo": "borda",
+   "descricao": "Par por construção só em outra data, 2026-12-16: não glosa (a data é declarada pelo prestador) e não libera: fila faturamento",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30724279",
+    "codigoSecundarioOutraData": "30724066",
+    "dataExecucaoInformada": true,
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C053",
+   "tipo": "borda",
+   "descricao": "Par na mesma data em 2026-12-16 continua glosado (a restrição não muda o par por construção na mesma data)",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30724279",
+    "codigoSecundario": "30724066",
+    "viaAcessoSecundario": "2",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "glosar",
+    "motivoTab38": "3202",
+    "idRegra": "OMNI-ORTOP-MEX-0001",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C058",
+   "tipo": "negativo",
+   "descricao": "Principal de OMNI-ORTOP-MEX-0002 (ATJ + meniscectomia): mex_ortop não tem o par e libera; a combinação usa o resultado de mex_ortop_joelho_curativo, que tem idRegra",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30726034",
+    "codigoSecundario": "30733057",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  },
+  {
+   "id": "C059",
+   "tipo": "negativo",
+   "descricao": "Principal de OMNI-ORTOP-MEX-0004 (tenorrafia): mex_ortop não tem o par e libera; a combinação usa o resultado de mex_ortop_mesma_data, que tem idRegra",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30731143",
+    "codigoSecundario": "30731151",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0001"
+   }
+  }
+ ]
+}

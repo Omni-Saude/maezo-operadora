@@ -1,0 +1,185 @@
+{
+ "filas": {
+  "auditoria_enfermagem": {
+   "grupo_a_criar": {
+    "decisao_do_dono": "pendente",
+    "nome": "auditoria-enfermagem",
+    "proposta": true
+   },
+   "grupos_maezo": [],
+   "nota_falso_amigo": "enfermagem-triagem (bootstrap.py:43) é fila de triagem e escalonamento, não de auditoria de enfermagem; não é par.",
+   "par": "nao",
+   "recebe": {
+    "amostragem": [],
+    "decisao": [
+     "revisao_humana"
+    ]
+   }
+  },
+  "auditoria_medica": {
+   "grupo_principal": "medico-auditor",
+   "grupos_maezo": [
+    "medico-auditor",
+    "coordenacao-auditoria-medica"
+   ],
+   "observacao": "coordenacao-auditoria-medica é o grupo de coordenação, citado entre parênteses na ADR. Exemplo no Maezo: SP-OP-AUTH-001_Autorizacao_Previa.bpmn:193.",
+   "par": "sim",
+   "recebe": {
+    "amostragem": [],
+    "decisao": [
+     "recomendar_negativa",
+     "revisao_humana"
+    ]
+   }
+  },
+  "cadastro": {
+   "grupo_principal": "cadastro-beneficiarios",
+   "grupos_maezo": [
+    "cadastro-beneficiarios"
+   ],
+   "observacao": "Exemplo no Maezo: SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:143.",
+   "par": "sim",
+   "recebe": {
+    "amostragem": [
+     "negar"
+    ],
+    "decisao": [
+     "revisao_humana"
+    ]
+   }
+  },
+  "faturamento": {
+   "desempate": {
+    "chave": "decisao",
+    "decisao_do_dono": "pendente",
+    "padrao": "auditoria-contas",
+    "proposta": true,
+    "regras": [
+     {
+      "grupo": "auditoria-contas",
+      "observacao": "glosa; coordenacao-contas é a coordenação do mesmo processo (ADR-0075 §(h): auditoria-contas/coordenacao-contas)",
+      "quando": {
+       "decisao": "glosar"
+      }
+     },
+     {
+      "grupo": "analise-contas-pagar",
+      "observacao": "pagamento (ADR-0075 §(h): analise-contas-pagar)",
+      "quando": {
+       "decisao": "pagar_referencia"
+      }
+     }
+    ]
+   },
+   "grupos_maezo": [
+    "auditoria-contas",
+    "coordenacao-contas",
+    "analise-contas-pagar"
+   ],
+   "observacao": "Exemplo no Maezo: SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:190.",
+   "par": "parcial",
+   "recebe": {
+    "amostragem": [
+     "glosar"
+    ],
+    "decisao": [
+     "revisao_humana"
+    ]
+   }
+  },
+  "junta_medica": {
+   "grupo_principal": "junta-medica",
+   "grupos_maezo": [
+    "junta-medica"
+   ],
+   "observacao": "Exemplo no Maezo: SP-OP-AUTH-001_Autorizacao_Previa.bpmn:573.",
+   "par": "sim",
+   "recebe": {
+    "amostragem": [],
+    "decisao": [
+     "recomendar_negativa",
+     "revisao_humana"
+    ]
+   }
+  },
+  "juridico": {
+   "desempate": {
+    "chave": "dominio_juridico",
+    "decisao_do_dono": "pendente",
+    "descricao": "Tema jurídico do caso. A ADR-0075 §(h) diz 'por domínio'; o pacote não traz hoje esse tema na saída da tabela, então o consumidor o define pelo processo de origem (ex.: cancelamento de contrato → contratos).",
+    "padrao": "juridico-contratos",
+    "proposta": true,
+    "regras": [
+     {
+      "grupo": "juridico-contratos",
+      "quando": {
+       "dominio_juridico": "contratos"
+      }
+     },
+     {
+      "grupo": "juridico-rede",
+      "quando": {
+       "dominio_juridico": "rede"
+      }
+     },
+     {
+      "grupo": "juridico-fraude",
+      "quando": {
+       "dominio_juridico": "fraude"
+      }
+     },
+     {
+      "grupo": "juridico-regulatorio",
+      "quando": {
+       "dominio_juridico": "regulatorio"
+      }
+     },
+     {
+      "grupo": "juridico-privacidade",
+      "quando": {
+       "dominio_juridico": "privacidade"
+      }
+     }
+    ]
+   },
+   "grupos_maezo": [
+    "juridico-contratos",
+    "juridico-rede",
+    "juridico-fraude",
+    "juridico-regulatorio",
+    "juridico-privacidade"
+   ],
+   "observacao": "Exemplo no Maezo: SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:384. Nenhuma linha DMN emite fila juridico na data desta versão.",
+   "par": "parcial",
+   "recebe": {
+    "amostragem": [],
+    "decisao": [
+     "revisao_humana"
+    ]
+   }
+  },
+  "regulacao": {
+   "grupo_a_criar": {
+    "decisao_do_dono": "pendente",
+    "nome": "regulacao-assistencial",
+    "proposta": true
+   },
+   "grupos_maezo": [],
+   "nota_falso_amigo": "regulatorio-ans e coordenacao-regulatorio são regulatório ANS, não regulação assistencial; não são par.",
+   "par": "nao",
+   "recebe": {
+    "amostragem": [],
+    "decisao": [
+     "revisao_humana"
+    ]
+   }
+  }
+ },
+ "fonte_grupos": {
+  "arquivo": "docs/adr/0075-regras-da-operadora-vem-do-rco-pacote-k1.md",
+  "commit": "d8e6e21",
+  "documento": "ADR-0075 §(h) do maezo-operadora"
+ },
+ "fonte_recebe": "docs/programa/desenho-rco-1.md §2.4; vocabulário de decisao em regras/schema/regra.schema.json",
+ "versao": "1.0.0"
+}

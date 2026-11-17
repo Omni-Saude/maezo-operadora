@@ -1,0 +1,285 @@
+{
+ "dmn": "dmn/ortopedia-opme/mex_ortop_mesma_data.dmn",
+ "decisao": "mex_ortop_mesma_data",
+ "casos": [
+  {
+   "id": "C008",
+   "tipo": "positivo",
+   "descricao": "Manguito + tenotomia do bíceps: revisão (laudo de imagem)",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30735068",
+    "codigoSecundario": "30735092",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0003"
+   }
+  },
+  {
+   "id": "C009",
+   "tipo": "positivo",
+   "descricao": "Transferência muscular + artroscopia de ombro: revisão",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30717167",
+    "codigoSecundario": "30735084",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0003"
+   }
+  },
+  {
+   "id": "C010",
+   "tipo": "positivo",
+   "descricao": "Acromioplastia por vídeo + artrotomia aberta do ombro: revisão (conversão ou duplicidade)",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30735033",
+    "codigoSecundario": "30717035",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0008"
+   }
+  },
+  {
+   "id": "C011",
+   "tipo": "positivo",
+   "descricao": "Meniscectomia por vídeo + lesão de menisco aberta: revisão",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30733057",
+    "codigoSecundario": "30726140",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0008"
+   }
+  },
+  {
+   "id": "C012",
+   "tipo": "negativo",
+   "descricao": "LCA por vídeo + LAL (30726182): associação admitida pela v36",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30733073",
+    "codigoSecundario": "30726182",
+    "viaAcessoSecundario": "3"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0008"
+   }
+  },
+  {
+   "id": "C013",
+   "tipo": "positivo",
+   "descricao": "LAL agudo + crônico na mesma cirurgia: revisão",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30726182",
+    "codigoSecundario": "30726190",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0009"
+   }
+  },
+  {
+   "id": "C014",
+   "tipo": "negativo",
+   "descricao": "Bankart + capsulorrafia (Latarjet por vídeo): associação admitida",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30735041",
+    "codigoSecundario": "30735050",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0003"
+   }
+  },
+  {
+   "id": "C015",
+   "tipo": "positivo",
+   "descricao": "Tenorrafia até 2 dígitos + mais de 2 dígitos na mesma mão: glosa",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30731143",
+    "codigoSecundario": "30731151",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "glosar",
+    "motivoTab38": "3209",
+    "idRegra": "OMNI-ORTOP-MEX-0004",
+    "fila": "faturamento",
+    "classeAdverso": "contas"
+   }
+  },
+  {
+   "id": "C016",
+   "tipo": "borda",
+   "descricao": "Tenorrafia do mesmo grupo em outra mão (via diferente): revisão",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30731160",
+    "codigoSecundario": "30731135",
+    "viaAcessoSecundario": "3"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0004"
+   }
+  },
+  {
+   "id": "C017",
+   "tipo": "negativo",
+   "descricao": "Tenorrafia grupo 1 + grupo 2 não é excludente",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30731151",
+    "codigoSecundario": "30731160",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0004"
+   }
+  },
+  {
+   "id": "C064",
+   "tipo": "negativo",
+   "descricao": "Principal de OMNI-ORTOP-MEX-0001 (ATQ + osteotomia de colo): sem resultado nesta tabela (idRegra vazio); mex_ortop decide",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724058",
+    "codigoSecundario": "30724236",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": ""
+   }
+  },
+  {
+   "id": "C065",
+   "tipo": "negativo",
+   "descricao": "Principal sem pares ORTOP: sem resultado nesta tabela (idRegra vazio); mex_ortop libera",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30725127",
+    "codigoSecundario": "30724058",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": ""
+   }
+  },
+  {
+   "id": "C066",
+   "tipo": "borda",
+   "descricao": "Vigência: véspera do início (2026-11-02), tenorrafia do mesmo grupo: sem resultado nesta tabela (idRegra vazio); mex_ortop libera",
+   "entradas": {
+    "dataExecucao": 20261102,
+    "codigoPrincipal": "30731143",
+    "codigoSecundario": "30731151",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": ""
+   }
+  },
+  {
+   "id": "C067",
+   "tipo": "borda",
+   "descricao": "Data de execução ausente: sem resultado nesta tabela (idRegra vazio); mex_ortop manda à regulação, sem glosa",
+   "entradas": {
+    "dataExecucao": null,
+    "codigoPrincipal": "30731143",
+    "codigoSecundario": "30731151",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "",
+    "fila": "regulacao"
+   }
+  },
+  {
+   "id": "C068",
+   "tipo": "borda",
+   "descricao": "Tenorrafia até 2 dígitos + mais de 2 dígitos na mesma mão em 2026-12-15: glosa, como antes (estes pares não têm corte em 2026-12-16)",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30731143",
+    "codigoSecundario": "30731151",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "glosar",
+    "motivoTab38": "3209",
+    "idRegra": "OMNI-ORTOP-MEX-0004",
+    "fila": "faturamento",
+    "classeAdverso": "contas"
+   }
+  },
+  {
+   "id": "C069",
+   "tipo": "borda",
+   "descricao": "Tenorrafia até 2 dígitos + mais de 2 dígitos na mesma mão em 2026-12-16: glosa, igual à véspera",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30731143",
+    "codigoSecundario": "30731151",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "glosar",
+    "motivoTab38": "3209",
+    "idRegra": "OMNI-ORTOP-MEX-0004",
+    "fila": "faturamento",
+    "classeAdverso": "contas"
+   }
+  },
+  {
+   "id": "C070",
+   "tipo": "borda",
+   "descricao": "Manguito + tenotomia do bíceps em 2026-12-16: revisão (laudo de imagem), igual à véspera",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30735068",
+    "codigoSecundario": "30735092",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0003"
+   }
+  }
+ ]
+}

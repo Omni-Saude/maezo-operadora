@@ -1,0 +1,405 @@
+{
+ "dmn": "dmn/ortopedia-opme/mex_ortop_joelho_curativo.dmn",
+ "decisao": "mex_ortop_joelho_curativo",
+ "casos": [
+  {
+   "id": "C005",
+   "tipo": "positivo",
+   "descricao": "ATJ + meniscectomia na mesma data e via: par só interpretativo, item pendente na fila faturamento",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30726034",
+    "codigoSecundario": "30733057",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C006",
+   "tipo": "cobertura_obrigatoria",
+   "descricao": "ATJ bilateral (revisão de um joelho + ATJ do outro, via diferente): a auditoria médica confere o lado e a cobertura obrigatória não é glosada",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30726255",
+    "codigoSecundario": "30726034",
+    "viaAcessoSecundario": "3"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002",
+    "fila": "auditoria_medica"
+   }
+  },
+  {
+   "id": "C007",
+   "tipo": "negativo",
+   "descricao": "ATJ + retirada de enxerto de outro sítio: sem restrição",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30726034",
+    "codigoSecundario": "30713072",
+    "viaAcessoSecundario": "3"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002"
+   }
+  },
+  {
+   "id": "C018",
+   "tipo": "positivo",
+   "descricao": "Desbridamento + curativo sob anestesia na mesma data e via: par só interpretativo, curativo pendente na fila faturamento",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30730031",
+    "codigoSecundario": "30101239",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0007",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C028",
+   "tipo": "borda",
+   "descricao": "ATJ e meniscectomia em datas de execução diferentes na mesma guia (par só em outra data, atendimento em 2026-12-16): restrição, item pendente na fila faturamento, sem pagamento",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30726034",
+    "viaAcessoSecundario": "2",
+    "codigoSecundarioOutraData": "30733057",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C042",
+   "tipo": "borda",
+   "descricao": "ATJ e meniscectomia em datas de execução diferentes na mesma guia (par só em outra data, atendimento em 2026-12-15): libera, como na main (a restrição só vale desde 2026-12-16)",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30726034",
+    "viaAcessoSecundario": "2",
+    "codigoSecundarioOutraData": "30733057",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002"
+   }
+  },
+  {
+   "id": "C029",
+   "tipo": "borda",
+   "descricao": "ATJ e meniscectomia com data de execução nula em uma das linhas (data de execução ausente em linha de par, atendimento em 2026-12-16): pede a descrição cirúrgica, nunca glosa",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30726034",
+    "dataExecucaoInformada": false
+   },
+   "esperado": {
+    "decisao": "exigir_documento",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C043",
+   "tipo": "borda",
+   "descricao": "ATJ e meniscectomia com data de execução nula em uma das linhas (data de execução ausente, atendimento em 2026-12-15): sem efeito, libera, como na main",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30726034",
+    "dataExecucaoInformada": false,
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002"
+   }
+  },
+  {
+   "id": "C030",
+   "tipo": "borda",
+   "descricao": "ATJ e meniscectomia por via diferente com data nula (data de execução ausente em linha de par, atendimento em 2026-12-16): pede a descrição cirúrgica, nunca glosa",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30726034",
+    "dataExecucaoInformada": false
+   },
+   "esperado": {
+    "decisao": "exigir_documento",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C044",
+   "tipo": "borda",
+   "descricao": "ATJ e meniscectomia por via diferente com data nula (data de execução ausente, atendimento em 2026-12-15): sem efeito, libera, como na main",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30726034",
+    "dataExecucaoInformada": false,
+    "viaAcessoSecundario": "3"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002"
+   }
+  },
+  {
+   "id": "C031",
+   "tipo": "borda",
+   "descricao": "Desbridamento e curativo em datas de execução diferentes na mesma guia (par só em outra data, atendimento em 2026-12-16): restrição, item pendente na fila faturamento, sem pagamento",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30730031",
+    "viaAcessoSecundario": "2",
+    "codigoSecundarioOutraData": "30101239",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0007",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C045",
+   "tipo": "borda",
+   "descricao": "Desbridamento e curativo em datas de execução diferentes na mesma guia (par só em outra data, atendimento em 2026-12-15): libera, como na main (a restrição só vale desde 2026-12-16)",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30730031",
+    "viaAcessoSecundario": "2",
+    "codigoSecundarioOutraData": "30101239",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0007"
+   }
+  },
+  {
+   "id": "C032",
+   "tipo": "borda",
+   "descricao": "Desbridamento e curativo com data nula (data de execução ausente em linha de par, atendimento em 2026-12-16): pede a descrição cirúrgica, nunca glosa",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30730031",
+    "dataExecucaoInformada": false
+   },
+   "esperado": {
+    "decisao": "exigir_documento",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0007",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C046",
+   "tipo": "borda",
+   "descricao": "Desbridamento e curativo com data nula (data de execução ausente, atendimento em 2026-12-15): sem efeito, libera, como na main",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30730031",
+    "dataExecucaoInformada": false,
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0007"
+   }
+  },
+  {
+   "id": "C033",
+   "tipo": "borda",
+   "descricao": "Desbridamento e curativo em outro sítio (via diferente): a auditoria médica confere o sítio, sem liberação automática",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30730031",
+    "codigoSecundario": "30101239",
+    "viaAcessoSecundario": "3"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0007",
+    "fila": "auditoria_medica"
+   }
+  },
+  {
+   "id": "C037",
+   "tipo": "positivo",
+   "descricao": "Revisão de ATJ + retirada de prótese: no joelho o descritor não inclui a retirada, par só interpretativo, fila faturamento",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30726255",
+    "codigoSecundario": "30710065",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C054",
+   "tipo": "borda",
+   "descricao": "ATJ + meniscectomia só em outra data (MEX-0002) em 2026-12-16 com a data informada: fila faturamento",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30726034",
+    "codigoSecundarioOutraData": "30733057",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C055",
+   "tipo": "borda",
+   "descricao": "Desbridamento + curativo (MEX-0007) só em outra data em 2026-12-15: libera",
+   "entradas": {
+    "dataExecucao": 20261215,
+    "codigoPrincipal": "30730031",
+    "codigoSecundarioOutraData": "30101239",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0007"
+   }
+  },
+  {
+   "id": "C056",
+   "tipo": "borda",
+   "descricao": "Desbridamento + curativo (MEX-0007) só em outra data em 2026-12-16: fila faturamento",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30730031",
+    "codigoSecundarioOutraData": "30101239",
+    "dataExecucaoInformada": true
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0007",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C057",
+   "tipo": "borda",
+   "descricao": "Par em outra data com data ausente em outra linha de par (dataExecucaoInformada = false), 2026-12-16: pede o documento (a linha de data ausente vale antes da de outra data)",
+   "entradas": {
+    "dataExecucao": 20261216,
+    "codigoPrincipal": "30726034",
+    "codigoSecundarioOutraData": "30733057",
+    "dataExecucaoInformada": false
+   },
+   "esperado": {
+    "decisao": "exigir_documento",
+    "motivoTab38": "",
+    "idRegra": "OMNI-ORTOP-MEX-0002",
+    "fila": "faturamento"
+   }
+  },
+  {
+   "id": "C060",
+   "tipo": "negativo",
+   "descricao": "Principal de OMNI-ORTOP-MEX-0001 (ATQ + osteotomia de colo): sem resultado nesta tabela (idRegra vazio); mex_ortop decide",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30724058",
+    "codigoSecundario": "30724236",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": ""
+   }
+  },
+  {
+   "id": "C061",
+   "tipo": "negativo",
+   "descricao": "Principal sem pares ORTOP: sem resultado nesta tabela (idRegra vazio); mex_ortop libera",
+   "entradas": {
+    "dataExecucao": 20261103,
+    "codigoPrincipal": "30725127",
+    "codigoSecundario": "30724058",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": ""
+   }
+  },
+  {
+   "id": "C062",
+   "tipo": "borda",
+   "descricao": "Vigência: véspera do início (2026-11-02), ATJ + meniscectomia: sem resultado nesta tabela (idRegra vazio); mex_ortop libera",
+   "entradas": {
+    "dataExecucao": 20261102,
+    "codigoPrincipal": "30726034",
+    "codigoSecundario": "30733057",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "liberar",
+    "motivoTab38": "",
+    "idRegra": ""
+   }
+  },
+  {
+   "id": "C063",
+   "tipo": "borda",
+   "descricao": "Data de execução ausente: sem resultado nesta tabela (idRegra vazio); mex_ortop manda à regulação, sem glosa",
+   "entradas": {
+    "dataExecucao": null,
+    "codigoPrincipal": "30726034",
+    "codigoSecundario": "30733057",
+    "viaAcessoSecundario": "2"
+   },
+   "esperado": {
+    "decisao": "revisao_humana",
+    "motivoTab38": "",
+    "idRegra": "",
+    "fila": "regulacao"
+   }
+  }
+ ]
+}

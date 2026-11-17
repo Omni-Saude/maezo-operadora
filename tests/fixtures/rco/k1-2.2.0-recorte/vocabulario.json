@@ -1,0 +1,106 @@
+{
+ "ativacao": {
+  "parametros": {
+   "amostra_posterior_pct": 5,
+   "conferencia_negativa_admin_decisoes": 30,
+   "limiar_reversao_min_decisoes": 30,
+   "limiar_reversao_pct": 5,
+   "revisao_inicial_decisoes": 30,
+   "revisao_inicial_prazo_dias": 7
+  },
+  "valores": [
+   "plena",
+   "conferida",
+   "em_correcao"
+  ]
+ },
+ "campos_com_vazio": [
+  "classeAdverso",
+  "fila",
+  "motivoTab38"
+ ],
+ "classeAdverso": [
+  "",
+  "clinico",
+  "administrativo",
+  "contas"
+ ],
+ "combinacao": {
+  "adversa_exige_preenchidos": [
+   "classeAdverso",
+   "fila",
+   "idRegra",
+   "motivoTab38"
+  ],
+  "adversas": [
+   "glosar",
+   "negar",
+   "recomendar_negativa"
+  ],
+  "adversas_automaticas": [
+   "glosar",
+   "negar"
+  ],
+  "classes": {
+   "administrativo": {
+    "decisoes": [
+     "glosar",
+     "negar"
+    ],
+    "filas": [
+     "cadastro"
+    ]
+   },
+   "clinico": {
+    "decisoes": [
+     "recomendar_negativa"
+    ],
+    "filas": [
+     "auditoria_medica",
+     "junta_medica"
+    ]
+   },
+   "contas": {
+    "decisoes": [
+     "glosar"
+    ],
+    "filas": [
+     "faturamento"
+    ]
+   }
+  },
+  "motivoTab38_padrao": "^[0-9]{4}$",
+  "nao_adversa_classeAdverso": ""
+ },
+ "decisao": [
+  "liberar",
+  "exigir_autorizacao",
+  "revisao_humana",
+  "negar",
+  "glosar",
+  "pagar_pacote",
+  "limitar",
+  "exigir_documento",
+  "informar",
+  "prazo",
+  "pagar_referencia",
+  "recomendar_negativa"
+ ],
+ "filas": [
+  "auditoria_medica",
+  "auditoria_enfermagem",
+  "junta_medica",
+  "regulacao",
+  "cadastro",
+  "faturamento",
+  "juridico"
+ ],
+ "saidas_obrigatorias": [
+  "decisao",
+  "motivoTab38",
+  "idRegra",
+  "fila",
+  "classeAdverso"
+ ],
+ "vazio": ""
+}

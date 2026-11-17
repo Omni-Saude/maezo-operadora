@@ -1,0 +1,36 @@
+{
+  "origem_repo": "Omni-Saude/regras-contratos-operadora",
+  "origem_commit": "a19783753b5b7ef839bc6ec5a565699097265177",
+  "formato_manifesto": "2.2.0",
+  "manifesto_sha256": "sha256:950dfcfe0403aa0dc63d31fdff3fd58b11969041e4410779fe64fbdd8d65ca49",
+  "gerador": [
+    "git archive a19783753b5b7ef839bc6ec5a565699097265177 | tar -x -C <copia>  (git dir de rascunho com HEAD = esse commit, para scripts/pacote.py::origem_git)",
+    "make pacote PY=python3 PACOTE_ARGS='--saida <saida>'  # roda make derivar e depois recusa publicar: dicionario de entradas mudou desde 1.2.0 sem versao nova",
+    "python3 -c \"import sys; sys.path.insert(0, 'scripts'); import pacote as p; from pathlib import Path; p.gerar(Path('.').resolve(), Path('<saida>'), publicar=False)\"",
+    "python3 scripts/pacote.py --verificar --saida <saida>  # pacote verificado"
+  ],
+  "arquivos": {
+    "dmn/mex_ortop.dmn": "sha256:b844545519f86b8e17df5b3295f8be74ebc06fa07667d26a645cb02fb4b893d6",
+    "dmn/mex_ortop_joelho_curativo.dmn": "sha256:772537777caf2bba9a4c2da2aeb02df21c77750f421e8d2c7a7ab9c9cfe9a3a5",
+    "dmn/mex_ortop_mesma_data.dmn": "sha256:0180d9ec1aee3dc614e620c5ecd4a18275249f4c8d748e50b16b22308d09be6f",
+    "k6-filas.json": "sha256:52a76b09beaab18f34dc6da67586bb5da37e57825f380440e098391ed9071f2b",
+    "manifesto.json": "sha256:950dfcfe0403aa0dc63d31fdff3fd58b11969041e4410779fe64fbdd8d65ca49",
+    "manifesto.sha256": "sha256:1b19bea7bc715d9cf68f6046ad315110f91d88e58996e25cf6618f106dd7cb90",
+    "validacao/casos/ortopedia-opme/mex_ortop.json": "sha256:92539c38b9e2faec9d133934cdbb56d02cdd5a12a307b38d85b03a3708300ec5",
+    "validacao/casos/ortopedia-opme/mex_ortop_joelho_curativo.json": "sha256:286d88ad902a7c04be39d48e01232b1e08d11e704412e63c2005291b5587716d",
+    "validacao/casos/ortopedia-opme/mex_ortop_mesma_data.json": "sha256:0499a3783e0bfa14254b69b77a2c1208216707cc235037a64624f3d1854d4772",
+    "vocabulario.json": "sha256:5cee7cd29fd959ba64334b4a499a7b1bfadba6c3d851ca1301deffc29aa62356"
+  },
+  "origem_caminhos": {
+    "dmn/mex_ortop.dmn": "pacote:k1/dmn/mex_ortop.dmn",
+    "dmn/mex_ortop_joelho_curativo.dmn": "pacote:k1/dmn/mex_ortop_joelho_curativo.dmn",
+    "dmn/mex_ortop_mesma_data.dmn": "pacote:k1/dmn/mex_ortop_mesma_data.dmn",
+    "k6-filas.json": "pacote:k1/k6-filas.json",
+    "manifesto.json": "pacote:k1/manifesto.json",
+    "manifesto.sha256": "pacote:k1/manifesto.sha256",
+    "validacao/casos/ortopedia-opme/mex_ortop.json": "repo:validacao/casos/ortopedia-opme/mex_ortop.json",
+    "validacao/casos/ortopedia-opme/mex_ortop_joelho_curativo.json": "repo:validacao/casos/ortopedia-opme/mex_ortop_joelho_curativo.json",
+    "validacao/casos/ortopedia-opme/mex_ortop_mesma_data.json": "repo:validacao/casos/ortopedia-opme/mex_ortop_mesma_data.json",
+    "vocabulario.json": "pacote:k1/vocabulario.json"
+  }
+}
