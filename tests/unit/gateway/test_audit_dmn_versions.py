@@ -452,12 +452,15 @@ def test_fixado_empty_id_regra_records_only_sha(tmp_path: Path, monkeypatch: pyt
     assert fields == {"shaDmn": pin.tables["rco_sint_b"].sha_dmn}
 
 
-@pytest.mark.parametrize("ativacao", [("em_correcao", False), ("conferida", False), ("plena", True)])
-def test_fixado_major2_with_unwired_activation_is_refused(tmp_path: Path, ativacao: tuple[str, bool]) -> None:
+@pytest.mark.parametrize(
+    "ativacao", [("em_correcao", False), ("conferida", False), ("plena", True), ("em_correcao", True)]
+)
+def test_fixado_major2_with_contract_activation_loads(tmp_path: Path, ativacao: tuple[str, bool]) -> None:
+    """5e-0 (DL-0181): o runtime aceita as tres ativacoes com ou sem aditivo, como o gate (tudo em sombra)."""
     sint.montar(tmp_path, ativacoes={"SINT-A-0001": ativacao})
-    with pytest.raises(RcoRulesPinError, match="Onda 2 item 5") as excinfo:
-        load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
-    assert excinfo.value.code == "ERR_DMN_RCO_PIN"
+    pin = load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
+    regra = pin.tables["rco_sint_a"].regras["SINT-A-0001"]  # type: ignore[index]
+    assert (regra.ativacao, regra.exige_aditivo) == ativacao
 
 
 def _symlink_k1(root: Path) -> None:

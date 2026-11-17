@@ -45,8 +45,10 @@ FAIL-CLOSED (contrato §4 e §5):
   semantica da composicao (avaliar o grupo inteiro e escolher) e de `maezo.platform.rco_composicao`;
 - `provas_ausentes_no_pin`: pacote abaixo de 2.1.0 (sem `provas[]`) ou com `provas[]` vazia e recusado NO
   PIN (o leitor ainda o le para diagnostico; decisao da ROOT, 16/11/2026);
-- `ativacao_nao_suportada`: pacote MAJOR 2 com regra fora de `ativacao: plena` sem aditivo e
-  recusado ate a Onda 2 item 5 (ativacao por classe de risco) ligar o significado;
+- `ativacao_nao_suportada`: pacote MAJOR 2 com regra cuja `ativacao` esta fora do conjunto fechado
+  `ATIVACOES` ou cujo `exige_aditivo` nao e booleano (defesa em profundidade: o leitor ja recusa). As tres
+  ativacoes do contrato, com ou sem aditivo, sao aceitas no pin desde a unidade 5e-0 (DL-0181), tudo em
+  sombra: o efeito vem de `rco_ativacao.filtrar_saida`, com `efeito_k1_habilitado` desligado;
 - `verificar_pastas`: `spec/processes/dmn/rco/` e `config/integrations/rco/k1/` so com o que o pin e
   o manifesto declaram (sem subpasta, link simbolico ou arquivo solto).
 
@@ -1291,23 +1293,31 @@ def tolerancia_prazo_conta_no_dmn(raw: bytes, rotulo: str) -> list[str]:
 
 
 def ativacao_nao_suportada(manifesto: ManifestoK1) -> list[str]:
-    """Regras do pacote cuja ativacao este consumidor ainda nao executa. Lista vazia = ok.
+    """Regras do pacote com `ativacao`/`exige_aditivo` fora do contrato. Lista vazia = ok.
 
-    MAJOR 2 (contrato §7): so `ativacao: plena` sem `exige_aditivo` tem significado ligado hoje. As
-    demais (`conferida`, `em_correcao`, restricao com aditivo) dependem da Onda 2 item 5 (ativacao por
-    classe de risco); ate la o pacote inteiro e recusado, para que nenhum efeito adverso rode sem a
-    regra de ativacao que o contrato manda aplicar.
+    MAJOR 2 (contrato §7). Desde a unidade 5e-0 (DL-0181, emenda ao ADR-0077 §7) o pin ACEITA as tres
+    ativacoes do conjunto fechado `ATIVACOES` (`plena`, `conferida`, `em_correcao`), com `exige_aditivo`
+    verdadeiro ou falso. Aceitar no pin nao liga efeito: com `efeito_k1_habilitado` desligado toda regra
+    fica em sombra (`rco_ativacao.ativacao_efetiva` -> `filtrar_saida` -> `registrar_apenas`), e com o
+    indicador ligado a mesma funcao ja fecha para o humano (`em_correcao` adversa e `exige_aditivo` sem
+    aditivo confirmado viram `revisao_humana`; `conferida` confere as primeiras decisoes).
+
+    Continua recusado aqui o que nao tem significado no contrato: `ativacao` fora de `ATIVACOES` ou
+    `exige_aditivo` que nao e booleano. O leitor (`ler_manifesto`) ja recusa os dois; esta checagem fica
+    como defesa em profundidade para um `ManifestoK1` montado por outro caminho, com o mesmo nome e os
+    mesmos pontos de chamada no gate (`verify_rco_rules_pin`) e no runtime (`rco_pin`). MAJOR 1 nao tem os
+    campos: nada a recusar.
     """
     if manifesto.major < 2:
         return []
     problemas: list[str] = []
     for decisao in manifesto.decisoes.values():
         for regra in decisao.regras.values():
-            if regra.ativacao != "plena" or regra.exige_aditivo is not False:
+            if regra.ativacao not in ATIVACOES or not isinstance(regra.exige_aditivo, bool):
                 problemas.append(
                     f"{decisao.id}/{regra.id_regra}: ativacao={regra.ativacao!r}, "
-                    f"exige_aditivo={regra.exige_aditivo!r} — semantica ainda nao ligada no consumidor "
-                    "(Onda 2 item 5, ativacao por classe de risco); so 'plena' sem aditivo e aceito"
+                    f"exige_aditivo={regra.exige_aditivo!r} — fora do contrato K1 §7 "
+                    f"(ativacao em {sorted(ATIVACOES)}, exige_aditivo booleano)"
                 )
     return problemas
 

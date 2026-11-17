@@ -359,13 +359,31 @@ def test_major2_so_plena_sem_aditivo_passa(pinned_tree: tuple[Path, dict[str, An
 
 
 @pytest.mark.parametrize(
-    "ativacao", [("em_correcao", False), ("conferida", False), ("plena", True), ("em_correcao", True)]
+    "ativacao",
+    [
+        ("em_correcao", False),
+        ("conferida", False),
+        ("plena", True),
+        ("em_correcao", True),
+        ("conferida", True),
+    ],
 )
-def test_major2_ativacao_nao_ligada_reprova(tmp_path: Path, ativacao: tuple[str, bool]) -> None:
+def test_major2_ativacao_do_contrato_passa(tmp_path: Path, ativacao: tuple[str, bool]) -> None:
+    """5e-0 (DL-0181): o gate aceita as tres ativacoes, com ou sem aditivo; tudo fica em sombra."""
     sint.montar(tmp_path, ativacoes={"SINT-B-0001": ativacao})
+    assert verify_lock(sint.lock(tmp_path), repo_root=tmp_path) == []
+    assert main(["--repo-root", str(tmp_path)]) == 0
+
+
+@pytest.mark.parametrize("valor", ["automatica", "PLENA"])
+def test_major2_ativacao_fora_do_vocabulario_reprova(tmp_path: Path, valor: str) -> None:
+    """Fora do conjunto fechado o leitor recusa (o gate reporta como manifesto invalido)."""
+    manifesto = sint.montar(tmp_path)
+    manifesto["decisoes"][1]["regras"][0]["ativacao"] = valor
+    sint.regravar(tmp_path, manifesto)
     violations = verify_lock(sint.lock(tmp_path), repo_root=tmp_path)
-    assert {v.code for v in violations} == {"ativacao-nao-suportada"}
-    assert "Onda 2 item 5" in violations[0].detail
+    assert {v.code for v in violations} == {"manifesto-invalido"}
+    assert any(".ativacao: tem de ser um de" in v.detail for v in violations)
     assert main(["--repo-root", str(tmp_path)]) == 1
 
 

@@ -107,7 +107,8 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
       - **5c-1, #1256, incorporado (b5fafb2a):** arquivo de estado manual com leitor fail-closed, estado efetivo, filtro de saída e amostragem HMAC.
       - **5c-2, #1260 (branch `prog/mzo/5c2-registro-k1`):** migration 0035 (`rco_decisao_regra` e `rco_decisao_regra_desfecho`, append-only), registro fail-open no harness e `estadoManual`/`ativacaoEfetiva`/`modo` na auditoria.
         - **A revisar em 5d/5e antes de qualquer efeito:** a linha perdida no caminho fail-open do registro desloca os ordinais seguintes (e a janela da revisão inicial). A chave de negócio não é gravada (minimização, decisão da ROOT de 16/11/2026).
-    - **Esperam o OK da ROOT:** 5d (User Tasks), 5e (monitor de reversão; só ele retira a recusa `ativacao_nao_suportada`) e 5b (provas, quando a trilha rco publicar `provas[]` na PROG-RCO-8).
+    - **Esperam o OK da ROOT:** 5d (User Tasks), 5e (monitor de reversão; a recusa `ativacao_nao_suportada` já saiu no 5e-0, DL-0181) e 5b (provas, quando a trilha rco publicar `provas[]` na PROG-RCO-8).
+    - **5e-0 (DL-0181, emenda ao ADR-0077 §7):** o pin (gate e runtime) aceita toda `ativacao` do contrato, com ou sem `exige_aditivo`, tudo em sombra (`efeito_k1_habilitado` desligado); continua recusando vocabulário diferente do contrato e pin sem provas. Prova com o recorte real 2.2.0: as 46 regras antes barradas só `registrar_apenas`.
     - **Nenhum efeito adverso automático** antes da Onda 3 e da decisão P7.
     - **LACUNA do dono:** o registro de aditivo aceito por prestador (versão, data de aceite, vigência e regras cobertas).
     - **PR em caminho protegido:** o dev em enforcing e os aprovadores dono + auditor-neutro estão desenhados no ADR-0077 §8 e não foram aplicados. `spec/policies/autonomy/` é vedado a esta sessão pelo usuário, e a ROOT leva ao dono a liberação explícita.
@@ -126,7 +127,7 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - **Em PR:** #1260, o 5c-2. Se o CI fechar verde, a ROOT incorpora.
     - **Faltam do ADR-0077 (§7), nesta ordem, cada um com o OK da ROOT e revisão independente:**
       - **5d:** User Tasks de conferência e revisão (D1, D2, `conferencia_integral`);
-      - **5e:** monitor de reversão com janela acumulada e móvel, override e alertas. Só o 5e retira a recusa `ativacao_nao_suportada`. Antes de qualquer efeito, resolver o ordinal deslocado por linha perdida no fail-open;
+      - **5e:** monitor de reversão com janela acumulada e móvel, override e alertas. A recusa `ativacao_nao_suportada` saiu antes, no 5e-0 (DL-0181: o pin aceita `plena`, `conferida` e `em_correcao`, com ou sem aditivo, tudo em sombra). Antes de qualquer efeito, resolver o ordinal deslocado por linha perdida no fail-open;
       - **5b:** provas do pacote, quando a trilha rco publicar o formato de `provas[]` (PROG-RCO-8).
     - **Primeiro pin real do K1:** o pin não vai a `fixado` sem duas condições:
       - provar no motor implantado (CIB Seven 2.1.0, perfil `deployed-runtime-compatibility`) a tabela-verdade do teste unário booleano (`false, null` → 0 1 1; `null, true` → 1 0 1; `not(false)` → 1 0 1; `true` → 1 0 0; `false` → 0 1 0; `null` → 0 0 1; branch rco `prog/rco/teste-unario-booleano`), com qualquer divergência barrando o pin;

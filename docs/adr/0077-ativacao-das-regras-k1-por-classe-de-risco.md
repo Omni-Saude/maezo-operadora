@@ -28,7 +28,7 @@ Os parâmetros numéricos vêm no bloco `ativacao.parametros` de `vocabulario.js
 | `limiar_reversao_min_decisoes` | 30 | mínimo de decisões para o limiar valer |
 | `conferencia_negativa_admin_decisoes` | 30 | conferência de um clique nas primeiras negativas administrativas (D2), por regra |
 
-Hoje o leitor do Maezo (`src/maezo/platform/rco_manifesto.py`, #1244) já valida esses campos. Mesmo assim, recusa um pacote 2.0.0 com regra fora de `plena` ou com `exige_aditivo`: é o erro `ativacao_nao_suportada`, que existe até este ADR estar todo implementado.
+Hoje o leitor do Maezo (`src/maezo/platform/rco_manifesto.py`, #1244) já valida esses campos. Mesmo assim, recusa um pacote 2.0.0 com regra fora de `plena` ou com `exige_aditivo`: é o erro `ativacao_nao_suportada`, que existe até este ADR estar todo implementado. (Emendado em 17/11/2026, §7 item 4a: a recusa saiu no 5e-0, DL-0181.)
 
 O ADR-0075 §(e) propôs:
 - um registro de sombra por `idRegra`;
@@ -174,7 +174,12 @@ Um PR por unidade, um executor por vez, revisão independente em cada:
 2. **5a:** leitura e checagem de faixa dos parâmetros. A checagem é escolha do Maezo: inteiros > 0, percentuais em (0, 100] com no máximo 4 casas decimais, `limiar_reversao_min_decisoes` ≥ 1. A auditoria grava `ativacaoPacote` e `exigeAditivo`. A recusa `ativacao_nao_suportada` continua;
 3. **5c:** arquivo de estado manual com leitor fail-closed, migration do registro, função de estado efetivo, o indicador `efeito_k1_habilitado` fixo em falso (toda regra em `sombra`), o registro em todos os estados, a amostragem do §4 e, na auditoria, `estadoManual` e `ativacaoEfetiva`. Não cria User Task: as rotas de `desligada` e do §3 ficam escritas e testadas com o indicador ligado só nos testes. A recusa continua;
 4. **5d:** User Tasks de conferência e revisão (D1, D2, `conferencia_integral`);
-5. **5e:** monitor de reversão, override e alertas. Só neste PR, com 5c e 5d na `main`, sai a recusa `ativacao_nao_suportada`;
+4a. **5e-0** (emenda de 17/11/2026, DL-0181): sai a recusa `ativacao_nao_suportada`, antes do 5e. O pin (gate e runtime) aceita `plena`, `conferida` e `em_correcao`, com `exige_aditivo` verdadeiro ou falso; a função continua nos mesmos pontos de chamada e recusa só valor fora do conjunto fechado ou `exige_aditivo` não booleano. Continuam recusados o vocabulário diferente do contrato e o pin sem provas (§6). Motivos:
+    - o pin real do pacote 2.2.0 do rco está no caminho crítico do piloto, e a recusa barrava 46 regras dele (43 `plena` com aditivo, 3 `conferida`);
+    - tudo fica em `sombra`: `efeito_k1_habilitado` continua falso (§1), e com ele falso `filtrar_saida` só registra;
+    - com o indicador ligado, o roteamento do §3 já fecha para o humano (`em_correcao` adversa e `exige_aditivo` sem aditivo vão a `revisao_humana`; `conferida` confere as primeiras decisões), provado com o pacote real em `tests/unit/platform/test_rco_k1_2_2_ativacao.py`;
+    - o monitor do 5e só muda algo para regra fora de `sombra`, o que não acontece antes da Onda 3.
+5. **5e:** monitor de reversão, override e alertas. (Texto original: "Só neste PR, com 5c e 5d na `main`, sai a recusa `ativacao_nao_suportada`"; emendado em 17/11/2026: a recusa saiu no 5e-0, item 4a.)
 6. **5b:** provas, quando o formato for publicado.
 
 ### 8. Mudança em caminho protegido: desenho, não aplicada
@@ -213,7 +218,7 @@ A decisão do dono de 16/11/2026 (PROG-COORD-16) pede duas mudanças em `spec/po
 - Toda regra com `exige_aditivo` fica sem efeito adverso até existir a fonte de aceites.
 - A conferência bloqueia a negativa administrativa nas primeiras decisões de cada regra e cria carga na fila `cadastro`.
 - A chave da amostragem é um segredo novo, a provisionar por humano.
-- O pacote 2.0.0 com regra não `plena` só passa no pin depois do 5e.
+- O pacote 2.0.0 com regra não `plena` só passa no pin depois do 5e. (Emendado em 17/11/2026: passa desde o 5e-0, em sombra; §7 item 4a, DL-0181.)
 
 ## Supersedes
 — (emenda o ADR-0075 §(e); não substitui nenhum ADR)
