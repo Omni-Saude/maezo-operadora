@@ -161,6 +161,11 @@ async def delegate_auth_analysis(
     corrige o dado e chama de novo; a primeira chamada valida e' a que cria a tarefa. O valor
     validado (sem espacos nas pontas) e' o que segue no envelope. A checagem do Rafael
     (`agents/rafael/delegation.py::state_from_envelope`) continua como defesa em profundidade.
+
+    CONTRATO DO CHAMADOR (decisao da ROOT, 17/11/2026): a recusa NAO e' beco sem saida. Quem
+    chama esta funcao (hoje nenhum caminho vivo; e' a aresta de prova de vida) TEM de tratar
+    `CaraterAtendimentoRecusadoError` pedindo o carater a quem informou ou, se nao conseguir,
+    encaminhando a uma pessoa (SP-OP-ESCALATION-001). Nunca larga o pedido em silencio.
     """
     carater = carater_atendimento_exigido(case_meta.get(CAMPO_CARATER_ATENDIMENTO))
     case_meta = {**case_meta, CAMPO_CARATER_ATENDIMENTO: carater}
