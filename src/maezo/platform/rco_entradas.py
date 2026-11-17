@@ -13,7 +13,10 @@ FAIL-CLOSED (como o leitor do manifesto):
   formula, em cada termo e na derivacao do lago: campo a mais ou a menos e erro;
 - `versao` do dicionario so entre `VERSOES_SUPORTADAS`. Contrato §5: entrada nova muda a versao do
   dicionario e "o consumidor precisa alimenta-la antes de aceitar o pacote" — uma versao que este
-  leitor nao conhece e recusada ate o montador ser revisto;
+  leitor nao conhece e recusada ate o montador ser revisto. A 1.2.0 (rco PROG-RCO-10/PROG-RCO-20,
+  `docs/programa/k1-entradas-origem.yaml` em f77f96ac) publica a formula de 11 derivadas e acrescenta a
+  cada entrada `valores_maezo` (de-para do consumidor, `null` sem de-para; `scripts/k1_entradas.py::linhas`):
+  os campos exatos dependem da versao (`CAMPOS_ENTRADA_POR_VERSAO`);
 - `origem` no conjunto fechado; termo de formula tambem aceita `parametro` (contrato §5);
 - `fallback_nulo` tem de ser `nunca_negar` em TODA entrada: o montador manda nulo quando falta o dado
   e so pode fazer isso porque o fornecedor garante que nulo nunca nega. Outra politica = recusa;
@@ -38,7 +41,7 @@ from typing import Any, Final
 from maezo.platform.rco_manifesto import ManifestoK1, ManifestoK1InvalidoError, anexo_pinado, json_estrito
 
 #: Versoes do dicionario de entradas que o montador conhece (k1-entradas-origem.yaml `versao`).
-VERSOES_SUPORTADAS: Final[frozenset[str]] = frozenset({"1.1.0"})
+VERSOES_SUPORTADAS: Final[frozenset[str]] = frozenset({"1.1.0", "1.2.0"})
 ORIGENS: Final[frozenset[str]] = frozenset({"tiss", "cadastro", "fora_tiss", "derivado"})
 ORIGENS_TERMO: Final[frozenset[str]] = ORIGENS | {"parametro"}
 TIPOS: Final[frozenset[str]] = frozenset({"string", "integer", "boolean", "double"})
@@ -61,6 +64,10 @@ CAMPOS_ENTRADA: Final[frozenset[str]] = frozenset(
         "tabelas",
         "tipo",
     }
+)
+#: Campos exatos de cada entrada por versao do dicionario: a 1.2.0 acrescenta `valores_maezo`.
+CAMPOS_ENTRADA_POR_VERSAO: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
+    {"1.1.0": CAMPOS_ENTRADA, "1.2.0": CAMPOS_ENTRADA | {"valores_maezo"}}
 )
 CAMPOS_FORMULA: Final[frozenset[str]] = frozenset({"formula", "termos"})
 CAMPOS_TERMO: Final[frozenset[str]] = frozenset({"nome", "origem", "fonte"})
@@ -124,6 +131,9 @@ class EntradaK1:
     tabelas: tuple[str, ...]
     lacuna_lago: bool
     classe_lago: str | None  # `derivacao_lago.classe_lago`, ou None (lacuna do lago)
+    #: `valores_maezo` (dicionario 1.2.0+): de-para dos valores do Maezo para o codigo das regras, como o rco
+    #: o publica (inclui a chave `base`, a citacao). `None` sem de-para ou em dicionario 1.1.0. So lido.
+    valores_maezo: Mapping[str, str] | None = None
 
     @property
     def variavel_maezo(self) -> str:
@@ -216,9 +226,27 @@ def _ler_formula(no: object, rotulo: str, problemas: list[str]) -> FormulaK1 | N
     return FormulaK1(texto, tuple(termos))
 
 
-def _ler_entrada(no: object, i: int, problemas: list[str]) -> EntradaK1 | None:
+def _ler_valores_maezo(
+    no: object, rotulo: str, problemas: list[str]
+) -> tuple[bool, Mapping[str, str] | None]:
+    """`(ok, mapa)`: `null` ou objeto de texto para texto (nao vazio)."""
+    if no is None:
+        return True, None
+    if (
+        not isinstance(no, dict)
+        or not no
+        or not all(isinstance(k, str) and k and isinstance(v, str) and v for k, v in no.items())
+    ):
+        problemas.append(f"{rotulo}: tem de ser null ou objeto de texto para texto")
+        return False, None
+    return True, MappingProxyType(dict(no))
+
+
+def _ler_entrada(
+    no: object, i: int, problemas: list[str], campos: frozenset[str] = CAMPOS_ENTRADA
+) -> EntradaK1 | None:
     onde = f"entradas[{i}]"
-    obj = _objeto(no, CAMPOS_ENTRADA, onde, problemas)
+    obj = _objeto(no, campos, onde, problemas)
     if obj is None:
         return None
     ok = True
@@ -267,6 +295,10 @@ def _ler_entrada(no: object, i: int, problemas: list[str]) -> EntradaK1 | None:
     if not isinstance(obj["de_onde"], str):
         problemas.append(f"{onde}.de_onde: tem de ser texto")
         ok = False
+    valores_maezo: Mapping[str, str] | None = None
+    if "valores_maezo" in campos:
+        ok_vm, valores_maezo = _ler_valores_maezo(obj["valores_maezo"], f"{onde}.valores_maezo", problemas)
+        ok = ok and ok_vm
     if not ok or nome is None or snake is None or dominio is None:
         return None
     return EntradaK1(
@@ -280,6 +312,7 @@ def _ler_entrada(no: object, i: int, problemas: list[str]) -> EntradaK1 | None:
         tabelas=tuple(obj["tabelas"]),
         lacuna_lago=bool(obj["lacuna_lago"]),
         classe_lago=classe_lago,
+        valores_maezo=valores_maezo,
     )
 
 
@@ -301,12 +334,13 @@ def ler_dicionario_entradas(raw: bytes) -> DicionarioEntradasK1:
             "entrada nova exige rever o montador antes de pinar (contrato-k1.md §5)"
         )
     sha = _texto(topo["sha256_conteudo"], "sha256_conteudo", problemas, _DIGEST)
+    campos = CAMPOS_ENTRADA_POR_VERSAO.get(versao or "", CAMPOS_ENTRADA)
     entradas: dict[str, EntradaK1] = {}
     if not isinstance(topo["entradas"], list) or not topo["entradas"]:
         problemas.append("entradas: tem de ser lista nao vazia")
     else:
         for i, item in enumerate(topo["entradas"]):
-            entrada = _ler_entrada(item, i, problemas)
+            entrada = _ler_entrada(item, i, problemas, campos)
             if entrada is None:
                 continue
             if entrada.nome_dmn in entradas:

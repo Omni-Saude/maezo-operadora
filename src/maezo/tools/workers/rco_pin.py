@@ -123,6 +123,9 @@ class RcoPinnedTable:
     #: tabela (linha que libera faixa positiva limitada de `diasAlemDoPrazoContratual`). Nao vazio = o
     #: DMN ja tolera: o gate recusa o pin e o montador zera a tolerancia do Maezo (nunca dobra).
     tolerancia_no_dmn: tuple[str, ...] = ()
+    #: MZO-3: a decisao do manifesto K1 pinado (`entradas` e `dominio`, que o montador de entradas usa).
+    #: `None` sem manifesto (`sem_pacote` ou exemplo sintetico do Maezo).
+    decisao: rco_manifesto.DecisaoK1 | None = None
 
     def audit_fields(self, id_regra: str | None = None) -> dict[str, str]:
         """Campos do pin para a entrada de `dmn_versions`.
@@ -157,6 +160,10 @@ class RcoRulesPin:
     #: §7). So exposto: a politica de execucao (D1/D2, amostra, aditivo) e de unidade posterior.
     #: `None` sem pacote ou com manifesto MAJOR 1.
     parametros_ativacao: rco_manifesto.ParametrosAtivacao | None = None
+    #: MZO-3: o manifesto K1 pinado e a pasta `k1/` ao lado do pin, para o montador ler `entradas.json`
+    #: (`rco_entradas.carregar_dicionario_entradas`) sem reler o pin. `None` sem pacote.
+    manifesto: rco_manifesto.ManifestoK1 | None = None
+    k1_dir: Path | None = None
 
 
 def is_rco_decision(decision_key: str) -> bool:
@@ -229,11 +236,11 @@ def checar_manifest_pin(lock: Mapping[str, Any]) -> str:
 
 def _manifesto_fixado(
     lock: Mapping[str, Any], lock_path: Path, rules_dir: Path
-) -> tuple[dict[str, rco_manifesto.DecisaoK1], rco_manifesto.ParametrosAtivacao | None, set[str]]:
+) -> tuple[rco_manifesto.ManifestoK1, rco_manifesto.ParametrosAtivacao | None, set[str]]:
     """Estado `fixado`: le e confere o manifesto K1 pinado.
 
-    Devolve as decisoes por caminho do pin, os parametros de ativacao de `vocabulario.json` e os
-    nomes aceitos em `k1/` (manifesto, anexos e arquivos de provas, como o gate).
+    Devolve o manifesto, os parametros de ativacao de `vocabulario.json` e os nomes aceitos em `k1/`
+    (manifesto, anexos e arquivos de provas, como o gate).
     """
     digest = checar_manifest_pin(lock)
     k1_dir = _k1_dir(lock_path)
@@ -276,7 +283,7 @@ def _manifesto_fixado(
         raise RcoRulesPinError(f"pin: vocabulario.json do K1 recusado: {exc}") from exc
     # A MESMA fonte do gate (`verify_rco_rules_pin`): manifesto, anexos e arquivos de `provas[]`.
     nomes_k1 = rco_manifesto.nomes_k1_declarados(raw)
-    return manifesto.decisao_por_caminho(), vocab.parametros_ativacao, nomes_k1
+    return manifesto, vocab.parametros_ativacao, nomes_k1
 
 
 def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
@@ -301,8 +308,10 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
     por_caminho: dict[str, rco_manifesto.DecisaoK1] = {}
     parametros: rco_manifesto.ParametrosAtivacao | None = None
     nomes_k1: set[str] = set()
+    manifesto: rco_manifesto.ManifestoK1 | None = None
     if estado == ESTADO_FIXADO:
-        por_caminho, parametros, nomes_k1 = _manifesto_fixado(lock, lock_path, rules_dir)
+        manifesto, parametros, nomes_k1 = _manifesto_fixado(lock, lock_path, rules_dir)
+        por_caminho = manifesto.decisao_por_caminho()
         pinados = {str(rel): digest for rel, digest in artifacts}
         if len(pinados) != len(artifacts) or pinados != {c: d.sha256 for c, d in por_caminho.items()}:
             raise RcoRulesPinError("pin: artifacts tem de ser exatamente decisoes[] do manifesto K1")
@@ -340,9 +349,20 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
                 raise RcoRulesPinError(f"pin: {rel} declara {decision_key!r}, o manifesto diz {decisao.id!r}")
             regras = decisao.regras if decisao is not None else None
             tables[decision_key] = RcoPinnedTable(
-                decision_key, str(rel), digest, regras=regras, tolerancia_no_dmn=tolerancia_no_dmn
+                decision_key,
+                str(rel),
+                digest,
+                regras=regras,
+                tolerancia_no_dmn=tolerancia_no_dmn,
+                decisao=decisao,
             )
-    return RcoRulesPin(estado=estado, tables=MappingProxyType(tables), parametros_ativacao=parametros)
+    return RcoRulesPin(
+        estado=estado,
+        tables=MappingProxyType(tables),
+        parametros_ativacao=parametros,
+        manifesto=manifesto,
+        k1_dir=_k1_dir(lock_path) if manifesto is not None else None,
+    )
 
 
 def _default_lock_path() -> Path:

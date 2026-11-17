@@ -188,6 +188,18 @@ timers ancoram no RECEBIMENTO do lote pela operadora (ancora contratual), nunca 
 espelha `nip_sla` v0.2.0 (GAP-NIP-1). Ancora+prazo no passado (lote antigo reprocessado) dispara o
 interruptivo imediatamente — correto (prazo de fato estourado; coordenacao humana assume).
 
+### `rco_geral_prazos_conta` (tabela K1 do rco — SO SOMBRA, MZO-3)
+Avaliada por `operadora.contas.identify_glosa` DEPOIS de montada a saida do intake, por
+`src/maezo/tools/workers/rco_sombra.py` (`avaliar_em_sombra`), com as entradas do montador
+(`src/maezo/tools/workers/rco_montador.py`; fatos em `contas.fatos_prazo_conta_rco`). **Nao produz efeito:**
+nenhuma variavel de processo nasce ou muda, as linhas da tabela sao descartadas, toda falha vira log e o
+indicador `efeito_k1_habilitado` nao e lido nem mudado. Rastro so na auditoria: a entrada `rco_` de
+`dmn_versions` leva `derivacoes` (`diasBrutos`, `toleranciaAplicada`, `valorEntregue`, `motivoTolerancia`),
+`entradasNulas` e `versaoDicionarioEntradas`. Inerte enquanto o pin do rco estiver `sem_pacote`. Hoje os
+termos de `diasAteApresentacao` nao tem produtor neste processo (o contrato nao traz as datas da guia nem o
+prazo do contrato do prestador, e `data_recebimento_lote` pode ser o padrao de HOJE do intake): entram
+nulos, e nulo nunca nega nem glosa. Nenhuma variavel de entrada ou saida deste contrato mudou.
+
 ## Papeis humanos (candidate groups)
 
 | Grupo | Papel | Tarefa |

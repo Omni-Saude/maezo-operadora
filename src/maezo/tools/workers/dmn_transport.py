@@ -637,6 +637,7 @@ def evaluate_sync(
     variables: dict[str, Any],
     *,
     tenant: str | None = None,
+    entradas_rco: Mapping[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], DmnVersion]:
     """Bridge `dmn.evaluate(...)` into the SYNC worker entry-function boundary.
 
@@ -652,6 +653,9 @@ def evaluate_sync(
     outside an audited dispatch (tests/tooling), so this is transparent to every existing caller.
     This is the ONE funnel every worker DMN eval passes through, so a single hook covers all
     ~11 migrated tables.
+
+    `entradas_rco` (MZO-3): audit of the K1 input builder for an `rco_` table, merged into its
+    `dmn_versions` entry (`_audit_ctx.record_dmn_version`); never an engine variable.
     """
     # MZO-5a (ADR-0075 §(f)): an `rco_` table the pin does not attest is refused BEFORE it is
     # evaluated — its audit entry could not carry a genuine `shaDmn`. No-op for Maezo tables.
@@ -663,10 +667,10 @@ def evaluate_sync(
         # refusal audit row must attest (which table version could not be evaluated). No row
         # matched authoritatively, so an rco entry carries `shaDmn` but no `idRegra`.
         if exc.version is not None:
-            record_dmn_version(exc.version)
+            record_dmn_version(exc.version, entradas_rco=entradas_rco)
         raise
     # `idRegra` is read only from a single authoritative row (UNIQUE/FIRST); otherwise it is absent.
-    record_dmn_version(version, row=rows[0] if len(rows) == 1 else None)
+    record_dmn_version(version, row=rows[0] if len(rows) == 1 else None, entradas_rco=entradas_rco)
     return rows, version
 
 

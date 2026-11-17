@@ -107,7 +107,7 @@ _REMOVER = object()
 @pytest.mark.parametrize(
     ("mutar", "trecho"),
     [
-        (_mutar(["versao"], "1.2.0"), "versao '1.2.0'"),
+        (_mutar(["versao"], "1.3.0"), "versao '1.3.0'"),
         (_mutar(["versao"], "1.1"), "versao"),
         (_mutar(["sha256_conteudo"], "a" * 64), "sha256_conteudo"),
         (_mutar(["novo"], 1), "desconhecidos ['novo']"),
