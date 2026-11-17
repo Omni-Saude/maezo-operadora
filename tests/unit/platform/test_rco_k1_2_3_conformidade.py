@@ -84,13 +84,21 @@ def test_manifesto_real_passa_o_leitor_estrito() -> None:
     assert k1.ativacao_nao_suportada(lido) == []
 
 
-def test_verificar_pacote_no_recorte_so_acusa_o_anexo_omitido() -> None:
+def test_verificar_pacote_no_recorte_acusa_o_anexo_omitido_e_o_label_acima_do_motor() -> None:
+    """O recorte de d9b8adfa traz um label de 278 caracteres que o historico do motor nao aceita (DL-0183).
+
+    O leitor recusa o pacote no pin. Quando o rco republicar com o label curto, a segunda linha sai daqui.
+    """
     lido = rec.manifesto()
     restrito = dataclasses.replace(
         lido, decisoes=MappingProxyType({d: lido.decisoes[d] for d in rec.ORDEM}), provas=()
     )
     problemas = k1.verificar_pacote(restrito, k1_dir=rec.RECORTE, rules_dir=rec.RECORTE / "dmn")
-    assert problemas == [f"{k1.K1_DIR}/entradas.json: anexo 'entradas' ausente (ou link simbolico)"]
+    assert problemas[0] == f"{k1.K1_DIR}/entradas.json: anexo 'entradas' ausente (ou link simbolico)"
+    assert len(problemas) == 2
+    onde = lido.decisoes["rco_geral_carencia"].caminho_consumidor
+    assert problemas[1].startswith(f"{onde}: input@label de ")
+    assert "tem 278 caracteres, acima do limite de 255" in problemas[1]
 
 
 def test_vocabulario_tem_a_forma_acordada() -> None:

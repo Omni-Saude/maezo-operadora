@@ -1282,6 +1282,65 @@ def ids_de_decisao(raw: bytes, rotulo: str, *, exigir_prefixo: bool = True) -> l
     return ids
 
 
+_CAMUNDA_DMN_NS: Final[str] = "{http://camunda.org/schema/1.0/dmn}"
+
+#: Limites, em CARACTERES, que o motor (CIB Seven 2.1.0, Postgres, `history=full`) impoe aos campos do DMN
+#: que ele grava no cadastro (`ACT_RE_DECISION_DEF`) e no historico de decisao
+#: (`ACT_HI_DEC_IN`/`ACT_HI_DEC_OUT`).
+#: Cada um foi confirmado no motor com um DMN que viola so ele (DL-0183): o de decisao falha na implantacao;
+#: os de coluna, regra e literal falham em TODA avaliacao (`value too long for type character varying(n)`),
+#: o que a composicao ve como `avaliador_falhou`. O `definitions` id (255) nao falhou com uma decisao so e
+#: nao entra. Valor de ENTRADA acima de 4000 tambem falha, mas e dado do caso, nao do pacote.
+LIMITES_HISTORICO_DMN: Final[dict[str, int]] = {
+    "decision@id": 255,  # ACT_RE_DECISION_DEF.KEY_ / ACT_HI_DECINST.DEC_DEF_KEY_
+    "decision@name": 255,  # ACT_RE_DECISION_DEF.NAME_ / ACT_HI_DECINST.DEC_DEF_NAME_
+    "decision@versionTag": 64,  # ACT_RE_DECISION_DEF.VERSION_TAG_
+    "input@id": 64,  # ACT_HI_DEC_IN.CLAUSE_ID_
+    "input@label": 255,  # ACT_HI_DEC_IN.CLAUSE_NAME_
+    "output@id": 64,  # ACT_HI_DEC_OUT.CLAUSE_ID_
+    "output@label": 255,  # ACT_HI_DEC_OUT.CLAUSE_NAME_
+    "output@name": 255,  # ACT_HI_DEC_OUT.VAR_NAME_
+    "rule@id": 64,  # ACT_HI_DEC_OUT.RULE_ID_
+    "outputEntry literal": 4000,  # ACT_HI_DEC_OUT.TEXT_
+}
+
+
+def limites_do_historico_no_dmn(raw: bytes, rotulo: str) -> list[str]:
+    """Campos do DMN acima de `LIMITES_HISTORICO_DMN` (vazio = cabe no motor). DMN ilegivel e um problema."""
+    try:
+        root = _parse_xml_sem_dtd(raw)
+    except (ET.ParseError, ValueError) as exc:
+        return [f"{rotulo}: nao e DMN legivel ({type(exc).__name__})"]
+    problemas: list[str] = []
+
+    def conferir(campo: str, dono: str, valor: str | None) -> None:
+        limite = LIMITES_HISTORICO_DMN[campo]
+        if valor is not None and len(valor) > limite:
+            problemas.append(
+                f"{rotulo}: {campo} de {dono} tem {len(valor)} caracteres, acima do limite de {limite} do "
+                "historico de decisao do motor (toda avaliacao falharia)"
+            )
+
+    for decisao in root.iter(f"{_DMN_NS}decision"):
+        id_decisao = str(decisao.get("id") or "?")
+        conferir("decision@id", id_decisao, decisao.get("id"))
+        conferir("decision@name", id_decisao, decisao.get("name"))
+        conferir("decision@versionTag", id_decisao, decisao.get(f"{_CAMUNDA_DMN_NS}versionTag"))
+        for tag in ("input", "output"):
+            for i, coluna in enumerate(decisao.iter(f"{_DMN_NS}{tag}")):
+                dono = f"{id_decisao}/{tag}[{i}]"
+                conferir(f"{tag}@id", dono, coluna.get("id"))
+                conferir(f"{tag}@label", dono, coluna.get("label"))
+                if tag == "output":
+                    conferir("output@name", dono, coluna.get("name"))
+        for j, regra in enumerate(decisao.iter(f"{_DMN_NS}rule")):
+            dono = f"{id_decisao}/rule[{j}]"
+            conferir("rule@id", dono, regra.get("id"))
+            for entry in regra.iter(f"{_DMN_NS}outputEntry"):
+                conferir("outputEntry literal", dono, _literal(_texto_celula(entry)))
+    return problemas
+
+
 def _texto_celula(entry: ET.Element) -> str:
     text_el = entry.find(f"{_DMN_NS}text")
     return (text_el.text or "").strip() if text_el is not None else ""
@@ -1730,6 +1789,9 @@ def verificar_provas(manifesto: ManifestoK1, *, k1_dir: Path) -> list[str]:
                 problemas.append(f"{K1_DIR}/{arq.caminho}: arquivo de prova ausente (ou link simbolico)")
             elif sha256_prefixado(caminho.read_bytes()) != arq.sha256:
                 problemas.append(f"{K1_DIR}/{arq.caminho}: sha256 diverge do manifesto")
+            elif caminho.suffix == ".dmn":
+                # O DMN de prova tambem e implantado e avaliado no motor no pin.
+                problemas.extend(limites_do_historico_no_dmn(caminho.read_bytes(), f"{K1_DIR}/{arq.caminho}"))
     return problemas
 
 
@@ -1776,6 +1838,7 @@ def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -
         if sha256_prefixado(raw) != decisao.sha256:
             problemas.append(f"{onde}: sha256 diverge do manifesto")
             continue
+        problemas.extend(limites_do_historico_no_dmn(raw, onde))
         tabela = _tabela(raw, decisao, problemas)
         if tabela is None:
             continue
@@ -1861,6 +1924,8 @@ __all__ = [
     "tolerancia_prazo_conta_no_dmn",
     "provas_ausentes_no_pin",
     "ids_de_decisao",
+    "LIMITES_HISTORICO_DMN",
+    "limites_do_historico_no_dmn",
     "json_estrito",
     "nomes_k1_declarados",
     "verificar_pastas",
