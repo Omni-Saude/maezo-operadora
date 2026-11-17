@@ -350,3 +350,114 @@ def _avaliacao_sintetica() -> AvaliacaoRegra:
     with collect_dmn_versions(), collect_rco_avaliacoes() as avs:
         record_dmn_version(_version(), row=ROW_NEGAR)
     return avs[SINT]
+
+
+# --- DL-0182: com efeito possivel, o registro e FAIL-CLOSED ---------------------------------------------
+
+
+@pytest.fixture
+def efeito_ativo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simula o indicador ligado e a regra em `ativa_l2` SO neste processo de teste (config real intocada)."""
+    estados = at.EstadosManuais({("SINT-A-0002", "1.0.1"): "ativa_l2"})
+    monkeypatch.setattr(rco_pin, "estados_em_cache", lambda: estados)
+    monkeypatch.setattr(rco_pin, "efeito_k1_habilitado", lambda: True)
+
+
+def _task_id(task_id: str) -> ExternalTask:
+    return ExternalTask(
+        task_id=task_id,
+        topic="operadora.test.rco",
+        process_instance_id=f"proc-{task_id}",
+        business_key=f"AUTH-amh-{task_id}",
+        worker_id="w-1",
+        variables={},
+    )
+
+
+@pytest.mark.usefixtures("efeito_ativo")
+@pytest.mark.parametrize("falha", [RuntimeError("banco fora"), ConnectionError("x"), TypeError("bug")])
+async def test_com_efeito_possivel_falha_do_registro_nao_completa_a_tarefa(falha: BaseException) -> None:
+    sink = FakeAuditSink()
+    registro = _Registro(sink, falha=falha)
+    harness, transport, _ = _montar(ROW_NEGAR, registro=registro, sink=sink)
+    with structlog.testing.capture_logs() as logs:
+        await harness._handle(_task())
+    assert registro.chamadas[0][0].modo == "ativa"
+    assert transport.completed == [] and len(transport.failures) == 1  # re-entrega pelo motor
+    assert len(sink.emitted) == 1  # a auditoria ja estava gravada (a re-entrega deduplica)
+    erros = [e for e in logs if e["event"] == "rco_decisao_registro_falhou_fail_closed"]
+    assert len(erros) == 1 and "AUTH-amh-guia-1" not in str(logs)
+    assert not any(e["event"] == "rco_decisao_registro_falhou_fail_open" for e in logs)
+
+
+@pytest.mark.usefixtures("efeito_ativo")
+async def test_com_efeito_possivel_teto_estourado_nao_completa(monkeypatch: pytest.MonkeyPatch) -> None:
+    from maezo.tools.workers import harness as h
+
+    monkeypatch.setattr(h, "_RCO_REGISTRO_TIMEOUT_S", 0.05)
+    sink = FakeAuditSink()
+    harness, transport, _ = _montar(ROW_NEGAR, registro=_Registro(sink, demora=5), sink=sink)
+    await harness._handle(_task())
+    assert transport.completed == [] and len(transport.failures) == 1
+
+
+@pytest.mark.usefixtures("efeito_ativo")
+async def test_com_efeito_possivel_sem_registro_configurado_nao_completa() -> None:
+    harness, transport, _ = _montar(ROW_NEGAR, registro=None)
+    await harness._handle(_task())
+    assert transport.completed == [] and len(transport.failures) == 1
+
+
+@pytest.mark.usefixtures("efeito_ativo")
+async def test_com_efeito_possivel_e_registro_gravado_completa() -> None:
+    sink = FakeAuditSink()
+    registro = _Registro(sink)
+    harness, transport, _ = _montar(ROW_NEGAR, registro=registro, sink=sink)
+    await harness._handle(_task())
+    assert len(transport.completed) == 1 and transport.failures == []
+
+
+class _RegistroComOrdinal:
+    """Registro em memoria com a MESMA semantica do Postgres: ordinal = MAX+1 das linhas gravadas,
+    idempotente pela `chave_idempotencia`. `falhar_uma_vez` derruba a primeira gravacao destas tarefas."""
+
+    tenant = "amh"
+
+    def __init__(self, falhar_uma_vez: set[str]) -> None:
+        self.linhas: dict[str, int] = {}  # chave_idempotencia -> ordinal
+        self.por_tarefa: dict[str, str] = {}  # task_id -> chave_idempotencia
+        self._falhar = set(falhar_uma_vez)
+
+    async def registrar(self, avaliacao: AvaliacaoRegra, contexto: ContextoDecisao) -> bool:
+        task_id = contexto.chave_negocio.removeprefix("AUTH-amh-") if contexto.chave_negocio else ""
+        if task_id in self._falhar:
+            self._falhar.discard(task_id)
+            raise ConnectionError("banco fora")
+        self.por_tarefa[task_id] = contexto.chave_idempotencia
+        if contexto.chave_idempotencia in self.linhas:
+            return False
+        self.linhas[contexto.chave_idempotencia] = max(self.linhas.values(), default=0) + 1
+        return True
+
+
+@pytest.mark.usefixtures("efeito_ativo")
+async def test_linha_perdida_nao_tira_decisao_com_efeito_da_contagem_de_ordinais() -> None:
+    """Reproducao do defeito do 5c-2 (`rco_registro`, nota "linha perdida desloca os ordinais"): antes, a
+    tarefa A completava (fail-open) SEM linha, e B herdava o ordinal 1 que seria de A: uma decisao com
+    efeito saia fora da contagem. Agora A nao completa sem a linha; a re-entrega a grava."""
+    sink = FakeAuditSink()
+    registro = _RegistroComOrdinal(falhar_uma_vez={"A"})
+    harness, transport, _ = _montar(ROW_NEGAR, registro=registro, sink=sink)
+    fila = ["A", "B", "C"]
+    while fila:  # o motor: o que nao completou volta para a fila (re-entrega)
+        task_id = fila.pop(0)
+        await harness._handle(_task_id(task_id))
+        if task_id not in {t for t, _ in transport.completed}:
+            fila.append(task_id)
+    completadas = [t for t, _ in transport.completed]
+    assert sorted(completadas) == ["A", "B", "C"]
+    # toda decisao com efeito que completou tem a sua linha e o seu ordinal
+    assert set(registro.por_tarefa) == set(completadas)
+    ordinais = sorted(registro.linhas[registro.por_tarefa[t]] for t in completadas)
+    assert ordinais == [1, 2, 3]  # sem buraco nem ordinal herdado de linha perdida
+    assert len(transport.failures) == 1  # A falhou uma vez e foi re-entregue

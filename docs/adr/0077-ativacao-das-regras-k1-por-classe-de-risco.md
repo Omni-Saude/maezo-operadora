@@ -89,6 +89,7 @@ O worker aplica este filtro antes de qualquer efeito. Fila e grupo por classe, c
 
 **`conferida`** (D2, negativa administrativa):
 - As primeiras `conferencia_negativa_admin_decisoes` de cada (`idRegra`, `versaoRegra`) esperam a confirmação de um clique antes do efeito.
+  - (Emenda de 17/11/2026, DL-0182, item 4b do §7.) "As primeiras" não é ordinal: a regra confere enquanto tiver menos de `conferencia_negativa_admin_decisoes` conferências **confirmadas por humano** (`concordou = sim`) desde o `nao` mais recente. Sombra e decisão que não foi conferência não contam; `sem_desfecho` não conta nem zera; um `nao` zera a contagem e alerta a coordenação. `negar` de regra `conferida` continua sempre em conferência (DL-0181).
 - Depois delas, a negativa segue o caminho normal e entra na amostragem do §4 com o mesmo `amostra_posterior_pct`, revista depois do efeito. Essa é uma escolha do Maezo para alimentar o monitor do §5; o contrato K1 §7 só prevê a conferência inicial.
 
 **`plena`:**
@@ -182,6 +183,12 @@ Um PR por unidade, um executor por vez, revisão independente em cada:
     Lacunas que ficam para a unidade 5d-1:
     - `negar` de regra `conferida` já NÃO vira automático em nenhum ordinal (fechado no próprio 5e-0, DL-0181 (4)(c)); `glosar` de regra `conferida` depois do ordinal 30 segue `efeito_com_amostragem` com o indicador ligado, e o indicador não é ligado em nenhum ambiente antes do 5d-1 incorporado (DL-0181 (4)(b));
     - as decisões em sombra consomem hoje a janela de ordinais da `conferida` (`AvaliacaoRegra.tem_ordinal`, em `src/maezo/platform/rco_registro.py`, exclui só a sombra do montador); o 5d-1 conta só conferências confirmadas por humano.
+4b. **5d-1** (emenda de 17/11/2026, DL-0182): fecha as duas lacunas do item 4a, sem migração e com o indicador ainda desligado em todo ambiente.
+    - a janela da `conferida` conta só conferências confirmadas por humano: por (tenant, `idRegra`, `versaoRegra`), as decisões distintas com desfecho `sim` cuja `acao` foi `conferencia`, depois do `nao` mais recente; sombra e decisão que não foi conferência nunca a consomem; `sem_desfecho` não conta nem zera; versão nova começa do zero;
+    - um `nao` zera a janela e alerta a coordenação (log estruturado só com códigos e ids, e a métrica `maezo_rco_conferencia_rejeitada_total`);
+    - `glosar` de regra `conferida` vai a `efeito_com_amostragem` só com a janela fechada; `negar` continua nunca automático;
+    - o escritor do desfecho da conferência de um clique (`confirmar`, `rejeitar`, `sem_desfecho`) fica na plataforma, só INSERT, idempotente e recusando decisão que não foi conferência; a User Task e a UI ficam com o 5d-2;
+    - linha perdida: o ordinal continua sendo o MAX+1 das linhas gravadas e serve só à amostra inicial da `plena`; com efeito possível (`modo` diferente de `sombra`) o registro passa a fail-closed no harness (a tarefa não completa sem a linha e é re-entregue), em `sombra` continua fail-open.
 5. **5e:** monitor de reversão, override e alertas. (Texto original: "Só neste PR, com 5c e 5d na `main`, sai a recusa `ativacao_nao_suportada`"; emendado em 17/11/2026: a recusa saiu no 5e-0, item 4a.)
 6. **5b:** provas, quando o formato for publicado.
 

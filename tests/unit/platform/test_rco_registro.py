@@ -234,10 +234,10 @@ def test_em_sombra_a_acao_e_registrar_apenas_em_qualquer_ordinal() -> None:
         assert reg.montar_linha(av, _ctx(), ordinal).acao == "registrar_apenas"
 
 
-def test_acao_sob_ativa_l2_usa_conferencia_inicial_e_amostragem() -> None:
-    """O contrato do 5d: com o indicador ligado so nos testes, `conferida` confere as primeiras
-    `conferencia_negativa_admin_decisoes` (2) e depois `glosar` segue com amostragem; `negar` continua
-    em conferencia em qualquer ordinal (DL-0181)."""
+def test_acao_sob_ativa_l2_usa_conferencias_confirmadas_e_amostragem() -> None:
+    """O contrato do 5d (DL-0182): com o indicador ligado so nos testes, `conferida` confere enquanto houver
+    menos de `conferencia_negativa_admin_decisoes` (2) conferencias CONFIRMADAS; o ordinal nao decide.
+    Depois `glosar` segue com amostragem; `negar` continua em conferencia com qualquer contagem (DL-0181)."""
     estados = at.EstadosManuais({("REGRA-1", "1.2.3"): "ativa_l2"})
     glosa = _avaliar(
         _row(decisao="glosar", classeAdverso="administrativo"),
@@ -245,9 +245,13 @@ def test_acao_sob_ativa_l2_usa_conferencia_inicial_e_amostragem() -> None:
         estados=estados,
         habilitado=True,
     )
-    assert reg.montar_linha(glosa, _ctx(), 1).acao == "conferencia"
-    assert reg.montar_linha(glosa, _ctx(), 2).acao == "conferencia"
-    assert reg.montar_linha(glosa, _ctx(), 3).acao == "efeito_com_amostragem"
+    for ordinal in (1, 3, 1000):
+        for confirmadas in (None, 0, 1):
+            linha = reg.montar_linha(glosa, _ctx(), ordinal, conferencias_confirmadas=confirmadas)
+            assert linha.acao == "conferencia", (ordinal, confirmadas)
+    for confirmadas in (2, 3, 1000):
+        linha = reg.montar_linha(glosa, _ctx(), 1, conferencias_confirmadas=confirmadas)
+        assert linha.acao == "efeito_com_amostragem"
     negativa = _avaliar(
         _row(decisao="negar", classeAdverso="administrativo"),
         regra=_regra("conferida", False),
@@ -255,7 +259,9 @@ def test_acao_sob_ativa_l2_usa_conferencia_inicial_e_amostragem() -> None:
         habilitado=True,
     )
     for ordinal in (1, 2, 3, 1000):
-        assert reg.montar_linha(negativa, _ctx(), ordinal).acao == "conferencia"
+        for confirmadas in (None, 0, 2, 30, 1000):
+            linha = reg.montar_linha(negativa, _ctx(), ordinal, conferencias_confirmadas=confirmadas)
+            assert linha.acao == "conferencia"
 
 
 def test_ordinais_diferentes_da_mesma_regra_dao_linhas_distintas_e_deterministicas() -> None:

@@ -8,7 +8,9 @@ SO LOGICA PURA, DADO E INDICADOR DE AMBIENTE. Nada aqui e ligado a worker, proce
    (so `dev`). Producao, vazio e desconhecido: sempre falso; chave ligada fora da lista gera aviso.
 2. `carregar_estados`: leitor fail-closed de `spec/processes/dmn/rco-regras-estado.yaml` (§2).
 3. `ativacao_efetiva`: a tabela do §2 com a ordem em_correcao > conferencia_integral > conferida > plena.
-4. `filtrar_saida`: o filtro do §3 (o que o worker faria com a saida de uma linha de decisao).
+4. `filtrar_saida`: o filtro do §3 (o que o worker faria com a saida de uma linha de decisao), e
+   `conferencias_confirmadas`/`janela_de_conferencia_aberta`: a janela da `conferida` conta so
+   conferencias confirmadas por humano (DL-0182).
 5. `amostrar` / `amostra_inicial`: a amostragem HMAC do §4.
 
 Fora do arquivo de estado e do `structlog`, so biblioteca padrao nas partes puras.
@@ -23,7 +25,7 @@ import os
 import re
 import threading
 import time
-from collections.abc import Callable, Hashable, Mapping
+from collections.abc import Callable, Hashable, Iterable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -362,9 +364,10 @@ def filtrar_saida(
     conferencia_inicial: bool = False,
     amostrada: bool = False,
 ) -> AcaoDeSaida:
-    """Funcao pura do §3. `aditivo_cobre=None` conta como sem aditivo. `conferencia_inicial` diz que o
-    caso esta entre as primeiras `conferencia_negativa_admin_decisoes` da regra (so importa em
-    `conferida`); `amostrada` vem de `amostrar`/`amostra_inicial`."""
+    """Funcao pura do §3. `aditivo_cobre=None` conta como sem aditivo. `conferencia_inicial` diz que a
+    janela de conferencia da regra ainda esta aberta (so importa em `conferida`): menos de
+    `conferencia_negativa_admin_decisoes` conferencias CONFIRMADAS por humano desde o ultimo `nao`
+    (`janela_de_conferencia_aberta`, DL-0182); `amostrada` vem de `amostrar`/`amostra_inicial`."""
     if estado.modo == "sombra":
         return AcaoDeSaida("registrar_apenas")
     if decisao in DECISOES_NAO_ADVERSAS:
@@ -388,12 +391,45 @@ def filtrar_saida(
         return AcaoDeSaida("conferencia", fila)
     if ativacao == "conferida" and decisao == "negar":
         # DL-0181: enquanto o dono nao resolver D2 x authorization_denial (item congelado), `negar` de
-        # regra `conferida` NUNCA vira automatico, em nenhum ordinal: depois dos primeiros continua em
-        # conferencia humana.
+        # regra `conferida` NUNCA vira automatico, com qualquer contagem de conferencias confirmadas
+        # (DL-0182): fechada a janela, continua em conferencia humana.
         return AcaoDeSaida("conferencia", fila)
     if decisao in _COM_AMOSTRAGEM:
         return AcaoDeSaida("efeito_com_amostragem", fila, amostrada=amostrada)
     return AcaoDeSaida("efeito")  # pragma: no cover - toda adversa e negar/glosar/recomendar_negativa
+
+
+# ---------------------------------------------------------------------------
+# 4b. Janela de conferencia da `conferida` (ADR-0077 §3, emenda de 17/11/2026, DL-0182)
+# ---------------------------------------------------------------------------
+
+#: Vocabulario de `rco_decisao_regra_desfecho.concordou` (migracao 0035).
+CONCORDOU_SIM: Final[str] = "sim"
+CONCORDOU_NAO: Final[str] = "nao"
+SEM_DESFECHO: Final[str] = "sem_desfecho"
+
+
+def conferencias_confirmadas(desfechos: Iterable[tuple[int, int, str]]) -> int:
+    """Quantas conferencias da regra contam para a janela: a definicao que o SQL do registro espelha.
+
+    `desfechos`: `(id_do_desfecho, id_da_decisao, concordou)` dos desfechos de decisoes com
+    `acao = conferencia` de UM (tenant, idRegra, versaoRegra), em qualquer ordem. Conta as DECISOES
+    distintas com desfecho `sim` de id MAIOR que o do `nao` mais recente (um `nao` zera a janela);
+    `sem_desfecho` nem conta nem zera. Decisao em sombra ou que nao foi conferencia nunca entra aqui:
+    quem chama so passa desfechos de `acao = conferencia`.
+    """
+    lista = list(desfechos)
+    ultimo_nao = max((i for i, _, c in lista if c == CONCORDOU_NAO), default=0)
+    return len({d for i, d, c in lista if c == CONCORDOU_SIM and i > ultimo_nao})
+
+
+def janela_de_conferencia_aberta(confirmadas: int | None, janela: int) -> bool:
+    """`True` enquanto a regra `conferida` ainda confere antes do efeito: menos de `janela`
+    (`conferencia_negativa_admin_decisoes`) conferencias confirmadas. Contagem desconhecida (`None`) ou
+    invalida mantem a janela aberta: na duvida, confere."""
+    if confirmadas is None or isinstance(confirmadas, bool) or not isinstance(confirmadas, int):
+        return True
+    return confirmadas < janela
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +510,9 @@ __all__ = [
     "ATIVACOES_EFETIVAS",
     "AcaoDeSaida",
     "CHAVE_EFEITO_K1",
+    "CONCORDOU_NAO",
+    "CONCORDOU_SIM",
+    "SEM_DESFECHO",
     "DECISOES_ADVERSAS",
     "CLASSES_COM_EFEITO",
     "DECISOES_COM_AMOSTRAGEM",
@@ -483,6 +522,8 @@ __all__ = [
     "VARIAVEL_DO_AMBIENTE",
     "amostra_inicial",
     "amostrar",
+    "conferencias_confirmadas",
+    "janela_de_conferencia_aberta",
     "ativacao_efetiva",
     "carregar_estados",
     "efeito_k1_habilitado",

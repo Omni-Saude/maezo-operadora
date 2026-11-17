@@ -163,11 +163,12 @@ _GUARD_REFUSAL_FALLBACK_CODE: str = "ERR_GUARD_NOT_HUMAN"
 #: path (retries=0), the always-human-visible outcome ADR-0008/ADR-0030 §4 prescribe for a guard —
 #: never a modeled boundary, never a silent clean end, never a retry.
 _ACTION_GATE_REFUSAL_CODE: str = "ERR_ACTION_GATEWAY_NOT_HUMAN"
-#: Teto TOTAL do registro de decisoes K1 de uma tarefa (5c-2): observacional (fail-open), nao segura a tarefa.
+#: Teto TOTAL do registro de decisoes K1 de uma tarefa (5c-2): em sombra (fail-open) nao segura a tarefa;
+#: com efeito possivel (DL-0182) estourar o teto faz a tarefa ser re-entregue.
 _RCO_REGISTRO_TIMEOUT_S: float = 5.0
 
 
-def _descartar_resultado(trabalho: asyncio.Future[None]) -> None:
+def _descartar_resultado(trabalho: asyncio.Future[Any]) -> None:
     """Colhe (e descarta) o resultado de um registro que estourou o teto, para nao vazar excecao orfa."""
     if not trabalho.cancelled():
         trabalho.exception()
@@ -493,6 +494,13 @@ def build_decision_basis(variables: Mapping[str, Any], out_vars: Mapping[str, An
             if key in out_vars and _is_bounded_token(out_vars[key]):
                 details[key] = out_vars[key]
     return details
+
+
+class RegistroRcoObrigatorioError(RuntimeError):
+    """DL-0182: a linha do registro K1 de uma decisao com efeito possivel (`modo` diferente de `sombra`)
+    nao foi gravada. A tarefa NAO completa: `RuntimeError` cai no ramo transitorio de `_handle` (re-entrega
+    pelo motor), como `AuditEmitError`. A mensagem e so um codigo (`registro_nao_configurado`,
+    `timeout_total`, `linha_nao_gravada`), nunca dado do caso nem do driver."""
 
 
 class AuditEmitError(RuntimeError):
@@ -1735,22 +1743,39 @@ class WorkerHarness:
         `_emit_audit`, entao o registro nunca existe sem a linha de auditoria, e a re-entrega depois da
         auditoria cai na mesma `chave_idempotencia` (nada duplica, nenhum ordinal e consumido).
 
-        Por que FAIL-OPEN (ao contrario da auditoria, que e fail-closed): em 5c-2 toda regra esta em
-        `sombra` e o registro e so observacao, o caso segue o processo humano de sempre. A fonte da
-        verdade e `dmn_versions`, ja gravada; perder uma linha de registro (banco fora, timeout) nao pode
-        parar nem desviar o caso. Falha vira log estruturado (tipo e codigo, sem a mensagem do driver) e
-        a tarefa completa. REVISAR em 5d/5e antes de ligar qualquer efeito: uma linha perdida DESLOCA os
-        ordinais seguintes (e a janela da revisao inicial), e com `ativa_l2`/`conferencia` isso passaria a
-        ser um caso sem revisao.
+        Por que FAIL-OPEN em `sombra` (ao contrario da auditoria, que e fail-closed): em `sombra` o
+        registro e so observacao, o caso segue o processo humano de sempre. A fonte da verdade e
+        `dmn_versions`, ja gravada; perder uma linha de registro (banco fora, timeout) nao pode parar nem
+        desviar o caso. Falha vira log estruturado (tipo e codigo, sem a mensagem do driver) e a tarefa
+        completa.
+
+        FAIL-CLOSED com efeito possivel (DL-0182): se QUALQUER avaliacao da tarefa tem `modo` diferente
+        de `sombra` (so com `efeito_k1_habilitado`, desligado em todo ambiente), a tarefa NAO completa
+        sem as linhas gravadas: falha, teto estourado ou registro nao configurado levantam
+        `RegistroRcoObrigatorioError` (um `RuntimeError`: ramo transitorio, re-entrega pelo motor). A
+        re-entrega grava com a mesma `chave_idempotencia` e a linha ja gravada nao duplica. Assim uma
+        linha perdida nunca tira uma decisao com efeito da contagem (o ordinal e o MAX+1 das linhas
+        gravadas) nem deixa sair um caso sem a acao registrada.
 
         Limite de tempo: UM teto total (`_RCO_REGISTRO_TIMEOUT_S`) para todas as decisoes da tarefa. Usa
         `asyncio.wait` e nao `wait_for`: um store que engole o cancelamento nao segura a tarefa (a
         coroutine orfa e cancelada e seu resultado descartado).
         """
-        store = self._rco_decisoes
-        if store is None or not avaliacoes:
+        if not avaliacoes:
             return
-        trabalho = asyncio.ensure_future(self._gravar_decisoes_rco(store, task, avaliacoes))
+        obrigatorio = any(av.modo != "sombra" for av in avaliacoes.values())
+        evento = (
+            "rco_decisao_registro_falhou_fail_closed"
+            if obrigatorio
+            else "rco_decisao_registro_falhou_fail_open"
+        )
+        store = self._rco_decisoes
+        if store is None:
+            if obrigatorio:
+                logger.error(evento, task_id=task.task_id, topic=task.topic, erro="registro_nao_configurado")
+                raise RegistroRcoObrigatorioError("registro_nao_configurado")
+            return
+        trabalho = asyncio.ensure_future(self._gravar_decisoes_rco(store, task, avaliacoes, evento))
         try:
             done, _ = await asyncio.wait({trabalho}, timeout=_RCO_REGISTRO_TIMEOUT_S)
         except BaseException:
@@ -1760,16 +1785,27 @@ class WorkerHarness:
             trabalho.cancel()
             trabalho.add_done_callback(_descartar_resultado)
             logger.error(
-                "rco_decisao_registro_falhou_fail_open",
+                evento,
                 task_id=task.task_id,
                 topic=task.topic,
                 erro="timeout_total",
                 decisoes=len(avaliacoes),
             )
+            if obrigatorio:
+                raise RegistroRcoObrigatorioError("timeout_total")
+            return
+        if obrigatorio and trabalho.result() > 0:
+            raise RegistroRcoObrigatorioError("linha_nao_gravada")
 
     async def _gravar_decisoes_rco(
-        self, store: RegistroDecisoesRco, task: ExternalTask, avaliacoes: Mapping[str, AvaliacaoRegra]
-    ) -> None:
+        self,
+        store: RegistroDecisoesRco,
+        task: ExternalTask,
+        avaliacoes: Mapping[str, AvaliacaoRegra],
+        evento: str = "rco_decisao_registro_falhou_fail_open",
+    ) -> int:
+        """Grava cada avaliacao; devolve quantas NAO foram gravadas (cada falha ja logada em `evento`)."""
+        falhas = 0
         for decision_key, avaliacao in avaliacoes.items():
             try:
                 if avaliacao.alertas:
@@ -1788,9 +1824,10 @@ class WorkerHarness:
                 )
                 await store.registrar(avaliacao, contexto)
             except PROGRAMMING_ERRORS:
+                falhas += 1
                 # Bug do proprio codigo: pilha completa (nao ha mensagem de driver com linha aqui).
                 logger.error(
-                    "rco_decisao_registro_falhou_fail_open",
+                    evento,
                     task_id=task.task_id,
                     topic=task.topic,
                     decision_key=decision_key,
@@ -1799,15 +1836,17 @@ class WorkerHarness:
                     exc_info=True,
                 )
             except Exception as exc:
+                falhas += 1
                 # So o TIPO: a mensagem do asyncpg pode trazer "Failing row contains ..." com a linha.
                 logger.error(
-                    "rco_decisao_registro_falhou_fail_open",
+                    evento,
                     task_id=task.task_id,
                     topic=task.topic,
                     decision_key=decision_key,
                     id_regra=avaliacao.id_regra,
                     erro=type(exc).__name__,
                 )
+        return falhas
 
     async def _emit_audit(self, record: AuditRecord, task: ExternalTask) -> str:
         """Durably emit `record` exactly-once BEFORE the effect is committed. FAIL-CLOSED.
