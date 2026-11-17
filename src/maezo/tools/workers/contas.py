@@ -1927,12 +1927,16 @@ MOTIVO_DATA_INFORMADA_AUSENTE = "ausente"
 MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO = "formato_invalido"
 MOTIVO_DATA_INFORMADA_FUTURA = "data_futura"
 MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA = "instancia_legada"
+#: Reentrada cujo valor ARMAZENADO nao passa na validacao do eco (data fora do formato estrito,
+#: motivo fora do vocabulario, ou par valor/motivo incoerente): a variavel vira nula com este motivo.
+MOTIVO_DATA_INFORMADA_VALOR_ARMAZENADO_INVALIDO = "valor_armazenado_invalido"
 MOTIVOS_DATA_RECEBIMENTO_INFORMADA: frozenset[str] = frozenset(
     {
         MOTIVO_DATA_INFORMADA_AUSENTE,
         MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO,
         MOTIVO_DATA_INFORMADA_FUTURA,
         MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA,
+        MOTIVO_DATA_INFORMADA_VALOR_ARMAZENADO_INVALIDO,
     }
 )
 #: Marcador de REENTRADA do intake — um FATO DO PROCESSO, nunca "a variavel nova existe" (o que
@@ -1952,41 +1956,69 @@ MARCADOR_REENTRADA_INTAKE = "has_glosas"
 #: `AAAA-MM-DD` estrito, ASCII (`\d` casaria digitos Unicode). Datetime completo, data sem zero a
 #: esquerda e qualquer outro formato sao `formato_invalido` — a variavel e CRUA, nao normalizada.
 _DATA_ISO_ESTRITA = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+#: So ESPACO e TAB ASCII sao removidos das pontas. `str.strip()` sem argumento tiraria tambem quebras
+#: de linha, separadores de controle (`\x1c`-`\x1f`), NBSP, U+3000 etc. — o que deixaria passar como
+#: "data valida" um valor que o lote nao informou nessa forma: esses caem em `formato_invalido`.
+_ESPACOS_DAS_PONTAS = " \t"
+
+
+def _e_data_estrita(text: str) -> bool:
+    """`AAAA-MM-DD` ASCII e data real do calendario (sem remover nada)."""
+    if _DATA_ISO_ESTRITA.fullmatch(text) is None:
+        return False
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
 
 
 def _avaliar_data_recebimento_informada(raw: Any, *, hoje: date) -> tuple[str | None, str | None]:
     """Primeira passagem: `(data, None)` se `raw` e uma data valida, senao `(None, motivo)`.
 
-    Valida = `AAAA-MM-DD` estrito (so os espacos nas pontas sao removidos), data real do
-    calendario (`2026-02-30` nao e) e nao posterior a `hoje` (o relogio do processo). Nunca
-    defaulta e nunca le a ancora `data_recebimento_lote` normalizada.
+    Valida = `AAAA-MM-DD` estrito (so espaco e tab ASCII nas pontas sao removidos), data real do
+    calendario (`2026-02-30` nao e) e nao posterior a `hoje` (o relogio do processo: a data UTC do
+    worker, o mesmo do default da ancora — um lote datado do dia seguinte no Brasil, entre 21h e
+    24h de Brasilia, ja e "hoje" em UTC e e aceito). Nunca defaulta e nunca le a ancora.
     """
     if raw is None:
         return None, MOTIVO_DATA_INFORMADA_AUSENTE
     if not isinstance(raw, str):
         return None, MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO
-    text = raw.strip()
+    text = raw.strip(_ESPACOS_DAS_PONTAS)
     if not text:
         return None, MOTIVO_DATA_INFORMADA_AUSENTE
-    if _DATA_ISO_ESTRITA.fullmatch(text) is None:
+    if not _e_data_estrita(text):
         return None, MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO
-    try:
-        informada = date.fromisoformat(text)
-    except ValueError:
-        return None, MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO
-    if informada > hoje:
+    if date.fromisoformat(text) > hoje:
         return None, MOTIVO_DATA_INFORMADA_FUTURA
     return text, None
+
+
+def _eco_armazenado_valido(valor: Any, motivo: Any) -> bool:
+    """O par armazenado pela primeira passagem e coerente e esta dentro do contrato?
+
+    Valor preenchido => data estrita e motivo nulo; valor nulo => motivo do vocabulario fechado.
+    Nao reaplica o teste de data futura: o relogio so anda para frente, e o valor ja passou por ele.
+    """
+    if valor is None:
+        return isinstance(motivo, str) and motivo in MOTIVOS_DATA_RECEBIMENTO_INFORMADA
+    return isinstance(valor, str) and _e_data_estrita(valor) and motivo is None
 
 
 def _resolver_data_recebimento_informada(
     variables: Mapping[str, Any], raw: Any
 ) -> tuple[str | None, str | None, bool]:
-    """`(data, motivo, primeira_passagem)` de `data_recebimento_lote_informada` (DL-0174).
+    """`(data, motivo, computado_agora)` de `data_recebimento_lote_informada` (DL-0174).
+
+    `computado_agora` diz se o par foi RESOLVIDO nesta execucao (so entao o aviso e emitido); um
+    eco nunca repete o aviso, nem o de um `instancia_legada` armazenado.
 
     - Reentrada (`MARCADOR_REENTRADA_INTAKE` presente) com a variavel presente (mesmo `None`):
       ECOA a variavel e o motivo verbatim. Nunca recalcula: na reentrada a ancora pode ser o HOJE
-      que a primeira passagem defaultou.
+      que a primeira passagem defaultou, ou uma data nova trazida pela mensagem de correcao — a
+      ancora pode mudar, a data informada nao. O eco e VALIDADO (`_eco_armazenado_valido`); um par
+      fora do contrato vira `None` com `valor_armazenado_invalido`.
     - Reentrada com a variavel AUSENTE (instancia iniciada antes de DL-0174): `None` com motivo
       `instancia_legada`. Nunca derivada da ancora.
     - Primeira passagem: `_avaliar_data_recebimento_informada` sobre o valor CRU do lote.
@@ -1996,13 +2028,13 @@ def _resolver_data_recebimento_informada(
     que `harness._from_camunda_var` decodifica para `None` sem descarta-la.
     """
     if MARCADOR_REENTRADA_INTAKE in variables:
-        if DATA_RECEBIMENTO_INFORMADA_VAR in variables:
-            return (
-                variables[DATA_RECEBIMENTO_INFORMADA_VAR],
-                variables.get(DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR),
-                False,
-            )
-        return None, MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA, False
+        if DATA_RECEBIMENTO_INFORMADA_VAR not in variables:
+            return None, MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA, True
+        valor = variables[DATA_RECEBIMENTO_INFORMADA_VAR]
+        motivo = variables.get(DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR)
+        if not _eco_armazenado_valido(valor, motivo):
+            return None, MOTIVO_DATA_INFORMADA_VALOR_ARMAZENADO_INVALIDO, True
+        return valor, motivo, False
     data, motivo = _avaliar_data_recebimento_informada(raw, hoje=_hoje_utc())
     return data, motivo, True
 
@@ -2087,7 +2119,8 @@ def identify_glosa_entry(
       real calendar date, not in the future; otherwise `None` plus a closed-vocabulary motivo).
       On the `BME_LinhasAtualizadas` re-entry (detected by `MARCADOR_REENTRADA_INTAKE`, a fact of
       the process) it is ECHOED, never recomputed from the anchor, which may by then be the
-      defaulted today; a legacy instance without it gets `None` / `instancia_legada`.
+      defaulted today; a legacy instance without it gets `None` / `instancia_legada`; an echoed
+      pair outside the contract gets `None` / `valor_armazenado_invalido`.
     * `data_vencimento` — the payment obligation's due date, read from the lote/termo contratual
       (origin DRAFT/verify, ADR-0040 OQ-2). ECHOED verbatim (stripped), **never defaulted**: an
       invented due date is a false deadline, and `handoff_pagamento` refuses it blank. What the
@@ -2133,12 +2166,10 @@ def identify_glosa_entry(
     out["data_recebimento_lote"] = data_recebimento
 
     # DL-0174: a data CRUA, separada da ancora acima (que segue defaultada para os timers).
-    data_informada, motivo_informada, primeira_passagem = _resolver_data_recebimento_informada(
+    data_informada, motivo_informada, computado_agora = _resolver_data_recebimento_informada(
         variables, input_data.data_recebimento_lote
     )
-    if motivo_informada is not None and (
-        primeira_passagem or motivo_informada == MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA
-    ):
+    if computado_agora and motivo_informada is not None:
         # So o codigo do motivo: o valor bruto NUNCA vai ao log (pode carregar qualquer coisa).
         logger.warning(
             "contas.identify_glosa.data_recebimento_lote_informada_nula",

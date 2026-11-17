@@ -9,12 +9,17 @@ anulavel, nunca defaultada, ecoada na reentrada (detectada por um FATO DO PROCES
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from datetime import date
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import structlog
 
+from maezo.agents.marina import delegation as marina_delegation
+from maezo.agents.marina import graph as marina_graph
+from maezo.gateway import engine_schemas
 from maezo.tools.workers import contas
 from maezo.tools.workers.contas import (
     DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR,
@@ -24,6 +29,7 @@ from maezo.tools.workers.contas import (
     MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO,
     MOTIVO_DATA_INFORMADA_FUTURA,
     MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA,
+    MOTIVO_DATA_INFORMADA_VALOR_ARMAZENADO_INVALIDO,
     MOTIVOS_DATA_RECEBIMENTO_INFORMADA,
     identify_glosa_entry,
 )
@@ -244,7 +250,9 @@ def test_motivo_e_sempre_do_vocabulario_fechado(bruto: str | None) -> None:
 
 def test_vocabulario_fechado_do_motivo() -> None:
     assert (
-        frozenset({"ausente", "formato_invalido", "data_futura", "instancia_legada"})
+        frozenset(
+            {"ausente", "formato_invalido", "data_futura", "instancia_legada", "valor_armazenado_invalido"}
+        )
         == MOTIVOS_DATA_RECEBIMENTO_INFORMADA
     )
 
@@ -263,3 +271,208 @@ def test_escopo_de_fetch_do_intake_traz_as_variaveis_novas_e_o_marcador() -> Non
 def test_montador_rco_segue_sem_produtor_para_a_data_de_recebimento() -> None:
     """DL-0174 nao liga a variavel crua ao montador: isso e outra unidade (depois de DL-0172)."""
     assert "dataRecebimentoLote" in contas.TERMOS_SEM_PRODUTOR_CONTAS
+
+
+# ---------------------------------------------------------------------------
+# Revisao independente: espacos so ASCII nas pontas
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "prefixo_ou_sufixo",
+    [
+        ("\n", ""),
+        ("", "\n"),
+        ("\r", ""),
+        ("\x0b", ""),
+        ("\x0c", ""),
+        ("\x1c", ""),
+        ("", "\x1f"),
+        (chr(0xA0), ""),
+        ("", chr(0x3000)),
+        (chr(0x2003), ""),
+    ],
+    ids=["lf", "lf_sufixo", "cr", "vt", "ff", "x1c", "x1f_sufixo", "nbsp", "u3000_sufixo", "em_space"],
+)
+def test_so_espaco_e_tab_ascii_sao_removidos_das_pontas(prefixo_ou_sufixo: tuple[str, str]) -> None:
+    prefixo, sufixo = prefixo_ou_sufixo
+    out = identify_glosa_entry(_variaveis(data_recebimento_lote=f"{prefixo}2026-11-10{sufixo}"))
+    assert out[DATA_RECEBIMENTO_INFORMADA_VAR] is None
+    assert out[DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR] == MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO
+
+
+def test_so_espacos_nao_ascii_nao_e_ausente_e_formato_invalido() -> None:
+    out = identify_glosa_entry(_variaveis(data_recebimento_lote=chr(0xA0) * 3))
+    assert out[DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR] == MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO
+
+
+# ---------------------------------------------------------------------------
+# Revisao independente: o eco da reentrada e validado
+# ---------------------------------------------------------------------------
+
+
+_SEM_MOTIVO = object()
+
+
+@pytest.mark.parametrize(
+    ("valor", "motivo"),
+    [
+        ("2026-1-5", None),
+        ("2026-11-10T00:00:00", None),
+        ("2026-02-30", None),
+        (" 2026-11-10", None),
+        (20261110, None),
+        ("2026-11-10", MOTIVO_DATA_INFORMADA_AUSENTE),
+        (None, None),
+        (None, "inventado"),
+        (None, 7),
+        (None, _SEM_MOTIVO),
+    ],
+    ids=[
+        "sem_zero",
+        "datetime",
+        "data_impossivel",
+        "espaco",
+        "nao_texto",
+        "valor_com_motivo",
+        "nulo_sem_motivo",
+        "motivo_fora_do_vocabulario",
+        "motivo_nao_texto",
+        "motivo_ausente",
+    ],
+)
+def test_eco_de_valor_armazenado_invalido_vira_nulo_com_motivo_proprio(valor: Any, motivo: Any) -> None:
+    extra: dict[str, Any] = {
+        "has_glosas": True,
+        "data_recebimento_lote": "2026-11-10",
+        DATA_RECEBIMENTO_INFORMADA_VAR: valor,
+    }
+    if motivo is not _SEM_MOTIVO:
+        extra[DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR] = motivo
+    with structlog.testing.capture_logs() as logs:
+        out = identify_glosa_entry(_variaveis(**extra))
+    assert out[DATA_RECEBIMENTO_INFORMADA_VAR] is None, "nunca ecoado nem derivado da ancora"
+    assert out[DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR] == MOTIVO_DATA_INFORMADA_VALOR_ARMAZENADO_INVALIDO
+    [evento] = _eventos(logs)
+    assert set(evento) == {"event", "log_level", "tenant_id", "numero_lote_tiss", "motivo"}
+    assert evento["motivo"] == MOTIVO_DATA_INFORMADA_VALOR_ARMAZENADO_INVALIDO
+
+
+@pytest.mark.parametrize("motivo_armazenado", sorted(MOTIVOS_DATA_RECEBIMENTO_INFORMADA))
+def test_eco_de_motivo_armazenado_nao_repete_o_aviso(motivo_armazenado: str) -> None:
+    """O aviso so sai quando o par e RESOLVIDO nesta execucao; ecoar um motivo armazenado (inclusive
+    `instancia_legada` e `valor_armazenado_invalido`) nao avisa de novo."""
+    with structlog.testing.capture_logs() as logs:
+        out = identify_glosa_entry(
+            _variaveis(
+                has_glosas=True,
+                data_recebimento_lote=HOJE.isoformat(),
+                data_recebimento_lote_informada=None,
+                data_recebimento_lote_informada_motivo=motivo_armazenado,
+            )
+        )
+    assert out[DATA_RECEBIMENTO_INFORMADA_VAR] is None
+    assert out[DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR] == motivo_armazenado
+    assert not _eventos(logs)
+
+
+def test_legada_avisa_so_na_resolucao_e_nao_no_eco_seguinte() -> None:
+    with structlog.testing.capture_logs() as logs:
+        primeira = identify_glosa_entry(_variaveis(has_glosas=True, data_recebimento_lote="2026-11-10"))
+    assert len(_eventos(logs)) == 1
+    with structlog.testing.capture_logs() as logs:
+        segunda = identify_glosa_entry(_variaveis(**primeira))
+    assert segunda[DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR] == MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA
+    assert not _eventos(logs)
+
+
+def test_reentrada_com_ancora_nova_da_mensagem_de_correcao_mantem_a_data_informada() -> None:
+    """A ancora pode mudar (a correcao trouxe outra `data_recebimento_lote`); a data informada nao."""
+    primeira = identify_glosa_entry(_variaveis(data_recebimento_lote="2026-11-10"))
+    correcao = _variaveis(**{**primeira, "data_recebimento_lote": "2026-11-12"})
+    out = identify_glosa_entry(correcao)
+    assert out["data_recebimento_lote"] == "2026-11-12"
+    assert out[DATA_RECEBIMENTO_INFORMADA_VAR] == "2026-11-10"
+
+
+# ---------------------------------------------------------------------------
+# Revisao independente: o marcador de reentrada nunca e semeado no start
+# ---------------------------------------------------------------------------
+
+_REPO = Path(__file__).parents[4]
+_BPMN = _REPO / "spec" / "processes" / "bpmn" / "SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn"
+_NS = {
+    "bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
+    "camunda": "http://camunda.org/schema/1.0/bpmn",
+}
+_PROIBIDAS_ANTES_DO_INTAKE = (
+    MARCADOR_REENTRADA_INTAKE,
+    DATA_RECEBIMENTO_INFORMADA_VAR,
+    DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR,
+)
+
+
+def test_marcador_fora_das_entradas_de_start_da_marina() -> None:
+    assert MARCADOR_REENTRADA_INTAKE not in marina_graph._CALLER_INPUT_FIELDS
+    assert MARCADOR_REENTRADA_INTAKE not in marina_delegation._CONTAS_BOOLEAN_META_KEYS
+    campos = {f.name for f in engine_schemas.MARINA_CONTAS_START.fields}
+    assert "numero_lote_tiss" in campos, "sanidade: o schema de start de CONTAS e o certo"
+    for proibida in _PROIBIDAS_ANTES_DO_INTAKE:
+        assert proibida not in campos
+
+
+def test_marcador_fora_das_variaveis_de_start_da_marina() -> None:
+    graph = marina_graph.MarinaGraph(
+        inference=cast(Any, None), dmn=cast(Any, None), cibseven=cast(Any, None), audit_sink=cast(Any, None)
+    )
+    estado: dict[str, Any] = {
+        "flow": "contas",
+        "tenant_id": "amh",
+        "beneficiario_pseudo_id": "pseudo-1",
+        "prestador_id": "prestador-1",
+        "numero_lote_tiss": "LOTE-1",
+        "numero_guia_tiss": "GUIA-1",
+        "numero_conta": "CONTA-1",
+        "competencia": "2026-11",
+        "data_recebimento_lote": "2026-11-10",
+        "valor_apresentado_brl": 100.0,
+        "tipo_lote": "sadt",
+        "divergencia_valor": True,
+        "has_glosas": True,  # mesmo que o estado o carregue, o start nao o escreve
+        "route": "human_review",
+        "dmn_refs": {"glosa_triage": "r1"},
+    }
+    variaveis = graph._contract_variables(cast(Any, estado))
+    assert variaveis["numero_lote_tiss"] == "LOTE-1", "sanidade: o fluxo contas foi o exercitado"
+    for proibida in _PROIBIDAS_ANTES_DO_INTAKE:
+        assert proibida not in variaveis
+
+
+def _elementos_antes_do_intake(processo: ET.Element) -> set[str]:
+    fluxos = [(f.get("sourceRef"), f.get("targetRef")) for f in processo.findall("bpmn:sequenceFlow", _NS)]
+    pendentes = [str(e.get("id")) for e in processo.findall("bpmn:startEvent", _NS)]
+    vistos: set[str] = set()
+    while pendentes:
+        atual = pendentes.pop()
+        if atual in vistos or atual == "ST_ApurarDivergencias":
+            continue
+        vistos.add(atual)
+        pendentes.extend(str(alvo) for origem, alvo in fluxos if origem == atual and alvo)
+    return vistos
+
+
+def test_marcador_nao_e_inicializado_antes_do_intake_no_bpmn() -> None:
+    processo = ET.parse(_BPMN).getroot().find("bpmn:process", _NS)
+    assert processo is not None
+    antes = _elementos_antes_do_intake(processo)
+    assert {"Start_LoteTissRecebido", "ST_PublishReceived"} <= antes
+    nomes: set[str] = set()
+    for elemento in processo.iter():
+        if elemento.get("id") not in antes:
+            continue
+        for tag in ("outputParameter", "inputParameter", "out", "in"):
+            for parametro in elemento.iter(f"{{{_NS['camunda']}}}{tag}"):
+                nomes.add(str(parametro.get("name") or parametro.get("target") or ""))
+    assert "vencimento_ausente" in nomes, "sanidade: os parametros de ST_PublishReceived foram lidos"
+    for proibida in _PROIBIDAS_ANTES_DO_INTAKE:
+        assert proibida not in nomes, f"{proibida} inicializada antes de ST_ApurarDivergencias"

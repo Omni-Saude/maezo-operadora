@@ -247,7 +247,19 @@ propria glosa.)*
   presente (nula ou preenchida) => eco verbatim, mesmo com a ancora mudada; reentrada sem a variavel
   (instancia legada) => nula com `instancia_legada`; o aviso so carrega `tenant_id`,
   `numero_lote_tiss` e o motivo (nunca o valor bruto); o escopo de fetch traz as variaveis novas e o
-  marcador `has_glosas`; a ancora nao muda de comportamento.
+  marcador `has_glosas`; a ancora nao muda de comportamento. Apos a revisao independente: so
+  espaco/tab ASCII sao removidos das pontas (LF, CR, `\x1c`, NBSP, U+3000 => `formato_invalido`);
+  eco invalido (formato, motivo fora do vocabulario, par incoerente) => `valor_armazenado_invalido`;
+  o aviso nao se repete no eco; nova ancora trazida pela correcao nao muda a data informada; o
+  marcador nunca e semeado antes do intake (Marina, `MARINA_CONTAS_START`, parametros do BPMN).
+
+### test_reentrada_de_instancia_legada_nao_rederiva_a_data_informada (DL-0174)
+- **Given** lote iniciado COM `data_recebimento_lote` passada valida, instancia em
+  `UT_AnalistaContas`; as duas variaveis novas apagadas via REST (simula instancia anterior a
+  DL-0174; `has_glosas` continua)
+- **When** `msg.contas.linhas_atualizadas` correlacionada
+- **Then** `data_recebimento_lote_informada` nula com motivo `instancia_legada` (nunca re-derivada
+  da ancora valida) e `data_recebimento_lote` intocada.
 
 ## Timers de SLA
 
