@@ -29,3 +29,9 @@ ACHADO: o catálogo GT-GTM-018/099 não existe no pacote (busca por id em todo o
 
 - CD-79 e CD-80 lidas. Ramo `sf-w2/mzo-ca/telemetria-gtm-e-11` contém a main `dfaf6e6c`. Revisão independente: PASS (sem reparo exigido).
 - Suíte unitária cheia local: 446 falhas/erros; 441 iguais na main limpa (clone raso, sem `helm`, root). 5 em `tests/unit/portal/test_admin_read_api.py` só apareceram na rodada cheia do ramo; passam sozinhas e com `tests/unit/portal` inteiro; a combinação com cada pasta (ci, deploy, dev, platform, runtime, gateway) não reproduz. Rodando a suíte cheia sobre a main limpa para decidir entre ACHADO (dependência de ordem preexistente) e defeito da linha. PR só depois.
+
+## 2026-11-17 ~17:05Z — linha 1, PR aberto
+
+- maezo-operadora #1299 aberto (ramo `sf-w2/mzo-ca/telemetria-gtm-e-11`, contém a main `dfaf6e6c`). CI rodando; pronto depois do verde.
+- ACHADO: 5 testes de `tests/unit/portal/test_admin_read_api.py` falham só na ordem da suíte unitária cheia, IGUAL na main limpa (rodada cheia local sobre a main); passam sozinhos e com `tests/unit/portal` inteiro; bisseção por pasta não reproduz. Não corrigidos nem pulados; nenhuma falha local exclusiva do ramo.
+- `saida_clinica` (rótulo derivado de sinal de saúde no vocabulário do agente comercial): id para a coordenação do programa, ponto do encarregado (CD-79 item 2).
