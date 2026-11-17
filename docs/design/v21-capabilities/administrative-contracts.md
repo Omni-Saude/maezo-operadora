@@ -146,10 +146,10 @@ A coluna onda é decomposição candidata de implementação; todos os conceitos
 | `Process_CA_H3_ConhecerCliente` | F1 | OP01/OP11 | authorized_case_owner | W5 | CR-F1/CR-F5 |
 | `Process_CA_H3_EnriquecerCliente` | F1 | OP01/OP11 | authorized_case_owner | W5 | CR-F1/CR-F5 |
 | `Process_CA_H3_ProximaMelhorAcao` | F2 | OP01/OP02/OP11 | lucas | W5 | CR-F1/CR-F2/CR-F5 |
-| `Process_CA_COMPRA` | F3 | OP01/OP02/OP03/OP04/OP05/OP06/OP07/OP08/OP09/OP10 | lucas | W2 | CR-F1/CR-F2/CR-F3/CR-F4/CR-F5/CR-F6 |
-| `Process_CA_COMPRA_C1_EntenderRecomendar` | F2 | OP01/OP02/OP05/OP09 | helena/lucas | W2 | CR-F1/CR-F2/CR-F4/CR-F6 |
-| `Process_CA_COMPRA_C2_DecidirContratar` | F3 | OP02/OP03/OP09 | lucas | W2 | CR-F2/CR-F3/CR-F6 |
-| `Process_CA_COMPRA_C3_HabilitarDireito` | F3 | OP01/OP03/OP04/OP07/OP08/OP09 | lucas | W2 | CR-F1/CR-F3/CR-F5/CR-F6 |
+| `Process_CA_COMPRA` | F3 | OP01/OP02/OP03/OP04/OP05/OP06/OP07/OP08/OP09/OP10 | especialista_comercial | W2 | CR-F1/CR-F2/CR-F3/CR-F4/CR-F5/CR-F6 |
+| `Process_CA_COMPRA_C1_EntenderRecomendar` | F2 | OP01/OP02/OP05/OP09 | especialista_comercial | W2 | CR-F1/CR-F2/CR-F4/CR-F6 |
+| `Process_CA_COMPRA_C2_DecidirContratar` | F3 | OP02/OP03/OP09 | especialista_comercial | W2 | CR-F2/CR-F3/CR-F6 |
+| `Process_CA_COMPRA_C3_HabilitarDireito` | F3 | OP01/OP03/OP04/OP07/OP08/OP09 | especialista_comercial | W2 | CR-F1/CR-F3/CR-F5/CR-F6 |
 | `Process_CA_COMPRA_C4_ManterDireito` | F4 | OP05/OP06/OP07/OP08/OP09 | lucas | W2 | CR-F4/CR-F5/CR-F6 |
 | `Process_CA_UTILIZACAO` | F4 | OP05/OP06/OP07/OP08/OP09/OP10/OP11 | lucas | W4 | CR-F4/CR-F5/CR-F6 |
 | `Process_CA_UTILIZACAO_U1_Preparar` | F4 | OP05/OP06/OP09 | lucas | W4 | CR-F4/CR-F6 |
@@ -161,6 +161,23 @@ A coluna onda é decomposição candidata de implementação; todos os conceitos
 | `Process_CA_SUPORTE_S2_DiagnosticarRotear` | F5 | OP07/OP08 | helena/lucas | W3 | CR-F5 |
 | `Process_CA_SUPORTE_S3_ResolverEncaminhar` | F5 | OP07/OP08/OP09 | lucas | W3 | CR-F5/CR-F6 |
 | `Process_CA_SUPORTE_S4_ConfirmarEncerrar` | F5 | OP07/OP09/OP10/OP11 | lucas | W3 | CR-F5/CR-F6 |
+
+**Correção do ledger de Compras (E-SF-17 / GTM-E-10; decisão GTM-01 D1, refinada por SC-02).** As linhas
+`Process_CA_COMPRA`, `C1`, `C2` e `C3` atribuíam a venda ao agente de cobrança (`lucas`) e, em C1, também à
+Helena, cujo contexto é de saúde. As duas leituras eram relabel de finalidade (cobrança ou saúde não é venda).
+O lead passa a ser o papel humano `especialista_comercial`, "Especialista comercial — Faixa Assistida":
+empregado próprio da operadora, lotado na diretoria comercial, `owner_ref` humano na fila `sales_operations`
+(`responsible_queue_ref` "Faixa Assistida"). O back-office de cadastro (lane
+`LN_CA1_COMPRA_ContratacaoBackOfficeComercial`) é outro papel e outra pessoa (separação condução × cadastro,
+SC-02). O especialista nunca registra aceite, nunca digita dado pessoal em nome do comprador e nunca vê,
+preenche ou "presencia" a DS; também nunca decide elegibilidade, preço, legitimidade PJ ou comissão. Os nomes
+das duas pessoas que declaram o dono, o grupo e o headcount são ato do dono (`GAP-HEADCOUNT`,
+`GAP-PERSONA-NAME`); nenhum nome é presumido aqui. Ficam como estão `C4_ManterDireito` (pós-contratação) e as
+linhas do consumidor técnico `journey.compras.step` da seção de operações, porque a extração do consumidor
+administrativo (GTM-E-11) não foi feita neste pacote. O agente `comercial` (flag desligada) não é lead de
+nenhuma linha: com a flag ligada (portões GTM-01.R1/R2/R3 e OWNER-DEPLOY) ele só conduz a conversa e encaminha
+ao especialista. Nenhum `.bpmn` muda, porque as lanes já existem. Guarda:
+`tests/unit/agents/test_esf17_ledger_compras.py`.
 
 ## Dependências e trabalho independente
 

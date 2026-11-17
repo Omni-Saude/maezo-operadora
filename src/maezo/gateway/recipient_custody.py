@@ -108,25 +108,52 @@ class SealedPhone:
         return f"SealedPhone(key_ref={self.key_ref!r}, <cifrado>)"
 
 
-async def seal_phone(phone: str, wrapper: KeyWrapper, *, tenant: str, conversation_id: str) -> SealedPhone:
+async def seal_with_context(
+    plaintext: str, wrapper: KeyWrapper, *, context: dict[str, str], aad: bytes
+) -> SealedPhone:
+    """O envelope (chave de dados AES-256 + GCM + KMS wrap) com AAD e encryption context do CHAMADOR.
+
+    Extraido para a custodia irma do telefone de lead (`gateway/communications/lead_custody.py`, E-SF-13
+    G-43), que amarra a linha a `(tenant, prospect_ref, finalidade)` em vez de `(tenant, conversation_id)`.
+    """
     data_key = AESGCM.generate_key(bit_length=256)
     nonce = os.urandom(12)
-    ciphertext = AESGCM(data_key).encrypt(nonce, phone.encode("utf-8"), _aad(tenant, conversation_id))
-    wrapped = await wrapper.wrap(data_key, encryption_context(tenant, conversation_id))
+    ciphertext = AESGCM(data_key).encrypt(nonce, plaintext.encode("utf-8"), aad)
+    wrapped = await wrapper.wrap(data_key, context)
     return SealedPhone(key_ref=wrapper.key_ref, wrapped_key=wrapped, nonce=nonce, ciphertext=ciphertext)
 
 
-async def open_phone(sealed: SealedPhone, wrapper: KeyWrapper, *, tenant: str, conversation_id: str) -> str:
+async def open_with_context(
+    sealed: SealedPhone, wrapper: KeyWrapper, *, context: dict[str, str], aad: bytes, erro: str
+) -> str:
+    """Abre o envelope. Qualquer falha vira `RecipientCustodyError` com o token `erro` e a CLASSE da falha."""
     try:
-        data_key = await wrapper.unwrap(sealed.wrapped_key, encryption_context(tenant, conversation_id))
-        plain = AESGCM(data_key).decrypt(sealed.nonce, sealed.ciphertext, _aad(tenant, conversation_id))
+        data_key = await wrapper.unwrap(sealed.wrapped_key, context)
+        plain = AESGCM(data_key).decrypt(sealed.nonce, sealed.ciphertext, aad)
     except Exception as exc:
         # `from None`: a excecao original do cryptography/KMS nao carrega o numero, mas nao ha'
         # por que arriscar — o token de classe e' tudo que sai daqui.
-        raise RecipientCustodyError(
-            f"recipient_custody: nao foi possivel abrir ({type(exc).__name__})"
-        ) from None
+        raise RecipientCustodyError(f"{erro} ({type(exc).__name__})") from None
     return plain.decode("utf-8")
+
+
+async def seal_phone(phone: str, wrapper: KeyWrapper, *, tenant: str, conversation_id: str) -> SealedPhone:
+    return await seal_with_context(
+        phone,
+        wrapper,
+        context=encryption_context(tenant, conversation_id),
+        aad=_aad(tenant, conversation_id),
+    )
+
+
+async def open_phone(sealed: SealedPhone, wrapper: KeyWrapper, *, tenant: str, conversation_id: str) -> str:
+    return await open_with_context(
+        sealed,
+        wrapper,
+        context=encryption_context(tenant, conversation_id),
+        aad=_aad(tenant, conversation_id),
+        erro="recipient_custody: nao foi possivel abrir",
+    )
 
 
 @dataclass(frozen=True, slots=True)

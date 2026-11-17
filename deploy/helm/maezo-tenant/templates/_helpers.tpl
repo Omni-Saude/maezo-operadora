@@ -163,6 +163,24 @@ Usage: include "maezo-tenant.requireGeneralCidr" (dict "agent" $name "endpoint" 
 {{- end }}
 
 {{/*
+Cerca de pre-voo do WhatsApp outbound (GTM-E-44 / E-SF-14): `whatsapp.phoneNumberId` vazio com o
+outbound (`whatsapp.outbound.enabled`) OU o lembrete (`whatsapp.lembrete.enabled`) ligado FALHA NO
+RENDER, nomeando a chave. Sem isto o chart renderizava `WHATSAPP_PHONE_NUMBER_ID=""` e o erro so'
+aparecia em runtime (`send_message` fail-closed, `mcp_whatsapp/server.py`). Com as duas flags
+desligadas (default) um id vazio e' o estado normal ("nada provisionado") e passa.
+Invocado por `templates/guard-whatsapp-outbound.yaml`, que renderiza sempre (independe de
+`webhookReceiver.enabled`).
+*/}}
+{{- define "maezo-tenant.whatsapp.requirePhoneNumberId" -}}
+{{- $wa := .Values.whatsapp -}}
+{{- if or $wa.outbound.enabled $wa.lembrete.enabled -}}
+{{-   if not ($wa.phoneNumberId | default "" | toString | trim) -}}
+{{-     fail (printf "whatsapp.phoneNumberId is EMPTY while whatsapp.outbound.enabled=%v / whatsapp.lembrete.enabled=%v: set the tenant's WABA phone number id (non-secret Graph id) in values, or turn the outbound/lembrete flag off. Provisioning: docs/runbooks/whatsapp-outbound-provisionamento.md." $wa.outbound.enabled $wa.lembrete.enabled) -}}
+{{-   end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Namespace name.
 */}}
 {{- define "maezo-tenant.namespace" -}}

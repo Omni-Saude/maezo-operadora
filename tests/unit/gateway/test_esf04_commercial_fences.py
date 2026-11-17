@@ -22,7 +22,7 @@ from typing import Any, get_args
 import pytest
 
 from maezo.adapters.amh.commercial import CommercialWire
-from maezo.gateway.commercial_fences import (
+from maezo.adapters.amh.commercial_fences import (
     KNOWN_FALSE_POSITIVES,
     CommercialFenceError,
     CommercialFenceRefusal,
@@ -478,7 +478,7 @@ def test_commission_structures_have_no_external_operator_dimension() -> None:
         if isinstance(value, type) and hasattr(value, "model_fields")
         for name in value.model_fields
     }
-    from maezo.portal.api.commission_policies import commission_policy_router  # noqa: PLC0415
+    from maezo.portal.api.commission_policies import commission_policy_router
 
     routes = [str(getattr(route, "path", "")) for route in commission_policy_router.routes]
     names = [*sql_dimensions, *columns, *sorted(fields), *routes]

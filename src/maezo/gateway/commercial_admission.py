@@ -17,6 +17,11 @@ from typing import Any, Final, Literal
 import httpx
 
 from maezo.adapters.amh.commercial import MAX_BODY_BYTES, AmhCommercialAdapter, CommercialWire
+from maezo.adapters.amh.commercial_fences import (
+    CommercialFenceError,
+    CommercialFenceRefusal,
+    sla_claim_marker,
+)
 from maezo.adapters.amh.commercial_http import (
     AmhCommercialAuthority,
     AmhPublicCatalogAuthority,
@@ -27,7 +32,6 @@ from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
 from maezo.gateway.commercial_acceptance_admission import A3_ADMITTED_COMMANDS, AcceptanceRecordAdmission
 from maezo.gateway.commercial_catalog_admission import CatalogSourceAdmission
 from maezo.gateway.commercial_coverage_admission import CoverageReadAdmission
-from maezo.gateway.commercial_fences import CommercialFenceError, CommercialFenceRefusal, sla_claim_marker
 from maezo.gateway.commercial_portability_admission import (
     PortabilityPayloadError,
     refuse_portability_verdict_payload,

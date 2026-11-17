@@ -177,6 +177,9 @@ pendentes:
   - artefato: spec/processes/dmn/frequency_zscore_threshold.dmn
     responsavel: a definir
     marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
+  - artefato: spec/processes/dmn/funnel_deadline_catalog.dmn
+    responsavel: a definir
+    marca_no_arquivo: "funnel_deadline_catalog v0.1.0 — status: DRAFT — NENHUMA entrada ratificada (regulatory_approval_ref vazio em todas)."
   - artefato: spec/processes/dmn/glosa_classification.dmn
     responsavel: a definir
     marca_no_arquivo: "glosa_classification v0.1.0 — status: DRAFT (criterios de tipo/extensao requerem SME"
