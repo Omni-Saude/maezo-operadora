@@ -29,7 +29,7 @@ from tests.unit.gateway.capabilities.journeys.helpers import (
     UnitJournal,
     UnitSourceOracle,
 )
-from tests.unit.gateway.capabilities.vendor_journey.vendor_helpers import vendor_config
+from tests.unit.gateway.capabilities.vendor_journey.vendor_helpers import enforcing_posture, vendor_config
 
 _IDENTITY_FIELDS = (
     "tenant_ref",
@@ -116,6 +116,7 @@ def test_flag_on_builds_the_one_motor_with_the_seat_fence_in_front() -> None:
         transitions=oracle,
         currentness=ingress,
         memberships=MEMBERS,
+        legitimacy_posture=enforcing_posture(),
     )
     assert type(driver) is JourneyDriver
     assert driver is not None

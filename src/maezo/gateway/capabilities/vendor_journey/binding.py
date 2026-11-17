@@ -54,6 +54,7 @@ from maezo.gateway.capabilities.journeys.contracts import (
 from maezo.gateway.capabilities.journeys.domain_boundary import ExistingDomainEffectBoundary
 from maezo.gateway.capabilities.journeys.driver import JourneyDriver
 from maezo.gateway.capabilities.models import CapabilityRefusalReason, DeclaredMemberships
+from maezo.gateway.commercial_legitimacy_guard import LegitimacyScreenEnforcing
 
 VENDOR_JOURNEY_BINDING_ID: Final = "AGJ-VENDOR"
 # The núcleo purchase topology is consumed as it is; extending JourneyStage or
@@ -185,6 +186,7 @@ def vendor_journey(
     returns: JourneyReturnRecoveryPort | None = None,
     memberships: DeclaredMemberships | None = None,
     clock: Callable[[], datetime] | None = None,
+    legitimacy_posture: object | None = None,
 ) -> JourneyDriver | None:
     """Register JR4 on the existing motor — or nothing, while the flag is off.
 
@@ -193,11 +195,19 @@ def vendor_journey(
     the four qualified ports from trusted composition; the injected preparation
     is wrapped in the vendor seat fence, and every other port is passed to the
     one and only ``JourneyDriver`` by reference.
+
+    GTM-E-36 (E-SF-20r): flag on also requires the OP21 ENFORCING legitimacy posture
+    mounted on the commercial path (``legitimacy_posture`` of the exact class
+    ``LegitimacyScreenEnforcing``). The binding has no product dimension, so the fence
+    holds for every enable. The flag port of the posture never mounts that class, so
+    today no composition can turn the channel on.
     """
 
     if not config.enabled:
         return None
     if journal is None or preparation is None or transitions is None or currentness is None:
+        raise JourneyContractError()
+    if type(legitimacy_posture) is not LegitimacyScreenEnforcing:
         raise JourneyContractError()
     return JourneyDriver(
         vendor_journey_binding(config),
