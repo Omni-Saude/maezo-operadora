@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "norma_contratacao": "RN 557/2022",
+  "penalidade_anchor": "RN 489/2022, art. 23-A",
+  "escopo": "integral",
+  "resultados": [
+    {
+      "valor": "proven",
+      "rotulo": "comprovado"
+    },
+    {
+      "valor": "not_proven",
+      "rotulo": "não comprovado"
+    },
+    {
+      "valor": "not_applicable",
+      "rotulo": "não se aplica"
+    },
+    {
+      "valor": "pending",
+      "rotulo": "pendente de verificação"
+    }
+  ],
+  "criterios": [
+    {
+      "criterion_id": "contratacao_tipo_forma",
+      "rotulo": "tipo de contratação (empresarial ou adesão) e forma (direta, com administradora ou com administradora coestipulante — art. 29)",
+      "norm_anchor": "RN 557/2022, art. 29",
+      "campos": [
+        {
+          "campo_id": "contract_kind",
+          "norm_anchor": "RN 557/2022, art. 29",
+          "condicao_estrutural": null
+        },
+        {
+          "campo_id": "contracting_form",
+          "norm_anchor": "RN 557/2022, art. 29",
+          "condicao_estrutural": null
+        }
+      ],
+      "opcoes": [
+        {
+          "valor": "empresarial",
+          "rotulo": "empresarial"
+        },
+        {
+          "valor": "adesao",
+          "rotulo": "adesão"
+        },
+        {
+          "valor": "empresario_individual",
+          "rotulo": "empresário individual"
+        },
+        {
+          "valor": "direta",
+          "rotulo": "direta — art. 29, I"
+        },
+        {
+          "valor": "administradora",
+          "rotulo": "com administradora de benefícios — art. 29, II"
+        },
+        {
+          "valor": "coestipulante",
+          "rotulo": "com administradora coestipulante — art. 29, III"
+        }
+      ],
+      "estrutural": false
+    },
+    {
+      "criterion_id": "vinculo_beneficiario_contratante",
+      "rotulo": "empresarial: vínculo do beneficiário com a contratante (art. 5º)",
+      "norm_anchor": "RN 557/2022, art. 5º",
+      "campos": [
+        {
+          "campo_id": "vinculo_beneficiario_contratante",
+          "norm_anchor": "RN 557/2022, art. 5º",
+          "condicao_estrutural": null
+        }
+      ],
+      "opcoes": [],
+      "estrutural": false
+    },
+    {
+      "criterion_id": "adesao_lista_constituicao",
+      "rotulo": "adesão: contratante na lista do art. 15 e constituída há pelo menos um ano (art. 16, salvo conselhos, entidades de classe e sindicatos)",
+      "norm_anchor": "RN 557/2022, art. 15",
+      "campos": [
+        {
+          "campo_id": "contratante_lista_art15",
+          "norm_anchor": "RN 557/2022, art. 15",
+          "condicao_estrutural": null
+        },
+        {
+          "campo_id": "constituida_um_ano",
+          "norm_anchor": "RN 557/2022, art. 16",
+          "condicao_estrutural": "exceto as pessoas jurídicas previstas nos incisos I e II do art. 15 (conselhos profissionais, entidades de classe e sindicatos) — a isenção é derivada do inciso, nunca digitada"
+        }
+      ],
+      "opcoes": [
+        {
+          "valor": "inciso_i",
+          "rotulo": "conselhos profissionais e entidades de classe, com registro necessário ao exercício da profissão (inciso I)"
+        },
+        {
+          "valor": "inciso_ii",
+          "rotulo": "sindicatos, centrais sindicais e respectivas federações e confederações (inciso II)"
+        },
+        {
+          "valor": "inciso_iii",
+          "rotulo": "associações profissionais legalmente constituídas (inciso III)"
+        },
+        {
+          "valor": "inciso_iv",
+          "rotulo": "cooperativas que congreguem membros de categorias ou classes de profissões regulamentadas (inciso IV)"
+        },
+        {
+          "valor": "inciso_v",
+          "rotulo": "caixas de assistência e fundações de direito privado (inciso V)"
+        },
+        {
+          "valor": "inciso_vi",
+          "rotulo": "entidades previstas nas Leis nº 7.395/1985 e nº 7.398/1985 (inciso VI)"
+        }
+      ],
+      "estrutural": false
+    },
+    {
+      "criterion_id": "empresario_documentos_reconfirmacao",
+      "rotulo": "empresário individual: documentos do art. 9º e reconfirmação anual (art. 10)",
+      "norm_anchor": "RN 557/2022, arts. 9º a 14",
+      "campos": [
+        {
+          "campo_id": "documentos_art9",
+          "norm_anchor": "RN 557/2022, arts. 9º a 14",
+          "condicao_estrutural": null
+        },
+        {
+          "campo_id": "reconfirmacao_anual",
+          "norm_anchor": "RN 557/2022, art. 10",
+          "condicao_estrutural": null
+        }
+      ],
+      "opcoes": [],
+      "estrutural": false
+    },
+    {
+      "criterion_id": "vedacao_inclusao_sem_pj",
+      "rotulo": "nenhuma inclusão de beneficiário sem a pessoa jurídica legitimada (art. 29, § 1º)",
+      "norm_anchor": "RN 557/2022, art. 29, § 1º",
+      "campos": [],
+      "opcoes": [],
+      "estrutural": true
+    }
+  ]
+}

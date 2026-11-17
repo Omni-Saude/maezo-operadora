@@ -12,14 +12,15 @@ function panels() {
     cases: <h2>Casos autorizados</h2>,
     documents: <h2>Documentos autorizados</h2>,
     operations: <h2>Operações autorizadas</h2>,
+    legitimacy: <h2>Legitimidade coletiva</h2>,
     administration: <h2>Administração governada</h2>,
   } as const;
 }
 
-it("oferece as sete áreas de colaboradores sem criar atalhos de decisão em lote", () => {
+it("oferece as oito áreas de colaboradores sem criar atalhos de decisão em lote", () => {
   render(<StaffPortalWorkspace panels={panels()} />);
   const tabs = screen.getAllByRole("tab");
-  expect(tabs).toHaveLength(7);
+  expect(tabs).toHaveLength(8);
   expect(tabs.map((tab) => tab.textContent)).toEqual([
     expect.stringContaining("Visão geral"),
     expect.stringContaining("Meu trabalho"),
@@ -27,6 +28,7 @@ it("oferece as sete áreas de colaboradores sem criar atalhos de decisão em lot
     expect.stringContaining("Casos"),
     expect.stringContaining("Documentos"),
     expect.stringContaining("Operações"),
+    expect.stringContaining("Legitimidade coletiva"),
     expect.stringContaining("Administração"),
   ]);
   expect(screen.queryByRole("button", { name: /aprovar.*lote/i })).not.toBeInTheDocument();
