@@ -118,3 +118,7 @@ Sigo por (A) e registro (C) como demanda: PROVISÓRIO-aguarda-coordenador. Tamb�
 ## 2026-11-17 ~02:10Z
 
 pronto: maezo-operadora #1278, head c4be57001609c4aeb63c5e73d2de97e38a62fa58, checks verdes (40 success e 2 skipped; integração lida do junit: 5 shards, 1269 testes, 0 falhas, 0 erros, 7 skips). Enviado direto à mescladora (CD-42).
+
+## 2026-11-17 ~03:05Z
+
+#1278: a mescladora fez Update branch (head 6ca9325f6e2f3f59fa4096ced89cf2a263cd21d9); o CI desse head está verde (40 success e 2 skipped). A main avançou para 2b421e5 com o #1277, então o head está 3 commits atrás. Simulei o merge localmente: a cerca do #1277 e as suítes esf06, a5 e a7 deram 256 passed. Pela regra, o PRONTO só sai depois do próximo Update branch. Avisei a mescladora.
