@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "extract": "OMNI-V-02",
+  "modules": ["src/maezo/portal/web/codegen/c6-4/generate_c64_binding.py", "src/maezo/portal/web/codegen/c6-4/commercial-c6-4.generated.ts"],
+  "spec_sources": [
+    {"repository": "Omni-Saude/amh-data-platform", "path": "schemas/proposals/maezo/commercial-v1/shared-contract-c6-4.proposed.v1.json", "commit": "a4f2ac237f02ea54873e245de3dceac922b8891d"},
+    {"repository": "Omni-Saude/maezo-operadora", "path": "config/integrations/amh/commercial-c6-4.source.lock.json", "lines": "12"},
+    {"repository": "Omni-Saude/maezo-operadora", "path": "src/maezo/adapters/amh/commercial.py", "lines": "43"},
+    {"repository": "Omni-Saude/maezo-operadora", "path": "src/maezo/adapters/amh/commercial.py", "lines": "118"},
+    {"repository": "Omni-Saude/maezo-operadora", "path": "src/maezo/portal/web/scripts/generate-read-bindings.py"}
+  ],
+  "spec_author": "AMH (editor canonico do C6-4, CA-01)",
+  "implementer": "agente W-MZO-DOC (EP-CORE-09c)",
+  "attestation": {"implementer_did_not_open_omni_files": true, "attested_by": "agente W-MZO-DOC (EP-CORE-09c)", "attested_at": "2026-11-16"}
+}
