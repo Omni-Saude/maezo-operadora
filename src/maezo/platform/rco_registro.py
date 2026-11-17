@@ -29,9 +29,10 @@ mesma `chave_idempotencia`), entao nenhuma decisao com efeito fica fora da conta
 continua fail-open, porque nada age.
 
 Janela da `conferida` (DL-0182). NAO e o ordinal: conta so conferencias CONFIRMADAS por humano
-(`rco_ativacao.conferencias_confirmadas`; aqui, `_CONFIRMADAS_SQL`), por (tenant, idRegra, versaoRegra):
-desfecho `sim` de decisao com `acao = conferencia`, depois do `nao` mais recente. Sombra e decisao que nao
-foi conferencia nunca consomem a janela; versao nova comeca do zero pela chave. Lida sob o MESMO lock da
+(`rco_ativacao.conferencias_confirmadas`; aqui, `_CONFIRMADAS_SQL`), por (tenant, idRegra, versaoRegra) e
+pela MESMA decisao adversa do caso (a janela da `glosar` conta so `glosar`): desfecho `sim` de decisao com
+`acao = conferencia`, depois do `nao` mais recente da regra/versao. Sombra e decisao que nao foi
+conferencia nunca consomem a janela; versao nova comeca do zero pela chave. Lida sob o MESMO lock da
 regra que `registrar_desfecho` toma, entao um `nao` gravado antes ja fecha a decisao seguinte.
 
 Desfecho (`registrar_desfecho`, DL-0182). O clique de uma conferencia (`confirmar` -> `sim`, `rejeitar`
@@ -39,7 +40,8 @@ Desfecho (`registrar_desfecho`, DL-0182). O clique de uma conferencia (`confirma
 `rco_decisao_regra_desfecho` (append-only). So decisao com `acao = conferencia`; o mesmo desfecho
 repetido (re-tentativa) nao grava de novo; `sem_desfecho` nao sobrescreve `sim`/`nao`. Um `nao` zera a
 janela e alerta a coordenacao (log estruturado so com codigos e ids, e a metrica
-`maezo_rco_conferencia_rejeitada_total`).
+`maezo_rco_conferencia_rejeitada_total`). O alerta e best-effort DEPOIS do commit: uma queda entre o
+commit e o log/metrica perde esse alerta, e a re-tentativa (idempotente) nao alerta de novo.
 
 Idempotencia. `chave_idempotencia` = sha256 de `tenant:task_id:decision_key`: a re-entrega da mesma
 tarefa externa nao grava de novo nem consome ordinal (o INSERT cai em `ON CONFLICT DO NOTHING`).
@@ -391,16 +393,17 @@ _ORDINAL_SQL: Final = (
     "WHERE tenant = $1 AND id_regra = $2 AND versao_regra = $3"
 )
 #: Janela da `conferida` (DL-0182): espelho SQL de `rco_ativacao.conferencias_confirmadas`. So desfechos
-#: de decisao da regra com `acao = conferencia` (logo `modo = ativa`: sombra nunca entra); conta as
-#: decisoes distintas com `sim` de id maior que o do `nao` mais recente. Indices da 0035:
+#: de decisao da regra com `acao = conferencia` (logo `modo = ativa`: sombra nunca entra; inclui as dadas
+#: sob `conferencia_integral`); conta as decisoes distintas da MESMA `decisao` ($4) com `sim` de id maior
+#: que o do `nao` mais recente da regra/versao (de qualquer decisao: um `nao` zera todas). Indices da 0035:
 #: `rco_decisao_regra_regra_idx` e `rco_decisao_regra_desfecho_fk_idx`.
 _CONFIRMADAS_SQL: Final = (
     "WITH d AS ("
-    "SELECT f.id, f.rco_decisao_regra_id AS decisao, f.concordou "
+    "SELECT f.id, f.rco_decisao_regra_id AS id_decisao, f.concordou, r.decisao "
     "FROM rco_decisao_regra_desfecho f JOIN rco_decisao_regra r ON r.id = f.rco_decisao_regra_id "
     "WHERE r.tenant = $1 AND r.id_regra = $2 AND r.versao_regra = $3 "
     "AND r.acao = 'conferencia' AND r.modo = 'ativa') "
-    "SELECT count(DISTINCT decisao) FROM d WHERE concordou = 'sim' "
+    "SELECT count(DISTINCT id_decisao) FROM d WHERE concordou = 'sim' AND decisao = $4 "
     "AND id > COALESCE((SELECT max(id) FROM d WHERE concordou = 'nao'), 0)"
 )
 _INSERT_SQL: Final = (
@@ -613,6 +616,7 @@ class PostgresRegistroDecisoesRco:
                                     self._tenant,
                                     avaliacao.id_regra,
                                     avaliacao.versao_regra,
+                                    avaliacao.decisao,
                                 )
                             )
                     linha = montar_linha(avaliacao, contexto, ordinal, conferencias_confirmadas=confirmadas)
@@ -649,11 +653,12 @@ class PostgresRegistroDecisoesRco:
                 f"rco_decisao_regra indisponivel: {type(exc).__name__}"
             ) from None
 
-    async def contar_conferencias_confirmadas(self, id_regra: str, versao_regra: str) -> int:
-        """A contagem da janela da `conferida` (DL-0182) de uma regra deste tenant, como `registrar` a le."""
+    async def contar_conferencias_confirmadas(self, id_regra: str, versao_regra: str, decisao: str) -> int:
+        """A contagem da janela da `conferida` (DL-0182) da `decisao` adversa de uma regra deste tenant,
+        como `registrar` a le."""
 
         async def corpo(conn: Any) -> int:
-            return int(await conn.fetchval(_CONFIRMADAS_SQL, self._tenant, id_regra, versao_regra))
+            return int(await conn.fetchval(_CONFIRMADAS_SQL, self._tenant, id_regra, versao_regra, decisao))
 
         return int(await self._em_transacao(corpo))
 

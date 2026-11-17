@@ -66,10 +66,25 @@ def _sims(n: int, *, desde_id: int = 1, desde_decisao: int = 1) -> list[tuple[in
     return [(desde_id + i, desde_decisao + i, "sim") for i in range(n)]
 
 
+def _contar(desfechos: list[tuple[int, int, str]], decisao: str = "glosar") -> int:
+    """Os desfechos sao todos de conferencias de `glosar` (salvo o teste de escopo)."""
+    return at.conferencias_confirmadas([(i, d, c, "glosar") for i, d, c in desfechos], decisao)
+
+
+def test_janela_e_por_decisao_adversa_30_negar_confirmadas_nao_abrem_glosar() -> None:
+    negar = [(i, i, "sim", "negar") for i in range(1, 31)]
+    assert at.conferencias_confirmadas(negar, "negar") == 30
+    assert at.conferencias_confirmadas(negar, "glosar") == 0
+    assert at.janela_de_conferencia_aberta(at.conferencias_confirmadas(negar, "glosar"), JANELA)
+    # um `nao` em conferencia de `negar` zera tambem a janela da `glosar` (lado seguro)
+    misto = [(i, 100 + i, "sim", "glosar") for i in range(1, 11)] + [(50, 1, "nao", "negar")]
+    assert at.conferencias_confirmadas(misto, "glosar") == 0
+
+
 def test_janela_precisa_de_30_confirmacoes() -> None:
-    assert at.conferencias_confirmadas(_sims(29)) == 29
+    assert _contar(_sims(29)) == 29
     assert at.janela_de_conferencia_aberta(29, JANELA) is True
-    assert at.conferencias_confirmadas(_sims(30)) == 30
+    assert _contar(_sims(30)) == 30
     assert at.janela_de_conferencia_aberta(30, JANELA) is False
 
 
@@ -79,34 +94,34 @@ def test_sem_desfecho_nem_conta_nem_zera() -> None:
         + [(100 + i, 100 + i, "sem_desfecho") for i in range(50)]
         + _sims(5, desde_id=200, desde_decisao=300)
     )
-    assert at.conferencias_confirmadas(desfechos) == 15
+    assert _contar(desfechos) == 15
 
 
 def test_mesma_decisao_confirmada_duas_vezes_conta_uma() -> None:
-    assert at.conferencias_confirmadas([(1, 7, "sim"), (2, 7, "sim"), (3, 8, "sim")]) == 2
+    assert _contar([(1, 7, "sim"), (2, 7, "sim"), (3, 8, "sim")]) == 2
 
 
 def test_rejeicao_zera_e_depois_precisa_de_30_novas() -> None:
     antes = _sims(29)
     nao = [(50, 99, "nao")]
-    assert at.conferencias_confirmadas(antes + nao) == 0
+    assert _contar(antes + nao) == 0
     depois = _sims(29, desde_id=51, desde_decisao=200)
-    assert at.conferencias_confirmadas(antes + nao + depois) == 29
+    assert _contar(antes + nao + depois) == 29
     assert at.janela_de_conferencia_aberta(29, JANELA)
-    assert at.conferencias_confirmadas(antes + nao + depois + [(90, 300, "sim")]) == 30
+    assert _contar(antes + nao + depois + [(90, 300, "sim")]) == 30
 
 
 def test_correcao_de_sim_para_nao_na_mesma_decisao_zera() -> None:
-    assert at.conferencias_confirmadas(_sims(30) + [(31, 30, "nao")]) == 0
+    assert _contar(_sims(30) + [(31, 30, "nao")]) == 0
     # e a correcao de volta (nao -> sim) conta so a partir do `nao`
-    assert at.conferencias_confirmadas(_sims(30) + [(31, 30, "nao"), (32, 30, "sim")]) == 1
+    assert _contar(_sims(30) + [(31, 30, "nao"), (32, 30, "sim")]) == 1
 
 
 def test_contagem_nao_depende_da_ordem_de_chegada() -> None:
     desfechos = _sims(20) + [(25, 99, "nao")] + _sims(7, desde_id=26, desde_decisao=500)
     embaralhados = list(desfechos)
     random.Random(7).shuffle(embaralhados)
-    assert at.conferencias_confirmadas(embaralhados) == at.conferencias_confirmadas(desfechos) == 7
+    assert _contar(embaralhados) == _contar(desfechos) == 7
 
 
 @pytest.mark.parametrize("valor", [None, True, False, "30", 30.0, -1])
@@ -255,13 +270,14 @@ async def test_registrar_le_as_confirmadas_sob_o_lock_e_decide_por_elas(confirma
     assert linha[reg.COLUNAS.index("acao")] == acao
     assert linha[reg.COLUNAS.index("ordinal")] == 77  # o ordinal nao decide a janela
     sql_conf = next(a for sql, a in conn.args if sql == reg._CONFIRMADAS_SQL)
-    assert sql_conf == ("amh", "REGRA-1", "1.2.3")
+    assert sql_conf == ("amh", "REGRA-1", "1.2.3", "glosar")  # a janela e a da mesma decisao adversa
 
 
 async def test_registrar_negar_conferida_confere_mesmo_com_mil_confirmadas() -> None:
     conn = _Conn(confirmadas=1000)
     await _store(conn).registrar(_avaliar("negar"), _ctx())
     assert _insert(conn)[reg.COLUNAS.index("acao")] == "conferencia"
+    assert next(a for sql, a in conn.args if sql == reg._CONFIRMADAS_SQL)[3] == "negar"
 
 
 @pytest.mark.parametrize(
@@ -287,7 +303,8 @@ def test_o_sql_da_contagem_filtra_regra_conferencia_e_modo_ativo() -> None:
         "r.versao_regra = $3",
         "r.acao = 'conferencia'",
         "r.modo = 'ativa'",
-        "count(DISTINCT decisao)",
+        "count(DISTINCT id_decisao)",
+        "decisao = $4",
         "concordou = 'sim'",
         "concordou = 'nao'",
     ):

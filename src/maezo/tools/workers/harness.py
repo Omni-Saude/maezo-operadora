@@ -500,7 +500,7 @@ class RegistroRcoObrigatorioError(RuntimeError):
     """DL-0182: a linha do registro K1 de uma decisao com efeito possivel (`modo` diferente de `sombra`)
     nao foi gravada. A tarefa NAO completa: `RuntimeError` cai no ramo transitorio de `_handle` (re-entrega
     pelo motor), como `AuditEmitError`. A mensagem e so um codigo (`registro_nao_configurado`,
-    `timeout_total`, `linha_nao_gravada`), nunca dado do caso nem do driver."""
+    `timeout_total`, `cancelado`, `linha_nao_gravada`), nunca dado do caso nem do driver."""
 
 
 class AuditEmitError(RuntimeError):
@@ -1737,7 +1737,8 @@ class WorkerHarness:
     async def _registrar_decisoes_rco(
         self, task: ExternalTask, avaliacoes: Mapping[str, AvaliacaoRegra]
     ) -> None:
-        """Grava o registro de decisoes das regras K1 desta tarefa (ADR-0077 §4, 5c-2). FAIL-OPEN.
+        """Grava o registro de decisoes das regras K1 desta tarefa (ADR-0077 §4, 5c-2). FAIL-OPEN em
+        `sombra`; FAIL-CLOSED quando alguma avaliacao pode ter efeito (DL-0182, abaixo).
 
         Por que aqui: so o harness conhece a tarefa (`task_id`, `business_key`) e o tenant; roda DEPOIS de
         `_emit_audit`, entao o registro nunca existe sem a linha de auditoria, e a re-entrega depois da
@@ -1793,6 +1794,15 @@ class WorkerHarness:
             )
             if obrigatorio:
                 raise RegistroRcoObrigatorioError("timeout_total")
+            return
+        if trabalho.cancelled():
+            # Cancelamento vindo de dentro do store (CancelledError nao e `Exception`): nenhuma garantia de
+            # que as linhas foram gravadas. Mesmo caminho da falha; `.result()` levantaria CancelledError.
+            logger.error(
+                evento, task_id=task.task_id, topic=task.topic, erro="cancelado", decisoes=len(avaliacoes)
+            )
+            if obrigatorio:
+                raise RegistroRcoObrigatorioError("cancelado")
             return
         if obrigatorio and trabalho.result() > 0:
             raise RegistroRcoObrigatorioError("linha_nao_gravada")

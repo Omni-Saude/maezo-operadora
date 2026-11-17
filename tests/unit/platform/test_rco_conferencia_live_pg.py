@@ -7,6 +7,7 @@ Provas:
 - so conferencias CONFIRMADAS contam: 29 `sim` mantem a conferencia, o 30o fecha a janela da `glosar`;
   decisoes em sombra e de outra regra/ativacao nunca contam; `sem_desfecho` e ignorado;
 - `negar` da mesma regra continua em conferencia depois das 30;
+- a janela e por decisao adversa: 30 `negar` confirmadas nao abrem a primeira `glosar`;
 - um `nao` zera a janela (e alerta); depois sao precisas 30 novas confirmacoes;
 - versao nova comeca do zero;
 - o escritor so insere (append-only), recusa decisao que nao foi conferencia e e idempotente, inclusive
@@ -30,7 +31,6 @@ from maezo.platform.rco_registro import (
     ContextoDecisao,
     DesfechoRecusadoError,
     PostgresRegistroDecisoesRco,
-    RegistroRcoIndisponivelError,
     avaliar_regra,
     chave_idempotencia,
 )
@@ -132,7 +132,7 @@ async def test_janela_conta_so_confirmadas_e_zera_na_rejeicao_ao_vivo() -> None:
         sombra_ids = [(await caso.decidir(_avaliacao("glosar", habilitado=False)))[0] for _ in range(40)]
         with pytest.raises(DesfechoRecusadoError, match="acao_nao_e_conferencia"):
             await caso.store.registrar_desfecho(sombra_ids[0], "confirmar", desfecho_em=AGORA)
-        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0") == 0
+        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0", "glosar") == 0
 
         # 29 confirmadas + 10 conferencias `sem_desfecho`: a janela continua aberta.
         await caso.confirmar_n(29, glosa)
@@ -140,7 +140,7 @@ async def test_janela_conta_so_confirmadas_e_zera_na_rejeicao_ao_vivo() -> None:
             id_decisao, acao = await caso.decidir(glosa)
             assert acao == "conferencia"
             assert (await caso.store.registrar_desfecho(id_decisao, "sem_desfecho", desfecho_em=None)).gravado
-        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0") == 29
+        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0", "glosar") == 29
         _, acao = await caso.decidir(glosa)
         assert acao == "conferencia"
 
@@ -148,11 +148,11 @@ async def test_janela_conta_so_confirmadas_e_zera_na_rejeicao_ao_vivo() -> None:
         outra = _avaliacao("glosar", id_regra="REGRA-D")
         id_outra, _ = await caso.decidir(outra)
         await caso.store.registrar_desfecho(id_outra, "confirmar", desfecho_em=AGORA)
-        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0") == 29
+        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0", "glosar") == 29
 
         # A 30a confirmacao fecha a janela da `glosar`; `negar` da mesma regra continua em conferencia.
         await caso.confirmar_n(1, glosa)
-        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0") == 30
+        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0", "glosar") == 30
         id_efeito, acao = await caso.decidir(glosa)
         assert acao == "efeito_com_amostragem"
         with pytest.raises(DesfechoRecusadoError, match="acao_nao_e_conferencia"):
@@ -166,7 +166,7 @@ async def test_janela_conta_so_confirmadas_e_zera_na_rejeicao_ao_vivo() -> None:
         assert r.gravado and r.janela_reiniciada
         alertas = [e for e in logs if e["event"] == EVENTO_CONFERENCIA_REJEITADA]
         assert len(alertas) == 1 and alertas[0]["id_regra"] == "REGRA-C"
-        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0") == 0
+        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0", "glosar") == 0
         await caso.confirmar_n(29, glosa)
         _, acao = await caso.decidir(glosa)
         assert acao == "conferencia"
@@ -174,10 +174,17 @@ async def test_janela_conta_so_confirmadas_e_zera_na_rejeicao_ao_vivo() -> None:
         _, acao = await caso.decidir(glosa)
         assert acao == "efeito_com_amostragem"
 
+        # Escopo por decisao adversa: 30 `negar` confirmadas de REGRA-N nao abrem a primeira `glosar`.
+        await caso.confirmar_n(JANELA, _avaliacao("negar", id_regra="REGRA-N"))
+        assert await caso.store.contar_conferencias_confirmadas("REGRA-N", "1.0.0", "negar") == JANELA
+        assert await caso.store.contar_conferencias_confirmadas("REGRA-N", "1.0.0", "glosar") == 0
+        _, acao = await caso.decidir(_avaliacao("glosar", id_regra="REGRA-N"))
+        assert acao == "conferencia"
+
         # Versao nova comeca do zero.
         _, acao = await caso.decidir(_avaliacao("glosar", versao="1.1.0"))
         assert acao == "conferencia"
-        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.1.0") == 0
+        assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.1.0", "glosar") == 0
 
         # Plena nunca entra na contagem nem aceita desfecho de conferencia.
         id_plena, acao = await caso.decidir(_avaliacao("glosar", ativacao="plena", id_regra="REGRA-P"))
@@ -222,9 +229,39 @@ async def test_escritor_de_desfecho_append_only_e_idempotente_ao_vivo() -> None:
         # recusas sem escrever nada
         with pytest.raises(DesfechoRecusadoError, match="decisao_inexistente"):
             await caso.store.registrar_desfecho(10**9, "confirmar", desfecho_em=AGORA)
-        outro = PostgresRegistroDecisoesRco(dsn=dsn, tenant="outro_tenant")
-        with pytest.raises((RegistroRcoIndisponivelError, DesfechoRecusadoError)):  # outro schema: nunca a ve
-            await outro.registrar_desfecho(id_decisao, "confirmar", desfecho_em=AGORA)
+        # O filtro `tenant = $2` sozinho: uma linha de conferencia de OUTRO tenant no MESMO schema e
+        # invisivel para este store (decisao_inexistente), embora o id exista e a acao seja conferencia.
+        raw = await asyncpg.connect(dsn)
+        try:
+            await raw.execute(f'SET search_path TO "{tenant}", public')
+            id_alheio = await raw.fetchval(
+                "INSERT INTO rco_decisao_regra (tenant, chave_idempotencia, id_regra, versao_regra, "
+                "sha_dmn, decision_key, decisao, classe_adverso, estado_manual, ativacao_pacote, "
+                "ativacao_efetiva, modo, acao, amostrada) "
+                "VALUES ('outro-tenant', $1, 'REGRA-C', '1.0.0', $2, 'rco_x', 'glosar', "
+                "'administrativo', 'ativa_l2', 'conferida', 'conferida', 'ativa', 'conferencia', false) "
+                "RETURNING id",
+                "e" * 64,
+                "sha256:" + "a" * 64,
+            )
+        finally:
+            await raw.close()
+        with pytest.raises(DesfechoRecusadoError, match="decisao_inexistente"):
+            await caso.store.registrar_desfecho(int(id_alheio), "confirmar", desfecho_em=AGORA)
+
+        # Segundo tenant REAL (schema proprio, migrado, com decisao propria): nao ve a do primeiro.
+        tenant_b = await _schema_novo(dsn)
+        try:
+            caso_b = _Caso(dsn, tenant_b)
+            id_b, acao_b = await caso_b.decidir(_avaliacao("glosar"))
+            assert acao_b == "conferencia"
+            assert (await caso_b.store.registrar_desfecho(id_b, "confirmar", desfecho_em=AGORA)).gravado
+            with pytest.raises(DesfechoRecusadoError, match="decisao_inexistente"):
+                await caso_b.store.registrar_desfecho(10**6, "confirmar", desfecho_em=AGORA)
+            assert await caso.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0", "glosar") == 0
+            assert await caso_b.store.contar_conferencias_confirmadas("REGRA-C", "1.0.0", "glosar") == 1
+        finally:
+            await _drop(dsn, tenant_b)
         assert len(await _linhas(dsn, tenant, "SELECT id FROM rco_decisao_regra_desfecho")) == 2
 
         # o banco continua recusando UPDATE/DELETE direto (0035): o escritor nunca precisaria deles

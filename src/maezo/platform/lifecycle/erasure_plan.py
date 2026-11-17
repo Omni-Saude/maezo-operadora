@@ -1010,7 +1010,8 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
             "linkable to a case only indirectly, via `task_id` (hashed inside `chave_idempotencia`) to the "
             "audit table; elimination/anonymization follows the audit regime: once the audit row of that "
             "task_id is eliminated this row has no link left. The table is DARK (every rule in sombra, "
-            "effect indicator off) and the single writer is fail-open"
+            "effect indicator off). Two writers: the worker harness (fail-open in sombra, fail-closed when a "
+            "decision may have effect, DL-0182) and the conference outcome writer of the child table"
         ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ordem=47,
@@ -1025,7 +1026,8 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         identificacao=(
             "rco_decisao_regra_id (FK to the decision row) + concordou (closed enum sim/nao/sem_desfecho) "
             "+ desfecho_em/registrado_em; no business key, no text, no person: the human outcome is linked "
-            "later (5d/5e) as a NEW row and carries no titular column"
+            "later as a NEW row (insert-only writer `registrar_desfecho`, DL-0182) and carries no "
+            "titular column"
         ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ordem=48,

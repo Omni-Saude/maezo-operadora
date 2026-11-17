@@ -409,18 +409,22 @@ CONCORDOU_NAO: Final[str] = "nao"
 SEM_DESFECHO: Final[str] = "sem_desfecho"
 
 
-def conferencias_confirmadas(desfechos: Iterable[tuple[int, int, str]]) -> int:
-    """Quantas conferencias da regra contam para a janela: a definicao que o SQL do registro espelha.
+def conferencias_confirmadas(desfechos: Iterable[tuple[int, int, str, str | None]], decisao: str) -> int:
+    """Quantas conferencias contam para a janela da `decisao` adversa: a definicao que o SQL espelha.
 
-    `desfechos`: `(id_do_desfecho, id_da_decisao, concordou)` dos desfechos de decisoes com
-    `acao = conferencia` de UM (tenant, idRegra, versaoRegra), em qualquer ordem. Conta as DECISOES
-    distintas com desfecho `sim` de id MAIOR que o do `nao` mais recente (um `nao` zera a janela);
-    `sem_desfecho` nem conta nem zera. Decisao em sombra ou que nao foi conferencia nunca entra aqui:
-    quem chama so passa desfechos de `acao = conferencia`.
+    `desfechos`: `(id_do_desfecho, id_da_decisao, concordou, decisao_da_linha)` dos desfechos de decisoes
+    com `acao = conferencia` de UM (tenant, idRegra, versaoRegra), em qualquer ordem (inclusive as
+    conferencias dadas sob `conferencia_integral`: confirmacao humana da mesma versao da regra).
+
+    Escopo (DL-0182): conta so as decisoes DISTINTAS da MESMA `decisao` (a janela da `glosar` conta so
+    `glosar` confirmadas: 30 `negar` confirmadas nunca abrem `glosar` automatica) com desfecho `sim` de id
+    MAIOR que o do `nao` mais recente da regra/versao, de QUALQUER decisao (uma rejeicao zera a janela de
+    todas: o lado seguro). `sem_desfecho` nem conta nem zera. Decisao em sombra ou que nao foi
+    conferencia nunca entra aqui: quem chama so passa desfechos de `acao = conferencia`.
     """
     lista = list(desfechos)
-    ultimo_nao = max((i for i, _, c in lista if c == CONCORDOU_NAO), default=0)
-    return len({d for i, d, c in lista if c == CONCORDOU_SIM and i > ultimo_nao})
+    ultimo_nao = max((i for i, _, c, _ in lista if c == CONCORDOU_NAO), default=0)
+    return len({d for i, d, c, dec in lista if c == CONCORDOU_SIM and dec == decisao and i > ultimo_nao})
 
 
 def janela_de_conferencia_aberta(confirmadas: int | None, janela: int) -> bool:

@@ -461,3 +461,32 @@ async def test_linha_perdida_nao_tira_decisao_com_efeito_da_contagem_de_ordinais
     ordinais = sorted(registro.linhas[registro.por_tarefa[t]] for t in completadas)
     assert ordinais == [1, 2, 3]  # sem buraco nem ordinal herdado de linha perdida
     assert len(transport.failures) == 1  # A falhou uma vez e foi re-entregue
+
+
+@pytest.mark.usefixtures("efeito_ativo")
+async def test_com_efeito_possivel_registro_cancelado_por_dentro_nao_completa() -> None:
+    """Store que levanta CancelledError (nao e `Exception`): a tarefa interna termina CANCELADA. O harness
+    trata como falha (re-entrega), sem deixar o CancelledError escapar de `_handle`."""
+    sink = FakeAuditSink()
+    harness, transport, _ = _montar(
+        ROW_NEGAR, registro=_Registro(sink, falha=asyncio.CancelledError()), sink=sink
+    )
+    with structlog.testing.capture_logs() as logs:
+        await harness._handle(_task())
+    assert transport.completed == [] and len(transport.failures) == 1
+    assert any(
+        e["event"] == "rco_decisao_registro_falhou_fail_closed" and e.get("erro") == "cancelado" for e in logs
+    )
+
+
+async def test_em_sombra_registro_cancelado_por_dentro_completa() -> None:
+    sink = FakeAuditSink()
+    harness, transport, _ = _montar(
+        ROW_NEGAR, registro=_Registro(sink, falha=asyncio.CancelledError()), sink=sink
+    )
+    with structlog.testing.capture_logs() as logs:
+        await harness._handle(_task())
+    assert len(transport.completed) == 1 and transport.failures == []
+    assert any(
+        e["event"] == "rco_decisao_registro_falhou_fail_open" and e.get("erro") == "cancelado" for e in logs
+    )
