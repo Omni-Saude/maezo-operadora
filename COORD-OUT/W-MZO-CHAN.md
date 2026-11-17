@@ -69,3 +69,5 @@ pronto: maezo-operadora #1276, head 099d399da433f16931188ce6fdb81f38e3b5756e, ch
 - 2026-11-17 ~01:30Z: PR #1279 (E-SF-17) aberto por pedido do dono (head b14ba0d77e8c9c50b57156a8efae111e6ba97efe, com merge de main 9f71d41), revisão independente PASS; 8 linhas fora da posse listadas no corpo (CD-31/CD-38). #1276 segue aguardando CI na base nova.
 
 pronto: maezo-operadora #1276, head d0f463793c4e5137e7ea9c60b52b51eac648d44c, checks verdes (base 9f71d41; integração lida do junit: cancel-contas 136/0, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0).
+
+- 2026-11-17 01:57Z: #1276 (E-SF-18) mesclado (main 87bd9e48). Resta #1279 (E-SF-17): CI em curso; job Java com falha de censo de descritores (não tocado pelo diff) a rerodar uma vez; flip-path-review-gate aguarda security-team.
