@@ -19,8 +19,12 @@ What this module is:
 - `require_disclosure_before_decision` is the server-side precondition of the buyer decision
   (the C6-4 `acceptance.record` `decision: accept`; maezo has no buyer UI button — the hosted
   terms surface belongs to the issuer). Missing or invalid content for any of I–IX or §1º
-  refuses with `disclosure_incompleto_rn413_art4`. A decline is never blocked. The gate is not
-  wired into `CommercialGateway` because the pinned wire carries no inciso content (GAP).
+  refuses with `disclosure_incompleto_rn413_art4`. A decline is never blocked. It is wired
+  into the bound Sales admission (`maezo.gateway.commercial_admission`), which reads the
+  `DISCLOSURE_TERMS_FIELDS` slots of the decision payload. The pinned C6-4
+  `AcceptanceRecordPayload` is closed and carries none of them (GAP), so on that wire every
+  `accept` refuses before any source step, even with the A3 record admitted; it opens only
+  when a successor contract carries the inciso content.
 
 Inciso VII ("formação do preço") holds ONLY the public price fact as integer cents. A mapping,
 a string, a breakdown or any intermediary-remuneration/component content is not representable
@@ -30,23 +34,28 @@ module never names the remuneration vocabulary the A8 lock pins to its own loade
 (`tests/unit/test_commercial_admission_a8.py`), so the D-36 anti-comparison fence is not
 imported here: a text-level comparator check belongs to E-SF-36r (EP-REG-07a).
 
-Normative text is quoted verbatim from NORMATIVE-BASELINE-v2 §2.3 (RN 413/2016, DOU 14/11/2016
-S1 p. 109; art. 4º §2º and art. 18 from the official SEI 31143600 copy, caveat GAP-2). Incisos
-V and VI are elided ("[...]") in that baseline: their verbatim is a GAP (`None` below), never
-written from memory; their terms slots still count for presence.
+Normative text is quoted verbatim from `docs/compliance/legal/textos-base/RN-413-2016.md`
+(RN 413/2016, DOU 14/11/2016 S1 p. 109; art. 4º caput and §1º). Art. 4º §2º and art. 18 come
+only from the official SEI 31143600 copy, not conferred with the DOU and outside that excerpt
+(caveat GAP-2). Incisos V and VI are elided ("[...]") in that excerpt: their verbatim is a GAP
+(`None` below), never written from memory; their terms slots still count for presence.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, Literal, final
 
 from maezo.gateway.required_text import is_blank
+from maezo.ports.commercial import CommercialCommand, CommercialRefusalError
 
 __all__ = [
+    "DISCLOSURE_GATED_COMMANDS",
     "DISCLOSURE_STATUS_PENDING",
+    "DISCLOSURE_TERMS_FIELDS",
     "GUIA_ART18_SLOT",
     "GUIA_ART18_SOURCE",
     "PUBLIC_PRICE_FIELD",
@@ -57,15 +66,17 @@ __all__ = [
     "DisclosureStatus",
     "claim_status",
     "require_disclosure_before_decision",
+    "require_precontract_disclosure",
 ]
 
 #: The only checklist status while GAP-10 is open (REG-34 acceptance).
 DISCLOSURE_STATUS_PENDING: Final = "incompleto_fonte_pendente"
 DisclosureStatus = Literal["incompleto_fonte_pendente"]
 
-_SOURCE_DOU: Final = "RN 413/2016, DOU 14/11/2016 S1 p. 109 (NORMATIVE-BASELINE-v2 §2.3)"
-_SOURCE_SEI: Final = "RN 413/2016, cópia oficial SEI 31143600 (NORMATIVE-BASELINE-v2 §2.3; caveat GAP-2)"
-_GAP_ELIDED: Final = "GAP: verbatim elidido '[...]' em NORMATIVE-BASELINE-v2 §2.3"
+_TEXTO_BASE: Final = "docs/compliance/legal/textos-base/RN-413-2016.md"
+_SOURCE_DOU: Final = f"RN 413/2016, DOU 14/11/2016 S1 p. 109 ({_TEXTO_BASE})"
+_SOURCE_SEI: Final = "RN 413/2016, cópia oficial SEI 31143600 (não conferida no DOU; caveat GAP-2)"
+_GAP_ELIDED: Final = f"GAP: verbatim elidido '[...]' em {_TEXTO_BASE}"
 
 
 @final
@@ -154,6 +165,10 @@ PUBLIC_PRICE_FIELD: Final = "terms.rn413_art4_vii"
 
 _ART4_FIELDS: Final = frozenset(item.terms_field for item in RN413_ART4_CHECKLIST)
 
+#: Every slot the gate reads from a decision payload: I–IX/§1º plus the pending Guia slot (so a
+#: filled Guia slot reaches the gate and refuses `fonte_normativa_pendente_rn413_art18`).
+DISCLOSURE_TERMS_FIELDS: Final = _ART4_FIELDS | {GUIA_ART18_SLOT.terms_field}
+
 
 def _refuse(reason: DisclosureRefusal) -> DisclosureChecklistError:
     return DisclosureChecklistError(reason)
@@ -204,3 +219,50 @@ def require_disclosure_before_decision(
         elif is_blank(value):
             raise _refuse(DisclosureRefusal.DISCLOSURE_INCOMPLETO)
     return DISCLOSURE_STATUS_PENDING
+
+
+# --- the wiring (E-SF-36) ------------------------------------------------------------------
+#
+# An `acceptance.record` that is not an explicit `decline` must carry, in its own payload, the
+# I–IX/§1º content of the checklist before it can reach the source; a decline is never
+# blocked. The pinned C6-4 `AcceptanceRecordPayload` is closed (`additionalProperties:
+# false`) and has none of these slots, so on that wire every `accept` refuses — with or
+# without the A3 record. The internal checklist token stays the `__cause__`; the wire answer
+# is the C6-4 `denied/terms_review_required` (the terms review that the decision needs is not
+# complete). Nothing here states the disclosure as complete: the checklist status stays
+# `incompleto_fonte_pendente` while the art. 18 Guia is pending. Called by the bound Sales
+# admission (`commercial_admission`); `CommercialGateway` keeps the payload opaque, so the
+# gate is a property of the bound composition (`compose_commercial_gateway`, the only one in
+# `src/`).
+
+DISCLOSURE_GATED_COMMANDS: Final = frozenset({"acceptance.record"})
+
+#: Every `terms.*` key of a decision payload reaches the checklist, so content outside the
+#: closed slots (e.g. a price-formation breakdown) refuses instead of being dropped.
+_TERMS_PREFIX: Final = "terms."
+
+
+def require_precontract_disclosure(command: CommercialCommand) -> None:
+    """Refuse an `acceptance.record` that is not a decline and lacks the art. 4º disclosure.
+
+    The decline exemption needs the payload AND the parsed selection to say `decline`; any
+    divergence, a missing selection or an unreadable payload is treated as an accept.
+    """
+    if command.command not in DISCLOSURE_GATED_COMMANDS:
+        return
+    try:
+        envelope = json.loads(command.wire_bytes)
+        payload = envelope["payload"]
+        if not isinstance(payload, dict):
+            raise TypeError("payload")
+        selection = command.terms_selection
+        if payload.get("decision") == "decline" and selection is not None and selection.decision == "decline":
+            return
+        presented = {
+            key: value
+            for key, value in payload.items()
+            if key in DISCLOSURE_TERMS_FIELDS or (isinstance(key, str) and key.startswith(_TERMS_PREFIX))
+        }
+        require_disclosure_before_decision(presented, decision="accept")
+    except (DisclosureChecklistError, ValueError, KeyError, TypeError) as exc:
+        raise CommercialRefusalError("denied", "terms_review_required") from exc

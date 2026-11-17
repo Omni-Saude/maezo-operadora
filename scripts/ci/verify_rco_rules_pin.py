@@ -35,7 +35,8 @@ Estados do pin (`estado`)
   `src/maezo/platform/rco_manifesto.py` — o mesmo leitor do runtime, carregado aqui PELO CAMINHO do
   arquivo (sem `import maezo`, entao o gate segue so biblioteca padrao): o leitor ainda LE o formato
   MAJOR 1 ou 2 (2.0.0: `ativacao`/`exige_aditivo` por regra e bloco `ativacao` de `vocabulario.json`;
-  regra fora de `plena` sem aditivo e recusada ate a Onda 2 item 5), mas o PIN exige 2.1.0 ou maior
+  toda `ativacao` do conjunto fechado, com ou sem aditivo, e aceita em sombra desde o 5e-0, DL-0181;
+  fora dele, recusada), mas o PIN exige 2.1.0 ou maior
   com `provas[]` nao vazia (codigo `pin-sem-provas`; decisao da ROOT, 16/11/2026: as provas rodam no
   CIB Seven no shard de integracao do PR que muda o pin, `tests/integration/dmn/
   test_rco_provas_engine.py`, via `rco_provas.executar_provas_do_pin`), sem `origem.sujo`, campos
@@ -419,7 +420,8 @@ def _check_package(
             )
     problemas = k1.verificar_pacote(manifesto, k1_dir=repo_root / K1_DIR, rules_dir=repo_root / RULES_DIR)
     violations.extend(Violation("pacote-k1", problema) for problema in problemas)
-    # Mesma recusa do runtime: ativacao sem significado ligado (Onda 2 item 5).
+    # Mesma recusa do runtime: `ativacao` fora do conjunto fechado ou `exige_aditivo` nao booleano (5e-0,
+    # DL-0181: as tres ativacoes do contrato, com ou sem aditivo, passam e ficam em sombra).
     violations.extend(Violation("ativacao-nao-suportada", p) for p in k1.ativacao_nao_suportada(manifesto))
     # Mesma recusa do runtime: pin so com provas do motor (formato >= 2.1.0, `provas[]` nao vazia).
     violations.extend(Violation("pin-sem-provas", p) for p in k1.provas_ausentes_no_pin(manifesto))

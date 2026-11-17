@@ -475,3 +475,77 @@ async def test_enforcing_persiste_a_observação_do_bloqueio_e_os_checks_seguem_
             await admin.execute(f'DROP SCHEMA "{tenant}" CASCADE')
         finally:
             await admin.close()
+
+
+async def test_corrida_de_revalidacao_um_vence_o_outro_e_revision_taken() -> None:
+    """Corrida REAL de revalidação na 0030: dois escritores leem a MESMA cabeça N e gravam
+    N+1 com conteúdo/autor diferentes, em conexões concorrentes. Exatamente um vence; o
+    outro recebe `revision_taken` — nunca sucesso com a linha do vencedor — e a linha
+    persistida é exatamente o pedido do vencedor. Repetido por várias rodadas para cobrir os
+    interleavings (inclusive a UNIQUE da oportunidade disparando antes do árbitro do
+    `ON CONFLICT`). Reenvio idêntico concorrente (só carimbos diferentes) é idempotente."""
+    dsn = _default_test_dsn()
+    tenant = "pf" + uuid.uuid4().hex[:20]
+    admin = await asyncpg.connect(dsn)
+    try:
+        await admin.execute(f'CREATE SCHEMA "{tenant}"')
+    finally:
+        await admin.close()
+    try:
+        await _migrate(dsn, tenant, "upgrade", "head")
+        url = _default_test_dsn().replace("postgresql://", "postgresql+asyncpg://")
+        engine = create_async_engine(
+            url,
+            echo=False,
+            hide_parameters=True,
+            pool_size=4,
+            connect_args={"server_settings": {"search_path": tenant}},
+        )
+        store = PostgresLegitimacyScreenStore(engine)
+        try:
+            ref = "screen-" + "r" * 16
+            head = await store.save(_recibo(tenant, ref, 1, "opportunity-race"))
+            for _ in range(12):
+                n = head.screen_revision + 1
+                a = _recibo(tenant, ref, n, "opportunity-race", status="pending").model_copy(
+                    update={"created_by": "staff-a"}
+                )
+                b = _recibo(tenant, ref, n, "opportunity-race", status="invalid").model_copy(
+                    update={"created_by": "staff-b"}
+                )
+                results = await asyncio.gather(store.save(a), store.save(b), return_exceptions=True)
+                wins = [
+                    (req, res)
+                    for req, res in zip((a, b), results, strict=True)
+                    if not isinstance(res, BaseException)
+                ]
+                losses = [res for res in results if isinstance(res, BaseException)]
+                assert len(wins) == 1 and len(losses) == 1, results
+                assert isinstance(losses[0], LegitimacyScreenStoreError)
+                assert losses[0].code == "revision_taken"
+                winner_request, winner_result = wins[0]
+                assert winner_result == winner_request  # o vencedor recebe o PRÓPRIO registro
+                stored = await store.read(tenant, ref, n)
+                assert stored == winner_request  # a linha é exatamente o pedido do vencedor
+                head = stored
+
+            # Reenvio idêntico concorrente (só os carimbos diferem): os dois recebem a MESMA linha.
+            n = head.screen_revision + 1
+            first = _recibo(tenant, ref, n, "opportunity-race")
+            later = first.model_copy(
+                update={
+                    "created_at": first.created_at.replace(minute=5),
+                    "updated_at": first.updated_at.replace(minute=5),
+                }
+            )
+            same = await asyncio.gather(store.save(first), store.save(later))
+            assert same[0] == same[1]
+            assert await store.read(tenant, ref, n) == same[0]
+        finally:
+            await engine.dispose()
+    finally:
+        admin = await asyncpg.connect(dsn)
+        try:
+            await admin.execute(f'DROP SCHEMA "{tenant}" CASCADE')
+        finally:
+            await admin.close()

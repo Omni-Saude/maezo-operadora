@@ -386,6 +386,11 @@ def filtrar_saida(
         return AcaoDeSaida("conferencia", fila)
     if ativacao == "conferida" and conferencia_inicial:
         return AcaoDeSaida("conferencia", fila)
+    if ativacao == "conferida" and decisao == "negar":
+        # DL-0181: enquanto o dono nao resolver D2 x authorization_denial (item congelado), `negar` de
+        # regra `conferida` NUNCA vira automatico, em nenhum ordinal: depois dos primeiros continua em
+        # conferencia humana.
+        return AcaoDeSaida("conferencia", fila)
     if decisao in _COM_AMOSTRAGEM:
         return AcaoDeSaida("efeito_com_amostragem", fila, amostrada=amostrada)
     return AcaoDeSaida("efeito")  # pragma: no cover - toda adversa e negar/glosar/recomendar_negativa

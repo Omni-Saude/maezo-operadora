@@ -555,7 +555,8 @@ async def test_admitted_a5_discloses_the_source_owned_case_projection(schema_byt
 @pytest.mark.asyncio
 async def test_a1_a2_a3_a4_surfaces_are_unchanged_while_the_support_gate_is_installed(schema_bytes):
     # Independence, one direction: A1–A4 admitted and the A5 gates shipped — the catalog
-    # serves, the session serves, the acceptance effect stays codec-held, an admitted A4
+    # serves, the session serves, the acceptance effect stays held (accept by the
+    # E-SF-36 disclosure precondition, decline by the codec), an admitted A4
     # still discloses its source-asserted coverage fact, and the support/work dimension
     # refuses. No admission re-grids another's surface.
     scope_authority = FullScopeAuthority()
@@ -584,6 +585,10 @@ async def test_a1_a2_a3_a4_surfaces_are_unchanged_while_the_support_gate_is_inst
     served = await post_command(app, wire_command())
     assert served.status_code == 200
     held = await post_command(app, acceptance_command())
+    assert held.status_code == 403
+    # An `accept` is held by the E-SF-36 disclosure precondition (no inciso content on C6-4).
+    assert held.json()["reason_code"] == "terms_review_required"
+    held = await post_command(app, acceptance_command("decline"))
     assert held.status_code == 403
     assert held.json()["reason_code"] == "terms_mismatch"
     disclosed = await post_journey(app)

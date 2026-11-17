@@ -45,9 +45,10 @@ prefixo `rco_`, anexos pelo hash, colunas de saida dentro do `saidas[]`, `idRegr
 `regras[]`, linha adversa preenchida e, no 2.2.0 (DL-0173), `composicoes[]` bem formada (exposta em
 `RcoRulesPin.composicoes`; a escolha do resultado do grupo e de `maezo.platform.rco_composicao`).
 `artifacts` tem de ser exatamente `decisoes[]` do manifesto (`caminho_consumidor` + `sha256`) e
-`provenance` a `origem` dele. Manifesto 2.0.0 (contrato estavel na branch `prog/rco/ativacao-k1` do
-rco, commit 75015304, ainda nao em `main` do rco) com regra fora de `ativacao: plena` sem aditivo e
-recusado: esse significado so entra na Onda 2 item 5 (ativacao por classe de risco). As pastas
+`provenance` a `origem` dele. Manifesto MAJOR 2 com `ativacao` em `plena`, `conferida` ou `em_correcao`,
+com ou sem `exige_aditivo`, e aceito desde a unidade 5e-0 (DL-0181), tudo em sombra: o efeito e de
+`rco_ativacao.filtrar_saida`, com `efeito_k1_habilitado` desligado; fora do conjunto fechado e
+recusado (`rco_manifesto.ativacao_nao_suportada`, defesa em profundidade sobre o leitor). As pastas
 `rco/` e `k1/` passam pela MESMA varredura do gate (`rco_manifesto.verificar_pastas`), em qualquer
 estado, e o pin e lido com o mesmo JSON estrito (sem chave repetida, sem NaN/Infinity). Qualquer
 desvio recusa o pin inteiro (so as decisoes `rco_` param; as tabelas Maezo nao dependem disto).
@@ -283,9 +284,8 @@ def _manifesto_fixado(
     nao_ligadas = rco_manifesto.ativacao_nao_suportada(manifesto)
     if nao_ligadas:
         raise RcoRulesPinError(
-            f"pin: pacote K1 com {len(nao_ligadas)} regra(s) de ativacao ainda nao ligada no consumidor "
-            "(so 'plena' sem exige_aditivo ate a Onda 2 item 5, ativacao por classe de risco): "
-            + "; ".join(nao_ligadas[:5])
+            f"pin: pacote K1 com {len(nao_ligadas)} regra(s) de ativacao fora do contrato K1 §7 "
+            "(ativacao fora do conjunto fechado ou exige_aditivo nao booleano): " + "; ".join(nao_ligadas[:5])
         )
     try:
         vocab = rco_manifesto.carregar_vocabulario(manifesto, k1_dir=k1_dir)

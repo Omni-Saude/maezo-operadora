@@ -59,10 +59,12 @@ O gate e o runtime (`rco_pin.load_rco_rules_pin`) recusam o pin inteiro quando:
   `limiar_reversao_pct`, `limiar_reversao_min_decisoes` e `conferencia_negativa_admin_decisoes`, cada um
   número finito ≥ 0. Os números ficam expostos em `RcoRulesPin.parametros_ativacao` e vêm sempre do
   pacote, nunca do código; quem os aplica (D1/D2, amostra, `em_correcao`, aditivo) é unidade posterior;
-- (2.0.0) alguma regra com `ativacao` diferente de `plena` ou com `exige_aditivo: true`: o significado
-  dessas ativações só entra na Onda 2 item 5 (ativação por classe de risco). Até lá o pacote inteiro é
-  recusado (`ERR_DMN_RCO_PIN` no runtime, violação `ativacao-nao-suportada` no gate), para que nenhum
-  efeito adverso rode sem a regra de ativação que o contrato manda aplicar;
+- (2.0.0) alguma regra com `ativacao` fora do conjunto fechado (`plena`, `conferida`, `em_correcao`) ou com
+  `exige_aditivo` que não é booleano (`ERR_DMN_RCO_PIN` no runtime, violação `ativacao-nao-suportada` no
+  gate; o leitor já recusa os dois). Desde a unidade 5e-0 (DL-0181) as três ativações do contrato, com ou
+  sem `exige_aditivo`, passam nesta checagem e ficam em sombra: com `efeito_k1_habilitado` desligado o
+  worker só registra (`rco_ativacao.filtrar_saida`). Passar nesta checagem não basta para pinar: valem
+  todas as outras recusas desta lista (provas, anexos, dicionário de entradas etc.);
 - `formato_manifesto` abaixo de 2.1.0 (1.x e 2.0 não têm `provas[]`) ou `provas[]` vazia: o pin real exige
   as provas do motor executadas com sucesso no CIB Seven (contrato §11 item 12; decisão da ROOT de
   16/11/2026). O leitor ainda lê 1.x/2.0 para diagnóstico; a recusa é no pin (`ERR_DMN_RCO_PIN` no

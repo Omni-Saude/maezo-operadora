@@ -236,17 +236,26 @@ def test_em_sombra_a_acao_e_registrar_apenas_em_qualquer_ordinal() -> None:
 
 def test_acao_sob_ativa_l2_usa_conferencia_inicial_e_amostragem() -> None:
     """O contrato do 5d: com o indicador ligado so nos testes, `conferida` confere as primeiras
-    `conferencia_negativa_admin_decisoes` (2) e depois segue com amostragem."""
+    `conferencia_negativa_admin_decisoes` (2) e depois `glosar` segue com amostragem; `negar` continua
+    em conferencia em qualquer ordinal (DL-0181)."""
     estados = at.EstadosManuais({("REGRA-1", "1.2.3"): "ativa_l2"})
-    av = _avaliar(
+    glosa = _avaliar(
+        _row(decisao="glosar", classeAdverso="administrativo"),
+        regra=_regra("conferida", False),
+        estados=estados,
+        habilitado=True,
+    )
+    assert reg.montar_linha(glosa, _ctx(), 1).acao == "conferencia"
+    assert reg.montar_linha(glosa, _ctx(), 2).acao == "conferencia"
+    assert reg.montar_linha(glosa, _ctx(), 3).acao == "efeito_com_amostragem"
+    negativa = _avaliar(
         _row(decisao="negar", classeAdverso="administrativo"),
         regra=_regra("conferida", False),
         estados=estados,
         habilitado=True,
     )
-    assert reg.montar_linha(av, _ctx(), 1).acao == "conferencia"
-    assert reg.montar_linha(av, _ctx(), 2).acao == "conferencia"
-    assert reg.montar_linha(av, _ctx(), 3).acao == "efeito_com_amostragem"
+    for ordinal in (1, 2, 3, 1000):
+        assert reg.montar_linha(negativa, _ctx(), ordinal).acao == "conferencia"
 
 
 def test_ordinais_diferentes_da_mesma_regra_dao_linhas_distintas_e_deterministicas() -> None:
