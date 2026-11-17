@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_funnel_deadline_catalog"
+             name="Catalogo de prazos normativos do funil (fonte unica, versionada)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    funnel_deadline_catalog v0.1.0 — status: DRAFT — NENHUMA entrada ratificada (regulatory_approval_ref vazio em todas).
+    CATALOGO DE PRAZOS NORMATIVOS DO FUNIL (E-SF-08 / EP-REG-23a; registro REG-23, decisao tecnica 3): fonte unica e
+    versionada dos prazos que um dia poderao ser EXIBIDOS ao interessado/beneficiario como "prazo maximo normativo"
+    (teto legal, nunca estimativa). Uma linha por dispositivo: citacao; verbatim transcrito da baseline normativa do
+    programa (fonte primaria acessada em 2026-11-15/16; RN 413 sem pin DOU, GAP-2) e o sha256 dos seus bytes UTF-8;
+    quantidade e calendario do prazo; evento-ancora; regras de suspensao (so registradas, sem efeito); estagios do
+    tracker; escopo; fonte do enquadramento; refs de aprovacao; status.
+    REGRA DE LEITURA (aplicada pelas cercas de tests/unit/dmn e tests/unit/commercial, nunca por esta tabela): entrada
+    sem regulatory_approval_ref le como DRAFT; entrada assistencial so le como RATIFIED com clinical_approval_ref; prazo
+    so e exibivel com status RATIFIED + refs + evento-ancora observado na fonte. Hoje TODAS sao DRAFT: nenhum prazo e
+    exibido (so timestamps observados — C6-4 x-customer-journey.tracking).
+    NAO e SLA interno: as duracoes DRAFT de cancel_sla, reembolso_sla e escalation_routing NAO entram aqui e nunca sao
+    projetadas ao comprador. evento_ancora_ref vazio = ancora indefinida; calendario vazio = contagem indefinida.
+    Estagios 4-7 do tracker nao tem prazo. Prazo regulatorio vive AQUI (DMN) — nunca em Python (CONTRIBUTING).
+    Sem consumidor nesta onda (orphans-allowlist, pending wiring): a projecao em journey.get exige campo novo no
+    sucessor do C6-4 (casa AMH). Nenhuma saida adversa; a tabela nao roteia nem decide.
+    hitPolicy FIRST; catch-all FAIL-SAFE por ultimo (deadline_ref desconhecido => sem prazo, DRAFT).
+  </description>
+  <decision id="funnel_deadline_catalog" name="Catalogo de prazos normativos do funil" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_funnel_deadline_catalog" hitPolicy="FIRST">
+      <input id="in_deadline_ref" label="Dispositivo do prazo (deadline_ref)">
+        <inputExpression id="ie_deadline_ref" typeRef="string"><text>deadline_ref</text></inputExpression>
+      </input>
+      <output id="out_citacao" label="dispositivo_citacao" name="dispositivo_citacao" typeRef="string"/>
+      <output id="out_verbatim" label="dispositivo_verbatim" name="dispositivo_verbatim" typeRef="string"/>
+      <output id="out_sha" label="verbatim_sha256" name="verbatim_sha256" typeRef="string"/>
+      <output id="out_versao" label="entrada_versao" name="entrada_versao" typeRef="integer"/>
+      <output id="out_quantidade" label="prazo_quantidade" name="prazo_quantidade" typeRef="integer"/>
+      <output id="out_calendario" label="calendario" name="calendario" typeRef="string"/>
+      <output id="out_ancora" label="evento_ancora_ref" name="evento_ancora_ref" typeRef="string"/>
+      <output id="out_suspensao" label="regras_suspensao" name="regras_suspensao" typeRef="string"/>
+      <output id="out_estagios" label="estagios_tracker" name="estagios_tracker" typeRef="string"/>
+      <output id="out_escopo" label="escopo" name="escopo" typeRef="string"/>
+      <output id="out_enquadramento" label="enquadramento_fonte" name="enquadramento_fonte" typeRef="string"/>
+      <output id="out_assistencial" label="assistencial" name="assistencial" typeRef="boolean"/>
+      <output id="out_reg_ref" label="regulatory_approval_ref" name="regulatory_approval_ref" typeRef="string"/>
+      <output id="out_clin_ref" label="clinical_approval_ref" name="clinical_approval_ref" typeRef="string"/>
+      <output id="out_status" label="status" name="status" typeRef="string"/>
+      <rule id="r_rn413_art5_par2">
+        <description>RN 413/2016 (contratacao eletronica) art. 5o par. 2o: teto de 25 dias corridos para concluir a contratacao e disponibilizar as opcoes de pagamento. Ancora (par. 3o, "primeiro dia de envio das informacoes necessarias") INDEFINIDA: NORM-GAP-8 (RATIFY-LATER-juridico) => evento_ancora_ref vazio; suspensoes dos par. 5o/7o so registradas. Estagios 1-3 do tracker. DRAFT.</description>
+        <inputEntry id="r_rn413_art5_par2_i1"><text>"RN413-art5-par2"</text></inputEntry>
+        <outputEntry id="r_rn413_art5_par2_o1"><text>"RN 413/2016 (ANS), art. 5º, § 2º"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o2"><text>"A operadora deverá, no prazo máximo de 25 (vinte e cinco) dias corridos, concluir o processo de contratação eletrônica e disponibilizar as opções de pagamento."</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o3"><text>"111c8ce00cca97939a5aca936a18d72b168aa3d54eec605be36ebda4a87de598"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o4"><text>1</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o5"><text>25</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o6"><text>"corridos"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o7"><text>""</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o8"><text>"RN413-art5-par5;RN413-art5-par7"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o9"><text>"1,2,3"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o10"><text>"contratacao_eletronica"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o11"><text>"nao_se_aplica"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o12"><text>false</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o13"><text>""</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o14"><text>""</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par2_o15"><text>"DRAFT"</text></outputEntry>
+      </rule>
+      <rule id="r_rn413_art5_par7">
+        <description>RN 413/2016 art. 5o par. 7o: prazo do interessado (5 dias uteis) para apresentar documentacao solicitada; o descumprimento suspende o teto do par. 2o. Evento-ancora (a solicitacao da operadora) sem fato correspondente no C6-4 => vazio; sem estagio do tracker. DRAFT.</description>
+        <inputEntry id="r_rn413_art5_par7_i1"><text>"RN413-art5-par7"</text></inputEntry>
+        <outputEntry id="r_rn413_art5_par7_o1"><text>"RN 413/2016 (ANS), art. 5º, § 7º"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o2"><text>"Quando a operadora solicitar ao interessado alguma documentação, a mesma deverá ser apresentada em até 5 (cinco) dias úteis. Caso o interessado não apresente a documentação neste prazo, fica suspenso o prazo máximo previsto no § 2º deste artigo."</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o3"><text>"bad8a5fb4e8227987eb2824c82aa4abda81dc877ae54bd8b24dc2abcc5b75d58"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o4"><text>1</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o5"><text>5</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o6"><text>"uteis"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o7"><text>""</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o8"><text>""</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o9"><text>""</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o10"><text>"contratacao_eletronica"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o11"><text>"nao_se_aplica"</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o12"><text>false</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o13"><text>""</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o14"><text>""</text></outputEntry>
+        <outputEntry id="r_rn413_art5_par7_o15"><text>"DRAFT"</text></outputEntry>
+      </rule>
+      <rule id="r_lei9656_art12_vi">
+        <description>Lei 9.656/1998 art. 12, VI (red. MP 2.177-44/2001), texto integral: reembolso SO em urgencia/emergencia, pagavel em ate 30 dias apos a entrega da documentacao adequada. Relogio a partir do FATO documentacao_adequada_em registrado pelo analista (nunca da submissao); enquadramento urgencia/emergencia so do registro assistencial do analista (nunca autodeclaracao). Calendario (corridos?) indefinido: RL-REG-44 item 4. Fora do tracker de contratacao. DRAFT.</description>
+        <inputEntry id="r_lei9656_art12_vi_i1"><text>"Lei9656-art12-VI"</text></inputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o1"><text>"Lei 9.656/1998, art. 12, VI"</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o2"><text>"VI - reembolso, em todos os tipos de produtos de que tratam o inciso I e o § 1º do art. 1º desta Lei, nos limites das obrigações contratuais, das despesas efetuadas pelo beneficiário com assistência à saúde, em casos de urgência ou emergência, quando não for possível a utilização dos serviços próprios, contratados, credenciados ou referenciados pelas operadoras, de acordo com a relação de preços de serviços médicos e hospitalares praticados pelo respectivo produto, pagáveis no prazo máximo de trinta dias após a entrega da documentação adequada;"</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o3"><text>"b04e1a73b597f5380110277c8a447bf6e957cf26c2f60259586e8849869a731d"</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o4"><text>1</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o5"><text>30</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o6"><text>""</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o7"><text>"documentacao_adequada_em"</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o8"><text>""</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o9"><text>""</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o10"><text>"reembolso_urgencia_emergencia"</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o11"><text>"registro_assistencial_do_analista"</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o12"><text>false</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o13"><text>""</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o14"><text>""</text></outputEntry>
+        <outputEntry id="r_lei9656_art12_vi_o15"><text>"DRAFT"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: deadline_ref desconhecido (inclusive estagios 4-7 do tracker e reembolso fora de urgencia/emergencia) => sem prazo, sem verbatim, DRAFT. Nunca prazo inventado.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>""</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>""</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>""</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>0</text></outputEntry>
+        <outputEntry id="r_catchall_o5"><text>-1</text></outputEntry>
+        <outputEntry id="r_catchall_o6"><text>""</text></outputEntry>
+        <outputEntry id="r_catchall_o7"><text>""</text></outputEntry>
+        <outputEntry id="r_catchall_o8"><text>""</text></outputEntry>
+        <outputEntry id="r_catchall_o9"><text>""</text></outputEntry>
+        <outputEntry id="r_catchall_o10"><text>"sem_prazo_catalogado"</text></outputEntry>
+        <outputEntry id="r_catchall_o11"><text>"nao_se_aplica"</text></outputEntry>
+        <outputEntry id="r_catchall_o12"><text>false</text></outputEntry>
+        <outputEntry id="r_catchall_o13"><text>""</text></outputEntry>
+        <outputEntry id="r_catchall_o14"><text>""</text></outputEntry>
+        <outputEntry id="r_catchall_o15"><text>"DRAFT"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
