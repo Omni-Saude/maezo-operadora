@@ -1,0 +1,263 @@
+{
+ "schema_version": "1.0.0",
+ "epic": "EP-CORE-09a (E-SF-33; registro CORE-09)",
+ "manifest": "config/provenance/omni-sales-b3de4b4.blobs.json",
+ "purpose": "Blobs do manifesto que tambem existem, byte-identicos, na arvore rastreada do Maezo no head de autoria, com a primeira aparicao de cada lado (data de autoria do primeiro commit que contem o blob, historico completo de ambos os repos). Nenhum conteudo do omni.",
+ "classes": {
+  "maezo_origin": "o blob existiu no Maezo ANTES do omni (o omni guarda copia do Maezo, p.ex. docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/). Nao e blob de origem omni: a guarda nao o recusa.",
+  "omni_first_pending_adjudication": "o blob apareceu primeiro no omni e depois no Maezo. A guarda CONTINUA recusando (UNLICENSED_OMNI_ORIGIN); a listagem so documenta o passivo existente para adjudicacao do dono/juridico (CORE-09; para os contratos C*, editor canonico AMH segundo CA-01). Nao e licenca nem excecao."
+ },
+ "method": "git log <rev> --reverse --raw --no-abbrev -m sobre clones bare blobless dos dois repos (maezo: --all; omni: b3de4b447cdf2e6f5440716b4c79d7f49555f939), primeira linha cujo blob novo e o oid do arquivo; comparacao das datas de autoria.",
+ "entries": [
+  {
+   "maezo_path": "docs/delivery/commercial-platform/portal-mirror/PORTAL-MIRROR-PIN-C6-4.json",
+   "omni_path": "docs/delivery/commercial-platform/PORTAL-MIRROR-PIN-C6-4.json",
+   "sha256_raw": "bcfe88f918a90a91efeaa250b25a0f92dc311500dcea9293f6af0f6a6db25f67",
+   "class": "maezo_origin",
+   "maezo_first_commit": "2a815b30c02a493200cb8927567bb958f2ddb18d",
+   "maezo_first_authored_at": "2026-10-23T20:23:46-03:00",
+   "omni_first_commit": "978812015b4b5237a077d349306b98014e147c8a",
+   "omni_first_authored_at": "2026-10-24T10:39:22-03:00"
+  },
+  {
+   "maezo_path": "docs/design/v21-capabilities/administrative-contracts.md",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/docs/design/v21-capabilities/administrative-contracts.md",
+   "sha256_raw": "fca53c3ba6f170729ac1ae127483a4dae4d7f36b75e72a22ad2b0fe474745f50",
+   "class": "maezo_origin",
+   "maezo_first_commit": "54fa791298bc59a92a1c673246b1568fe93e27e2",
+   "maezo_first_authored_at": "2026-10-05T00:12:19-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "docs/design/v21-capabilities/contracts.json",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/docs/design/v21-capabilities/contracts.json",
+   "sha256_raw": "81d7848127e2d71a4b21b4bc1ed8df992bc9534531798ad329680fd5f28decec",
+   "class": "maezo_origin",
+   "maezo_first_commit": "54fa791298bc59a92a1c673246b1568fe93e27e2",
+   "maezo_first_authored_at": "2026-10-05T00:12:19-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "docs/design/v21-capabilities/durability-contract.md",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/docs/design/v21-capabilities/durability-contract.md",
+   "sha256_raw": "526e76a4f177d41771a03c83b495ee97b5df82306374952bbea8b49f38f3921f",
+   "class": "maezo_origin",
+   "maezo_first_commit": "05e9e9f63a26c683106d88334444007461b9e9d9",
+   "maezo_first_authored_at": "2026-10-05T21:48:23-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "docs/design/v21-capabilities/journey-orchestration-contract.json",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/docs/design/v21-capabilities/journey-orchestration-contract.json",
+   "sha256_raw": "62ac7e3bf121e70719c4a09bbadf0f91fee1651116b8fb821fd05e1d65f76160",
+   "class": "maezo_origin",
+   "maezo_first_commit": "05e9e9f63a26c683106d88334444007461b9e9d9",
+   "maezo_first_authored_at": "2026-10-05T21:48:23-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "docs/design/v21-capabilities/journey-orchestration-contract.md",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/docs/design/v21-capabilities/journey-orchestration-contract.md",
+   "sha256_raw": "5bc851ada46b7f3b78e503fcb8480a178b4277f358d13e7d1aada2db413d7904",
+   "class": "maezo_origin",
+   "maezo_first_commit": "05e9e9f63a26c683106d88334444007461b9e9d9",
+   "maezo_first_authored_at": "2026-10-05T21:48:23-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "docs/design/v21-capabilities/source-contracts.md",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/docs/design/v21-capabilities/source-contracts.md",
+   "sha256_raw": "78c4093e68e74ed8abff332086bf8b93c715a20ade362975b55c8deef42e305f",
+   "class": "maezo_origin",
+   "maezo_first_commit": "54fa791298bc59a92a1c673246b1568fe93e27e2",
+   "maezo_first_authored_at": "2026-10-05T00:12:19-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "docs/design/v21-capabilities/source-readiness.json",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/docs/design/v21-capabilities/source-readiness.json",
+   "sha256_raw": "8fcf13390136ee27cf81439567b217b976de9782a6994a47453f186c081f30a9",
+   "class": "maezo_origin",
+   "maezo_first_commit": "54fa791298bc59a92a1c673246b1568fe93e27e2",
+   "maezo_first_authored_at": "2026-10-05T00:12:19-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn",
+   "sha256_raw": "c9213f7c506bcda67119dcde51a8dc56ff62e158dc0e864a066d72f192922e8b",
+   "class": "maezo_origin",
+   "maezo_first_commit": "42e51178a882587d16101abecf26e130c2728d36",
+   "maezo_first_authored_at": "2026-10-08T08:00:06-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "spec/processes/dmn/suppression_routing.dmn",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/spec/processes/dmn/suppression_routing.dmn",
+   "sha256_raw": "e56c9bb83bec86bcb443c8ddae890aca7182f7f2252330d91954ffbfef2a09e6",
+   "class": "maezo_origin",
+   "maezo_first_commit": "42e51178a882587d16101abecf26e130c2728d36",
+   "maezo_first_authored_at": "2026-10-08T08:00:06-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "src/maezo/gateway/capabilities/journeys/topology.py",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/src/maezo/gateway/capabilities/journeys/topology.py",
+   "sha256_raw": "bc45cead90731d5c80a2f459269b7267f53b1e78c1e719e57f2b0845f8a79b51",
+   "class": "maezo_origin",
+   "maezo_first_commit": "05e9e9f63a26c683106d88334444007461b9e9d9",
+   "maezo_first_authored_at": "2026-10-05T21:48:23-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "src/maezo/gateway/capabilities/service.py",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/src/maezo/gateway/capabilities/service.py",
+   "sha256_raw": "5c24ce5ad8119051d0e61d9e21c7c62d7d8f49090541c72a9ef199b8df062074",
+   "class": "maezo_origin",
+   "maezo_first_commit": "ce250f3abe0effbb73dadc8fb318620bc7bbbfdf",
+   "maezo_first_authored_at": "2026-10-06T13:21:25-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "src/maezo/gateway/capabilities/vendor_journey/binding.py",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/src/maezo/gateway/capabilities/vendor_journey/binding.py",
+   "sha256_raw": "4b243b83c7d1c6e011b15602318f935d1f0bd5b4b87a6513ead3fc03a86e917a",
+   "class": "maezo_origin",
+   "maezo_first_commit": "29c22a1cf173bd652def0d42deb1af14a3efe58c",
+   "maezo_first_authored_at": "2026-10-06T22:50:43-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "src/maezo/gateway/capabilities/vendor_journey/projection.py",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/src/maezo/gateway/capabilities/vendor_journey/projection.py",
+   "sha256_raw": "7f8aee2d97114837b177230b6509c7017b58983028a4aab73712c3a1a6881c10",
+   "class": "maezo_origin",
+   "maezo_first_commit": "29c22a1cf173bd652def0d42deb1af14a3efe58c",
+   "maezo_first_authored_at": "2026-10-06T22:50:43-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "src/maezo/portal/api/vendor_submissions.py",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/src/maezo/portal/api/vendor_submissions.py",
+   "sha256_raw": "cac8179c1f09a857a509223baf6e4852e1f7f128fecdd7640f6b2cb1a7e8e656",
+   "class": "maezo_origin",
+   "maezo_first_commit": "1566f362886fb7baa5de74022657f7254fd153c1",
+   "maezo_first_authored_at": "2026-10-06T18:04:59-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "src/maezo/portal/contracts/vendor_submissions.py",
+   "omni_path": "docs/audits/P1-SOURCE-SNAPSHOT-2026-10/origin/src/maezo/portal/contracts/vendor_submissions.py",
+   "sha256_raw": "5bf44942f3a801a90c689aa02a116993bc6e04914ced09f93121b5270b4d3a6a",
+   "class": "maezo_origin",
+   "maezo_first_commit": "c3ae3fc8e4863ffce5a9fde631609bb2c1b83645",
+   "maezo_first_authored_at": "2026-10-06T16:52:26-03:00",
+   "omni_first_commit": "2a96974fd957357cdb6f00dd956ae82272ae7aac",
+   "omni_first_authored_at": "2026-10-08T12:10:58-05:00"
+  },
+  {
+   "maezo_path": "docs/delivery/commercial-platform/ROOT-OWNERSHIP.md",
+   "omni_path": "docs/delivery/commercial-platform/ROOT-OWNERSHIP.md",
+   "sha256_raw": "35418284a42260610f6a5f35dec9ad94e0cba835d4daeb36f9c7ae9c2aff052b",
+   "class": "omni_first_pending_adjudication",
+   "maezo_first_commit": "7b2dfb86f2680f0287bc37e3b4b31c23ca4bc98b",
+   "maezo_first_authored_at": "2026-10-23T14:27:54-03:00",
+   "omni_first_commit": "5d0bd1c092c0995b5e8b4cb52173ad25c50d829a",
+   "omni_first_authored_at": "2026-10-22T14:41:34-03:00"
+  },
+  {
+   "maezo_path": "docs/delivery/commercial-platform/SOURCE-FREEZE-C6-4-PREBODY.json",
+   "omni_path": "docs/delivery/commercial-platform/MAEZO-C6-4-PREBODY-SOURCE-FREEZE.json",
+   "sha256_raw": "7394e76d5f6054e7aa5c9bc75bc7808a97a1e464f3d9e0192f5c8cab155b1dea",
+   "class": "omni_first_pending_adjudication",
+   "maezo_first_commit": "7b2dfb86f2680f0287bc37e3b4b31c23ca4bc98b",
+   "maezo_first_authored_at": "2026-10-23T14:27:54-03:00",
+   "omni_first_commit": "4fd62f332eaf3711c0745a586bf9a294f2e4cd08",
+   "omni_first_authored_at": "2026-10-22T16:18:38-03:00"
+  },
+  {
+   "maezo_path": "docs/delivery/commercial-platform/SOURCE-FREEZE-C6-4.json",
+   "omni_path": "docs/delivery/commercial-platform/MAEZO-C6-4-SOURCE-FREEZE.json",
+   "sha256_raw": "b820c563cca651dab60f66453e1daf925a8f7b10f73c865530b9f532d9694d9b",
+   "class": "omni_first_pending_adjudication",
+   "maezo_first_commit": "7b2dfb86f2680f0287bc37e3b4b31c23ca4bc98b",
+   "maezo_first_authored_at": "2026-10-23T14:27:54-03:00",
+   "omni_first_commit": "4fd62f332eaf3711c0745a586bf9a294f2e4cd08",
+   "omni_first_authored_at": "2026-10-22T16:18:38-03:00"
+  },
+  {
+   "maezo_path": "tests/candidate_artifacts/commercial/contract-c4.json",
+   "omni_path": "docs/delivery/commercial-platform/shared-contract-c4.proposed.v1.json",
+   "sha256_raw": "10e5ae42a1344ea4a886c1d50223536c58cc79c0564b5ef6def9a42dd3bccaab",
+   "class": "omni_first_pending_adjudication",
+   "maezo_first_commit": "7b2dfb86f2680f0287bc37e3b4b31c23ca4bc98b",
+   "maezo_first_authored_at": "2026-10-23T14:27:54-03:00",
+   "omni_first_commit": "5d0bd1c092c0995b5e8b4cb52173ad25c50d829a",
+   "omni_first_authored_at": "2026-10-22T14:41:34-03:00"
+  },
+  {
+   "maezo_path": "tests/candidate_artifacts/commercial/contract-c5.json",
+   "omni_path": "docs/delivery/commercial-platform/shared-contract-c5.proposed.v1.json",
+   "sha256_raw": "6aef2e1ec987834179db1acbd1ff2be32f5c406ca73622af5f905ec5b992d1e6",
+   "class": "omni_first_pending_adjudication",
+   "maezo_first_commit": "7b2dfb86f2680f0287bc37e3b4b31c23ca4bc98b",
+   "maezo_first_authored_at": "2026-10-23T14:27:54-03:00",
+   "omni_first_commit": "5d0bd1c092c0995b5e8b4cb52173ad25c50d829a",
+   "omni_first_authored_at": "2026-10-22T14:41:34-03:00"
+  },
+  {
+   "maezo_path": "tests/candidate_artifacts/commercial/contract-c6-1.json",
+   "omni_path": "docs/delivery/commercial-platform/shared-contract-c6-1.proposed.v1.json",
+   "sha256_raw": "fe02aa3c347a03f5a38797b17a2a3450b7dd111d105b2d14e155209a002e4685",
+   "class": "omni_first_pending_adjudication",
+   "maezo_first_commit": "7b2dfb86f2680f0287bc37e3b4b31c23ca4bc98b",
+   "maezo_first_authored_at": "2026-10-23T14:27:54-03:00",
+   "omni_first_commit": "f9c77ccc927bc02780af6ed9df45273954da1732",
+   "omni_first_authored_at": "2026-10-22T15:16:09-03:00"
+  },
+  {
+   "maezo_path": "tests/candidate_artifacts/commercial/contract-c6-2.json",
+   "omni_path": "docs/delivery/commercial-platform/shared-contract-c6-2.proposed.v1.json",
+   "sha256_raw": "19a88be247a71c6bea617ae7287a03d3ac210dba96a5c0a52507f981a10db799",
+   "class": "omni_first_pending_adjudication",
+   "maezo_first_commit": "7b2dfb86f2680f0287bc37e3b4b31c23ca4bc98b",
+   "maezo_first_authored_at": "2026-10-23T14:27:54-03:00",
+   "omni_first_commit": "4fd62f332eaf3711c0745a586bf9a294f2e4cd08",
+   "omni_first_authored_at": "2026-10-22T16:18:38-03:00"
+  },
+  {
+   "maezo_path": "tests/candidate_artifacts/commercial/contract-c6-3.json",
+   "omni_path": "docs/delivery/commercial-platform/shared-contract-c6-3.proposed.v1.json",
+   "sha256_raw": "02b7f28df14b1e1b658e097b504f39d6e36dc715999929485d9006907fed400f",
+   "class": "omni_first_pending_adjudication",
+   "maezo_first_commit": "7b2dfb86f2680f0287bc37e3b4b31c23ca4bc98b",
+   "maezo_first_authored_at": "2026-10-23T14:27:54-03:00",
+   "omni_first_commit": "4fd62f332eaf3711c0745a586bf9a294f2e4cd08",
+   "omni_first_authored_at": "2026-10-22T16:18:38-03:00"
+  },
+  {
+   "maezo_path": "tests/candidate_artifacts/commercial/contract-c6-4.json",
+   "omni_path": "docs/delivery/commercial-platform/shared-contract-c6-4.proposed.v1.json",
+   "sha256_raw": "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea",
+   "class": "omni_first_pending_adjudication",
+   "maezo_first_commit": "7b2dfb86f2680f0287bc37e3b4b31c23ca4bc98b",
+   "maezo_first_authored_at": "2026-10-23T14:27:54-03:00",
+   "omni_first_commit": "4fd62f332eaf3711c0745a586bf9a294f2e4cd08",
+   "omni_first_authored_at": "2026-10-22T16:18:38-03:00"
+  }
+ ]
+}

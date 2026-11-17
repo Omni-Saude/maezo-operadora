@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "extract": "OMNI-V-10",
+  "modules": ["tests/governance/test_c64_ts_binding.py"],
+  "spec_sources": [
+    {"repository": "Omni-Saude/maezo-operadora", "path": "src/maezo/platform/validation/phi_completeness.py"},
+    {"repository": "Omni-Saude/maezo-operadora", "path": "src/maezo/gateway/commercial_portability_admission.py"},
+    {"repository": "Omni-Saude/maezo-operadora", "path": "src/maezo/gateway/log_scrubber.py"},
+    {"repository": "Omni-Saude/maezo-operadora", "path": "src/maezo/gateway/vendor_suppression.py"}
+  ],
+  "spec_author": "AMH (editor canonico do C6-4, CA-01)",
+  "implementer": "agente W-MZO-DOC (EP-CORE-09c)",
+  "attestation": {"implementer_did_not_open_omni_files": true, "attested_by": "agente W-MZO-DOC (EP-CORE-09c)", "attested_at": "2026-11-16"}
+}
