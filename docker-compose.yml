@@ -57,7 +57,10 @@ services:
       start_period: 30s
 
   cibseven:
-    image: cibseven/cibseven:2.1.0   # governanca (2.1.3 sem imagem publicada — DL-0006): BPMN compliance, User Tasks HITL, DMN
+    # TAG+DIGEST (EP-PROC-04, 16/11/2026): o mesmo index digest do FROM de deploy/cibseven/Dockerfile —
+    # o dev-stack, a lane de integracao e o harness .github/workflows/bpmn-gates.yml sobem O MESMO artefato.
+    # Cerca: tests/processes/test_bpmn_gates_harness.py.
+    image: cibseven/cibseven:2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169   # governanca (2.1.3 sem imagem publicada — DL-0006): BPMN compliance, User Tasks HITL, DMN
     profiles: ["core"]
     ports: ["8080:8080"]
     environment:

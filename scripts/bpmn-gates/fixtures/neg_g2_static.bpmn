@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="Defs_Fixture" targetNamespace="http://maezo.example/bpmn-gates/fixtures">
+  <!-- Fixture NEGATIVA do gate 2: Flow_G2 aponta para targetRef inexistente (G2-REF). -->
+  <bpmn:process id="Fixture_G2" isExecutable="true">
+    <bpmn:startEvent id="Start_G2" name="Inicio">
+      <bpmn:outgoing>Flow_G2</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:endEvent id="End_G2" name="Fim"/>
+    <bpmn:sequenceFlow id="Flow_G2" sourceRef="Start_G2" targetRef="End_Inexistente"/>
+  </bpmn:process>
+</bpmn:definitions>
