@@ -1,4 +1,4 @@
-"""`composicoes[]` do manifesto K1 (formato 2.2.0) e a composicao `primeira_com_idRegra` (DL-0174).
+"""`composicoes[]` do manifesto K1 (formato 2.2.0) e a composicao `primeira_com_idRegra` (DL-0173).
 
 Leitor (`rco_manifesto`): forma estrita, recusas codificadas `composicao-*`, 2.1.0 sem o campo = lista vazia,
 o campo em 2.1.0 = desconhecido. Gate (`verify_rco_rules_pin`) e runtime (`rco_pin`) recusam o MESMO grupo
@@ -224,7 +224,7 @@ def test_guarda_recusa_avaliar_membro_sozinho(pacote_22: tuple[Path, dict[str, A
 
 
 def test_guarda_recusa_avaliar_o_padrao_sozinho(pacote_22: tuple[Path, dict[str, Any]]) -> None:
-    """Mais estrito que "membro nao padrao": o padrao sozinho perde os pares e erra para pagar (DL-0174)."""
+    """Mais estrito que "membro nao padrao": o padrao sozinho perde os pares e erra para pagar (DL-0173)."""
     raiz, _ = pacote_22
     pin = rco_pin.load_rco_rules_pin(raiz / sint.LOCK_REL, rules_dir=raiz / sint.RULES_DIR)
     assert pin.composicoes[0].padrao == _B

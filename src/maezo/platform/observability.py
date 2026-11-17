@@ -829,7 +829,7 @@ def record_rco_sombra(desfecho: str) -> None:
         logger.debug("rco_sombra_metric_emit_failed", exc_info=True)
 
 
-#: DL-0174: vocabulario FECHADO de `maezo_rco_composicao_revisao_humana_total` (= os motivos de
+#: DL-0173: vocabulario FECHADO de `maezo_rco_composicao_revisao_humana_total` (= os motivos de
 #: `platform.rco_composicao`, paridade fixada em teste). Valor fora do conjunto vira `outro`.
 RCO_COMPOSICAO_MOTIVOS: Final[frozenset[str]] = frozenset(
     {"violacao_prova_rco", "avaliador_falhou", "resultado_invalido"}

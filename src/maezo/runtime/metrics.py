@@ -537,7 +537,7 @@ class MetricsCollector:
             registry=self._registry,
         )
 
-        # DL-0174: cada composicao de decisoes K1 do rco (`platform.rco_composicao`) que caiu em
+        # DL-0173: cada composicao de decisoes K1 do rco (`platform.rco_composicao`) que caiu em
         # revisao humana, por motivo FECHADO (`observability.RCO_COMPOSICAO_MOTIVOS`, outro valor vira
         # `outro`). `violacao_prova_rco` = duas decisoes antes do padrao com `idRegra` (ou mais de uma
         # linha): o que a prova do rco (`make composicao-dmn`) diz que nao acontece. Nunca tenant,
@@ -829,5 +829,5 @@ class MetricsCollector:
 
     @property
     def rco_composicao_revisao_total(self) -> Counter:
-        """Counter for rco K1 compositions routed to human review (DL-0174). Label: motivo (closed)."""
+        """Counter for rco K1 compositions routed to human review (DL-0173). Label: motivo (closed)."""
         return self._rco_composicao_revisao_total

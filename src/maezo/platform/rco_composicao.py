@@ -1,4 +1,4 @@
-"""Composicao de decisoes K1 do rco (DL-0174; contrato-k1.md §11 item 14; formato_manifesto 2.2.0).
+"""Composicao de decisoes K1 do rco (DL-0173; contrato-k1.md §11 item 14; formato_manifesto 2.2.0).
 
 O QUE ISTO E. Uma tabela do rco dividida em varias decisoes (para caber no orcamento do motor) volta a
 ser UMA decisao pela composicao que o manifesto declara em `composicoes[]` (lido e conferido por
@@ -37,7 +37,7 @@ GUARDA. NENHUMA decisao de um grupo e avaliada sozinha, o padrao inclusive: sozi
 pares que as anteriores decidem e erra para o lado de pagar (o rco: "consumidor que avalia so mex_ortop
 deixa de glosar os pares"). Quem avalia uma decisao `rco_` chama `exigir_avaliacao_isolada(pin, id)`
 antes e, se a decisao for de um grupo, `compor`. NADA aqui esta ligado a um worker ainda: ortopedia nao
-tem dominio no montador, e a ligacao vem com ele (DL-0174).
+tem dominio no montador, e a ligacao vem com ele (DL-0173).
 """
 
 from __future__ import annotations
@@ -135,7 +135,7 @@ def exigir_avaliacao_isolada(pin: _ComComposicoes, decisao_id: str) -> None:
         papel = "padrao" if decisao_id == grupo.padrao else "membro"
         raise DecisaoSoEmComposicaoError(
             f"decisao {decisao_id!r} e {papel} da composicao {grupo.nome!r}: nunca e avaliada sozinha; "
-            "avalie o grupo inteiro (rco_composicao.compor, DL-0174)"
+            "avalie o grupo inteiro (rco_composicao.compor, DL-0173)"
         )
 
 

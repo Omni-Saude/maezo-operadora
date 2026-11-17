@@ -1,0 +1,33 @@
+# Politica da janela de arrependimento — EP-REG-03a (E-SF-09, variante executavel).
+# Prazo e' DADO (nunca Python). Normas (verbatim do pacote, DEC-TRACKB TB-17 / BASE:100, BASE:163):
+#  CDC art. 49: "O consumidor pode desistir do contrato, no prazo de 7 dias a contar de sua assinatura [...]"
+#  RN 413 art. 8º: "[...] no prazo de 7 (sete) dias de duração a partir da data de vigência do contrato."
+# Portao: RL-REG-03 / TB-17 (RATIFY-LATER-juridico). Contagem (corrida/util, inclusiva) = Q3.
+versao: 1
+politica: withdrawal_window_policy
+status: NAO_RATIFICADO            # unico valor que admite ratificacao: RATIFICADO
+variante_ativa: UNRATIFIED_UNION  # A | B | UNRATIFIED_UNION | D
+display_numeric_promise: false
+fora_da_janela: route_to_human    # o leitor RECUSA qualquer outro valor (AUTO_REFUSAL_FORBIDDEN_PENDING_Q3)
+ratificacao:
+  juridico: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+ancoras:
+  signed_at:
+    fonte_exigida: acceptance_receipt     # acceptance_receipt_ref/recorded_at (REG-03 item 1; A3/REG-16)
+    dispositivo_ref: CDC-art49
+    duracao_iso: P7D
+  vigencia_start:
+    fonte_exigida: vigencia_receipt       # receipt de pagamento/efetivacao da fonte (RN 413 art. 6º; Q9)
+    dispositivo_ref: RN413-art8
+    duracao_iso: P7D
+variantes:
+  A:                { ancoras: [vigencia_start],            combinacao: unica }
+  B:                { ancoras: [signed_at],                 combinacao: unica }
+  UNRATIFIED_UNION: { ancoras: [signed_at, vigencia_start], combinacao: assinatura_ate_ultimo_termo_final }
+  D:                { ancoras: [signed_at, vigencia_start], combinacao: independentes }
+declaracao_art8_par1:
+  texto_ratificado: false          # REG-19 (RATIFY-LATER-juridico)
+  texto_digest: null               # null => aceita qualquer digest nao vazio, marcado "nao ratificado"
+textos:                            # status rascunho; sem numero, sem prazo, sem "1 clique" (TB-17 (ii))
+  existencia_do_direito: "Você pode desistir do contrato. Veja as condições."
+  aviso_no_cancelamento: "Você pode estar no prazo de arrependimento."

@@ -182,6 +182,11 @@ packages = ["src/maezo"]
 # deploy/Dockerfile.
 "spec/policies/privacy" = "maezo/spec/policies/privacy"
 "spec/policies/ans" = "maezo/spec/policies/ans"
+# E-SF-09 (17/11/2026): politicas DRAFT de saida a pedido (janela de arrependimento e pedido de
+# cancelamento), lidas por `saida_a_pedido.politica.caminho_padrao()` via `resolve_spec_dir()`. Vao a
+# bordo pelo mesmo motivo do pin TISS: quando houver consumidor, o leitor acha o arquivo e recusa pelo
+# reason code da politica, nunca por FileNotFoundError.
+"spec/policies/saida-a-pedido" = "maezo/spec/policies/saida-a-pedido"
 # Genuine pinned bilateral TISS schemas must accompany the offline gateway validator.
 "spec/schemas/tiss" = "maezo/spec/schemas/tiss"
 # Limpeza da saude, etapa 3 (02/11/2026, DL-0165): o runtime nao le mais `spec/conhecimento/**` (a base e o

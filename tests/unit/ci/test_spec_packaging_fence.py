@@ -153,6 +153,8 @@ _SUBTREES_ESPERADOS = {
     # DL-0167/HEL-2: `spec/conhecimento/cobertura` volta a ser citado (o YAML de sinonimos, em
     # `cobertura/procedimento.caminho_padrao`); o force-include e a COPY dele continuam no lugar.
     "spec/conhecimento/cobertura",
+    # E-SF-09: politicas DRAFT de saida a pedido (`saida_a_pedido.politica.caminho_padrao`).
+    "spec/policies/saida-a-pedido",
 }
 
 

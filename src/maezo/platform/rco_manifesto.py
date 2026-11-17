@@ -38,7 +38,7 @@ FAIL-CLOSED (contrato §4 e §5):
 - o conjunto de `idRegra` literais nao vazios que a tabela emite e exatamente o de `regras[]` (§3: uma
   entrada por `idRegra` emitido); linha adversa (`combinacao.adversas` de `vocabulario.json`) tem
   preenchidos os campos de `combinacao.adversa_exige_preenchidos` (§6), `idRegra` incluido;
-- `composicoes[]` (2.2.0, DL-0174): cada grupo com exatamente `nome`, `decisoes`, `regra` e `padrao`;
+- `composicoes[]` (2.2.0, DL-0173): cada grupo com exatamente `nome`, `decisoes`, `regra` e `padrao`;
   `nome` unico; ao menos 2 decisoes, sem repeticao, todas em `decisoes[]` e com a saida `idRegra`;
   nenhuma decisao em dois grupos; `padrao` e a ultima de `decisoes`; `regra` no vocabulario fechado
   `REGRAS_COMPOSICAO`. Como e o leitor que recusa, gate e runtime recusam o pin pela MESMA checagem. A
@@ -81,13 +81,13 @@ PREFIXO_DECISAO: Final[str] = "rco_"
 #: MAJOR 2 (contrato-k1.md 2.0.0, PROG-RCO-8): por regra, sai `ratificavel_automatico` e entram
 #: `ativacao` (conjunto fechado) e `exige_aditivo` (booleano); `vocabulario.json` ganha o bloco
 #: `ativacao` (`valores` + `parametros`). Campo a mais ou a menos continua recusado.
-#: 2.2.0 (DL-0174, decisao da ROOT de 17/11/2026): campo de topo aditivo `composicoes[]`.
+#: 2.2.0 (DL-0173, decisao da ROOT de 17/11/2026): campo de topo aditivo `composicoes[]`.
 FORMATOS_SUPORTADOS: Final[Mapping[int, int]] = MappingProxyType({1: 0, 2: 2})
 #: Primeiro `(MAJOR, MINOR)` com o campo obrigatorio `provas[]` (contrato-k1.md §3, PROG-RCO-8, 2.1.0).
 #: Abaixo disso o campo e desconhecido e recusado (leitor estrito).
 FORMATO_COM_PROVAS: Final[tuple[int, int]] = (2, 1)
 PROVAS_DIR: Final[str] = "provas"
-#: Primeiro `(MAJOR, MINOR)` com o campo opcional `composicoes[]` (DL-0174). Abaixo disso o campo e
+#: Primeiro `(MAJOR, MINOR)` com o campo opcional `composicoes[]` (DL-0173). Abaixo disso o campo e
 #: desconhecido e recusado (leitor estrito); a partir dele, ausente vale lista vazia.
 FORMATO_COM_COMPOSICOES: Final[tuple[int, int]] = (2, 2)
 CAMPO_TOPO_COMPOSICOES: Final[str] = "composicoes"
@@ -265,7 +265,7 @@ class ProvaK1:
 
 @dataclass(frozen=True, slots=True)
 class ComposicaoK1:
-    """Um grupo de `composicoes[]` (formato 2.2.0, DL-0174): decisoes avaliadas juntas, em ORDEM."""
+    """Um grupo de `composicoes[]` (formato 2.2.0, DL-0173): decisoes avaliadas juntas, em ORDEM."""
 
     nome: str
     decisoes: tuple[str, ...]  # ids `rco_` de `decisoes[]`, na ordem de avaliacao; a ultima e o padrao
@@ -724,7 +724,7 @@ def _formato_tem_provas(dados: object) -> bool:
 def _ler_composicoes(
     no: object, decisoes: Mapping[str, DecisaoK1], problemas: list[str]
 ) -> tuple[ComposicaoK1, ...]:
-    """`composicoes[]` (2.2.0, DL-0174). Cada recusa leva um codigo estavel `composicao-*` na mensagem.
+    """`composicoes[]` (2.2.0, DL-0173). Cada recusa leva um codigo estavel `composicao-*` na mensagem.
 
     Forma estrita por grupo; cruzamento com `decisoes[]` (ja lidas): decisao fora do manifesto, decisao
     sem a saida `idRegra`, decisao em dois grupos, `padrao` diferente da ultima e `regra` fora do
