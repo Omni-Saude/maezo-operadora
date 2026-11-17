@@ -1427,3 +1427,21 @@ def record_agent_turn(
         )
     except Exception:  # defensive: telemetry must never break a completed turn.
         logger.debug("agent_turn_telemetry_emit_failed", exc_info=True)
+
+
+#: DL-0182: vocabulario FECHADO de `maezo_rco_conferencia_rejeitada_total` (as ativacoes efetivas em que
+#: ha conferencia: `rco_ativacao.filtrar_saida`). Valor fora do conjunto vira `outro`.
+RCO_CONFERENCIA_ATIVACOES: Final[frozenset[str]] = frozenset({"conferida", "conferencia_integral"})
+
+
+def record_rco_conferencia_rejeitada(ativacao: str) -> None:
+    """Count ONE rco K1 conference rejected by a human — `maezo_rco_conferencia_rejeitada_total`.
+
+    Unico sitio de chamada: `platform.rco_registro.registrar_desfecho`, depois do commit do `nao`.
+    Rotulo fechado; nunca dado de caso. Best-effort: a telemetria nunca desfaz o desfecho gravado.
+    """
+    rotulo = ativacao if ativacao in RCO_CONFERENCIA_ATIVACOES else "outro"
+    try:
+        _get_metrics_collector().rco_conferencia_rejeitada_total.labels(ativacao=rotulo).inc()
+    except Exception:  # never let telemetry disturb the caller.
+        logger.debug("rco_conferencia_rejeitada_metric_emit_failed", exc_info=True)

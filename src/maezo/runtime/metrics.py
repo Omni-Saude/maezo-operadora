@@ -550,6 +550,18 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # DL-0182: cada conferencia K1 do rco REJEITADA por humano (`concordou = nao`), que zera a janela
+        # da regra e alerta a coordenacao (`platform.rco_registro.registrar_desfecho`). Rotulo FECHADO
+        # (`observability.RCO_CONFERENCIA_ATIVACOES`, outro valor vira `outro`). Nunca tenant, regra,
+        # guia, chave ou instancia: quais regras vem do log estruturado do mesmo evento.
+        self._rco_conferencia_rejeitada_total = Counter(
+            "maezo_rco_conferencia_rejeitada_total",
+            "rco K1 conferences rejected by a human (window reset, coordination alert), by closed "
+            "effective activation (COUNTS ONLY; ativacao is a closed vocabulary)",
+            labelnames=["ativacao"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -826,6 +838,11 @@ class MetricsCollector:
     def rco_sombra_total(self) -> Counter:
         """Counter for rco K1 shadow evaluations (MZO-3). Label: desfecho (closed vocabulary)."""
         return self._rco_sombra_total
+
+    @property
+    def rco_conferencia_rejeitada_total(self) -> Counter:
+        """Counter for rco K1 conferences rejected by a human (DL-0182). Label: ativacao (closed)."""
+        return self._rco_conferencia_rejeitada_total
 
     @property
     def rco_composicao_revisao_total(self) -> Counter:
