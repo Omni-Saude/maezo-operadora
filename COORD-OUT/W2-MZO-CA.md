@@ -41,3 +41,8 @@ ACHADO: o catálogo GT-GTM-018/099 não existe no pacote (busca por id em todo o
 - Ramo `sf-w2/mzo-ca/add01-02`: módulo novo `src/maezo/portal/api/specialist_console.py` (não montado; só `work.*` e `journey.get`; visão da jornada recusa com `PHI_IN_COMMERCIAL_INPUT`; compromisso N só com 2 donos e ato, registro `NAO_RATIFICADO`, número nunca exibido; papéis condução × cadastro). Revisão independente: FAIL (tipos opacos/profundidade) → reparo literal → PASS. PR só depois do merge do #1299.
 - Console web (TS) e horário de atendimento: não construídos (GAP: não há configuração de horário; Q-SC-1 pendente).
 - ACHADO (detector de saúde compartilhado `gateway/communications/whatsapp_templates.contem_dado_de_saude`): termos clínicos fora da lista passam (ex.: gestação, neoplasia) e "J 45" com espaço passa; refs curtas como "j10" casam com o padrão de CID (falso positivo, fecha a favor da segurança). Não alterado nesta linha (afeta o despachante); pede linha própria.
+
+## 2026-11-17 ~18:35Z — linha 1, CI
+
+- #1299 no head `4205a632…`: 42 checks verdes; integração lida do junit (5 shards: 958 + 138 + 130 + 129 + 56 = 1411 testes, 0 falha, 0 erro; inclui os testes PG do runtime administrativo do Lucas).
+- A main andou para `a5fedc8e` (#1297), arquivos disjuntos dos meus. Incorporei a main (head `818f4db0bd148c7d7b125fd14fa70fe639e4a48a`) e reabri o CI; pronto depois dele.
