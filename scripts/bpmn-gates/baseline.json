@@ -1,0 +1,285 @@
+{
+  "descricao": "Baseline versionada de findings PRE-EXISTENTES dos gates 1-5 (EP-PROC-04). So' encolhe: finding fora daqui reprova; entrada que nao reproduz mais reprova (remova-a). Teto do tamanho em tests/processes/test_bpmn_gates_harness.py.",
+  "medida_em": "2026-11-16, head 211c6ae, toolchain de scripts/bpmn-gates/package-lock.json (G2-IMPL acrescentado na revisao F1)",
+  "entries": [
+    {
+      "gate": "2",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn",
+      "code": "G2-CONV",
+      "element": "<definitions>",
+      "message": "4 processos no arquivo (esperado 1)",
+      "origem": "Pre-existente no head 211c6ae. ANS-CRON tem 4 definicoes num arquivo por desenho (contrato docs/processes/contracts/SP-OP-ANS-CRON-001.md; catalogo 'ANS-CRON contem cinco definicoes'); separar e' decisao do dono, nao deste harness."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn",
+      "code": "G4-label-required",
+      "element": "Flow_TemGap_PubGap",
+      "message": "Element is missing label/name",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra label-required). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DecisaoRemediacao",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_ExecucaoCadastro",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DecisaoCancelamento",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DecisaoContas",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DecisaoDescred",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DecisaoCred",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_Resultado",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DecisaoFraude",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DecisaoNip",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_TipoAprovacao",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DecisaoPagamento",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_Decisao",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DecisaoRecurso",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DecisaoReembolso",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_DesfechoPagamento",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_AvisoAprovado",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "4",
+      "profile": "sp-op",
+      "file": "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn",
+      "code": "G4-no-gateway-join-fork",
+      "element": "GW_AguardarDocs",
+      "message": "Gateway forks and joins",
+      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
+    },
+    {
+      "gate": "3",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_1_COMPRA (com suporte)_v4_adaptado.bpmn",
+      "code": "G3-CORR",
+      "element": "C4_B_SemSlot",
+      "message": "bpmn:error 'SEM_SLOT_EQUIVALENTE' capturado sem emissor no corpus",
+      "origem": "Pre-existente no head 211c6ae. MAPA-ELEMENTOS-V4 §8.2: SEM_SLOT_EQUIVALENTE e' lancado pelo delegate em runtime, sem emissor no XML por desenho; pendencia do pacote broker (D-30), corpus sob cerca."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "H2_T_EscalarRevisao",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 96",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "NBA_T_EscalarRevisao",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 905",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "DS_T_RegistrarAlerta",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 976",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_1_COMPRA (com suporte)_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "C3_T_EscalarParecer",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 975",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_1_COMPRA (com suporte)_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "C3_T_EscalarRenegociar",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 1003",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_3_SUPORTE_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "S3_T_EscalarEspecialista",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 563",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_3_SUPORTE_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "S3_T_EscalarEnfermagem",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 583",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_3_SUPORTE_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "S3_T_EscalarProtocolo",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 620",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_3_SUPORTE_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "S3_T_EscalarPriorizar",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 646",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_3_SUPORTE_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "S3_T_EscalarSupervisao",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 679",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    },
+    {
+      "gate": "2",
+      "profile": "corpus-doc",
+      "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_3_SUPORTE_v4_adaptado.bpmn",
+      "code": "G2-IMPL",
+      "element": "S3_T_EscalarIntervencao",
+      "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 706",
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
+    }
+  ]
+}

@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from maezo.gateway.commercial_fences import (
+from maezo.adapters.amh.commercial_fences import (
     screen_commercial_input,
     screen_journey_labels,
     validate_intake_descriptor,

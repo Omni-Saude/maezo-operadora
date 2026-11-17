@@ -99,6 +99,11 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         # case facts to the inputs of an rco_ decision per the K1 entradas dictionary; no engine
         # client, no PHI egress, no worker registration (a later unit wires it into a worker).
         "rco_montador",
+        # MZO-3: the SHADOW evaluator of an rco K1 table with the montador's inputs — reads the pin
+        # (`rco_pin`), builds the inputs (`rco_montador`) and evaluates through `dmn_transport.evaluate_sync`
+        # (the injected dmn= seam it receives from the worker). Returns None, swallows every exception,
+        # registers no worker and writes no process variable; consumed by `contas.identify_glosa_entry`.
+        "rco_sombra",
         # T-D (merged in the T1.10 wave alongside this arch-test): the fresh-client-per-call
         # CibSevenTransport SEAM (GAP-INAD-1) — an engine transport like dmn_transport, reached
         # by workers ONLY via the engine= param; registers no workers, legitimately owns httpx.

@@ -1,0 +1,203 @@
+name: BPMN gates
+
+# EP-PROC-04 (E-SF-31) — harness dos gates 1-5 + deploy efemero na engine PINADA.
+# Registro de origem: DEC-PROC PROC-04 (opcao A): "A CI do maezo roda os gates 1-5 com toolchain
+# pinada (lockfile) e deploy efemero na engine `cibseven 2.1.0@sha256:20a2135b...` em todo PR que
+# toque `spec/processes/**` ou `docs/processes/New_BPMN/**`." Deploy em ambiente implantado
+# (staging/prod) NAO e' isto: e' OWNER-DEPLOY.
+#
+# Workflow PROPRIO (e nao um job no ci.yml) e NAO e' check obrigatorio: nenhuma lista de checks
+# exigidos foi tocada. Os gates e a baseline vivem em `scripts/bpmn-gates/` (bpmn_gates.py);
+# a cerca local e' `tests/processes/test_bpmn_gates_harness.py`.
+# Sem gatilho `push` na main: o PR ja' rodou o mesmo SHA (mesma razao de faturamento do ci.yml).
+
+on:
+  pull_request:
+    paths:
+      - "spec/processes/**"
+      - "docs/processes/New_BPMN/**"
+      - "scripts/bpmn-gates/**"
+      - ".bpmnlintrc"
+      - ".github/workflows/bpmn-gates.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MAEZO_CI_PYTHON_VERSION: "3.12"
+  MAEZO_CI_UV_VERSION: "0.11.26"
+  # O MESMO digest de deploy/cibseven/Dockerfile (FROM) e de docker-compose.yml (servico cibseven).
+  # Cerca: tests/processes/test_bpmn_gates_harness.py.
+  BPMN_GATES_ENGINE_IMAGE: "cibseven/cibseven:2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169"
+  EVIDENCE_DIR: bpmn-gates-evidence
+
+jobs:
+  gates:
+    name: bpmn-gates (1-5 + engine pinada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      # Mesma composicao do servico `cibseven` do docker-compose.yml (Postgres + engine), com as
+      # MESMAS imagens por digest. `services.*.image` nao le `env`, por isso o literal repete o pin.
+      postgres:
+        image: postgres:17@sha256:f4c66b820c6f974249089d3d16d86a3698eae11e8746eb6644b2271031e91232
+        env:
+          POSTGRES_USER: maezo
+          POSTGRES_PASSWORD: maezo
+          POSTGRES_DB: maezo
+        options: >-
+          --health-cmd "pg_isready -U maezo -d maezo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      cibseven:
+        image: cibseven/cibseven:2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169
+        ports:
+          - 8080:8080
+        env:
+          DB_DRIVER: org.postgresql.Driver
+          DB_URL: jdbc:postgresql://postgres:5432/maezo
+          DB_USERNAME: maezo
+          DB_PASSWORD: maezo
+          WAIT_FOR: postgres:5432
+          WAIT_FOR_TIMEOUT: "60"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # historia completa para o diff contra a base do PR (arquivos tocados, passo abaixo)
+          fetch-depth: 0
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --locked --extra dev
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Install pinned BPMN toolchain (npm ci contra package-lock.json)
+        working-directory: scripts/bpmn-gates
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Versions (evidence)
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          {
+            echo "commit ${GITHUB_SHA}"
+            echo "engine_image_declared ${BPMN_GATES_ENGINE_IMAGE}"
+            echo "engine_container_image $(docker inspect --format '{{.Config.Image}} {{.Image}}' '${{ job.services.cibseven.id }}')"
+            echo "node $(node --version)"
+            echo "npm $(npm --version)"
+            (cd scripts/bpmn-gates && npm ls --depth=0)
+            uv run python --version
+            sha256sum scripts/bpmn-gates/package-lock.json .bpmnlintrc scripts/bpmn-gates/baseline.json scripts/bpmn-gates/xsd/*.xsd
+          } | tee "$EVIDENCE_DIR/versions.txt"
+
+      # AUTOTESTE: cada gate tem de REPROVAR a sua fixture negativa. Exige saida == 1 ("finding"),
+      # nao apenas != 0: saida 2 e' erro de ferramenta (XSD adulterado, node ausente), e um gate
+      # quebrado nao pode passar no autoteste so' por ter quebrado. Exige tambem o codigo do achado
+      # esperado no log, para que a fixture reprove PELO motivo que ela encena.
+      - name: Self-test — each gate must fail its negative fixture
+        run: |
+          set -uo pipefail
+          check() {
+            gate="$1"; fixture="$2"; expected="$3"
+            out="$EVIDENCE_DIR/selftest-g${gate}.log"
+            uv run python scripts/bpmn-gates/bpmn_gates.py --gate "$gate" --profile corpus-doc "scripts/bpmn-gates/fixtures/$fixture" > "$out" 2>&1
+            rc=$?
+            cat "$out"
+            if [ "$rc" -ne 1 ]; then
+              echo "::error::gate $gate na fixture $fixture saiu $rc (esperado 1 = finding)"; return 1
+            fi
+            if ! grep -q -- "$expected" "$out"; then
+              echo "::error::gate $gate na fixture $fixture nao reportou $expected"; return 1
+            fi
+            echo "OK: gate $gate reprovou $fixture com $expected"
+          }
+          fail=0
+          check 1 neg_g1_xsd.bpmn "G1-XSD" || fail=1
+          check 2 neg_g2_static.bpmn "G2-REF" || fail=1
+          check 3 neg_g3_idname.bpmn "G3-IDNAME" || fail=1
+          check 4 neg_g4_lint.bpmn "G4-no-gateway-join-fork" || fail=1
+          check 5 neg_g5_import.bpmn "G5-IMPORT" || fail=1
+          exit "$fail"
+
+      # Criterio 2 do PROC-04: "0 findings nos arquivos tocados". Arquivo .bpmn tocado pelo PR perde a
+      # isencao da baseline (`--touched`): os achados dele contam como NOVO.
+      - name: Touched BPMN files (PR diff)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git -c core.quotepath=off diff --name-only "origin/${{ github.base_ref }}...HEAD" -- '*.bpmn' > "$EVIDENCE_DIR/touched.txt"
+          cat "$EVIDENCE_DIR/touched.txt"
+
+      - name: Gates 1-5 — perfil SP-OP (spec/processes/bpmn)
+        run: |
+          set -o pipefail
+          touched=()
+          if [ -f "$EVIDENCE_DIR/touched.txt" ]; then touched=(--touched "$EVIDENCE_DIR/touched.txt"); fi
+          uv run python scripts/bpmn-gates/bpmn_gates.py --profile sp-op "${touched[@]}" \
+            --baseline scripts/bpmn-gates/baseline.json \
+            --json-out "$EVIDENCE_DIR/gates-sp-op.json" | tee "$EVIDENCE_DIR/gates-sp-op.log"
+
+      - name: Gates 1-5 — perfil corpus-doc (docs/processes/New_BPMN/Adapted_BPMN)
+        if: success() || failure()
+        run: |
+          set -o pipefail
+          touched=()
+          if [ -f "$EVIDENCE_DIR/touched.txt" ]; then touched=(--touched "$EVIDENCE_DIR/touched.txt"); fi
+          uv run python scripts/bpmn-gates/bpmn_gates.py --profile corpus-doc "${touched[@]}" \
+            --baseline scripts/bpmn-gates/baseline.json \
+            --json-out "$EVIDENCE_DIR/gates-corpus-doc.json" | tee "$EVIDENCE_DIR/gates-corpus-doc.log"
+
+      - name: Wait for the pinned engine
+        if: success() || failure()
+        run: |
+          set -euo pipefail
+          timeout 300 bash -c 'until curl -sf http://localhost:8080/engine-rest/version; do sleep 5; done'
+          curl -sf http://localhost:8080/engine-rest/version | tee "$EVIDENCE_DIR/engine-version.json"
+
+      # Deploy SO'-PARA-PARSE de cada .bpmn/.dmn (spec/processes + corpus CA), um deployment por
+      # artefato, apagado em seguida. O teste e' o mesmo que a lane de integracao do ci.yml coleta
+      # no shard `restante` (`-m "integration and not chaos"` sobre `tests`).
+      - name: Engine parse-only deploy (pinned image)
+        if: success() || failure()
+        env:
+          ENGINE_REST_URL: http://localhost:8080/engine-rest
+        run: |
+          set -o pipefail
+          uv run python -m pytest tests/integration/processes/test_bpmn_engine_parse_deploy.py -m integration -v -rA \
+            --junitxml="$EVIDENCE_DIR/engine-parse-deploy.junit.xml" | tee "$EVIDENCE_DIR/engine-parse-deploy.log"
+          python -I -c "import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); s=r if r.tag=='testsuite' else r.find('testsuite'); sys.exit(1 if int(s.get('skipped','0')) or int(s.get('tests','0'))==0 else 0)" "$EVIDENCE_DIR/engine-parse-deploy.junit.xml"
+
+      - name: Engine logs on failure
+        if: failure()
+        run: docker logs '${{ job.services.cibseven.id }}' > "$EVIDENCE_DIR/cibseven.log" 2>&1 || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: bpmn-gates-evidence
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30

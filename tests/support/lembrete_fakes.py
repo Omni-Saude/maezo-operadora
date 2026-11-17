@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from maezo.agents.lucas.fonte_cobranca import CompetenciaCobranca, FatosCobranca, Indisponivel
+from maezo.gateway.communications.outbound_gate import (
+    AutorizacaoDeEnvio,
+    OutboundGate,
+    PermissaoDeContato,
+)
 from maezo.gateway.recipient_custody import RecipientRecord
 from maezo.platform.lembretes.config import Allowlist, ConfigJob
 from maezo.platform.lembretes.envio import Enviador
@@ -157,17 +162,15 @@ class FakeCliente:
     async def send_template(
         self,
         to: str,
-        template_name: str,
-        parameters: list[str],
-        *,
-        language: str = "pt_BR",
-        idempotency_key: str | None = None,
+        autorizacao: AutorizacaoDeEnvio,
     ) -> dict[str, Any]:
         if self._falhar > 0:
             self._falhar -= 1
             raise RuntimeError("meta fora")
-        self.template.append((to, template_name, parameters, language))
-        self.chaves.append(idempotency_key)
+        self.template.append(
+            (to, autorizacao.template_name, list(autorizacao.parametros), autorizacao.language)
+        )
+        self.chaves.append(autorizacao.chave_idempotencia)
         return self._ack
 
 
@@ -200,6 +203,8 @@ class Cenario:
         suprimidos: Sequence[tuple[str, str]] = (),
         supressao_falha: bool = False,
         cliente: FakeCliente | None = None,
+        outbound: OutboundGate | None = None,
+        permissao_de: Callable[[Beneficiario], PermissaoDeContato | None] | None = None,
     ) -> None:
         self.cfg = cfg
         self.acesso = FakeAcesso(beneficiarios)
@@ -229,7 +234,10 @@ class Cenario:
             ),
             chave_de_saida=lambda identificador: f"k:{len(identificador)}",
             dormir=dormir,
+            outbound=outbound,
         )
+        if permissao_de is not None:
+            self.deps.permissao_de = permissao_de
 
 
 def allowlist(*conversas: str) -> Allowlist:

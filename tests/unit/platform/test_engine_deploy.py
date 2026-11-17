@@ -165,11 +165,13 @@ class TestCollectArtifacts:
         # 68 -> 69: `reembolso_auto_approval.dmn` (faixa B DORMENTE do R-070, R-076, #1149).
         # 69 -> 70: `pagto_comite_coordenacao.dmn` (DEC-31 D31-2 — assuncao do comite pela
         # coordenacao apos SLA; avaliada so por BRT_AssuncaoComite, dark atras do comite colegiado).
+        # 70 -> 71: `funnel_deadline_catalog.dmn` (E-SF-08 — catalogo DRAFT de prazos normativos
+        # do funil; sem consumidor).
         # ADR-0075 secao b: `dmn/rco/` (pacote K1) e' contado a parte — 70 tabelas do Maezo no
         # primeiro nivel + o exemplo sintetico do rco (o pacote real chega pelo pin).
         maezo = [p for p in dmn if p.parent.name == "dmn"]
         rco = [p.relative_to(processes_dir / "dmn").as_posix() for p in dmn if p.parent.name == "rco"]
-        assert len(maezo) == 70  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
+        assert len(maezo) == 71  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
         assert rco == ["rco/rco_exemplo_sintetico.dmn"]
         assert len(dmn) == len(maezo) + len(rco)
 

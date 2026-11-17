@@ -58,8 +58,9 @@ spec:
             # Graph id. NOT a secret (`WhatsAppSettings.phone_number_id`'s own comment,
             # `mcp_whatsapp/server.py`) — a plain `value:` from `values.yaml`, not routed through
             # `maezo-whatsapp-config` like the three credentials above. `send_message` fails
-            # closed with a `ValueError` when this is unset (`server.py`, achado 9.4) — the same
-            # shape `check_chart_env_reconciliation.py`'s `chart_required` marker now catches.
+            # closed with a `ValueError` when this is unset (`server.py`, achado 9.4). `chart_required` only
+            # proves the key is DECLARED; an empty value with outbound/lembrete on is refused at render time by
+            # `templates/guard-whatsapp-outbound.yaml` (GTM-E-44).
             - name: WHATSAPP_PHONE_NUMBER_ID
               value: {{ .Values.whatsapp.phoneNumberId | quote }}
             # Tenant Postgres DSN (ADR-0007, T-C2, T4b) — Helena's in-process dispatch needs this
