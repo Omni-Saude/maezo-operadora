@@ -81,3 +81,8 @@ ACHADO: o catálogo GT-GTM-018/099 não existe no pacote (busca por id em todo o
 - Arquivos tocados (2, novos): `src/maezo/portal/api/specialist_console.py`; `tests/unit/portal/test_add01_02_specialist_console.py`.
 - Simulação de merge sobre a main `4d44a8ec` (clone isolado, abortada): limpa, só os 2 arquivos. Ramo contém `972130a0`; um merge atrás (#1302, disjunto — CD-80).
 - Pronto enviado à coordenação do programa por `send_message`.
+
+## 2026-11-17 ~21:55Z — merge do #1303 e PR das classes fechadas
+
+- maezo-operadora #1303 (ADD01-02) mesclado; main `093357a2`.
+- maezo-operadora #1304 (variáveis em classe fechada; CD-87, CD-88, CD-91) aberto, head `aa79b405436e763f34071099c02c9cc4173ae06b`, contém `093357a2`. Edição autorizada em `tests/unit/platform/lembretes/test_optout_config_envio.py` listada no corpo.
