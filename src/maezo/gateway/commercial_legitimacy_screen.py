@@ -46,7 +46,10 @@ veredito de vigência.
 storage: a instância é `(tenant, operation='legitimacy_screen', screen_ref, screen_revision)`
 (PK — reenvio nunca cria segunda instância, molde 0020) e a binding à oportunidade é
 `(tenant, operation, opportunity_ref, screen_revision)` (UNIQUE — uma tela por oportunidade e
-revisão; revalidação por evento = NOVA `screen_revision`, nunca UPDATE de revisão).
+revisão; revalidação por evento = NOVA `screen_revision`, nunca UPDATE de revisão). Idempotente
+é só o REENVIO do mesmo registro (mesmo conteúdo e mesmo autor; os carimbos de instante não
+contam — `same_screen_revision_content`): a chave de instância já ocupada por OUTRO conteúdo é
+`revision_taken`, nunca a linha do outro escritor devolvida como se fosse a do chamador.
 
 **Escuro e sem wiring (este PR é o substrato, desenho §8.3 PR 1).** Nenhuma flag, nenhuma
 rota, nenhum guard e nenhum enforcing existe neste PR: a tabela nasce sem nenhum escritor na
@@ -84,11 +87,13 @@ __all__ = [
     "LegitimacyScreenRecord",
     "LegitimacyScreenStatus",
     "LegitimacyScreenStore",
+    "LegitimacyScreenStoreCode",
     "LegitimacyScreenStoreError",
     "NormAnchor",
     "PostgresLegitimacyScreenStore",
     "PROHIBITED_ANCHOR_FRAGMENTS",
     "ScreenRef",
+    "same_screen_revision_content",
 ]
 
 # ----------------------------------------------------------------------------------
@@ -257,6 +262,37 @@ class LegitimacyScreenRecord(_Closed):
 # ----------------------------------------------------------------------------------
 
 
+#: Vocabulário FECHADO do erro de persistência (ver `LegitimacyScreenStoreError`).
+LegitimacyScreenStoreCode = Literal["source_unavailable", "contract_mismatch", "revision_taken"]
+
+#: Campos EXCLUÍDOS da comparação de reenvio — só os carimbos de instante, porque são
+#: cunhados pelo relógio do ESCRITOR a cada tentativa (`datetime.now` na tela staff, o
+#: relógio injetado no guard) e não dizem nada sobre a verificação: o reenvio legítimo da
+#: MESMA revisão (retry de rede, dois disparos idênticos do guard) carrega instantes novos.
+#: - `created_at`: instante da tentativa, não fato da verificação;
+#: - `updated_at`: idem (revisão é imutável; nasce igual a `created_at`).
+#: Tudo o mais é CONTEÚDO e entra na comparação: chave e eixos (`tenant`, `screen_ref`,
+#: `screen_revision`, `legal_entity_ref`, `opportunity_ref`), regime (`contract_kind`,
+#: `contracting_form`), critério→resultado→referência (`criteria`), estado (`status`,
+#: `would_block`, `art39_signaled`, `art39_anchor`), prazo declarado do art. 10
+#: (`reconfirmation_due_at` — é dado da verificação, não carimbo), as constantes de forma
+#: (`schema_version`, `operation`) e o AUTOR (`created_by` — mesma revisão por outro autor
+#: é outra verificação, nunca reenvio).
+_REVISION_STAMP_FIELDS: Final = frozenset({"created_at", "updated_at"})
+
+
+def same_screen_revision_content(
+    persisted: LegitimacyScreenRecord, requested: LegitimacyScreenRecord
+) -> bool:
+    """`True` ⟺ a linha persistida é o REENVIO do pedido: todo campo igual salvo os carimbos.
+
+    Instantes comparam por INSTANTE (`datetime.__eq__` entre fusos), então o fuso devolvido
+    pelo banco não fabrica diferença; `criteria` compara critério a critério, na ordem.
+    """
+    excluded = set(_REVISION_STAMP_FIELDS)
+    return persisted.model_dump(exclude=excluded) == requested.model_dump(exclude=excluded)
+
+
 @final
 class LegitimacyScreenStoreError(Exception):
     """Erro de PERSISTÊNCIA do substrato — não é o vocabulário de recusa do guard.
@@ -266,12 +302,16 @@ class LegitimacyScreenStoreError(Exception):
     fechados: `source_unavailable` = a fonte não respondeu/está ilegível (nenhum texto de
     driver cruza a fronteira); `contract_mismatch` = a linha violaria a unicidade de
     instância da oportunidade (mesma oportunidade + revisão sob outro screen_ref) — recusa
-    LOUD, nunca overwrite silencioso (molde 0020).
+    LOUD, nunca overwrite silencioso (molde 0020); `revision_taken` = a chave de instância
+    `(screen_ref, screen_revision)` já está ocupada por um registro de CONTEÚDO OU AUTOR
+    diferente (outro escritor gravou a mesma revisão antes — corrida de revalidação): a
+    revisão pedida NÃO foi persistida e a linha alheia nunca volta como se fosse a do
+    chamador.
     """
 
-    code: Literal["source_unavailable", "contract_mismatch"]
+    code: LegitimacyScreenStoreCode
 
-    def __init__(self, code: Literal["source_unavailable", "contract_mismatch"]) -> None:
+    def __init__(self, code: LegitimacyScreenStoreCode) -> None:
         super().__init__(code)
         self.code = code
 
@@ -286,7 +326,14 @@ class LegitimacyScreenStore(Protocol):
     """
 
     async def save(self, record: LegitimacyScreenRecord) -> LegitimacyScreenRecord:
-        """Persiste a revisão; reenvio da MESMA chave devolve a linha já existente."""
+        """Persiste a revisão e devolve a linha persistida.
+
+        Reenvio da MESMA chave com o MESMO conteúdo e autor (`same_screen_revision_content`:
+        só os carimbos de instante podem diferir) devolve a linha já existente — idempotente.
+        A chave já ocupada por conteúdo ou autor DIFERENTE levanta
+        `LegitimacyScreenStoreError("revision_taken")`: nada é gravado e a linha alheia nunca
+        é devolvida. Mesma oportunidade+revisão sob outro `screen_ref` = `contract_mismatch`.
+        """
         ...
 
     async def read(self, tenant: str, screen_ref: str, screen_revision: int) -> LegitimacyScreenRecord | None:
@@ -402,10 +449,14 @@ def _record_from_row(row: Any) -> LegitimacyScreenRecord:
 
 
 class PostgresLegitimacyScreenStore:
-    """`LegitimacyScreenStore` sobre a migração 0030 — idempotente no nível do storage.
+    """`LegitimacyScreenStore` sobre a migração 0030 — reenvio idempotente no nível do storage.
 
-    Reenvio da mesma instância `(tenant, operation, screen_ref, screen_revision)` devolve a
-    linha JÁ EXISTENTE (`ON CONFLICT DO NOTHING` + re-leitura). A segunda unicidade
+    Reenvio da mesma instância `(tenant, operation, screen_ref, screen_revision)` com o
+    MESMO conteúdo e autor devolve a linha JÁ EXISTENTE (`ON CONFLICT DO NOTHING` +
+    re-leitura + comparação, tudo na MESMA transação). A chave ocupada por conteúdo ou autor
+    DIFERENTE (corrida: outro escritor gravou a revisão N+1 entre a leitura da cabeça e o
+    INSERT) é `revision_taken` — a revisão do chamador não foi gravada e a linha do outro
+    nunca volta como sucesso dele. A segunda unicidade
     (`tenant, operation, opportunity_ref, screen_revision`) não é conflito silencioso: a
     mesma oportunidade+revisão sob OUTRO `screen_ref` viola a UNIQUE e vira
     `contract_mismatch` — instância duplicada é recusa, nunca segunda trilha (molde 0020).
@@ -438,32 +489,41 @@ class PostgresLegitimacyScreenStore:
             "created_at": record.created_at,
             "updated_at": record.updated_at,
         }
+        key = {
+            "tenant": record.tenant,
+            "screen_ref": record.screen_ref,
+            "screen_revision": record.screen_revision,
+        }
         try:
             async with self._engine.begin() as db:
-                await db.execute(_INSERT_SQL, params)
-                row = (
-                    (
-                        await db.execute(
-                            _SELECT_ONE_SQL,
-                            {
-                                "tenant": record.tenant,
-                                "screen_ref": record.screen_ref,
-                                "screen_revision": record.screen_revision,
-                            },
-                        )
-                    )
-                    .mappings()
-                    .one()
-                )
-        except IntegrityError:
-            # Instância duplicada da oportunidade (UNIQUE opportunity+revision sob outro
-            # screen_ref): recusa de CONTRATO, não indisponibilidade de fonte.
-            raise LegitimacyScreenStoreError("contract_mismatch") from None
+                # SAVEPOINT em volta do INSERT: uma violação de unicidade NÃO aborta a
+                # transação, e a classificação (abaixo) re-lê a chave DENTRO dela. Numa
+                # corrida, o INSERT concorrente pode bater na UNIQUE da oportunidade antes do
+                # árbitro do `ON CONFLICT` (mesma oportunidade+revisão do outro escritor) —
+                # isso é chave TOMADA, não segunda instância, e só a re-leitura distingue.
+                integrity_refused = False
+                try:
+                    async with db.begin_nested():
+                        await db.execute(_INSERT_SQL, params)
+                except IntegrityError:
+                    integrity_refused = True
+                row = (await db.execute(_SELECT_ONE_SQL, key)).mappings().one_or_none()
+                if row is None:
+                    if integrity_refused:
+                        # Instância duplicada da oportunidade (UNIQUE opportunity+revision sob
+                        # outro screen_ref): recusa de CONTRATO, não indisponibilidade de fonte.
+                        raise LegitimacyScreenStoreError("contract_mismatch")
+                    raise LegitimacyScreenStoreError("source_unavailable")
+                persisted = _record_from_row(row)
+                if not same_screen_revision_content(persisted, record):
+                    # A chave é de OUTRO registro (outro conteúdo ou outro autor): a revisão
+                    # do chamador não foi gravada — nunca a devolver como se fosse dele.
+                    raise LegitimacyScreenStoreError("revision_taken")
         except LegitimacyScreenStoreError:
             raise
         except Exception:
             raise LegitimacyScreenStoreError("source_unavailable") from None
-        return _record_from_row(row)
+        return persisted
 
     async def read(self, tenant: str, screen_ref: str, screen_revision: int) -> LegitimacyScreenRecord | None:
         return await self._read_one(
