@@ -127,3 +127,9 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
   - `link_opaco_jornada`: qualquer hexadecimal/UUID ou URL com token hex (link que não é da jornada).
   - `produto_catalogo`: já é conjunto fechado (vazio por falta de catálogo).
 - Q-W2-MZO-CA-03: CD-95 manda resolver pela fonte ou fechar em conjunto TODAS as classes da lista. Fonte de primeiro nome não existe no repositório (a custódia do destinatário guarda só telefone). Proposta (A, recomendada): neste PR, `primeiro_nome` passa a "resolvida pela fonte" — o chamador não informa o valor; sem fonte (GAP), todo modelo com essa classe é recusado. As classes de data, valor, contagem, protocolo e link usam só dígitos/separadores/hex (não codificam palavra, logo não carregam termo de saúde); a resolução pela fonte delas exige mudar o produtor de lembretes (caminho da W2-MZO-GP, E-SF-21r) e as fontes de cobrança: linha própria, com a lista acima como pré-condição de D20–D22. (B) resolver todas agora: fora de posse e sem fontes. Sigo (A), `PROVISÓRIO-aguarda-coordenador`.
+
+## 2026-11-17 ~23:40Z — PR do conserto do primeiro_nome
+
+- maezo-operadora #1306 aberto (`sf-w2/mzo-ca/primeiro-nome`), head `d3bd8a1e8191207575c5a12eeb02490458a3ac88`, contém a main `4826d014`. Revisão independente PASS (observações de texto aplicadas). Local sem falha exclusiva do ramo.
+- O corpo do PR traz a lista de CD-95 item 2 e declara este PR e o #1304 como pré-condição de D20–D22.
+- Falha de processo minha: limpei `/tmp/pytest-of-root` durante a suíte local da GTM-E-63 (resultado inválido, 1541 erros espúrios). Passo a usar `--basetemp` próprio em cada rodada; a suíte da GTM-E-63 roda de novo antes do PR dela.
