@@ -312,7 +312,7 @@ class AdministrativeJourneyRuntime:
         self.__enabled = enabled
         self.__identity = identity
         self.__graph_version, self.__schema = (
-            identity.full_runtime_graph_version,
+            self.__expected_graph_version(),
             FULL_RUNTIME_STATE_SCHEMA,
         )
         self.__key: str | None = None
@@ -332,11 +332,18 @@ class AdministrativeJourneyRuntime:
         # Only same-object serialization; cross-process conflicts remain journal CAS.
         self.__lock = asyncio.Lock()
 
+    def __expected_graph_version(self) -> str:
+        # The Lucas default keeps reading the module alias (existing seam);
+        # any other identity owns its graph version.
+        if self.__identity is LUCAS_ADMINISTRATIVE_IDENTITY:
+            return FULL_RUNTIME_GRAPH_VERSION
+        return self.__identity.full_runtime_graph_version
+
     def _scope(self) -> None:
         if (
             _binding(self.__driver.binding) != self.__binding
             or (self.__graph_version, self.__schema)
-            != (self.__identity.full_runtime_graph_version, FULL_RUNTIME_STATE_SCHEMA)
+            != (self.__expected_graph_version(), FULL_RUNTIME_STATE_SCHEMA)
             or self.__driver.currentness is not self.__currentness
         ):
             raise JourneyContractError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
@@ -447,7 +454,7 @@ class AdministrativeJourneyRuntime:
                 and type(self.__graph_version) is str
                 and type(self.__schema) is str
                 and (self.__graph_version, self.__schema)
-                == (self.__identity.full_runtime_graph_version, FULL_RUNTIME_STATE_SCHEMA)
+                == (self.__expected_graph_version(), FULL_RUNTIME_STATE_SCHEMA)
                 and self.__driver.currentness is self.__currentness
             )
         except (AttributeError, TypeError, ValueError):
