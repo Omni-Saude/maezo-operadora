@@ -409,7 +409,9 @@ CONCORDOU_NAO: Final[str] = "nao"
 SEM_DESFECHO: Final[str] = "sem_desfecho"
 
 
-def conferencias_confirmadas(desfechos: Iterable[tuple[int, int, str, str | None]], decisao: str) -> int:
+def conferencias_confirmadas(
+    desfechos: Iterable[tuple[int, int, str, str | None]], decisao: str, limite: int | None = None
+) -> int:
     """Quantas conferencias contam para a janela da `decisao` adversa: a definicao que o SQL espelha.
 
     `desfechos`: `(id_do_desfecho, id_da_decisao, concordou, decisao_da_linha)` dos desfechos de decisoes
@@ -421,10 +423,14 @@ def conferencias_confirmadas(desfechos: Iterable[tuple[int, int, str, str | None
     MAIOR que o do `nao` mais recente da regra/versao, de QUALQUER decisao (uma rejeicao zera a janela de
     todas: o lado seguro). `sem_desfecho` nem conta nem zera. Decisao em sombra ou que nao foi
     conferencia nunca entra aqui: quem chama so passa desfechos de `acao = conferencia`.
+
+    `limite` (o tamanho da janela): devolve `min(contagem, limite)`, como o SQL limitado; so importa saber
+    se a janela fechou, e o limite impede varrer a versao inteira.
     """
     lista = list(desfechos)
     ultimo_nao = max((i for i, _, c, _ in lista if c == CONCORDOU_NAO), default=0)
-    return len({d for i, d, c, dec in lista if c == CONCORDOU_SIM and dec == decisao and i > ultimo_nao})
+    total = len({d for i, d, c, dec in lista if c == CONCORDOU_SIM and dec == decisao and i > ultimo_nao})
+    return total if limite is None else min(total, limite)
 
 
 def janela_de_conferencia_aberta(confirmadas: int | None, janela: int) -> bool:

@@ -413,22 +413,32 @@ _ORDINAL_SQL: Final = (
 #: sob `conferencia_integral`); conta as decisoes distintas da MESMA `decisao` ($4) com `sim` de id maior
 #: que o do `nao` mais recente da regra/versao (de qualquer decisao: um `nao` zera todas). Indices da 0035:
 #: `rco_decisao_regra_regra_idx` e `rco_decisao_regra_desfecho_fk_idx`.
+#: LIMITADA por $5 (o tamanho da janela; NULL = sem limite): devolve min(contagem, $5), porque so importa
+#: saber se a janela fechou, e o registro e fail-closed sob `statement_timeout`. O ultimo `nao` sai pelo
+#: id decrescente com LIMIT 1 (para no primeiro achado).
 _CONFIRMADAS_SQL: Final = (
-    "WITH d AS ("
-    "SELECT f.id, f.rco_decisao_regra_id AS id_decisao, f.concordou, r.decisao "
+    "SELECT count(*) FROM ("
+    "SELECT DISTINCT f.rco_decisao_regra_id "
     "FROM rco_decisao_regra_desfecho f JOIN rco_decisao_regra r ON r.id = f.rco_decisao_regra_id "
     "WHERE r.tenant = $1 AND r.id_regra = $2 AND r.versao_regra = $3 "
-    "AND r.acao = 'conferencia' AND r.modo = 'ativa') "
-    "SELECT count(DISTINCT id_decisao) FROM d WHERE concordou = 'sim' AND decisao = $4 "
-    "AND id > COALESCE((SELECT max(id) FROM d WHERE concordou = 'nao'), 0)"
+    "AND r.acao = 'conferencia' AND r.modo = 'ativa' AND r.decisao = $4 AND f.concordou = 'sim' "
+    "AND f.id > COALESCE(("
+    "SELECT n.id FROM rco_decisao_regra_desfecho n JOIN rco_decisao_regra rn "
+    "ON rn.id = n.rco_decisao_regra_id "
+    "WHERE rn.tenant = $1 AND rn.id_regra = $2 AND rn.versao_regra = $3 "
+    "AND rn.acao = 'conferencia' AND rn.modo = 'ativa' AND n.concordou = 'nao' "
+    "ORDER BY n.id DESC LIMIT 1), 0) "
+    "LIMIT $5) s"
 )
 #: Amostra inicial com efeito possivel (DL-0182, D1): decisoes ANTERIORES gravadas da mesma decisao
 #: adversa ($4) da regra/versao que chegaram a efeito (`modo = ativa`, `acao = efeito_com_amostragem`,
 #: `rco_ativacao.ACAO_EFEITO_ADVERSO`). Sombra, conferencia e revisao humana nunca consomem.
+#: LIMITADA por $5 (`revisao_inicial_decisoes`): so importa saber se a revisao inicial ja foi cumprida.
 _EFEITOS_ANTERIORES_SQL: Final = (
-    "SELECT count(*) FROM rco_decisao_regra "
+    "SELECT count(*) FROM (SELECT 1 FROM rco_decisao_regra "
     "WHERE tenant = $1 AND id_regra = $2 AND versao_regra = $3 AND decisao = $4 "
-    f"AND modo = 'ativa' AND acao = '{ativ.ACAO_EFEITO_ADVERSO}'"
+    f"AND modo = 'ativa' AND acao = '{ativ.ACAO_EFEITO_ADVERSO}' "
+    "LIMIT $5) s"
 )
 _INSERT_SQL: Final = (
     f"INSERT INTO rco_decisao_regra ({', '.join(COLUNAS)}) "
@@ -642,6 +652,7 @@ class PostgresRegistroDecisoesRco:
                                     avaliacao.id_regra,
                                     avaliacao.versao_regra,
                                     avaliacao.decisao,
+                                    avaliacao.conferencia_negativa_admin_decisoes,
                                 )
                             )
                         if avaliacao.modo == "ativa":
@@ -654,6 +665,7 @@ class PostgresRegistroDecisoesRco:
                                     avaliacao.id_regra,
                                     avaliacao.versao_regra,
                                     avaliacao.decisao,
+                                    avaliacao.revisao_inicial_decisoes,
                                 )
                             )
                     linha = montar_linha(
@@ -696,12 +708,16 @@ class PostgresRegistroDecisoesRco:
                 f"rco_decisao_regra indisponivel: {type(exc).__name__}"
             ) from None
 
-    async def contar_conferencias_confirmadas(self, id_regra: str, versao_regra: str, decisao: str) -> int:
+    async def contar_conferencias_confirmadas(
+        self, id_regra: str, versao_regra: str, decisao: str, *, limite: int | None = None
+    ) -> int:
         """A contagem da janela da `conferida` (DL-0182) da `decisao` adversa de uma regra deste tenant,
-        como `registrar` a le."""
+        como `registrar` a le; `limite` devolve `min(contagem, limite)` (`None`: sem limite)."""
 
         async def corpo(conn: Any) -> int:
-            return int(await conn.fetchval(_CONFIRMADAS_SQL, self._tenant, id_regra, versao_regra, decisao))
+            return int(
+                await conn.fetchval(_CONFIRMADAS_SQL, self._tenant, id_regra, versao_regra, decisao, limite)
+            )
 
         return int(await self._em_transacao(corpo))
 

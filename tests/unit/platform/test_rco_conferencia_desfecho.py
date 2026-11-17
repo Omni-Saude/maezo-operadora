@@ -81,6 +81,14 @@ def test_janela_e_por_decisao_adversa_30_negar_confirmadas_nao_abrem_glosar() ->
     assert at.conferencias_confirmadas(misto, "glosar") == 0
 
 
+def test_contagem_limitada_devolve_o_minimo_com_a_mesma_semantica() -> None:
+    desfechos = [(i, i, "sim", "glosar") for i in range(1, 51)]
+    assert at.conferencias_confirmadas(desfechos, "glosar", JANELA) == JANELA
+    assert at.conferencias_confirmadas(desfechos[:29], "glosar", JANELA) == 29
+    com_nao = [*desfechos, (60, 999, "nao", "negar"), (61, 70, "sim", "glosar")]
+    assert at.conferencias_confirmadas(com_nao, "glosar", JANELA) == 1  # o reinicio vale com o limite
+
+
 def test_janela_precisa_de_30_confirmacoes() -> None:
     assert _contar(_sims(29)) == 29
     assert at.janela_de_conferencia_aberta(29, JANELA) is True
@@ -308,7 +316,8 @@ async def test_registrar_le_as_confirmadas_sob_o_lock_e_decide_por_elas(confirma
     assert linha[reg.COLUNAS.index("acao")] == acao
     assert linha[reg.COLUNAS.index("ordinal")] == 77  # o ordinal nao decide a janela
     sql_conf = next(a for sql, a in conn.args if sql == reg._CONFIRMADAS_SQL)
-    assert sql_conf == ("amh", "REGRA-1", "1.2.3", "glosar")  # a janela e a da mesma decisao adversa
+    # a janela e a da mesma decisao adversa, e a consulta e limitada ao tamanho da janela
+    assert sql_conf == ("amh", "REGRA-1", "1.2.3", "glosar", JANELA)
 
 
 async def test_registrar_le_os_efeitos_anteriores_so_com_efeito_possivel() -> None:
@@ -319,6 +328,7 @@ async def test_registrar_le_os_efeitos_anteriores_so_com_efeito_possivel() -> No
         "REGRA-1",
         "1.2.3",
         "glosar",
+        PARAMETROS.revisao_inicial_decisoes,  # limitada: so importa se a revisao inicial foi cumprida
     )
     assert _insert(conn)[reg.COLUNAS.index("motivo_amostra")] == "inicial"
     sombra = _Conn(efeitos=0)
@@ -326,7 +336,13 @@ async def test_registrar_le_os_efeitos_anteriores_so_com_efeito_possivel() -> No
         _avaliar("glosar", ativacao="plena", classe="contas", habilitado=False), _ctx()
     )
     assert "efeitos" not in sombra.log
-    for trecho in ("decisao = $4", "modo = 'ativa'", "acao = 'efeito_com_amostragem'", "tenant = $1"):
+    for trecho in (
+        "decisao = $4",
+        "modo = 'ativa'",
+        "acao = 'efeito_com_amostragem'",
+        "tenant = $1",
+        "LIMIT $5",
+    ):
         assert trecho in reg._EFEITOS_ANTERIORES_SQL
 
 
@@ -360,8 +376,10 @@ def test_o_sql_da_contagem_filtra_regra_conferencia_e_modo_ativo() -> None:
         "r.versao_regra = $3",
         "r.acao = 'conferencia'",
         "r.modo = 'ativa'",
-        "count(DISTINCT id_decisao)",
-        "decisao = $4",
+        "SELECT DISTINCT f.rco_decisao_regra_id",
+        "r.decisao = $4",
+        "ORDER BY n.id DESC LIMIT 1",
+        "LIMIT $5) s",
         "concordou = 'sim'",
         "concordou = 'nao'",
     ):

@@ -177,6 +177,11 @@ async def test_janela_conta_so_confirmadas_e_zera_na_rejeicao_ao_vivo() -> None:
         # Escopo por decisao adversa: 30 `negar` confirmadas de REGRA-N nao abrem a primeira `glosar`.
         await caso.confirmar_n(JANELA, _avaliacao("negar", id_regra="REGRA-N"))
         assert await caso.store.contar_conferencias_confirmadas("REGRA-N", "1.0.0", "negar") == JANELA
+        # contagem LIMITADA: min(contagem, limite), com a mesma semantica (o SQL para no limite)
+        assert await caso.store.contar_conferencias_confirmadas("REGRA-N", "1.0.0", "negar", limite=7) == 7
+        assert (
+            await caso.store.contar_conferencias_confirmadas("REGRA-N", "1.0.0", "negar", limite=99) == JANELA
+        )
         assert await caso.store.contar_conferencias_confirmadas("REGRA-N", "1.0.0", "glosar") == 0
         _, acao = await caso.decidir(_avaliacao("glosar", id_regra="REGRA-N"))
         assert acao == "conferencia"
@@ -341,5 +346,52 @@ async def test_amostra_inicial_conta_so_glosas_com_efeito_ao_vivo() -> None:
         assert linha["motivo_amostra"] != "inicial"
         assert linha["id_chave_amostra"] == "k1"  # a 31a e decidida pela chave HMAC
         assert linha["amostrada"] == (linha["motivo_amostra"] == "aleatoria")
+    finally:
+        await _drop(dsn, tenant)
+
+
+async def test_registros_concorrentes_na_fronteira_da_revisao_inicial_ao_vivo() -> None:
+    """45 `registrar` simultaneos de uma regra `plena`/`glosar` com o indicador ligado (simulado): o lock da
+    regra serializa a contagem, entao exatamente 30 saem `inicial`, com os ordinais 1..30; a re-entrega
+    das 45 nao grava nada."""
+    dsn = _default_test_dsn()
+    tenant = await _schema_novo(dsn)
+    n = 45
+    av = avaliar_regra(
+        decision_key="rco_x",
+        sha_dmn="sha256:" + "a" * 64,
+        regra=RegraK1("REGRA-Q", "1.0.0", "b" * 64, "plena", False),
+        parametros=ParametrosAtivacao(30, 7, 50, 5, 30, JANELA),
+        row={"decisao": "glosar", "classeAdverso": "contas", "motivoTab38": "1801", "fila": "faturamento"},
+        estados=at.EstadosManuais({("REGRA-Q", "1.0.0"): "ativa_l2"}),
+        habilitado=True,
+    )
+    assert av is not None and av.modo == "ativa"
+
+    def ctx(i: int) -> ContextoDecisao:
+        return ContextoDecisao(
+            tenant=tenant,
+            chave_idempotencia=chave_idempotencia(tenant, f"q{i}", "rco_x"),
+            chave_negocio=f"AUTH-q{i}",
+            chave_amostra=b"segredo",
+            id_chave_amostra="k1",
+        )
+
+    try:
+        store = PostgresRegistroDecisoesRco(dsn=dsn, tenant=tenant)
+        assert all(await asyncio.gather(*(store.registrar(av, ctx(i)) for i in range(n))))
+        linhas = await _linhas(
+            dsn, tenant, "SELECT ordinal, acao, motivo_amostra FROM rco_decisao_regra ORDER BY ordinal"
+        )
+        assert [r["ordinal"] for r in linhas] == list(range(1, n + 1))
+        assert all(r["acao"] == "efeito_com_amostragem" for r in linhas)
+        iniciais = [r["ordinal"] for r in linhas if r["motivo_amostra"] == "inicial"]
+        assert iniciais == list(range(1, 31))
+        # re-entrega simultanea das 45: nada grava, nada muda
+        assert not any(await asyncio.gather(*(store.registrar(av, ctx(i)) for i in range(n))))
+        depois = await _linhas(
+            dsn, tenant, "SELECT ordinal, acao, motivo_amostra FROM rco_decisao_regra ORDER BY ordinal"
+        )
+        assert [dict(r) for r in depois] == [dict(r) for r in linhas]
     finally:
         await _drop(dsn, tenant)
