@@ -29,7 +29,7 @@ from typing import Any
 import pytest
 
 from maezo.adapters.amh.commercial import CommercialWire
-from maezo.gateway.commercial_fences import health_marker
+from maezo.adapters.amh.commercial_fences import health_marker
 from maezo.ports.commercial import CommercialRefusalError
 from tests.unit.test_commercial_admission_a4 import snapshot_result
 from tests.unit.test_commercial_c6 import (

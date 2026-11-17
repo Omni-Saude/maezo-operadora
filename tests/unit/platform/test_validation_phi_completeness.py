@@ -149,7 +149,8 @@ class TestNonVacuity:
         # sintetico, cujas variaveis sao CLASSIFICADAS (entradas #1223 do CORPUS_DELTA_LOG), nao isentas.
         dmn_touched = {p for p in touched if p.suffix == ".dmn"}
         rco_touched = {p.name for p in dmn_touched if p.parent.name == "rco"}
-        assert len(dmn_touched) - len(rco_touched) == 70  # VW4/GP11: +suppression_routing
+        # 70 -> 71 com `funnel_deadline_catalog.dmn` (E-SF-08) — ver o CORPUS_DELTA_LOG.
+        assert len(dmn_touched) - len(rco_touched) == 71  # VW4/GP11: +suppression_routing
         assert rco_touched == {"rco_exemplo_sintetico.dmn"}
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
@@ -3041,6 +3042,179 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "'cadastro'). Nome de fila, sem identificador."
         ),
     ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="assistencial",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="clinical_approval_ref",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="deadline_ref",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_input_expression de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="dispositivo_citacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="dispositivo_verbatim",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="enquadramento_fonte",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="entrada_versao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="escopo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="estagios_tracker",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="evento_ancora_ref",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="prazo_quantidade",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="regras_suspensao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="regulatory_approval_ref",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="status",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="verbatim_sha256",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. E-SF-08 (funnel_deadline_catalog.dmn, catalogo DRAFT de prazos normativos): "
+            "dmn_output_name de metadado/ref de dispositivo, sem identificador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-16",
+        pr="#1271",
+        name="calendario",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=("E-SF-08: +1 dmn_output_name em funnel_deadline_catalog.dmn; nome ja' no corpus."),
+    ),
 )
 
 
@@ -3052,7 +3226,7 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 15
         assert (
-            expected_clean == 404
+            expected_clean == 419  # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # R-076 faixa B dormente (#1149): +16 CLEAN (fatos da faixa, origem_*, R-058)
         # DL-0163: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
@@ -3112,7 +3286,8 @@ class TestBuckets:
         # R-076 faixa B dormente (#1149): +16 nomes
         # DEC-31 D31-2 (#1198): +6 nomes (DMN pagto_comite_coordenacao e os fatos da rodada)
         # ADR-0075 / exemplo sintetico rco (#1223): +4 nomes
-        assert len(live_sweep.names) == expected_names == 425
+        # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
+        assert len(live_sweep.names) == expected_names == 440
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -3137,7 +3312,8 @@ class TestBuckets:
         # R-076 faixa B dormente (#1149): +35 ocorrencias (DMN reembolso_auto_approval + 6 elementos BPMN)
         # DEC-31 D31-2 (#1198): +17 (6 nomes novos +14, decisao_pagamento +2, quorum_comite +1); nomes: +6
         # ADR-0075 / exemplo sintetico rco (#1223): +5 (4 nomes novos +4, decisao +1); nomes: +4
-        assert len(live_sweep.refs) == expected_refs == 1877
+        # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
+        assert len(live_sweep.refs) == expected_refs == 1893
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -3292,7 +3468,9 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (404)" in rendered  # ADR-0075 / exemplo sintetico rco (#1223): +4
+            f"## {CLEAN} (419)"
+            in rendered  # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
+            # ADR-0075 / exemplo sintetico rco (#1223): +4
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         # #786 (DL-0111): +1 (`execucao_cadastro`).

@@ -289,3 +289,9 @@ orphans:
     ADR-0028 dmn= seam). FIRST, fail-closed to INDETERMINADA; classifies ledger facts
     (levels 1-3) into NENHUMA/SUSPEITA/CONFIRMADA/INDETERMINADA — a FACT, never a route,
     release or cancel. W and level classes DRAFT (financas + controladoria).
+  # --- E-SF-08 (catalogo de prazos normativos do funil) — PENDING WIRING ------------------
+  funnel_deadline_catalog: >-
+    Pending wiring (E-SF-08 / EP-REG-23a). Catalogo DRAFT de prazos normativos do funil
+    (RN 413 art. 5o par. 2o/7o; Lei 9.656 art. 12 VI), nenhuma entrada ratificada. Sem
+    consumidor BPMN nem worker nesta onda: a projecao em journey.get exige campo novo no
+    sucessor do C6-4 (casa AMH). Lido so pelas cercas tests/unit/dmn e tests/unit/commercial.

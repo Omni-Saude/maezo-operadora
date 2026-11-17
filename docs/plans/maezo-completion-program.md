@@ -248,7 +248,7 @@ Auditoria `REG-RESIDUAL-AUDIT-v1` (sha256 `5f25e8a4490eb26eccea0ff52efcd51f184d5
 - **DRIFT corrigido de registro**: "Lei 9.656 art. 12, VIII" NÃO EXISTE → **art. 12, inciso VI** (linha REG-1.5 da tabela W1 emendada neste PR, com nota; verificado no Planalto pela auditoria).
 - **REG-1.6 SUPERADO**: pin vivo já é set/2026 `04.03.00/01.06.00` (PR #657 `76e0094d`); prazo real de implantação **31/12/2026** a registrar.
 - **Gated-human (SEGUE, sem engenharia a despachar)**: REG-1.3 (COUNSEL-5/D-06) · REG-1.8 (COUNSEL-4) · REG-1.10 (COUNSEL-5; art. 48 SEM prazo fixo sem norma ANPD pinnada) · REG-1.11 (SME jurídico) · REG-1.12 (COUNSEL).
-- **Stale anotado**: `MAPA-ELEMENTOS-V4.md:106` PT48H → PT168H (residual pós-REG-1.2).
+- **Stale anotado**: `MAPA-ELEMENTOS-V4.md:108` PT48H → PT168H (residual pós-REG-1.2).
 
 ### W6 PROGRAMA — 20 itens dispostos
 

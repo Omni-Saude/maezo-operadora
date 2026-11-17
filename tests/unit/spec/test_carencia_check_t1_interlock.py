@@ -22,7 +22,7 @@ conditional `skip`, no engine mock: tables are read from the real artefacts by t
 
 CI trail markers (A2b, `scripts/ci/trilha.py::testes_do_agente`): a PR touching only one agent's code
 must still run this file, because an agent graph is the natural place for a producer of the inputs.
-  agents/andre/ agents/beatriz/ agents/carolina/ agents/fernando/ agents/gustavo/
+  agents/andre/ agents/beatriz/ agents/carolina/ agents/comercial/ agents/fernando/ agents/gustavo/
   agents/helena/ agents/lucas/ agents/marina/ agents/rafael/ agents/valentina/
 """
 

@@ -37,8 +37,10 @@ def _all_contract_files() -> list[Path]:
 
 def test_contracts_directory_has_16_contracts() -> None:
     """Sanity: the fences below are not silently scanning zero/a truncated set (BRIEF-COMMON
-    ground truth: 16 contracts on main; 17 since VW4/GP11's SP-OP-SUPP-001)."""
-    assert len(_all_contract_files()) == 17
+    ground truth: 16 contracts on main; 17 since VW4/GP11's SP-OP-SUPP-001; 18 .md files since E-SF-13's
+    cross-process MESSAGE-CATALOG.md, which the citation fences below also scan)."""
+    assert len(_all_contract_files()) == 18
+    assert len([f for f in _all_contract_files() if f.name.startswith("SP-OP-")]) == 17
 
 
 def test_every_contract_bpmn_citation_resolves_to_a_real_file() -> None:

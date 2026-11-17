@@ -123,6 +123,18 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
     ),
+    # COMERCIAL (E-SF-17, flag desligada): SO' a declaracao do vocabulario fechado que
+    # `agents/comercial/graph.py` escreve no estado. O agente NAO chama `emit_turn_desfecho` (nenhuma
+    # medicao e' emitida, A9 UNMEASURED); ligar a telemetria dele e' ato da ativacao (OWNER-DEPLOY).
+    "comercial": frozenset(
+        {
+            "saida_clinica",
+            "encaminhado_especialista",
+            "encaminhado_especialista_a_pedido",
+            "identificacao_enviada",
+            "nota_interna",
+        }
+    ),
     # FERNANDO: os seis rotulos do caminho `notify` sao DUAS jornadas x TRES estados de entrega
     # (auditoria de frota 2026-09-04, FER-03/FER-04). Ate essa data so' existiam os dois de
     # SUCESSO, e `notify` os emitia mesmo quando o envio falhava ou o canal nao tinha remetente
