@@ -46,3 +46,10 @@ ACHADO: o catálogo GT-GTM-018/099 não existe no pacote (busca por id em todo o
 
 - #1299 no head `4205a632…`: 42 checks verdes; integração lida do junit (5 shards: 958 + 138 + 130 + 129 + 56 = 1411 testes, 0 falha, 0 erro; inclui os testes PG do runtime administrativo do Lucas).
 - A main andou para `a5fedc8e` (#1297), arquivos disjuntos dos meus. Incorporei a main (head `818f4db0bd148c7d7b125fd14fa70fe639e4a48a`) e reabri o CI; pronto depois dele.
+
+## 2026-11-17 ~19:20Z — PRONTO maezo-operadora #1299 head 818f4db0bd148c7d7b125fd14fa70fe639e4a48a checks verdes (integração lida do junit)
+
+- Integração: 5 shards, 958 + 138 + 130 + 129 + 56 = 1411 testes, 0 falha, 0 erro. `flip-path-review-gate` verde.
+- Arquivos tocados (9): `src/maezo/agents/comercial/graph.py`; `src/maezo/agents/lucas/administrative/{graph,identity,runtime,state}.py`; `src/maezo/runtime/turn_telemetry.py`; `tests/unit/agents/test_gtm_e11_administrative_identity.py`; `tests/unit/agents/test_terminal_nodes_emit_desfecho.py`; `tests/unit/runtime/test_turn_telemetry_comercial_fechada.py`.
+- Simulação de merge sobre a main `dd52a051` (clone isolado, abortada): limpa, só os 9 arquivos. Ramo contém `a5fedc8e`; um merge atrás (#1300, 2 arquivos de documentação, disjuntos — CD-80).
+- Pronto enviado à coordenação do programa por `send_message`.
