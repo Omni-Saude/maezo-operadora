@@ -37,6 +37,14 @@ from tests.unit.platform import rco_k1_2_2_recorte as rec
 
 FILA = "cadastro"
 CONFERIDA = ("rco_geral_elegibilidade", "OMNI-GERAL-ELG-0001")
+#: As tres regras `conferida` do 2.2.0 (todas de classe `administrativo`).
+CONFERIDAS = (
+    CONFERIDA,
+    ("rco_geral_carencia", "OMNI-GERAL-CAR-0001"),
+    ("rco_geral_carencia", "OMNI-GERAL-CAR-0002"),
+)
+#: Regra com aditivo e `classe_adverso` vazia no manifesto.
+COM_ADITIVO_SEM_CLASSE = ("rco_anatpat_compatibilidade", "OMNI-ANATPAT-CMP-0001")
 COM_ADITIVO = (
     ("rco_mex_ortop", "OMNI-ORTOP-MEX-0001"),
     ("rco_mex_ortop_joelho_curativo", "OMNI-ORTOP-MEX-0002"),
@@ -144,7 +152,7 @@ def efeito_ligado(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- pin aceito --------------------------------------------------------------------------------------
 
 
-def test_pacote_real_tem_46_regras_que_eram_recusadas_e_hoje_passam_no_pin() -> None:
+def test_pacote_real_tem_46_regras_que_eram_recusadas_e_hoje_passam_na_checagem_de_ativacao() -> None:
     manifesto = rec.manifesto()
     antes = _antes_recusadas(manifesto)
     assert len(antes) == 46
@@ -193,13 +201,15 @@ def test_efeito_desligado_toda_saida_adversa_das_46_e_registrar_apenas(
 
 
 @pytest.mark.usefixtures("efeito_ligado")
+@pytest.mark.parametrize(("decisao_id", "id_regra"), CONFERIDAS)
 @pytest.mark.parametrize("decisao", ["negar", "glosar"])
-def test_conferida_real_confere_ate_o_ordinal_30(runtime: _Runtime, decisao: str) -> None:
+def test_conferida_real_confere_ate_o_ordinal_30(
+    runtime: _Runtime, decisao_id: str, id_regra: str, decisao: str
+) -> None:
     manifesto = rec.manifesto()
-    decisao_id, id_regra = CONFERIDA
     regra = manifesto.decisoes[decisao_id].regras[id_regra]
     assert (regra.ativacao, regra.exige_aditivo) == ("conferida", False)
-    assert _classes()[CONFERIDA] == "administrativo"
+    assert _classes()[(decisao_id, id_regra)] == "administrativo"
     runtime.pinar(manifesto)
     runtime.estados([(id_regra, regra.versao_regra)])
     for ordinal in (1, 30):
@@ -211,8 +221,9 @@ def test_conferida_real_confere_ate_o_ordinal_30(runtime: _Runtime, decisao: str
             FILA,
         )
         assert acao == at.AcaoDeSaida("conferencia", FILA)
-    linha, _ = runtime.decidir(decisao_id, id_regra, decisao, "administrativo", 31)
-    assert linha.acao == "efeito_com_amostragem"
+    # Depois do ordinal 30 o roteamento de hoje deixa a adversa `conferida` ir a efeito com amostragem;
+    # a coordenacao decidiu que `negar` em `conferida` nunca e automatico, e a unidade 5d-1 fecha isso.
+    # Este teste nao fixa o comportamento depois do ordinal 30 (DL-0181).
 
 
 @pytest.mark.usefixtures("efeito_ligado")
@@ -260,6 +271,21 @@ def test_exige_aditivo_sem_aditivo_vai_a_revisao_humana(
         decisao_id, id_regra, decisao, classe
     )  # o registro passa aditivo_cobre=None
     assert (linha.modo, linha.ativacao_efetiva, linha.acao) == ("ativa", "plena", "revisao_humana")
+    assert acao == at.AcaoDeSaida("revisao_humana", FILA, at.MARCA_SEM_ADITIVO)
+
+
+@pytest.mark.usefixtures("efeito_ligado")
+@pytest.mark.parametrize("decisao", sorted(at.DECISOES_ADVERSAS))
+def test_exige_aditivo_com_classe_vazia_vai_a_revisao_humana(runtime: _Runtime, decisao: str) -> None:
+    decisao_id, id_regra = COM_ADITIVO_SEM_CLASSE
+    manifesto = rec.manifesto()
+    regra = manifesto.decisoes[decisao_id].regras[id_regra]
+    assert (regra.ativacao, regra.exige_aditivo) == ("plena", True)
+    assert _classes()[COM_ADITIVO_SEM_CLASSE] == ""
+    runtime.pinar(manifesto)
+    runtime.estados([(id_regra, regra.versao_regra)])
+    linha, acao = runtime.decidir(decisao_id, id_regra, decisao, "")
+    assert (linha.modo, linha.acao) == ("ativa", "revisao_humana")
     assert acao == at.AcaoDeSaida("revisao_humana", FILA, at.MARCA_SEM_ADITIVO)
 
 

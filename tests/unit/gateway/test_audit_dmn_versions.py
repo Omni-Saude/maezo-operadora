@@ -341,7 +341,8 @@ def test_fixado_loads_the_package_and_versao_regra_comes_from_the_manifest(
         "shaDmn": sha_a,
         "idRegra": "SINT-A-0002",
         "versaoRegra": "1.0.1",
-        # MAJOR 2 (ADR-0077 §4): o pacote sintetico fixado so tem `plena` sem aditivo (o resto e recusado).
+        # MAJOR 2 (ADR-0077 §4): o pacote sintetico fixado aqui so tem `plena` sem aditivo; as outras
+        # ativacoes do contrato tambem passam desde o 5e-0 (DL-0181), em sombra.
         "ativacaoPacote": "plena",
         "exigeAditivo": "false",
         # 5c-2 (ADR-0077 §4): estado efetivo no instante da decisao; o arquivo de estado comitado nao tem

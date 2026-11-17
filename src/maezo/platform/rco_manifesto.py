@@ -47,7 +47,7 @@ FAIL-CLOSED (contrato §4 e §5):
   PIN (o leitor ainda o le para diagnostico; decisao da ROOT, 16/11/2026);
 - `ativacao_nao_suportada`: pacote MAJOR 2 com regra cuja `ativacao` esta fora do conjunto fechado
   `ATIVACOES` ou cujo `exige_aditivo` nao e booleano (defesa em profundidade: o leitor ja recusa). As tres
-  ativacoes do contrato, com ou sem aditivo, sao aceitas no pin desde a unidade 5e-0 (DL-0181), tudo em
+  ativacoes do contrato, com ou sem aditivo, passam nesta checagem desde a unidade 5e-0 (DL-0181), tudo em
   sombra: o efeito vem de `rco_ativacao.filtrar_saida`, com `efeito_k1_habilitado` desligado;
 - `verificar_pastas`: `spec/processes/dmn/rco/` e `config/integrations/rco/k1/` so com o que o pin e
   o manifesto declaram (sem subpasta, link simbolico ou arquivo solto).
@@ -1295,12 +1295,13 @@ def tolerancia_prazo_conta_no_dmn(raw: bytes, rotulo: str) -> list[str]:
 def ativacao_nao_suportada(manifesto: ManifestoK1) -> list[str]:
     """Regras do pacote com `ativacao`/`exige_aditivo` fora do contrato. Lista vazia = ok.
 
-    MAJOR 2 (contrato §7). Desde a unidade 5e-0 (DL-0181, emenda ao ADR-0077 §7) o pin ACEITA as tres
-    ativacoes do conjunto fechado `ATIVACOES` (`plena`, `conferida`, `em_correcao`), com `exige_aditivo`
-    verdadeiro ou falso. Aceitar no pin nao liga efeito: com `efeito_k1_habilitado` desligado toda regra
-    fica em sombra (`rco_ativacao.ativacao_efetiva` -> `filtrar_saida` -> `registrar_apenas`), e com o
-    indicador ligado a mesma funcao ja fecha para o humano (`em_correcao` adversa e `exige_aditivo` sem
-    aditivo confirmado viram `revisao_humana`; `conferida` confere as primeiras decisoes).
+    MAJOR 2 (contrato §7). Desde a unidade 5e-0 (DL-0181, emenda ao ADR-0077 §7) esta checagem ACEITA
+    as tres ativacoes do conjunto fechado `ATIVACOES` (`plena`, `conferida`, `em_correcao`), com
+    `exige_aditivo` verdadeiro ou falso; as demais recusas do pin continuam valendo. Aceitar nao liga
+    efeito: com `efeito_k1_habilitado` desligado toda regra fica em sombra
+    (`rco_ativacao.ativacao_efetiva` -> `filtrar_saida` -> `registrar_apenas`), e com o indicador ligado
+    a mesma funcao ja fecha para o humano (`em_correcao` adversa e `exige_aditivo` sem aditivo confirmado
+    viram `revisao_humana`; `conferida` confere as primeiras decisoes).
 
     Continua recusado aqui o que nao tem significado no contrato: `ativacao` fora de `ATIVACOES` ou
     `exige_aditivo` que nao e booleano. O leitor (`ler_manifesto`) ja recusa os dois; esta checagem fica

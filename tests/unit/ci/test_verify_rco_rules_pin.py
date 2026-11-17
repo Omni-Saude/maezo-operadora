@@ -353,7 +353,9 @@ def test_sem_pacote_com_k1_preenchida_reprova(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------------------------
 
 
-def test_major2_so_plena_sem_aditivo_passa(pinned_tree: tuple[Path, dict[str, Any]]) -> None:
+def test_major2_pacote_sintetico_todo_plena_sem_aditivo_passa(
+    pinned_tree: tuple[Path, dict[str, Any]],
+) -> None:
     root, lock = pinned_tree  # pacote sintetico 2.0.0, todas as regras `plena` sem aditivo
     assert verify_lock(lock, repo_root=root) == []
 
