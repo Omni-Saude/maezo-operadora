@@ -19,6 +19,8 @@ import {
 } from "./caseExperienceServiceFactory";
 import { createCaseCommunicationsClient } from "./caseCommunicationsClient";
 import { createStaffCaseClient } from "./staffCaseClient";
+import { LegitimacyScreenPanel } from "./LegitimacyScreenPanel";
+import { createLegitimacyScreenClient } from "./legitimacyScreenClient";
 import { StaffAdminPanel } from "./StaffAdminPanel";
 import { createStaffAdminClient } from "./staffAdminClient";
 import { StaffDocumentsPanel } from "./StaffDocumentsPanel";
@@ -104,6 +106,7 @@ const areaTitle: Record<StaffArea, string> = {
   cases: "Casos",
   documents: "Documentos",
   operations: "Operações",
+  legitimacy: "Legitimidade coletiva",
   administration: "Administração",
 };
 
@@ -175,6 +178,7 @@ export function StaffPortalExperience({
   const staffDocumentsClient = useMemo(() => createStaffDocumentsClient(), [sessionBinding]);
   const staffOperationsClient = useMemo(() => createStaffOperationsClient(), [sessionBinding]);
   const staffAdminClient = useMemo(() => createStaffAdminClient(), [sessionBinding]);
+  const legitimacyClient = useMemo(() => createLegitimacyScreenClient(), [sessionBinding]);
   usePageTitle(pageTitle(areaTitle[activeArea], "Área de colaboradores"));
 
   let content: React.ReactNode;
@@ -247,6 +251,17 @@ export function StaffPortalExperience({
             </p>
           </section>
         );
+  } else if (activeArea === "legitimacy") {
+    // E-SF-20 (EP-CORE-15a): no session capability or flag names this area; the panel asks the
+    // BFF for the checklist, and 403 `operation_forbidden` (flag OFF) or 503
+    // `dependency_unavailable` (unbound slot) render "não habilitada" with nothing that writes.
+    content = (
+      <LegitimacyScreenPanel
+        client={legitimacyClient}
+        csrfToken={csrfToken}
+        onSessionUnavailable={onSessionUnavailable}
+      />
+    );
   } else {
     // D-40: the read-only roster panel renders only when this deployment turned the shadow
     // signal on; OFF keeps the shipped stub so the visible surface does not move. The

@@ -9,6 +9,7 @@ export type StaffArea =
   | "cases"
   | "documents"
   | "operations"
+  | "legitimacy"
   | "administration";
 
 export type ExternalArea = "requests" | "documents" | "communications" | "receipts";
@@ -20,6 +21,9 @@ const staffAreas: readonly Readonly<{ id: StaffArea; label: string; hint: string
   { id: "cases", label: "Casos", hint: "Fila do seu grupo e detalhe" },
   { id: "documents", label: "Documentos", hint: "Pedidos, verificação e acesso" },
   { id: "operations", label: "Operações", hint: "Comandos, recibos e dependências" },
+  // E-SF-20 (EP-CORE-15a): the staff collective-legitimacy screen. It ships DARK — the area
+  // answers "não habilitada" from the BFF itself (403/503) while the flag is OFF.
+  { id: "legitimacy", label: "Legitimidade coletiva", hint: "Verificação da pessoa jurídica contratante" },
   { id: "administration", label: "Administração", hint: "Vínculos e permissões governados" },
 ];
 

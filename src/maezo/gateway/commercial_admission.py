@@ -31,6 +31,7 @@ from maezo.adapters.amh.commercial_http import (
 from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
 from maezo.gateway.commercial_acceptance_admission import A3_ADMITTED_COMMANDS, AcceptanceRecordAdmission
 from maezo.gateway.commercial_catalog_admission import CatalogSourceAdmission
+from maezo.gateway.commercial_collective_hold import CollectiveHoldCatalogCodec
 from maezo.gateway.commercial_coverage_admission import CoverageReadAdmission
 from maezo.gateway.commercial_portability_admission import (
     PortabilityPayloadError,
@@ -730,9 +731,12 @@ def compose_public_catalog_gateway(
     Authority ports alone never bind the public source: binding additionally requires
     the registered A1 admission (`commercial_catalog_admission`), sha-pinned to the frozen
     contract these schema bytes must be. No process-global mutation or environment
-    activation exists.
+    activation exists. The self-service catalog stays PF-only while REG-08 is unratified
+    (E-SF-20, EP-REG-08a): `CollectiveHoldCatalogCodec` refuses, before disclosure, a catalog
+    that offers a collective product as `usable` — on every composition, admitted or not.
     """
     wire = CommercialWire(schema_bytes)
+    codec = CollectiveHoldCatalogCodec(wire)
     if (
         caller is None
         or scope_authority is None
@@ -740,11 +744,11 @@ def compose_public_catalog_gateway(
         or amh_origin is None
         or source_admission is None
     ):
-        return PublicCatalogGateway(codec=wire, timeout_seconds=timeout_seconds)
+        return PublicCatalogGateway(codec=codec, timeout_seconds=timeout_seconds)
     if source_admission.contract_sha256 != wire.schema_digest:
         raise ValueError("commercial_catalog_admission_invalid")
     return PublicCatalogGateway(
-        codec=wire,
+        codec=codec,
         admission=AuthenticatedPublicCatalogAdmission(caller=caller, authority=scope_authority),
         source=HttpPublicCatalogSource(
             origin=amh_origin,
