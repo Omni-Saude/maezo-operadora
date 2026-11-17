@@ -13,7 +13,7 @@
 | `R-054-RATIFICACAO-CITACOES-POR-LINHA.md` | Wave 1a (2026-10-31): folha de ratificação, linha a linha, das citações divergentes do R-054 (DEC-23, opção b): NIP, CANCEL, descredenciamento, glosa, Lei 9.656 arts. 12/13/35-C, RN 566, LBI art. 63, art. 17 § 4º e errata RN 259. Cada linha traz citação atual (arquivo:linha), citação corrigida, verbatim com URL, data e sha256, status e célula de ratificação em branco. |
 | `R-006-R-007-CALENDARIO-ANS-LEVANTAMENTO.md` | Wave 1a (2026-10-31): levantamento em fonte primária da norma, obrigação, periodicidade e regra de data de cada gatilho do SP-OP-ANS-CRON-001 (RN 209, RN 388, RN 424/TISS, DIOPS, backlog do SIP), com confiança e célula de assinatura em branco. |
 | `404-LOG.md` | Resultado HTTP de cada URL testada + checksums sha256 dos downloads + alertas de durabilidade (degradação do endpoint raw da ANS). |
-| `textos-base/` | Textos integrais verbatim por norma (com cabeçalho de proveniência). Wave 1a acrescentou `RN-424-2017.md` (junta médica; base da modelagem do art. 4º, § 2º). |
+| `textos-base/` | Textos integrais verbatim por norma (com cabeçalho de proveniência). Wave 1a acrescentou `RN-424-2017.md` (junta médica; base da modelagem do art. 4º, § 2º). E-SF-32 (2026-11-16) acrescentou EXCERTOS DOU/Senado de `MP-2177-44-2001.md`, `RN-413-2016.md`, `RN-558-2022.md`, `RN-561-2022.md` e `RN-500-2022.md`, copiados da baseline normativa do plano de funil (integral = GAP declarado em cada cabeçalho; art. 5º caput da RN 558 não é âncora, GAP-2r). |
 
 ## Consumo esperado
 
