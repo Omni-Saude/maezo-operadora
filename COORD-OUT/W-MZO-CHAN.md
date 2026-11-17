@@ -71,3 +71,5 @@ pronto: maezo-operadora #1276, head 099d399da433f16931188ce6fdb81f38e3b5756e, ch
 pronto: maezo-operadora #1276, head d0f463793c4e5137e7ea9c60b52b51eac648d44c, checks verdes (base 9f71d41; integração lida do junit: cancel-contas 136/0, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0).
 
 - 2026-11-17 01:57Z: #1276 (E-SF-18) mesclado (main 87bd9e48). Resta #1279 (E-SF-17): CI em curso; job Java com falha de censo de descritores (não tocado pelo diff) a rerodar uma vez; flip-path-review-gate aguarda security-team.
+
+pronto: maezo-operadora #1279, head b14ba0d77e8c9c50b57156a8efae111e6ba97efe, checks verdes (integração lida do junit: cancel-contas 136/0, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0; job Java verde na rerodada única; exceto flip-path-review-gate = aprovação do security-team). Enviado à mescladora.
