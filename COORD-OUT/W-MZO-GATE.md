@@ -98,3 +98,19 @@ Opções:
 - (D) O maezo divulga uma projeção re-autorizada (exige sucessor C6-4).
 
 Sigo por (A) e registro (C) como demanda: PROVISÓRIO-aguarda-coordenador. Também declarado: GAP-ESF20-TERMS. A admissão não impede `offer.quote`/`offer.terms` com `product_ref` coletivo; o critério depende do sucessor C6-4 (E-04) e do AMH honrar `offerState`.
+
+## 2026-11-17 ~01:35Z
+
+- #1273 (E-SF-04) mesclado (main 71f19004).
+- PR #1278 (E-SF-06) aberto, head c4be57001609c4aeb63c5e73d2de97e38a62fa58: main por merge e imports apontados para `maezo.adapters.amh.commercial_fences`. Antes do push rodaram ci, adapters, ports, gateway, portal, docs e comercial; só houve falhas ambientais. PRONTO depois do CI.
+- E-SF-20 pronto localmente. O ramo `sf-w1/gate/E-SF-20` (5f92e33) foi publicado sem PR, empilhado sobre o E-SF-36. A revisão independente deu FAIL e depois PASS; a decisão sobre o catálogo misto está em Q-W-MZO-GATE-03.
+  - Flag `collective_legitimacy_screen` OFF, garantida por teste.
+  - Tela staff dormente: 403/503 mostra "não habilitada", sem POST.
+  - Art. 29 §1º aparece só como texto.
+  - Vitest 786/786.
+  - GAPs:
+    - GAP-ESF20-TERMS.
+    - O C6-4 só traz o tipo de contrato no catálogo.
+    - A recusa C6-4 não tem campo de texto; a constante vai para o omni (E-SF-ADD01-06).
+    - Não estão na tela: a entrada de referência de evidência e a data de reconfirmação.
+- Situação da janela: os 7 épicos estão implementados e revisados. Mesclados: 02, 03 e 04. Aberto: 06 (#1278). Ramos publicados aguardando a vez: 10, 36 e 20.
