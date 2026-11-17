@@ -133,3 +133,10 @@ pronto: maezo-operadora #1278, head c4be57001609c4aeb63c5e73d2de97e38a62fa58, ch
 - PR #1285 (E-SF-10) aberto, head 26e0fb70a3dffadb6033d51c9324a56afe70840e, com o aviso da CD-37 no topo. Antes do push: validate-artifacts com 0 erros; ruff e mypy verdes; ci, adapters, ports, gateway, portal, platform, docs, agents e comercial com 29937 passed (só falhas ambientais). PRONTO depois do CI verde, conferindo que o ramo contém a main atual.
 
 - #1285: o `flip-path-review-gate` está vermelho porque `spec/policies/retention/` exige aprovação de code owner que não seja o autor: um membro ativo do @Omni-Saude/security-team ou o outro dono listado, sobre o head 26e0fb7. Comentário registrado no PR; um push não resolve.
+
+## 2026-11-17 ~05:25Z
+
+#1285: no head 26e0fb70a3dffadb6033d51c9324a56afe70840e, 39 checks success e 2 skipped; integração lida do junit (5 shards, 1269 testes, 0 falhas). Pendências:
+- `flip-path-review-gate`: falta aprovação humana do code owner de retention.
+- O head está 3 commits atrás da main bb998791, só o #1284 (auth_sla), em arquivos disjuntos. A simulação local do merge passou: validate com 0 erros; 7323 passed e só a falha ambiental de root.
+Status enviado à mescladora.
