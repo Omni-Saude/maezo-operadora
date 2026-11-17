@@ -36,13 +36,13 @@ from typing import Any
 import httpx
 import pytest
 from lxml import etree
-from tests.integration.processes.engine_rest import EngineRest, EngineRestError
 
 from maezo.platform.deploy.engine_deploy import collect_artifacts, resolve_engine_rest_url
+from tests.integration.processes.engine_rest import EngineRest, EngineRestError
 
 pytestmark = pytest.mark.integration
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 _SPEC_PROCESSES = _REPO_ROOT / "spec" / "processes"
 _CORPUS_DOC = _REPO_ROOT / "docs" / "processes" / "New_BPMN" / "Adapted_BPMN"
 _BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"

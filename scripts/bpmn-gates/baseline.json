@@ -189,7 +189,7 @@
       "code": "G2-IMPL",
       "element": "H2_T_EscalarRevisao",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 96",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     },
     {
       "gate": "2",
@@ -198,7 +198,7 @@
       "code": "G2-IMPL",
       "element": "NBA_T_EscalarRevisao",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 905",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     },
     {
       "gate": "2",
@@ -207,7 +207,7 @@
       "code": "G2-IMPL",
       "element": "DS_T_RegistrarAlerta",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 976",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     },
     {
       "gate": "2",
@@ -216,7 +216,7 @@
       "code": "G2-IMPL",
       "element": "C3_T_EscalarParecer",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 975",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     },
     {
       "gate": "2",
@@ -225,7 +225,7 @@
       "code": "G2-IMPL",
       "element": "C3_T_EscalarRenegociar",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 1003",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     },
     {
       "gate": "2",
@@ -234,7 +234,7 @@
       "code": "G2-IMPL",
       "element": "S3_T_EscalarEspecialista",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 563",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     },
     {
       "gate": "2",
@@ -243,7 +243,7 @@
       "code": "G2-IMPL",
       "element": "S3_T_EscalarEnfermagem",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 583",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     },
     {
       "gate": "2",
@@ -252,7 +252,7 @@
       "code": "G2-IMPL",
       "element": "S3_T_EscalarProtocolo",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 620",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     },
     {
       "gate": "2",
@@ -261,7 +261,7 @@
       "code": "G2-IMPL",
       "element": "S3_T_EscalarPriorizar",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 646",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     },
     {
       "gate": "2",
@@ -270,7 +270,7 @@
       "code": "G2-IMPL",
       "element": "S3_T_EscalarSupervisao",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 679",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     },
     {
       "gate": "2",
@@ -279,7 +279,7 @@
       "code": "G2-IMPL",
       "element": "S3_T_EscalarIntervencao",
       "message": "serviceTask sem camunda:class|delegateExpression|expression|type (ENGINE-09005), linha 706",
-      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/processes/test_bpmn_engine_parse_deploy.py."
+      "origem": "Pre-existente no head 211c6ae: corpus CA sem binding por desenho (documentation da tarefa: 'Binding de implementacao nao fornecido no corpus'). O cibseven 2.1.0 rejeita o deploy (ENGINE-09005); cercado em tests/integration/processes/test_bpmn_engine_parse_deploy.py."
     }
   ]
 }

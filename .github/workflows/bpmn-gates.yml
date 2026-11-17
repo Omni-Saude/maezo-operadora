@@ -185,7 +185,7 @@ jobs:
           ENGINE_REST_URL: http://localhost:8080/engine-rest
         run: |
           set -o pipefail
-          uv run python -m pytest tests/processes/test_bpmn_engine_parse_deploy.py -m integration -v -rA \
+          uv run python -m pytest tests/integration/processes/test_bpmn_engine_parse_deploy.py -m integration -v -rA \
             --junitxml="$EVIDENCE_DIR/engine-parse-deploy.junit.xml" | tee "$EVIDENCE_DIR/engine-parse-deploy.log"
 
       - name: Engine logs on failure
