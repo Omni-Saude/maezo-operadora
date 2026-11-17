@@ -33,7 +33,11 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Final, final
 
-from maezo.gateway.commercial_legitimacy_screen import LegitimacyScreenRecord, LegitimacyScreenStore
+from maezo.gateway.commercial_legitimacy_screen import (
+    LegitimacyScreenRecord,
+    LegitimacyScreenStore,
+    LegitimacyScreenStoreError,
+)
 
 __all__ = [
     "ANNIVERSARY_ACTOR",
@@ -104,7 +108,12 @@ class LegitimacyAnniversaryTrigger:
         revision = anniversary_revision(head, now=self._clock())
         if revision is None:
             return None
-        saved = await self._store.save(revision)
-        # `save` é INSERT … ON CONFLICT DO NOTHING: perdida a corrida (guard ou staff na mesma
-        # revisão), devolve a linha do outro escritor — então nada foi escrito por este.
-        return saved if saved.created_by == ANNIVERSARY_ACTOR else None
+        try:
+            return await self._store.save(revision)
+        except LegitimacyScreenStoreError as exc:
+            # Corrida perdida (guard ou staff gravou a mesma revisão antes): o store recusa
+            # `revision_taken` e nada deste gatilho foi gravado. É o `stale_revision` do
+            # gatilho: não há o que reportar como escrito; o próximo disparo relê a cabeça.
+            if exc.code == "revision_taken":
+                return None
+            raise

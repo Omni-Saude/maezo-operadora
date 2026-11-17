@@ -22,11 +22,14 @@ from maezo.gateway.commercial_legitimacy_anniversary import (
     anniversary_revision,
 )
 from maezo.gateway.commercial_legitimacy_guard import GUARD_ACTOR, LegitimacyScreenShadow
-from maezo.gateway.commercial_legitimacy_screen import LegitimacyScreenRecord
+from maezo.gateway.commercial_legitimacy_screen import LegitimacyScreenRecord, LegitimacyScreenStoreError
 from maezo.gateway.pep import HARD_ACTIONS, Decision, build_pep
+from tests.unit.gateway.test_commercial_legitimacy_enforcing import _enforcing
+from tests.unit.gateway.test_commercial_legitimacy_enforcing import _execute as _execute_enforcing
 from tests.unit.gateway.test_commercial_legitimacy_guard import (
     _criterion,
     _execute,
+    _flag_off,
     _gateway,
     _receipt,
     _Store,
@@ -191,18 +194,71 @@ async def test_aniversario_nao_suprime_art39_do_guard() -> None:
     assert head.screen_revision == 3
 
 
+class _AnniversaryRace(_Store):
+    """A cabeça é lida e, antes do save do leitor, OUTRO escritor grava a revisão N+1."""
+
+    def __init__(self, head: LegitimacyScreenRecord, rival: LegitimacyScreenRecord) -> None:
+        super().__init__(head)
+        self._rival = rival
+
+    async def latest_for_legal_entity(
+        self, tenant: str, legal_entity_ref: str
+    ) -> LegitimacyScreenRecord | None:
+        found = await super().latest_for_legal_entity(tenant, legal_entity_ref)
+        self._insert(self._rival)
+        return found
+
+
 @pytest.mark.asyncio
-async def test_corrida_perdida_nao_e_reportada_como_escrita() -> None:
-    # Outro escritor gravou a mesma revisão N+1 entre a leitura e o save do gatilho.
+async def test_gatilho_trata_stale_revision_quando_perde_a_corrida() -> None:
+    # A staff (ou o guard) gravou N+1 entre a leitura da cabeça e o save do gatilho: o
+    # store recusa `revision_taken`, nada do gatilho é gravado e ele não reporta escrita.
     head = _valid_head()
     rival = _receipt(**{**head.model_dump(), "screen_revision": 2, "created_by": "staff-op21"})
-
-    class _Racing(_Store):
-        async def latest_for_legal_entity(self, tenant: str, legal_entity_ref: str):  # type: ignore[override]
-            found = await super().latest_for_legal_entity(tenant, legal_entity_ref)
-            self._insert(rival)
-            return found
-
-    racing = _Racing(head)
+    racing = _AnniversaryRace(head, rival)
     assert await _trigger(racing).on_anniversary("entity-a") is None
-    assert racing.rows[(head.tenant, head.screen_ref, 2)].created_by == "staff-op21"
+    assert racing.save_calls == 1
+    assert racing.rows[(head.tenant, head.screen_ref, 2)] == rival
+    assert len(racing.rows) == 2
+
+
+@pytest.mark.asyncio
+async def test_gatilho_propaga_falha_de_fonte() -> None:
+    class _Down(_Store):
+        async def save(self, record: LegitimacyScreenRecord) -> LegitimacyScreenRecord:
+            raise LegitimacyScreenStoreError("source_unavailable")
+
+    with pytest.raises(LegitimacyScreenStoreError) as exc:
+        await _trigger(_Down(_valid_head())).on_anniversary("entity-a")
+    assert exc.value.code == "source_unavailable"
+
+
+def _anniversary_row(head: LegitimacyScreenRecord) -> LegitimacyScreenRecord:
+    row = anniversary_revision(head, now=NOW)
+    assert row is not None
+    return row
+
+
+@pytest.mark.asyncio
+async def test_guarda_shadow_na_corrida_com_o_aniversario_nao_altera_a_resposta() -> None:
+    # O guard lê N (vencido), o gatilho grava N+1 antes: o save do guard é `revision_taken`.
+    # A shadow engole o defeito e a resposta comercial é byte-idêntica à de flag OFF.
+    head = _valid_head()
+    racing = _AnniversaryRace(head, _anniversary_row(head))
+    shadow, _, _ = _gateway(LegitimacyScreenShadow, racing)
+    off, _, _ = _flag_off()
+    assert (await _execute(shadow)).wire_bytes == (await _execute(off)).wire_bytes
+    assert racing.save_calls == 1
+    assert racing.head("tenant-a", "entity-a").created_by == ANNIVERSARY_ACTOR  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_guarda_enforcing_na_corrida_com_o_aniversario_recusa_indisponivel() -> None:
+    # Na enforcing a mesma corrida nunca vira passagem: recusa com o par fixo de
+    # indisponibilidade, antes de qualquer passo de fonte.
+    head = _valid_head()
+    racing = _AnniversaryRace(head, _anniversary_row(head))
+    gateway, _, source = _enforcing(racing)
+    result = await _execute_enforcing(gateway)
+    assert (result.status, result.reason_code) == ("unavailable", "source_unavailable")
+    assert "execute" not in source.calls
