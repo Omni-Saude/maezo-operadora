@@ -797,6 +797,38 @@ def preinit_contas_pagto_ordem_recusada() -> None:
         logger.debug("contas_pagto_ordem_recusada_preinit_failed", exc_info=True)
 
 
+#: MZO-3: vocabulario FECHADO de `maezo_rco_sombra_total` (= os desfechos de `tools.workers.rco_sombra`,
+#: paridade fixada em teste). Valor fora do conjunto vira `outro`.
+RCO_SOMBRA_DESFECHOS: Final[frozenset[str]] = frozenset(
+    {
+        "sem_transporte",
+        "pin_indisponivel",
+        "sem_pacote",
+        "dicionario_recusado",
+        "pin_amh_indisponivel",
+        "dominio_nao_suportado",
+        "montador_recusou",
+        "avaliacao_falhou",
+        "prazo_esgotado",
+        "avaliada",
+        "erro_de_programacao",
+    }
+)
+
+
+def record_rco_sombra(desfecho: str) -> None:
+    """Count ONE shadow evaluation of an rco K1 table — `maezo_rco_sombra_total` (MZO-3).
+
+    Unico sitio de chamada: `tools.workers.rco_sombra.avaliar_em_sombra`. Rotulo fechado; nunca dado
+    de caso. Best-effort: a telemetria nunca muda o worker que chamou a sombra.
+    """
+    rotulo = desfecho if desfecho in RCO_SOMBRA_DESFECHOS else "outro"
+    try:
+        _get_metrics_collector().rco_sombra_total.labels(desfecho=rotulo).inc()
+    except Exception:  # never let telemetry disturb the worker.
+        logger.debug("rco_sombra_metric_emit_failed", exc_info=True)
+
+
 #: R-085: os tokens fechados de `decision`/`enforced` de `maezo_gateway_pep_decision_total`.
 PEP_DECISION_ALLOW: Final[str] = "allow"
 PEP_DECISION_DENY: Final[str] = "deny"
