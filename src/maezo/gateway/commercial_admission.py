@@ -33,6 +33,12 @@ from maezo.gateway.commercial_acceptance_admission import A3_ADMITTED_COMMANDS, 
 from maezo.gateway.commercial_catalog_admission import CatalogSourceAdmission
 from maezo.gateway.commercial_collective_hold import CollectiveHoldCatalogCodec
 from maezo.gateway.commercial_coverage_admission import CoverageReadAdmission
+from maezo.gateway.commercial_disclosure_checklist import (
+    DISCLOSURE_GATED_COMMANDS as DISCLOSURE_GATED_COMMANDS,
+)
+from maezo.gateway.commercial_disclosure_checklist import (
+    require_precontract_disclosure as require_precontract_disclosure,
+)
 from maezo.gateway.commercial_portability_admission import (
     PortabilityPayloadError,
     refuse_portability_verdict_payload,
@@ -164,7 +170,11 @@ class AuthenticatedSalesAdmission(SalesAdmission):
                 qualify_lead_intake()
             except RetentionMatrixUnavailableError as exc:
                 raise CommercialRefusalError("unavailable", "lifecycle_unqualified") from exc
-        return await self._authority.current(scope, phase=phase, command=command)
+        current = await self._authority.current(scope, phase=phase, command=command)
+        if command is not None:
+            # After the scope is current, before any source step (E-SF-36).
+            require_precontract_disclosure(command)
+        return current
 
 
 class AcceptanceUnadmittedSalesAdmission(AuthenticatedSalesAdmission):
@@ -602,7 +612,11 @@ def compose_commercial_gateway(
     a bound session refuses those commands before any source step and the codec keeps the
     case-projection arms gated — `refused` renderings and every other dimension are
     unchanged. Each closed dimension is independent: no admission re-grids another's
-    surface. The REAL lead intake (`LEAD_INTAKE_COMMANDS`) is gated by lifecycle, not by an
+    surface. With A3 admitted, `acceptance.record` still passes the RN 413 art. 4º disclosure
+    precondition (`require_precontract_disclosure`, E-SF-36) on every bound session: a decline
+    is never blocked; an accept without the I–IX/§1º content in its payload refuses
+    `denied/terms_review_required` before any source step — on the pinned C6-4 wire, always.
+    The REAL lead intake (`LEAD_INTAKE_COMMANDS`) is gated by lifecycle, not by an
     admission record: every session refuses it `unavailable/lifecycle_unqualified` before any
     source step until `qualify_lead_intake` qualifies (E-SF-10; never true on the C6-4 wire,
     which carries no source-resolved `retention_class`). Schema bytes are exact source-owned
