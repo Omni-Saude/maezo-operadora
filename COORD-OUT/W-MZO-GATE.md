@@ -114,3 +114,7 @@ Sigo por (A) e registro (C) como demanda: PROVISÓRIO-aguarda-coordenador. Tamb�
     - A recusa C6-4 não tem campo de texto; a constante vai para o omni (E-SF-ADD01-06).
     - Não estão na tela: a entrada de referência de evidência e a data de reconfirmação.
 - Situação da janela: os 7 épicos estão implementados e revisados. Mesclados: 02, 03 e 04. Aberto: 06 (#1278). Ramos publicados aguardando a vez: 10, 36 e 20.
+
+## 2026-11-17 ~02:10Z
+
+pronto: maezo-operadora #1278, head c4be57001609c4aeb63c5e73d2de97e38a62fa58, checks verdes (40 success e 2 skipped; integração lida do junit: 5 shards, 1269 testes, 0 falhas, 0 erros, 7 skips). Enviado direto à mescladora (CD-42).
