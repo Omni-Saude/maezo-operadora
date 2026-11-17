@@ -410,6 +410,18 @@ class EngineRest:
             )
         return resp.json().get("value")
 
+    async def delete_variable(self, instance_id: str, name: str) -> None:
+        """Apaga uma variavel de processo de uma instancia ATIVA (`DELETE /process-instance/{id}/
+        variables/{name}`). Serve para simular, no engine real, uma instancia iniciada antes de uma
+        variavel existir (instancia legada). O engine responde 204 mesmo se a variavel nao existir;
+        qualquer outro status levanta com o corpo verbatim."""
+        resp = await self._client.delete(f"/process-instance/{instance_id}/variables/{name}")
+        if resp.status_code not in (200, 204):
+            raise EngineRestError(
+                f"delete variable `{name}` da instancia {instance_id} falhou "
+                f"[{resp.status_code}]: {resp.text[:300]}"
+            )
+
     async def get_history_variable(self, instance_id: str, name: str) -> Any:
         """Le o VALOR historico de uma variavel de processo (instancia ATIVA ou JA CONCLUIDA).
 
