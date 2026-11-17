@@ -386,6 +386,24 @@
         "fila": "auditoria_medica",
         "classeAdverso": "clinico"
       }
+    },
+    {
+      "id": "C022",
+      "tipo": "nulo",
+      "descricao": "Urgência (caráter 2) com a situação de CPT não informada (cptVigente nula): cadastro, sem regulação nem negativa (p_cpt_nulo)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "cptVigente": null,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "cadastro"
+      }
     }
   ]
 }

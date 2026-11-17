@@ -1,6 +1,6 @@
 """`urgenciaAposVinteQuatroHorasCobertura` no montador (dicionario K1 1.4.0, K1 2.3.0; DL-0183).
 
-A formula publicada (rco 5dc95b12, `docs/dicionario/regras-gerais.yaml`) decide primeiro pelas DATAS: dias
+A formula publicada (rco d9b8adfa, `docs/dicionario/regras-gerais.yaml`) decide primeiro pelas DATAS: dias
 corridos entre a data de referencia do atendimento e o inicio da cobertura; 2 ou mais -> verdadeiro; 0 ou
 menos -> falso; 1 -> pelas horas so com as DUAS horas e o parametro, senao nulo; nulo sem uma das datas. A
 data de referencia vem do tipo da guia (nunca deduzido); nenhuma hora e inferida; o parametro nao tem padrao

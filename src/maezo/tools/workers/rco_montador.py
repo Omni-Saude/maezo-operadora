@@ -61,7 +61,7 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    (`termo_data_invalida`), porque o dia de um instante depende do fuso, que o rco nao publica. Nenhuma
    data tem padrao: em particular, nunca a data de hoje que `contas._normalize_data_recebimento_lote`
    usa quando o lote nao traz o recebimento.
-11. `urgenciaAposVinteQuatroHorasCobertura` (dicionario 1.4.0, K1 2.3.0, DL-0183; rco 5dc95b12,
+11. `urgenciaAposVinteQuatroHorasCobertura` (dicionario 1.4.0, K1 2.3.0, DL-0183; rco d9b8adfa,
    `docs/dicionario/regras-gerais.yaml`): calculada EXATAMENTE pela formula publicada. Decide primeiro
    pelas DATAS (dias corridos entre a data de referencia do atendimento e o inicio da cobertura): 2 ou
    mais -> verdadeiro; 0 ou menos -> falso; 1 -> pelas horas so com as DUAS horas (cadastro e guia) e o
@@ -525,7 +525,7 @@ def _dias_ate_recurso(termos: Mapping[str, object]) -> tuple[int | None, MotivoN
 
 #: PROVISORIO (DL-0183, decisao da coordenacao): TRANSCRICAO a mao de `derivacao.referencia_por_tipo_guia`
 #: de `urgenciaAposVinteQuatroHorasCobertura` em `docs/dicionario/regras-gerais.yaml` do rco no commit
-#: 5dc95b12ca6cd267b5f06a874339ce59725d4ce3, porque o pacote K1 (dicionario 1.4.0) NAO publica esse bloco
+#: d9b8adfafc0d7cf92db32cf255f61cfc8ae45fa7, porque o pacote K1 (dicionario 1.4.0) NAO publica esse bloco
 #: em `entradas.json` (so o texto da `fonte` do termo). Sera SUBSTITUIDA pela leitura do pacote no
 #: dicionario 1.5.0: enquanto isso, formula da urgencia com bloco estruturado (`regimes` ou outro) no
 #: pacote faz o montador recusar (`conferir_mapeamento`) e o leitor recusa campo desconhecido; o teste
@@ -584,7 +584,7 @@ def _hora(termos: Mapping[str, object], nome: str) -> tuple[timedelta | None, Mo
 
 
 def _urgencia_apos_vinte_quatro_horas(termos: Mapping[str, object]) -> tuple[object, MotivoNulo | None]:
-    """`urgenciaAposVinteQuatroHorasCobertura` pela formula publicada no dicionario K1 1.4.0 (rco 5dc95b12):
+    """`urgenciaAposVinteQuatroHorasCobertura` pela formula publicada no dicionario K1 1.4.0 (rco d9b8adfa):
     `dias = dataReferenciaAtendimento - dataInicioCobertura` (dias corridos); verdadeiro se `dias >= 2`;
     falso se `dias <= 0`; se `dias = 1`, verdadeiro se `(dataRef + horaRef) - (dataIni + horaIni) >=
     horasMinimasUrgencia`, falso se menor, nulo se faltar uma das duas horas; nulo se faltar uma das datas.
@@ -693,7 +693,7 @@ FORMULAS_PENDENTES: Final[Mapping[str, str]] = MappingProxyType(
         "registroAnvisaItem": "L-prog-rco-04 (7): elemento ausente (false) x nao extraido (nulo)",
         "reinternacaoMesmaCausa": "L-prog-rco-04 (8); sem produtor do historico de internacoes no Maezo",
         "visitaNaDataDaAlta": "L-prog-rco-04 (4): elemento do XSD que marca a guia encerrada por alta",
-        # Dicionario 1.3.0/1.4.0 (rco 5dc95b12; DL-0183): formulas publicadas que esta unidade (K1 2.3.0)
+        # Dicionario 1.3.0/1.4.0 (rco d9b8adfa; DL-0183): formulas publicadas que esta unidade (K1 2.3.0)
         # nao implementa. Nulas ate a unidade que trouxer o produtor dos termos.
         "cidIgualDlpDeclarada": "dicionario 1.4.0; sem produtor de cidDeclaradoCpt (declaracao de saude)",
         "cidSecundarioInformado": "dicionario 1.4.0; sem produtor dos diagnosticos de dadosSaidaInternacao",

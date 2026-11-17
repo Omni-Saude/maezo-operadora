@@ -1,4 +1,4 @@
-"""Carga do recorte REAL do K1 2.3.0 do rco (`tests/fixtures/rco/k1-2.3.0-recorte/`, 5dc95b12; DL-0183).
+"""Carga do recorte REAL do K1 2.3.0 do rco (`tests/fixtures/rco/k1-2.3.0-recorte/`, d9b8adfa; DL-0183).
 
 O recorte (procedencia em `ORIGEM.json` e no `README.md` da pasta) traz o manifesto inteiro, sem alteracao,
 `vocabulario.json`, `k6-filas.json`, as duas decisoes da composicao `composicao_carencia_cpt` (regra
@@ -26,7 +26,7 @@ from tests.unit.platform.rco_k1_2_2_recorte import iguais
 
 RECORTE = Path(__file__).resolve().parents[2] / "fixtures" / "rco" / "k1-2.3.0-recorte"
 ORIGEM = RECORTE / "ORIGEM.json"
-COMMIT_RCO = "5dc95b12ca6cd267b5f06a874339ce59725d4ce3"
+COMMIT_RCO = "d9b8adfafc0d7cf92db32cf255f61cfc8ae45fa7"
 COMPOSICAO = "composicao_carencia_cpt"
 #: A ordem documentada (contrato-k1.md §3), com o prefixo do pacote.
 ORDEM = ("rco_geral_carencia", "rco_geral_cpt")

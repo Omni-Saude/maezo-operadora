@@ -1,12 +1,14 @@
 # Recorte do pacote K1 2.3.0 do rco (composicao `composicao_carencia_cpt`, `mais_restritiva`)
 
 Copia SOMENTE LEITURA. Origem: `Omni-Saude/regras-contratos-operadora`, commit
-`5dc95b12ca6cd267b5f06a874339ce59725d4ce3` (`5dc95b12`, branch nao publicada da unidade
+`d9b8adfafc0d7cf92db32cf255f61cfc8ae45fa7` (`d9b8adfa`, `main` publicada do rco, PR #175, unidade
 PROG-RCO-carencia-urgencia-aviso, `formato_manifesto` 2.3.0, dicionario de entradas 1.4.0, K6 1.1.0). Os arquivos
 sao byte a byte os do rco, salvo `entradas-recorte.json` (abaixo); o sha256 de cada um e a sua origem (`pacote:` =
 arquivo do pacote gerado; `repo:` = arquivo do repositorio no commit; `recorte:` = recortado de um arquivo do pacote)
 estao em `ORIGEM.json`, e `tests/unit/platform/test_rco_k1_2_3_conformidade.py` reprova se algum divergir ou sobrar.
-Nao edite: atualize a copia a partir de um commit novo do rco e regrave `ORIGEM.json`.
+Nao edite: atualize a copia a partir de um commit novo do rco e regrave `ORIGEM.json`. A copia anterior vinha da
+branch nao publicada 5dc95b12; a publicada mudou so o manifesto (`OMNI-GERAL-CAR-0004` 3.0.1, redacao) e acrescentou
+o caso C022 de `geral_cpt` (DMN, vocabulario, K6 e dicionario de entradas iguais).
 
 O que ha aqui:
 

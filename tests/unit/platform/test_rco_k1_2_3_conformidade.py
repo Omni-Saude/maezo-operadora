@@ -1,7 +1,7 @@
 """Conformidade do leitor, da composicao e do montador do Maezo com o pacote K1 2.3.0 REAL do rco (DL-0183).
 
-Usa o recorte do pacote gerado pelo `scripts/pacote.py` do proprio rco no commit 5dc95b12 (branch nao
-publicada da unidade PROG-RCO-carencia-urgencia-aviso; `tests/fixtures/rco/k1-2.3.0-recorte/`, procedencia em
+Usa o recorte do pacote gerado pelo `scripts/pacote.py` do proprio rco no commit d9b8adfa (`main` publicada,
+PR #175, unidade PROG-RCO-carencia-urgencia-aviso; `tests/fixtures/rco/k1-2.3.0-recorte/`, procedencia em
 `ORIGEM.json`):
 - a copia e byte a byte a do rco (sha256 por arquivo, nada sobrando);
 - o manifesto real passa o leitor estrito e, restrito as duas decisoes do grupo, `verificar_pacote` so acusa

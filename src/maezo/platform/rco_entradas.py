@@ -16,7 +16,7 @@ FAIL-CLOSED (como o leitor do manifesto):
   leitor nao conhece e recusada ate o montador ser revisto. A 1.2.0 (rco PROG-RCO-10/PROG-RCO-20,
   `docs/programa/k1-entradas-origem.yaml` em f77f96ac) publica a formula de 11 derivadas e acrescenta a
   cada entrada `valores_maezo` (de-para do consumidor, `null` sem de-para; `scripts/k1_entradas.py::linhas`):
-  os campos exatos dependem da versao (`CAMPOS_ENTRADA_POR_VERSAO`). A 1.4.0 (rco 5dc95b12, K1 2.3.0,
+  os campos exatos dependem da versao (`CAMPOS_ENTRADA_POR_VERSAO`). A 1.4.0 (rco d9b8adfa, K1 2.3.0,
   DL-0183) tem os campos da 1.2.0, acrescenta entradas (entre elas a derivada
   `urgenciaAposVinteQuatroHorasCobertura`) e o campo OPCIONAL `formula.regimes` (`derivacao.regimes` do rco:
   regime -> tipos de guia TISS e o termo de data; `sem_regime` sem termo e com `lacuna`); a 1.3.0 nao foi
@@ -70,7 +70,7 @@ CAMPOS_ENTRADA: Final[frozenset[str]] = frozenset(
     }
 )
 #: Campos exatos de cada entrada por versao do dicionario: a 1.2.0 acrescenta `valores_maezo`; a 1.4.0
-#: mantem os da 1.2.0 (`scripts/k1_entradas.py::linhas` no rco 5dc95b12).
+#: mantem os da 1.2.0 (`scripts/k1_entradas.py::linhas` no rco d9b8adfa).
 CAMPOS_ENTRADA_POR_VERSAO: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
     {
         "1.1.0": CAMPOS_ENTRADA,
@@ -79,7 +79,7 @@ CAMPOS_ENTRADA_POR_VERSAO: Final[Mapping[str, frozenset[str]]] = MappingProxyTyp
     }
 )
 CAMPOS_FORMULA: Final[frozenset[str]] = frozenset({"formula", "termos"})
-#: Campo opcional de `formula` a partir da 1.4.0 (`scripts/k1_entradas.py::formula_de` no rco 5dc95b12).
+#: Campo opcional de `formula` a partir da 1.4.0 (`scripts/k1_entradas.py::formula_de` no rco d9b8adfa).
 CAMPO_FORMULA_REGIMES: Final[str] = "regimes"
 VERSOES_COM_REGIMES: Final[frozenset[str]] = frozenset({"1.4.0"})
 CAMPOS_REGIME: Final[frozenset[str]] = frozenset({"regime", "tipos_guia", "termo_data", "fonte"})

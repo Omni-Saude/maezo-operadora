@@ -1,7 +1,7 @@
 """Composicao `composicao_carencia_cpt` (`mais_restritiva`) do K1 2.3.0 REAL do rco no MOTOR REAL (DL-0183).
 
 As duas decisoes do recorte (`tests/fixtures/rco/k1-2.3.0-recorte/dmn/`, os arquivos do pacote gerado do rco
-no commit 5dc95b12ca6cd267b5f06a874339ce59725d4ce3, ids `rco_`) sao implantadas no CIB Seven e avaliadas pelo
+no commit d9b8adfafc0d7cf92db32cf255f61cfc8ae45fa7, ids `rco_`) sao implantadas no CIB Seven e avaliadas pelo
 caminho de producao (`CibSevenDmnTransport.evaluate`) dentro de `rco_composicao.compor_async`, com a
 `ordem_restricao` e o vocabulario de `sinalAuditoria` do `vocabulario.json` do pacote:
 - cada caso do GRUPO do rco (`validacao/composicao/regras-gerais/composicao_carencia_cpt.json`): o grupo
@@ -112,7 +112,7 @@ async def test_casos_por_decisao_do_rco_dentro_do_grupo(
     todos = rec.casos()
     assert {d: sum(c.decisao == d for c in todos) for d in rec.ORDEM} == {
         "rco_geral_carencia": 51,
-        "rco_geral_cpt": 21,
+        "rco_geral_cpt": 22,
     }
     divergencias: list[str] = []
     for caso in todos:
