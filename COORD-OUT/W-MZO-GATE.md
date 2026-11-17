@@ -162,3 +162,7 @@ Status enviado à mescladora.
 ## 2026-11-17 ~07:40Z
 
 - PR #1288 (E-SF-20) aberto, head b63fffbc13857999cd263c83ca19c07bcc1730af. No topo da descrição: flag OFF, Q-03 PROVISÓRIO e GAP-ESF20-TERMS. A citação normativa passou para `docs/compliance/legal/textos-base/RN-659-2025.md`, seguindo a regra nova da mescladora; não há referência ao pacote do omni nos arquivos do PR. Antes do push: ruff e mypy verdes; validate com 0 erros; dark flags ok; tsc ok; vitest 786/786; check:generated em paridade; 30124 passed, só com as falhas ambientais.
+
+## 2026-11-17 ~08:00Z
+
+#1288: o `portal-e2e` falhou porque a aba nova mostrava "não habilitada" e a R-071 exige o painel real. O reparo `47970eb` liga a tela só no harness local `scripts/dev/run_portal_journey.py` ("flag ON local" do EP-CORE-15a); esse arquivo não está na tabela de posse, a deriva está declarada no PR e o default de produção segue OFF. A jornada local deu 4/4. O `unit (ci)` falhou em `test_release_floor_interruptions::test_real_sigterm_reaps_measurement_group`, uma corrida alheia ao PR (leu `child-pgid` vazio). O novo run de CI está em andamento.
