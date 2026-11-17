@@ -72,6 +72,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.domain.carater_atendimento import carater_atendimento_exigido
 from maezo.platform.privacy.dossier_zone import dossier_narrative_requires_phi_zone
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
@@ -130,54 +131,22 @@ CategoriaProcedimento = Literal[
 #: alcancavel pela delegacao A2A — e la' tambem e' melhor cair no conservador.
 CATEGORIA_PROCEDIMENTO_AUSENTE: Final[str] = ""
 
-#: `carater_atendimento` e' OBRIGATORIO para o Rafael — sem default, em nenhum caminho.
+#: `carater_atendimento` e' OBRIGATORIO para o Rafael — sem default, em nenhum caminho, e so'
+#: no dominio fechado `{"urgencia", "eletivo"}`.
 #:
 #: DL-0170 (decisao do dono de 17/11/2026). Ate esta data o grafo e a delegacao A2A presumiam
 #: `"eletivo"` quando o campo faltava. A presuncao escolhe o prazo LONGO da `auth_sla`
-#: (P5D/P10D em vez de PT2H) para um caso que pode ser de urgencia, e ninguem e' avisado. E' a
-#: mesma falha que a rota de ingresso (`runtime/agent_runtime/ingress.py::CAMPOS_OBRIGATORIOS`)
-#: ja' recusa com 422 desde 24/08/2026; aqui a regra passa a valer tambem na delegacao A2A e
-#: dentro do proprio grafo.
-#:
-#: Ausente = `None`, chave faltando, texto vazio ou so' espacos — o MESMO criterio da rota
-#: (`str(valor or "").strip()`). O caso NAO e' iniciado: quem chamou recebe a recusa tipada e
-#: precisa informar o carater. Nada aqui escolhe um valor no lugar de quem chamou.
+#: (P5D/P10D em vez de PT2H) para um caso que pode ser de urgencia, e ninguem e' avisado. Um
+#: valor fora do dominio (`"emergencia"`, `"URGENCIA"`, `"2"`) tem o mesmo efeito: cai na linha
+#: r4 da `auth_sla` (P5D). A regra mora em `domain/carater_atendimento.py` e vale igual na rota de
+#: ingresso, na ORIGEM da delegacao A2A (Helena, antes de montar o envelope) e aqui, como defesa
+#: em profundidade. O caso NAO e' iniciado com carater presumido ou traduzido.
 #:
 #: O que este modulo NAO faz, e por que: encaminhar o caso sem carater para analise humana sob o
 #: prazo de urgencia exigiria mudar o BPMN SP-OP-AUTH-001 ou a `auth_sla.dmn` (a linha r4 da
-#: tabela devolve P5D para carater vazio). As duas ficaram como estao; o caso simplesmente nao
-#: nasce sem carater. Cerca: `tests/unit/agents/test_carater_atendimento_sem_default.py`.
-CAMPO_CARATER_ATENDIMENTO: Final[str] = "carater_atendimento"
-
-
-class CaraterAtendimentoAusenteError(ValueError):
-    """Recusa tipada: o caso chegou ao Rafael sem `carater_atendimento` (DL-0170).
-
-    `ValueError` de proposito: na delegacao A2A o dispatcher trata essa familia como falha
-    TERMINAL de produtor (`a2a/dispatcher.py::_TERMINAL_HANDLER_ERROR_CLASSES`) e devolve uma
-    rejeicao estruturada e selada, cujo `detail` carrega o nome desta classe — o pedido de dado
-    que falta chega a quem originou, sem PHI e sem reexecucao infinita. A mensagem nao contem
-    dado do caso.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(
-            "carater_atendimento ausente ou vazio: o Rafael nao presume carater (DL-0170). "
-            "Informe 'urgencia' ou 'eletivo' e reenvie; um default aqui escolheria o prazo "
-            "regulatorio sem ninguem perceber."
-        )
-
-
-def carater_atendimento_exigido(valor: Any) -> str:
-    """O carater informado (sem espacos nas pontas) ou `CaraterAtendimentoAusenteError`.
-
-    UM ponto de leitura para todo o modulo e para a delegacao A2A: nenhum sitio le o campo com
-    um valor padrao. Mesmo criterio de ausencia da rota de ingresso.
-    """
-    texto = str(valor or "").strip()
-    if not texto:
-        raise CaraterAtendimentoAusenteError()
-    return texto
+#: tabela devolve P5D para carater nulo ou desconhecido). As duas ficaram como estao; o caso
+#: simplesmente nao nasce sem carater valido. Cerca:
+#: `tests/unit/agents/test_carater_atendimento_sem_default.py`.
 
 
 def _carater(state: RafaelState) -> str:
@@ -494,7 +463,8 @@ class RafaelGraph:
         (`""`/`None`) instead of a planted value, so `_build_dossier`/`_contract_variables` can
         never ship a forged SLA or auto-recommendation into the engine dossier.
 
-        (0) DL-0170: `carater_atendimento` ausente/vazio LEVANTA `CaraterAtendimentoAusenteError`
+        (0) DL-0170: `carater_atendimento` ausente/vazio ou fora de `{urgencia, eletivo}` LEVANTA
+        `CaraterAtendimentoRecusadoError` (`domain/carater_atendimento.py`)
         aqui, antes de tudo — o turno nao segue com um carater presumido.
         """
         # DL-0170: sem carater nao ha turno. A recusa vem ANTES de qualquer DMN, LLM ou start —

@@ -45,19 +45,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from maezo.a2a import DelegationEnvelope, HandlerOutput
+from maezo.domain.carater_atendimento import CAMPO_CARATER_ATENDIMENTO, carater_atendimento_exigido
 from maezo.runtime.metrics import classify_agent_error_type
 from maezo.runtime.start_outcome import StartProcessFailedError
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.dmn_transport import DmnTransport
 
 from .graph import (
-    CAMPO_CARATER_ATENDIMENTO,
     CATEGORIA_PROCEDIMENTO_AUSENTE,
     FhirReader,
     RafaelState,
     _business_key,
     build,
-    carater_atendimento_exigido,
     new_rafael_state,
 )
 
@@ -99,9 +98,13 @@ def state_from_envelope(envelope: DelegationEnvelope) -> RafaelState:
     instead of silently entering the state (design doc §9.2's one deliberate change vs. the
     donor's `state_from_envelope`, which cast directly).
 
-    DL-0170: `carater_atendimento` is REQUIRED, the same rule the `/v1/autorizacoes` ingress
-    route enforces (`ingress.py::CAMPOS_OBRIGATORIOS`). Missing/blank raises
-    `CaraterAtendimentoAusenteError` before any graph node runs — never a presumed `"eletivo"`.
+    DL-0170: `carater_atendimento` is REQUIRED and must be exactly `"urgencia"` or `"eletivo"`
+    (`domain/carater_atendimento.py`), the same rule the `/v1/autorizacoes` ingress route and the
+    A2A originator (`agents/helena/delegation.py::delegate_auth_analysis`) enforce. Missing/blank
+    raises `CaraterAtendimentoAusenteError`, out-of-domain `CaraterAtendimentoInvalidoError`,
+    before any graph node runs — never a presumed or translated value. This is DEFENCE IN DEPTH:
+    the dispatcher seals the rejection on the `task_id`, so the fix for a bad envelope is the
+    originator's own check, never a resend of the same `task_id`.
     """
     meta = dict(envelope.payload_meta)
     raw: dict[str, Any] = {
@@ -112,9 +115,10 @@ def state_from_envelope(envelope: DelegationEnvelope) -> RafaelState:
         "canal": "a2a",
         "codigo_procedimento_tuss": meta.get("codigo_procedimento_tuss", ""),
         "categoria_procedimento": meta.get("categoria_procedimento", CATEGORIA_PROCEDIMENTO_AUSENTE),
-        # DL-0170: sem default. Ausente/vazio LEVANTA `CaraterAtendimentoAusenteError` (um
-        # `ValueError`), que o dispatcher devolve a quem originou como rejeicao TERMINAL e selada
-        # — o pedido do dado que falta. O caso nao e' iniciado com um carater presumido.
+        # DL-0170: sem default e so' no dominio fechado. Ausente ou fora do dominio LEVANTA um
+        # `CaraterAtendimentoRecusadoError` (um `ValueError`), que o dispatcher devolve a quem
+        # originou como rejeicao TERMINAL e selada neste `task_id` (reenvio nao reexecuta). A
+        # origem ja' valida antes de montar o envelope; isto e' defesa em profundidade.
         CAMPO_CARATER_ATENDIMENTO: carater_atendimento_exigido(meta.get(CAMPO_CARATER_ATENDIMENTO)),
         "valor_estimado_brl": float(meta.get("valor_estimado_brl", 0.0) or 0.0),
         "coverage_ref": envelope.payload_ref,

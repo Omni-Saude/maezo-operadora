@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 from maezo.a2a import Budget, DelegationEnvelope
 from maezo.a2a.dispatcher import origin_signer_of
+from maezo.domain.carater_atendimento import CAMPO_CARATER_ATENDIMENTO, carater_atendimento_exigido
 
 if TYPE_CHECKING:
     from maezo.a2a import DelegationDispatcher, DelegationResult, EnvelopeSigner
@@ -143,13 +144,26 @@ async def delegate_auth_analysis(
     """Originate and dispatch the Helena->Rafael delegation. Idempotent by `task_id`.
 
     Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the
-    started process's reference, or a structured rejection — never a raise to the caller). On
-    re-delivery of the same `task_id`, `idempotent_replay=True` and the handler does NOT run again.
+    started process's reference, or a structured rejection — never a raise from the dispatcher).
+    On re-delivery of the same `task_id`, `idempotent_replay=True` and the handler does NOT run
+    again.
 
     SIGNING: `signer` defaults to the edge's origin signer carried by `dispatcher`
     (`origin_signer_of`), so a dispatcher composed with envelope signing enabled produces SIGNED
     envelopes that its own verifier admits (no per-caller wiring). Absent (dev / no key) -> unsigned.
+
+    DL-0170 — CARATER VALIDADO AQUI, ANTES DO ENVELOPE (recusa levantada antes do dispatcher).
+    `carater_atendimento` ausente, vazio ou fora de `{"urgencia", "eletivo"}` LEVANTA
+    `CaraterAtendimentoRecusadoError` (um `ValueError`, `domain/carater_atendimento.py`) na origem:
+    nenhum envelope e' montado e nenhum `task_id` nasce no dispatcher. Sem esta checagem o Rafael
+    recusaria do lado dele, o dispatcher SELARIA a rejeicao em `auth-{tenant}-{guia}` e uma nova
+    chamada com o carater correto so' repetiria a rejeicao selada (Guard 4). Aqui o chamador
+    corrige o dado e chama de novo; a primeira chamada valida e' a que cria a tarefa. O valor
+    validado (sem espacos nas pontas) e' o que segue no envelope. A checagem do Rafael
+    (`agents/rafael/delegation.py::state_from_envelope`) continua como defesa em profundidade.
     """
+    carater = carater_atendimento_exigido(case_meta.get(CAMPO_CARATER_ATENDIMENTO))
+    case_meta = {**case_meta, CAMPO_CARATER_ATENDIMENTO: carater}
     resolved_signer = signer if signer is not None else origin_signer_of(dispatcher)
     envelope = build_auth_analysis_envelope(
         tenant=tenant,
