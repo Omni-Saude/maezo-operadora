@@ -39,6 +39,7 @@ from .handoff import (
     require_message_ref,
     require_reference,
 )
+from .identity import LUCAS_ADMINISTRATIVE_IDENTITY, AdministrativeIdentity
 
 AdministrativeStatus = Literal[
     "received",
@@ -162,7 +163,12 @@ def validate_administrative_input(
 
 
 def administrative_checkpoint_config(
-    *, task_type: AdministrativeTask, tenant_ref: str, journey_ref: str, pseudonymizer: Pseudonymizer
+    *,
+    task_type: AdministrativeTask,
+    tenant_ref: str,
+    journey_ref: str,
+    pseudonymizer: Pseudonymizer,
+    identity: AdministrativeIdentity = LUCAS_ADMINISTRATIVE_IDENTITY,
 ) -> RunnableConfig:
     """Distinct root thread per task/tenant/journey; checkpoint_ns is not isolation.
 
@@ -175,9 +181,9 @@ def administrative_checkpoint_config(
     if task_type not in ADMINISTRATIVE_TASKS:
         raise AdministrativeInputError("administrative_checkpoint_task_mismatch")
     material = json.dumps(
-        ["lucas-administrative.proposed.v1", task_type, tenant_ref, journey_ref],
+        [identity.checkpoint_material_version, task_type, tenant_ref, journey_ref],
         ensure_ascii=True,
         separators=(",", ":"),
     )
     pseudonym = hash_message_id(material, tenant_ref, pseudonymizer)
-    return checkpoint_thread_config(f"lucas:administrative:{pseudonym}")
+    return checkpoint_thread_config(f"{identity.checkpoint_thread_prefix}:{pseudonym}")

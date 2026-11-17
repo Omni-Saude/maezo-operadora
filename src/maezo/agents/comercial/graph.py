@@ -24,6 +24,9 @@ aceite ou legitimidade. O grafo nao envia mensagem: devolve o texto e a acao de 
 (`send_prospect_message`) para o despachante, que hoje nao existe para este agente (flag
 desligada). O envio, quando existir, passa pelo chokepoint do WhatsApp em `shadow`.
 
+TELEMETRIA: o no terminal `finalize` entrega o desfecho a `runtime.turn_telemetry`, que valida o
+vocabulario e NAO grava no contador (medicao nao admitida para este agente).
+
 Imports: so' o SDK do runtime e bibliotecas (ADR-0067 §4.1); nenhum outro agente.
 """
 
@@ -34,6 +37,8 @@ from typing import Any, Final, Literal, TypedDict, cast
 
 import structlog
 from langgraph.graph import END, START, StateGraph
+
+from maezo.runtime.turn_telemetry import emit_turn_desfecho
 
 from .passagem import ComercialInputError, parse_passagem
 
@@ -138,7 +143,7 @@ def new_comercial_state(values: Mapping[str, object]) -> ComercialState:
 
 
 class ComercialGraph:
-    """`receive -> decide -> END`, sem efeito externo."""
+    """`receive -> decide -> finalize -> END`, sem efeito externo."""
 
     def receive(self, state: ComercialState) -> dict[str, Any]:
         """Revalida a entrada e zera toda saida plantada antes de qualquer no' ler o estado."""
@@ -175,13 +180,24 @@ class ComercialGraph:
             "desfecho": desfecho,
         }
 
+    def finalize(self, state: ComercialState) -> dict[str, Any]:
+        """No terminal: entrega o desfecho do turno ao ponto unico de telemetria (CC-09).
+
+        Nao muda o estado. A gravacao no contador esta' fechada para este agente em
+        `runtime.turn_telemetry._AGENTES_SEM_MEDICAO_ADMITIDA` (medicao nao admitida).
+        """
+        emit_turn_desfecho(state, agent_id=AGENT_ID, route=state.get("rota") or None)
+        return {}
+
     def compile_graph(self) -> StateGraph[ComercialState]:
         g: StateGraph[ComercialState] = StateGraph(ComercialState)
         g.add_node("receive", self.receive)
         g.add_node("decide", self.decide)
+        g.add_node("finalize", self.finalize)
         g.add_edge(START, "receive")
         g.add_edge("receive", "decide")
-        g.add_edge("decide", END)
+        g.add_edge("decide", "finalize")
+        g.add_edge("finalize", END)
         return g
 
 
