@@ -105,3 +105,10 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
 - E-SF-22r (`sf-w2/mzo-ca/esf22r`, parte do ramo das classes fechadas): gatilho só por cobertura ativa da fonte (tipado; caixa/espaço não passam); uma intenção por beneficiário e contrato, selada (forjada é recusada no convite, no registro e no pedido de envio); documentos "entregue" só de "disponível" com recibo; convite com texto único, sem pergunta nem saúde, público = todos; aceite sem consentimento específico não processa nada; envio só pelo despachante (registro publicado recusa `PURPOSE_NOT_RATIFIED`). Revisão independente FAIL (4 achados) → reparo literal → PASS.
 - Ponte para o processo de programas de cuidado (SP-OP-PROGRAMA-001, BPMN e contrato): caminho da W2-MZO-GP, não tocado; GAP. `canal_ref` do pedido de boas-vindas fixo como "não resolvido": quem ligar o envio resolve o canal real.
 - E-SF-16/16r: E-SF-07 ainda não mesclado (nenhum PR dele na main); linha não iniciada, motivo: dependência.
+
+## 2026-11-17 ~22:30Z — PRONTO maezo-operadora #1304 head aa79b405436e763f34071099c02c9cc4173ae06b checks verdes (integração lida do junit)
+
+- Integração: 5 shards, 958 + 138 + 130 + 129 + 56 = 1411 testes, 0 falha, 0 erro. `flip-path-review-gate` verde. Ramo contém a main `093357a2`.
+- Arquivos tocados (4): `src/maezo/gateway/communications/outbound_gate.py`; `src/maezo/gateway/communications/whatsapp_templates.py`; `tests/unit/gateway/test_cd87_classes_fechadas.py` (novo); `tests/unit/platform/lembretes/test_optout_config_envio.py` (uma linha, CD-91).
+- Simulação de merge sobre `093357a2` (clone isolado, abortada): limpa, só os 4 arquivos.
+- Pronto enviado à coordenação do programa por `send_message`.
