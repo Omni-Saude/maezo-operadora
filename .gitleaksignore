@@ -264,3 +264,11 @@ cfe289424e0e56b5b2847070e9c69a13d65fa20d:deploy/aws-ecs/envs/dev-sa-east-1/dev-v
 # ficticio). O formato passou a `sha256:<hex>`, que a regra nao pega; esta impressao cobre so' o commit
 # historico imutavel (sem force-push).
 72de3a4294c7ab0c1aeaa42de9bf811c7b22c323:tests/unit/agents/helena_k2_amostra/pacote/manifesto.json:generic-api-key:10
+
+# E-SF-32 (PR #1272): falso positivo generic-api-key nas constantes de motivo de falha das guardas
+# normativas de REG-25 e REG-26b: a regra casa o prefixo do nome da constante + a entropia da
+# string do motivo; sao motivos tipados de teste, nao credenciais.
+# Reparo duravel no commit seguinte (renome para MOTIVO_REG*); estas impressoes cobrem so o commit
+# imutavel ja publicado (sem force-push). Removiveis quando o ramo sf-w1/doc/E-SF-32 for apagado.
+e6daecd5488ed8dfe88dbf43ba5dac5bec147857:tests/governance/test_normative_pins_e_sf_32.py:generic-api-key:143
+e6daecd5488ed8dfe88dbf43ba5dac5bec147857:tests/governance/test_normative_pins_e_sf_32.py:generic-api-key:177
