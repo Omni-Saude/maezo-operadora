@@ -3,7 +3,7 @@
 Nada aqui e' gerado por modelo: o lembrete e' uma frase com tres fatos (mes e ano da competencia, valor,
 vencimento), a orientacao de 2a via e a saida (PARAR). Sem nome de agente, mes SEMPRE com ano, frases de
 ate' 20 palavras, no maximo um emoji (nenhum). A mesma frase, com as mesmas tres variaveis, e' o corpo do
-TEMPLATE que o dono submete na Meta (`docs/runbooks/lembrete-cobranca.md`): texto livre dentro da janela de
+TEMPLATE do registro `spec/communications/whatsapp-templates.yaml` (E-SF-13): texto livre dentro da janela de
 24 h e template fora dela saem IGUAIS.
 """
 
