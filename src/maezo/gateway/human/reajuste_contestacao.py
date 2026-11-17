@@ -9,7 +9,7 @@ Base normativa (somente referência, sem cópia de texto), no arquivo
 
 - art. 10: número de protocolo como primeira ação;
 - art. 11: solicitações não assistenciais;
-- art. 4º, II: reajuste é solicitação não assistencial.
+- art. 2º, II: reajuste é solicitação não assistencial.
 
 Limites deliberados:
 
@@ -98,7 +98,7 @@ async def abrir_contestacao_reajuste(
     if not isinstance(registro, ProtocoloRegistrado):
         raise ContestacaoReajusteError("ERR_PROTOCOLO_AUSENTE")
     if not _ascii_token(registro.protocolo_ref, _PROTOCOLO_MAX) or (
-        not isinstance(registro.registrado_em, datetime) or registro.registrado_em.tzinfo is None
+        not isinstance(registro.registrado_em, datetime) or registro.registrado_em.utcoffset() is None
     ):
         raise ContestacaoReajusteError("ERR_PROTOCOLO_AUSENTE")
     return ContestacaoAberta(
