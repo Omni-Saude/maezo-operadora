@@ -54,6 +54,7 @@ from maezo.gateway.commercial_legitimacy_screen import (
     LegitimacyCriterion,
     LegitimacyScreenRecord,
     LegitimacyScreenStoreError,
+    same_screen_revision_content,
 )
 from maezo.ports.commercial import CommercialOperation, CommercialRefusalError, SalesTransport
 from tests.unit.test_commercial_gateway import NOW, UnitAdmission, UnitCodec, UnitSource, scope
@@ -79,8 +80,10 @@ ENFORCING_NAME = "LegitimacyScreenEnforcing"
 
 
 class _Store:
-    """Port double com a MESMA semântica do store: save idempotente na chave de instância
-    e recusa `contract_mismatch` para mesma oportunidade+revisão sob outro `screen_ref`."""
+    """Port double com a MESMA semântica do store: save idempotente na chave de instância só
+    para REENVIO (mesmo conteúdo e autor — `same_screen_revision_content`), `revision_taken`
+    para a chave ocupada por outro registro, e `contract_mismatch` para mesma
+    oportunidade+revisão sob outro `screen_ref`."""
 
     def __init__(self, *receipts: LegitimacyScreenRecord) -> None:
         self.rows: dict[tuple[str, str, int], LegitimacyScreenRecord] = {}
@@ -94,13 +97,15 @@ class _Store:
 
     def _insert(self, record: LegitimacyScreenRecord) -> LegitimacyScreenRecord:
         key = (record.tenant, record.screen_ref, record.screen_revision)
+        existing = self.rows.get(key)
+        if existing is not None:
+            if not same_screen_revision_content(existing, record):
+                raise LegitimacyScreenStoreError("revision_taken")
+            return existing
         binding = (record.tenant, record.opportunity_ref, record.screen_revision)
         owner = self.opportunities.get(binding)
         if owner is not None and owner != record.screen_ref:
             raise LegitimacyScreenStoreError("contract_mismatch")
-        existing = self.rows.get(key)
-        if existing is not None:
-            return existing
         self.rows[key] = record
         self.opportunities[binding] = record.screen_ref
         return record

@@ -84,7 +84,10 @@ ROUTE_PATH = PREFIX + "/legitimacy-screens"
 #: error's argument are the SAME closed set (molde D-36). `screen_conflict` é a violação da
 #: unicidade de instância do substrato (mesma oportunidade + revisão sob outro `screen_ref`,
 #: `contract_mismatch` do store) traduzida para a fronteira HTTP — recusa LOUD, nunca
-#: overwrite silencioso.
+#: overwrite silencioso. `stale_revision` cobre a revisão ecoada que não é a cabeça E a
+#: corrida em que outro escritor grava a revisão N+1 entre a leitura da cabeça e a escrita
+#: (`revision_taken` do store na revalidação): o chamador relê e decide de novo — nunca
+#: recebe 201 com a linha do outro.
 LegitimacyScreenCode = Literal[
     "invalid_request",
     "authentication_unavailable",
@@ -436,7 +439,10 @@ class LegitimacyScreenService:
             screen_revision=1,
             author=session.principal.principal_ref,
         )
-        return await self._save(record)
+        # Primeira criação: o cliente não ecoou revisão nenhuma (nada ficou "velho" do lado
+        # dele) e o `screen_ref` é cunhado aqui — chave (ref novo, 1) já ocupada é colisão de
+        # IDENTIDADE de instância, a mesma família da `contract_mismatch` ⇒ `screen_conflict`.
+        return await self._save(record, taken="screen_conflict")
 
     async def revalidate(
         self,
@@ -460,7 +466,10 @@ class LegitimacyScreenService:
             screen_revision=current.screen_revision + 1,
             author=session.principal.principal_ref,
         )
-        return await self._save(record)
+        # Corrida de revalidação: outro escritor gravou N+1 depois da leitura da cabeça. A
+        # revisão ecoada ficou velha ⇒ `stale_revision`. SEM retry automático: revalidar é
+        # julgamento humano sobre a cabeça NOVA, que o operador ainda não viu.
+        return await self._save(record, taken="stale_revision")
 
     async def read(
         self, session_secret: str, screen_ref: str, screen_revision: int
@@ -493,12 +502,24 @@ class LegitimacyScreenService:
             raise LegitimacyScreenBoundaryError("resource_unavailable")
         return record
 
-    async def _save(self, record: LegitimacyScreenRecord) -> LegitimacyScreenRecord:
+    async def _save(
+        self,
+        record: LegitimacyScreenRecord,
+        *,
+        taken: Literal["stale_revision", "screen_conflict"],
+    ) -> LegitimacyScreenRecord:
+        """Persiste e traduz o erro do store; `taken` é o código público de `revision_taken`.
+
+        `revision_taken` (a chave já é de OUTRO conteúdo/autor) depende da rota: na
+        revalidação é `stale_revision`; na primeira criação é `screen_conflict`.
+        """
         try:
             return await self.store.save(record)
         except LegitimacyScreenStoreError as exc:
             if exc.code == "contract_mismatch":
                 raise LegitimacyScreenBoundaryError("screen_conflict") from None
+            if exc.code == "revision_taken":
+                raise LegitimacyScreenBoundaryError(taken) from None
             raise LegitimacyScreenBoundaryError("dependency_unavailable") from None
 
 

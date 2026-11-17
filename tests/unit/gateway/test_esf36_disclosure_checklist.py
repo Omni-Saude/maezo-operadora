@@ -8,9 +8,10 @@ and asserts the typed refusal:
 - `test_disclosure_items_i_to_ix_present_before_decision_button`: inciso VII (and every other
   item of I–IX/§1º) absent before the decision → `disclosure_incompleto_rn413_art4`. maezo has
   no buyer UI button: the "decision button" here is the server-side precondition of the C6-4
-  `acceptance.record` `decision: accept` (`require_disclosure_before_decision`). It is NOT
-  wired into `CommercialGateway` — the pinned C6-4 terms carry no per-inciso content (GAP,
-  asserted by `test_checklist_slots_are_candidates_absent_from_the_pinned_wire`).
+  `acceptance.record` `decision: accept` (`require_disclosure_before_decision`). It is wired
+  into the bound Sales admission (`test_esf36_disclosure_wiring.py`); the pinned C6-4 terms
+  carry no per-inciso content (GAP, asserted by
+  `test_checklist_slots_are_candidates_absent_from_the_pinned_wire`), so every accept refuses.
 
 The pinned `tests/candidate_artifacts/commercial/contract-c6-4.json` is only read.
 """
@@ -123,7 +124,7 @@ def test_checklist_maps_i_to_ix_and_par1_one_to_one_to_terms_fields() -> None:
     assert RN413_ART4_CHECKLIST[6].terms_field == PUBLIC_PRICE_FIELD
 
     by_dispositivo = {item.dispositivo: item for item in RN413_ART4_CHECKLIST}
-    # Incisos V and VI are elided in NORMATIVE-BASELINE-v2 §2.3: GAP, never written from memory.
+    # Incisos V and VI are elided in textos-base/RN-413-2016.md: GAP, never written from memory.
     for gap in ("art. 4º, V", "art. 4º, VI"):
         assert by_dispositivo[gap].verbatim is None
         assert by_dispositivo[gap].source.startswith("GAP")
