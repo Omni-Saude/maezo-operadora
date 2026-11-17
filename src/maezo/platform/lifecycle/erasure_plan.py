@@ -1026,7 +1026,7 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         identificacao=(
             "rco_decisao_regra_id (FK to the decision row) + concordou (closed enum sim/nao/sem_desfecho) "
             "+ desfecho_em/registrado_em; no business key, no text, no person: the human outcome is linked "
-            "later as a NEW row (insert-only writer `registrar_desfecho`, DL-0182) and carries no "
+            "later as a NEW row (append-only writer `registrar_desfecho`, DL-0182) and carries no "
             "titular column"
         ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
