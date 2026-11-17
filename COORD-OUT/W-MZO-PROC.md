@@ -49,3 +49,5 @@ pronto: maezo-operadora #1277, head abe603975ebe7f573f1c5a1808b0f3fa5abeb8f0, ch
 
 pronto: maezo-operadora #1282, head 39e49fbf864cb4dc576ea4d20e1568fabbc5a47c, checks verdes (integração lida do junit: 5 shards, 1269 testes, 0 falhas, 0 erros, 7 skip) — E-SF-09; revisão independente PASS. Pendente só flip-path-review-gate (deploy/Dockerfile exige code owner humano). Ramo 10 commits atrás da main, aguardando Update branch da mescladora.
 CAMINHO pyproject.toml, deploy/Dockerfile, tests/unit/ci/test_spec_packaging_fence.py — E-SF-09: force-include + COPY + subtree esperado de spec/policies/saida-a-pedido, exigidos pela cerca de empacotamento (PROVISÓRIO-aguarda-coordenador).
+
+pronto: maezo-operadora #1282, head c989c8d64ea2e7416e5991795e0bb4e116aa8ca8, checks verdes (após 2 merges da main; integração lida do junit: 5 shards, 1403 testes, 0 falhas, 0 erros, 7 skip; flip-path-review-gate vermelho por deploy/Dockerfile, exceção aceita) — repassado à mescladora pelo coordenador às ~07:18Z.
