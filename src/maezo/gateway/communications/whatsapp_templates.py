@@ -14,6 +14,10 @@ Fechado por construcao:
 * classe de variavel de saude (CPT, DS/DPP, CID, condicao, recusa por saude, utilizacao assistencial) ->
   recusa (`VARIABLE_CLASS_HEALTH`), mesmo que alguem a escreva no vocabulario;
 * corpo de template com termo de saude -> recusa (`BODY_HEALTH_CONTENT`);
+* classe de variavel declarada SEM validador de valor em `VALIDADORES_DE_CLASSE` -> recusa do registro
+  inteiro (`VARIABLE_CLASS_NOT_CLOSED`): nao existe classe de texto livre. A garantia de "zero dado de saude
+  em mensagem proativa" vem daqui (classe fechada + validador de VALOR, aplicado pelo gate); o detector
+  `contem_dado_de_saude` fica como defesa em profundidade, nao como garantia;
 * `meta_status: approved` exige `meta_template_ref`, `content_review_ref`, corpo e `publicity` definidos;
 * `ratified: true` exige `ratification_ref`.
 
@@ -26,9 +30,12 @@ aprovados, ZERO textos de permissao e ZERO tipos de titular com oposicao executa
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+import unicodedata
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Final
 
 import yaml
@@ -101,8 +108,21 @@ TERMOS_DE_SAUDE: Final[tuple[str, ...]] = (
     "utilizacao assistencial",
     "recusa por saude",
     "motivo de saude",
+    "gestacao",
+    "gravidez",
+    "cancer",
+    "neoplasia",
+    "hipertensao",
+    "diabetes",
+    "medicamento",
+    "remedio",
 )
-_CID10: Final[re.Pattern[str]] = re.compile(r"\b[A-TV-Z][0-9]{2}(?:\.[0-9A-Z]{1,2})?\b", re.IGNORECASE)
+#: CID-10: letra + separador opcional (espaco, ponto, hifen, barra, sublinhado) + 2 digitos + subcategoria
+#: opcional (separador opcional + 1-2 alfanumericos). Roda sobre o texto sem acento, minusculo e com
+#: espacos colapsados. Recusa MAIS de proposito (ex.: "J 45", "j-45", "J45.0", "j 45 9").
+_CID10: Final[re.Pattern[str]] = re.compile(
+    r"(?<![a-z0-9])[a-tv-z][ ._/\-]?[0-9]{2}(?:[ ._/\-]?[0-9a-z]{1,2})?(?![a-z0-9])"
+)
 _NOME_META: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9_]{1,512}$")
 _ID: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9_.]*$")
 _PLACEHOLDER: Final[re.Pattern[str]] = re.compile(r"\{\{(\d+)\}\}")
@@ -122,18 +142,150 @@ FINALIDADES_GENERICAS: Final[frozenset[str]] = frozenset({"comercial", "marketin
 
 
 def _normalizar(texto: str) -> str:
-    import unicodedata
-
     sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
     return sem_acento.lower()
 
 
 def contem_dado_de_saude(texto: str) -> bool:
-    """`True` se o texto carrega termo de saude ou padrao de CID-10. Usado no corpo e nos valores."""
-    if _CID10.search(texto):
+    """`True` se o texto carrega termo de saude ou padrao de CID-10. Usado no corpo e nos valores.
+
+    DEFESA EM PROFUNDIDADE: a lista de termos nao e' completa e nao pretende ser. A garantia de "zero dado
+    de saude" vem da classe fechada da variavel + validador de valor (`VALIDADORES_DE_CLASSE`).
+    """
+    norm = re.sub(r"\s+", " ", _normalizar(texto))
+    if _CID10.search(norm):
         return True
-    norm = re.sub(r"[=_\-:]", " ", _normalizar(texto))
+    norm = re.sub(r"[=_\-:]", " ", norm)
     return any(re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", norm) for t in TERMOS_DE_SAUDE)
+
+
+# --------------------------------------------------------------------------- classes FECHADAS de variavel
+_MESES: Final[tuple[str, ...]] = (
+    "janeiro",
+    "fevereiro",
+    "março",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+)
+_RE_COMPETENCIA: Final[re.Pattern[str]] = re.compile(
+    r"(?:\[TESTE\] )?(" + "|".join(_MESES) + r") de ([12][0-9]{3})"
+)
+_RE_VALOR_REAIS: Final[re.Pattern[str]] = re.compile(r"(?:0|[1-9][0-9]{0,8}),[0-9]{2}")
+_RE_DIA_MES: Final[re.Pattern[str]] = re.compile(r"([0-9]{2})/([0-9]{2})")
+_RE_DATA: Final[re.Pattern[str]] = re.compile(r"([0-9]{2})/([0-9]{2})/([0-9]{4})")
+_RE_CONTAGEM: Final[re.Pattern[str]] = re.compile(r"0|[1-9][0-9]{0,8}")
+_RE_LINK: Final[re.Pattern[str]] = re.compile(
+    r"https://[A-Za-z0-9][A-Za-z0-9.\-]{0,100}(?:/[A-Za-z0-9._~\-/]{0,200})?(?:\?[A-Za-z0-9._~\-=&%]{0,200})?"
+    r"|[A-Za-z0-9_\-]{8,128}"
+)
+_RE_CENTAVOS: Final[re.Pattern[str]] = re.compile(r"R\$ (?:0|[1-9][0-9]{0,2}(?:\.[0-9]{3})*),[0-9]{2}")
+_RE_PROTOCOLO: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9\-]{4,64}")
+_RE_PRIMEIRO_NOME: Final[re.Pattern[str]] = re.compile(r"[^\W\d_]{2,30}")
+
+
+def _simples(valor: object, tamanho_max: int) -> bool:
+    """Base de todo validador: `str` exata, sem espaco nas pontas, nao vazia, tamanho limitado."""
+    return type(valor) is str and 0 < len(valor) <= tamanho_max and valor == valor.strip()
+
+
+def _data_valida(dia: str, mes: str, ano: int) -> bool:
+    try:
+        date(ano, int(mes), int(dia))
+    except ValueError:
+        return False
+    return True
+
+
+def _v_competencia(valor: str) -> bool:
+    return _simples(valor, 32) and _RE_COMPETENCIA.fullmatch(valor) is not None
+
+
+def _v_valor_reais(valor: str) -> bool:
+    return _simples(valor, 16) and _RE_VALOR_REAIS.fullmatch(valor) is not None
+
+
+def _v_dia_mes(valor: str) -> bool:
+    m = _RE_DIA_MES.fullmatch(valor) if _simples(valor, 5) else None
+    return m is not None and _data_valida(m[1], m[2], 2000)  # 2000 e' bissexto: 29/02 vale
+
+
+def _v_data(valor: str) -> bool:
+    m = _RE_DATA.fullmatch(valor) if _simples(valor, 10) else None
+    return m is not None and _data_valida(m[1], m[2], int(m[3]))
+
+
+def _v_contagem(valor: str) -> bool:
+    return _simples(valor, 9) and _RE_CONTAGEM.fullmatch(valor) is not None
+
+
+def _v_link_opaco(valor: str) -> bool:
+    return _simples(valor, 256) and _RE_LINK.fullmatch(valor) is not None
+
+
+def _v_centavos(valor: str) -> bool:
+    return _simples(valor, 20) and _RE_CENTAVOS.fullmatch(valor) is not None
+
+
+def _v_protocolo(valor: str) -> bool:
+    return _simples(valor, 64) and _RE_PROTOCOLO.fullmatch(valor) is not None
+
+
+def _v_primeiro_nome(valor: str) -> bool:
+    return _simples(valor, 30) and _RE_PRIMEIRO_NOME.fullmatch(valor) is not None
+
+
+def validador_produto_catalogo(nomes: Collection[str] = frozenset()) -> Callable[[str], bool]:
+    """Validador da classe `produto_catalogo`: so' vale nome que PERTENCE ao conjunto injetado.
+
+    GAP: nao existe catalogo de produtos publicado. O padrao e' o conjunto VAZIO, que recusa tudo; quem
+    publicar o catalogo injeta os nomes, trocando a entrada `produto_catalogo` de `VALIDADORES_DE_CLASSE`
+    (o gate le' o mapa do modulo). Nunca aceita texto avulso.
+    """
+    permitidos = frozenset(nomes)
+
+    def _valido(valor: str) -> bool:
+        return _simples(valor, 120) and valor in permitidos
+
+    return _valido
+
+
+#: Classes FECHADAS de variavel e o validador de VALOR de cada uma. NAO existe classe de texto livre: classe
+#: declarada sem entrada aqui recusa o registro (`VARIABLE_CLASS_NOT_CLOSED`). As seis primeiras sao as do
+#: YAML publicado (formatos EXATOS do produtor de lembretes, `platform/lembretes/texto.py`; paridade fixada em
+#: `tests/unit/gateway/test_cd87_classes_fechadas.py`); as cinco ultimas sao da decisao CD-87.
+VALIDADORES_DE_CLASSE: Final[Mapping[str, Callable[[str], bool]]] = MappingProxyType(
+    {
+        "competencia_mes_ano": _v_competencia,  # `outubro de 2026` (modo de teste: prefixo `[TESTE] `)
+        "valor_cobranca_reais": _v_valor_reais,  # `320,25` (sem `R$`, sem milhar)
+        "data_vencimento_dia_mes": _v_dia_mes,  # `20/10`
+        "contagem": _v_contagem,  # inteiro nao negativo em digitos
+        # Formato nao especificado no YAML: assumida data DD/MM/AAAA (ajustar se a fonte publicar outro).
+        "data_publicacao_fonte": _v_data,
+        "link_opaco_jornada": _v_link_opaco,  # URL https opaca ou referencia, sem espaco nem texto
+        "data": _v_data,  # DD/MM/AAAA valida
+        "valor_centavos_formatado": _v_centavos,  # `R$ 1.234,56`
+        "protocolo_ref": _v_protocolo,  # ASCII alfanumerico e hifen, 4-64
+        "produto_catalogo": validador_produto_catalogo(),  # GAP: catalogo nao publicado -> recusa tudo
+        "primeiro_nome": _v_primeiro_nome,  # uma palavra, so' letras, 2-30
+    }
+)
+
+
+def valor_valido_para_classe(
+    classe: str,
+    valor: object,
+    validadores: Mapping[str, Callable[[str], bool]] = VALIDADORES_DE_CLASSE,
+) -> bool:
+    """`True` so' se a classe tem validador e o VALOR passa nele. Classe sem validador nunca valida."""
+    validador = validadores.get(classe)
+    return type(valor) is str and validador is not None and validador(valor)
 
 
 class RegistroInvalidoError(ValueError):
@@ -267,6 +419,9 @@ def _validar_classes(bruto: object, problemas: list[str]) -> dict[str, ClasseDeV
         if cid in CLASSES_DE_SAUDE or contem_dado_de_saude(cid.replace("_", " ")):
             problemas.append(f"VARIABLE_CLASS_HEALTH:variable_classes[{i}]")
             continue
+        if cid not in VALIDADORES_DE_CLASSE:
+            problemas.append(f"VARIABLE_CLASS_NOT_CLOSED:variable_classes[{i}]")
+            continue
         if cid in classes:
             problemas.append(f"DUPLICATE_ID:variable_classes[{i}]")
             continue
@@ -352,6 +507,9 @@ def _validar_variaveis(
             continue
         if classe not in classes:
             problemas.append(f"VARIABLE_CLASS_UNKNOWN:{onde}.variables[{j}]")
+            continue
+        if classe not in VALIDADORES_DE_CLASSE:
+            problemas.append(f"VARIABLE_CLASS_NOT_CLOSED:{onde}.variables[{j}]")
             continue
         variaveis.append(Variavel(pos=v["pos"], classe=classe))
     if [v.pos for v in variaveis] != list(range(1, len(variaveis) + 1)):
