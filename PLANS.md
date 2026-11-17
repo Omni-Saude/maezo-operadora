@@ -98,7 +98,7 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - #1250, `17f7f4a8`: ADR-0075 §(f) com `sha256Yaml` opcional (emenda incorporada em 16/11/2026, 09:51). A gravação de `sha256Yaml` no runtime fica como unidade própria, a propor à ROOT.
   - **Pedidos da T-MZO-B:** os quatro estão fechados com o #1243 (rede credenciada), incorporado pelo dono (main 3d756b1a).
   - **Aguardando o OK do usuário:**
-    - MZO-2c: tirar o caráter padrão `eletivo` do Rafael. Desenho aprovado pela ROOT: caráter obrigatório; sem caráter, perguntar ou mandar à revisão humana com o prazo de urgência; `auth_sla.dmn` intacto; teste-cerca contra caráter literal.
+    - MZO-2c: tirar o caráter padrão `eletivo` do Rafael. Desenho aprovado pela ROOT: caráter obrigatório; sem caráter, perguntar ou mandar à revisão humana com o prazo de urgência; teste-cerca contra caráter literal. A ROOT decidiu depois (17/11) mudar a linha r4 da `auth_sla.dmn` (caráter nulo ou desconhecido) para o prazo da urgência, numa unidade própria.
     - Condição deste arquivo para o escritor livre da Helena.
   - **Item 5 (ativação por classe de risco):** desenho aprovado pela ROOT em 16/11/2026, com as respostas às perguntas abertas.
     - **#1254, incorporado:** ADR-0077 Proposed, emenda ao ADR-0075 §(e).
