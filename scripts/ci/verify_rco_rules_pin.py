@@ -46,6 +46,10 @@ Estados do pin (`estado`)
   fora do lock e fora da arvore: contrato §3). No formato 2.1 o manifesto lista tambem `provas[]`:
   cada arquivo de prova fica em `k1/provas/<id>/...` com o sha256 do manifesto, e arquivo em `provas/`
   fora do manifesto reprova (contrato §4 item 7); as provas NAO entram em `artifacts` (fora do lock).
+  No formato 2.2 (DL-0173) o manifesto pode listar `composicoes[]` (grupos de decisoes avaliadas
+  juntas, regra `primeira_com_idRegra`); grupo malformado (decisao fora de `decisoes[]` ou em dois
+  grupos, `padrao` que nao e a ultima, `regra` fora do vocabulario fechado) e recusado pelo MESMO
+  leitor, aqui como `manifesto-invalido` e no runtime como `RcoRulesPinError`.
   Cada `rco/*.dmn` tem de estar listado com sha256
   igual; nada fora da lista e aceito.
 

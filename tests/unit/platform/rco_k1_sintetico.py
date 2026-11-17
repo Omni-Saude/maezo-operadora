@@ -10,7 +10,7 @@ Formato padrao: `formato_manifesto` 2.1.0 com uma prova sintetica (`com_provas`)
 `provas[]` (decisao da ROOT, 16/11/2026). Regras com `ativacao`/`exige_aditivo` e `vocabulario.json` com
 o bloco `ativacao` (valores + parametros, numeros inventados — nao sao os provisorios do rco).
 `montar(raiz, provas=False)` gera o 2.0.0 e `montar(raiz, major=1)` o 1.0.0: o leitor os le, o pin os
-recusa (`pin-sem-provas`).
+recusa (`pin-sem-provas`). `com_composicoes` promove a 2.2.0 com `composicoes[]` (DL-0173).
 
 `montar(raiz)` escreve a arvore e o pin em estado `fixado`; `regravar(raiz, manifesto)` reescreve o
 manifesto em bytes canonicos e atualiza `manifest_pin.sha256`, para testar uma mutacao por vez.
@@ -324,5 +324,83 @@ def provas_vazias(raiz: Path, manifesto: dict[str, Any]) -> dict[str, Any]:
     manifesto["formato_manifesto"] = "2.1.0"
     manifesto["provas"] = []
     shutil.rmtree(raiz / K1_DIR / "provas", ignore_errors=True)
+    regravar(raiz, manifesto)
+    return manifesto
+
+
+#: Grupo sintetico de `composicoes[]` (formato 2.2.0, DL-0173) sobre as duas tabelas do pacote:
+#: `rco_sint_a` avaliada primeiro, `rco_sint_b` e o padrao (a ultima).
+COMPOSICAO_NOME = "grupo_sint"
+COMPOSICAO: dict[str, Any] = {
+    "decisoes": ["rco_sint_a", "rco_sint_b"],
+    "nome": COMPOSICAO_NOME,
+    "padrao": "rco_sint_b",
+    "regra": "primeira_com_idRegra",
+}
+
+
+def com_composicoes(
+    raiz: Path,
+    manifesto: dict[str, Any],
+    composicoes: list[dict[str, Any]] | None = None,
+    *,
+    campo: bool = True,
+) -> dict[str, Any]:
+    """Promove o pacote (ja 2.1.0 com provas) a `formato_manifesto` 2.2.0 com `composicoes[]`.
+
+    `composicoes` padrao: `[COMPOSICAO]`. `campo=False`: 2.2.0 sem o campo (vale lista vazia).
+    """
+    if "provas" not in manifesto:
+        com_provas(raiz, manifesto)
+    manifesto["formato_manifesto"] = "2.2.0"
+    if campo:
+        manifesto["composicoes"] = copy.deepcopy([COMPOSICAO] if composicoes is None else composicoes)
+    else:
+        manifesto.pop("composicoes", None)
+    regravar(raiz, manifesto)
+    return manifesto
+
+
+#: Terceira tabela sintetica (so com `com_tabela_c`), para um grupo na forma da ortopedia: duas
+#: decisoes anteriores (`rco_sint_a`, `rco_sint_c`) e o padrao (`rco_sint_b`).
+_TABELA_C: tuple[list[str], list[list[str]], list[str]] = (
+    SAIDAS_OBRIGATORIAS,
+    [
+        ['"glosar"', '"1801"', '"SINT-C-0001"', '"cadastro"', '"administrativo"'],
+        ['"liberar"', '""', '""', '""', '""'],
+    ],
+    ["SINT-C-0001"],
+)
+COMPOSICAO_TRES: dict[str, Any] = {
+    "decisoes": ["rco_sint_a", "rco_sint_c", "rco_sint_b"],
+    "nome": "grupo_sint_tres",
+    "padrao": "rco_sint_b",
+    "regra": "primeira_com_idRegra",
+}
+
+
+def com_tabela_c(raiz: Path, manifesto: dict[str, Any]) -> dict[str, Any]:
+    """Acrescenta a tabela `rco_sint_c` ao pacote (DMN, `decisoes[]` e `artifacts` do lock) e repina."""
+    saidas, linhas, ids = _TABELA_C
+    raw = dmn_bytes("rco_sint_c", saidas, linhas)
+    (raiz / RULES_DIR / "sint_c.dmn").write_bytes(raw)
+    modelo = copy.deepcopy(manifesto["decisoes"][0])
+    modelo.update(
+        {
+            "arquivo": "dmn/sint_c.dmn",
+            "caminho_consumidor": f"{RULES_DIR}/sint_c.dmn",
+            "id": "rco_sint_c",
+            "id_original": "sint_c",
+            "regras": [_regra(i, f"1.0.{n}", 2, ("plena", False)) for n, i in enumerate(ids)],
+            "saidas": [{"nome": s, "nome_snake": s.lower(), "typeRef": "string"} for s in saidas],
+            "sha256": sha(raw),
+        }
+    )
+    manifesto["decisoes"] = sorted([*manifesto["decisoes"], modelo], key=lambda d: d["id"])
+    atual = lock(raiz)
+    atual["artifacts"] = [
+        {"path": d["caminho_consumidor"], "sha256": d["sha256"]} for d in manifesto["decisoes"]
+    ]
+    gravar_lock(raiz, atual)
     regravar(raiz, manifesto)
     return manifesto

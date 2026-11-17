@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="Defs_Fixture" targetNamespace="http://maezo.example/bpmn-gates/fixtures">
+  <!-- Fixture NEGATIVA do gate 3: o nome "msg.fixture.duplicada" tem dois ids (id<->name divergente)
+       e Msg_SemNome nao tem nome (correlacao por nome impossivel). -->
+  <bpmn:message id="Msg_FixtureA" name="msg.fixture.duplicada"/>
+  <bpmn:message id="Msg_FixtureB" name="msg.fixture.duplicada"/>
+  <bpmn:message id="Msg_SemNome"/>
+  <bpmn:process id="Fixture_G3" isExecutable="true">
+    <bpmn:startEvent id="Start_G3" name="Inicio">
+      <bpmn:outgoing>Flow_G3_1</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_G3_A" messageRef="Msg_FixtureA"/>
+    </bpmn:startEvent>
+    <bpmn:intermediateCatchEvent id="ICE_G3" name="Espera">
+      <bpmn:incoming>Flow_G3_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_G3_2</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_G3_B" messageRef="Msg_SemNome"/>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:endEvent id="End_G3" name="Fim">
+      <bpmn:incoming>Flow_G3_2</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_G3_1" sourceRef="Start_G3" targetRef="ICE_G3"/>
+    <bpmn:sequenceFlow id="Flow_G3_2" sourceRef="ICE_G3" targetRef="End_G3"/>
+  </bpmn:process>
+</bpmn:definitions>

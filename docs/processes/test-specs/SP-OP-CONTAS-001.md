@@ -233,6 +233,34 @@ propria glosa.)*
 - **Then** reentra em `ST_ApurarDivergencias` na mesma instancia. Sem a comunicacao da devolucao o
   prestador nunca saberia que a conta voltou, e esta mensagem ficaria sem gatilho.
 
+### test_reentrada_nao_transforma_a_data_defaultada_em_data_informada (DL-0174)
+- **Given** lote iniciado **sem** `data_recebimento_lote`; a primeira passagem do intake defaulta a
+  ancora para hoje/UTC e grava `data_recebimento_lote_informada = null`
+  (`data_recebimento_lote_informada_motivo = ausente`); instancia em `UT_AnalistaContas`
+- **When** `msg.contas.linhas_atualizadas` correlacionada e `ST_ApurarDivergencias` roda de novo
+- **Then** `ST_ApurarDivergencias` executou duas vezes; `data_recebimento_lote` segue hoje/UTC e
+  `data_recebimento_lote_informada` segue **nula** (motivo `ausente`): a reentrada ecoa a variavel
+  crua, nunca a recalcula da ancora defaultada.
+- **Unitarios** (`tests/unit/tools/workers/test_contas_data_recebimento_informada.py`): data valida
+  gravada crua; ausente/vazia => `ausente`; `2026-1-5`, datetime, `2026-02-30`, digitos Unicode e lixo
+  => `formato_invalido`; data posterior ao relogio fixado => `data_futura`; reentrada com a variavel
+  presente (nula ou preenchida) => eco verbatim, mesmo com a ancora mudada; reentrada sem a variavel
+  (instancia legada) => nula com `instancia_legada`; o aviso so carrega `tenant_id`,
+  `numero_lote_tiss` e o motivo (nunca o valor bruto); o escopo de fetch traz as variaveis novas e o
+  marcador `has_glosas`; a ancora nao muda de comportamento. Apos a revisao independente: so
+  espaco/tab ASCII sao removidos das pontas (LF, CR, `\x1c`, NBSP, U+3000 => `formato_invalido`);
+  eco invalido (formato, motivo fora do vocabulario, par incoerente) => `valor_armazenado_invalido`;
+  o aviso nao se repete no eco; nova ancora trazida pela correcao nao muda a data informada; o
+  marcador nunca e semeado antes do intake (Marina, `MARINA_CONTAS_START`, parametros do BPMN).
+
+### test_reentrada_de_instancia_legada_nao_rederiva_a_data_informada (DL-0174)
+- **Given** lote iniciado COM `data_recebimento_lote` passada valida, instancia em
+  `UT_AnalistaContas`; as duas variaveis novas apagadas via REST (simula instancia anterior a
+  DL-0174; `has_glosas` continua)
+- **When** `msg.contas.linhas_atualizadas` correlacionada
+- **Then** `data_recebimento_lote_informada` nula com motivo `instancia_legada` (nunca re-derivada
+  da ancora valida) e `data_recebimento_lote` intocada.
+
 ## Timers de SLA
 
 ### test_timer_alerta_sla_nao_interruptivo

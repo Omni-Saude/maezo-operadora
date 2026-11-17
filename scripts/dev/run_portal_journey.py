@@ -54,7 +54,12 @@ from maezo.portal.api.app import create_app  # noqa: E402
 
 if TYPE_CHECKING:  # pragma: no cover - annotations only
     import uvicorn
+from maezo.gateway.commercial_legitimacy_screen import (  # noqa: E402
+    LegitimacyScreenRecord,
+    LegitimacyScreenStoreError,
+)
 from maezo.portal.api.config import PortalSettings  # noqa: E402
+from maezo.portal.api.legitimacy_screen import LegitimacyScreenService  # noqa: E402
 from maezo.portal.api.local_auth import STUB_AUTHORIZATION_CODE, StubAuthenticator  # noqa: E402
 from maezo.portal.api.records import MembershipRecord  # noqa: E402
 from maezo.portal.api.store import LocalTestIdentityStore  # noqa: E402
@@ -115,9 +120,66 @@ def seeded_store(identity: JourneyIdentity) -> LocalTestIdentityStore:
     return store
 
 
-def build_app(store: LocalTestIdentityStore, settings: PortalSettings) -> FastAPI:
-    return create_app(settings, store=store, authenticator=StubAuthenticator(settings))
+class LocalTestLegitimacyScreenStore:
+    """Harness-only, in-memory `LegitimacyScreenStore` (the substrate port, #1022).
 
+    EP-CORE-15a: "flag ON local: 5 critérios com rótulos idênticos ao manifesto". The
+    production composition has no default factory for the OP21 screen (the slot answers
+    503), so this local-test session binds the REAL `LegitimacyScreenService` over this
+    in-memory store — same semantics as the Postgres store: idempotent `save` on the
+    instance key, `contract_mismatch` for a second instance of the same opportunity+revision.
+    No commercial gateway is bound here, so the SHADOW guard is never composed.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[tuple[str, str, int], LegitimacyScreenRecord] = {}
+        self.opportunities: dict[tuple[str, str, int], str] = {}
+
+    async def save(self, record: LegitimacyScreenRecord) -> LegitimacyScreenRecord:
+        key = (record.tenant, record.screen_ref, record.screen_revision)
+        binding = (record.tenant, record.opportunity_ref, record.screen_revision)
+        owner = self.opportunities.get(binding)
+        if owner is not None and owner != record.screen_ref:
+            raise LegitimacyScreenStoreError("contract_mismatch")
+        existing = self.rows.get(key)
+        if existing is not None:
+            return existing
+        self.rows[key] = record
+        self.opportunities[binding] = record.screen_ref
+        return record
+
+    async def read(self, tenant: str, screen_ref: str, screen_revision: int) -> LegitimacyScreenRecord | None:
+        return self.rows.get((tenant, screen_ref, screen_revision))
+
+    async def latest_for_opportunity(
+        self, tenant: str, opportunity_ref: str
+    ) -> LegitimacyScreenRecord | None:
+        return self._latest(
+            [r for r in self.rows.values() if (r.tenant, r.opportunity_ref) == (tenant, opportunity_ref)]
+        )
+
+    async def latest_for_legal_entity(
+        self, tenant: str, legal_entity_ref: str
+    ) -> LegitimacyScreenRecord | None:
+        return self._latest(
+            [r for r in self.rows.values() if (r.tenant, r.legal_entity_ref) == (tenant, legal_entity_ref)]
+        )
+
+    @staticmethod
+    def _latest(rows: list[LegitimacyScreenRecord]) -> LegitimacyScreenRecord | None:
+        return max(rows, key=lambda r: (r.screen_revision, r.screen_ref), default=None)
+
+
+def build_app(store: LocalTestIdentityStore, settings: PortalSettings) -> FastAPI:
+    legitimacy_store = LocalTestLegitimacyScreenStore()
+    return create_app(
+        settings,
+        store=store,
+        authenticator=StubAuthenticator(settings),
+        legitimacy_screen_service_factory=lambda resolver: LegitimacyScreenService(
+            resolver, legitimacy_store
+        ),
+    )
 
 
 def free_port() -> int:
@@ -302,6 +364,10 @@ def session_leg(arguments: argparse.Namespace) -> int:
         staff_documents_panel=True,
         staff_operations_panel=True,
         staff_admin_panel=True,
+        # EP-CORE-15a "flag ON local": the OP21 legitimacy screen renders its five criteria
+        # over the in-memory store bound in `build_app`; no commercial gateway is bound, so
+        # `collective_legitimacy_shadow` passes `None` through and no guard is composed.
+        collective_legitimacy_screen=True,
     )
     store = seeded_store(identity)
     app = build_app(store, settings)

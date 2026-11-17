@@ -25,8 +25,9 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import functools
+import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -35,6 +36,7 @@ import structlog
 from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.platform.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, StartOutcome, start_process_idempotent
+from maezo.tools.workers import rco_montador, rco_sombra
 from maezo.tools.workers.base import (
     FunctionWorker,
     non_blank,
@@ -1896,10 +1898,213 @@ def _normalize_data_recebimento_lote(raw: Any) -> tuple[str, bool]:
             pass
         else:
             return candidate, False
-    return datetime.now(UTC).strftime("%Y-%m-%d"), True
+    return _hoje_utc().isoformat(), True
 
 
-def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+def _hoje_utc() -> date:
+    """O relogio do processo: a data de HOJE em UTC.
+
+    O MESMO relogio do default fail-safe da ancora (`_normalize_data_recebimento_lote`) e do teste
+    de data futura de `data_recebimento_lote_informada` (DL-0174); isolado aqui so para os testes
+    poderem fixa-lo (monkeypatch). `date.isoformat()` e byte-identico ao antigo
+    `strftime("%Y-%m-%d")`: a ancora nao muda de comportamento.
+    """
+    return datetime.now(UTC).date()
+
+
+# ---------------------------------------------------------------------------
+# DL-0174: `data_recebimento_lote_informada` — a data de recebimento CRUA, separada da ancora
+# ---------------------------------------------------------------------------
+
+#: A data em que a operadora recebeu o lote, EXATAMENTE como o lote a informou: anulavel e NUNCA
+#: defaultada. Existe porque a ancora `data_recebimento_lote` e defaultada para HOJE/UTC quando o
+#: lote nao a traz (os timers de SLA precisam de uma ancora) e, na reentrada por
+#: `BME_LinhasAtualizadas`, o valor padrao e indistinguivel do recebido.
+DATA_RECEBIMENTO_INFORMADA_VAR = "data_recebimento_lote_informada"
+#: O motivo, em vocabulario FECHADO, de a variavel acima ser nula (`None` quando a data e valida).
+DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR = "data_recebimento_lote_informada_motivo"
+MOTIVO_DATA_INFORMADA_AUSENTE = "ausente"
+MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO = "formato_invalido"
+MOTIVO_DATA_INFORMADA_FUTURA = "data_futura"
+MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA = "instancia_legada"
+#: Reentrada cujo valor ARMAZENADO nao passa na validacao do eco (data fora do formato estrito,
+#: motivo fora do vocabulario, ou par valor/motivo incoerente): a variavel vira nula com este motivo.
+MOTIVO_DATA_INFORMADA_VALOR_ARMAZENADO_INVALIDO = "valor_armazenado_invalido"
+MOTIVOS_DATA_RECEBIMENTO_INFORMADA: frozenset[str] = frozenset(
+    {
+        MOTIVO_DATA_INFORMADA_AUSENTE,
+        MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO,
+        MOTIVO_DATA_INFORMADA_FUTURA,
+        MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA,
+        MOTIVO_DATA_INFORMADA_VALOR_ARMAZENADO_INVALIDO,
+    }
+)
+#: Marcador de REENTRADA do intake — um FATO DO PROCESSO, nunca "a variavel nova existe" (o que
+#: confundiria uma instancia legada, iniciada antes de DL-0174, com uma primeira passagem e
+#: recalcularia a data a partir da ancora ja defaultada). Escolha: `has_glosas`, porque
+#: - e escrita por ESTE worker em TODA conclusao (`dataclasses.asdict(GlosaIdentified)`, sempre
+#:   um booleano, desde antes desta mudanca) e por nenhum outro worker (`calculate_impact` nao a
+#:   devolve);
+#: - NADA antes de `ST_ApurarDivergencias` a inicializa no BPMN: o start event nao tem saida, e
+#:   `ST_PublishReceived` so inicializa `decisao_contas` e `vencimento_ausente`;
+#: - nenhum produtor de start a semeia: o contrato SP-OP-CONTAS-001 declara `has_glosas` "nunca
+#:   seeded/ecoada" e `MarinaGraph._contract_variables` nao a escreve. `divergencia_valor` e
+#:   `denial_ratio` foram descartados: Marina os pode semear no start.
+#: Logo: `has_glosas` presente nas variaveis buscadas <=> `ST_ApurarDivergencias` ja concluiu
+#: nesta instancia <=> esta execucao e a reentrada por `Flow_Reavalia_Apurar`.
+MARCADOR_REENTRADA_INTAKE = "has_glosas"
+#: `AAAA-MM-DD` estrito, ASCII (`\d` casaria digitos Unicode). Datetime completo, data sem zero a
+#: esquerda e qualquer outro formato sao `formato_invalido` — a variavel e CRUA, nao normalizada.
+_DATA_ISO_ESTRITA = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+#: So ESPACO e TAB ASCII sao removidos das pontas. `str.strip()` sem argumento tiraria tambem quebras
+#: de linha, separadores de controle (`\x1c`-`\x1f`), NBSP, U+3000 etc. — o que deixaria passar como
+#: "data valida" um valor que o lote nao informou nessa forma: esses caem em `formato_invalido`.
+_ESPACOS_DAS_PONTAS = " \t"
+
+
+def _e_data_estrita(text: str) -> bool:
+    """`AAAA-MM-DD` ASCII e data real do calendario (sem remover nada)."""
+    if _DATA_ISO_ESTRITA.fullmatch(text) is None:
+        return False
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _avaliar_data_recebimento_informada(raw: Any, *, hoje: date) -> tuple[str | None, str | None]:
+    """Primeira passagem: `(data, None)` se `raw` e uma data valida, senao `(None, motivo)`.
+
+    Valida = `AAAA-MM-DD` estrito (so espaco e tab ASCII nas pontas sao removidos), data real do
+    calendario (`2026-02-30` nao e) e nao posterior a `hoje` (o relogio do processo: a data UTC do
+    worker, o mesmo do default da ancora — um lote datado do dia seguinte no Brasil, entre 21h e
+    24h de Brasilia, ja e "hoje" em UTC e e aceito). Nunca defaulta e nunca le a ancora.
+    """
+    if raw is None:
+        return None, MOTIVO_DATA_INFORMADA_AUSENTE
+    if not isinstance(raw, str):
+        return None, MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO
+    text = raw.strip(_ESPACOS_DAS_PONTAS)
+    if not text:
+        return None, MOTIVO_DATA_INFORMADA_AUSENTE
+    if not _e_data_estrita(text):
+        return None, MOTIVO_DATA_INFORMADA_FORMATO_INVALIDO
+    if date.fromisoformat(text) > hoje:
+        return None, MOTIVO_DATA_INFORMADA_FUTURA
+    return text, None
+
+
+def _eco_armazenado_valido(valor: Any, motivo: Any) -> bool:
+    """O par armazenado pela primeira passagem e coerente e esta dentro do contrato?
+
+    Valor preenchido => data estrita e motivo nulo; valor nulo => motivo do vocabulario fechado.
+    Nao reaplica o teste de data futura: o relogio so anda para frente, e o valor ja passou por ele.
+    """
+    if valor is None:
+        return isinstance(motivo, str) and motivo in MOTIVOS_DATA_RECEBIMENTO_INFORMADA
+    return isinstance(valor, str) and _e_data_estrita(valor) and motivo is None
+
+
+def _resolver_data_recebimento_informada(
+    variables: Mapping[str, Any], raw: Any
+) -> tuple[str | None, str | None, bool]:
+    """`(data, motivo, computado_agora)` de `data_recebimento_lote_informada` (DL-0174).
+
+    `computado_agora` diz se o par foi RESOLVIDO nesta execucao (so entao o aviso e emitido); um
+    eco nunca repete o aviso, nem o de um `instancia_legada` armazenado.
+
+    - Reentrada (`MARCADOR_REENTRADA_INTAKE` presente) com a variavel presente (mesmo `None`):
+      ECOA a variavel e o motivo verbatim. Nunca recalcula: na reentrada a ancora pode ser o HOJE
+      que a primeira passagem defaultou, ou uma data nova trazida pela mensagem de correcao — a
+      ancora pode mudar, a data informada nao. O eco e VALIDADO (`_eco_armazenado_valido`); um par
+      fora do contrato vira `None` com `valor_armazenado_invalido`.
+    - Reentrada com a variavel AUSENTE (instancia iniciada antes de DL-0174): `None` com motivo
+      `instancia_legada`. Nunca derivada da ancora.
+    - Primeira passagem: `_avaliar_data_recebimento_informada` sobre o valor CRU do lote.
+
+    A presenca por chave funciona porque o harness escreve `None` como variavel nula (tipo
+    `String`, `harness._to_camunda_var`) e o `fetchAndLock` devolve a chave com `value: null`,
+    que `harness._from_camunda_var` decodifica para `None` sem descarta-la.
+    """
+    if MARCADOR_REENTRADA_INTAKE in variables:
+        if DATA_RECEBIMENTO_INFORMADA_VAR not in variables:
+            return None, MOTIVO_DATA_INFORMADA_INSTANCIA_LEGADA, True
+        valor = variables[DATA_RECEBIMENTO_INFORMADA_VAR]
+        motivo = variables.get(DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR)
+        if not _eco_armazenado_valido(valor, motivo):
+            return None, MOTIVO_DATA_INFORMADA_VALOR_ARMAZENADO_INVALIDO, True
+        return valor, motivo, False
+    data, motivo = _avaliar_data_recebimento_informada(raw, hoje=_hoje_utc())
+    return data, motivo, True
+
+
+#: MZO-3: a decisao K1 do rco de prazo de apresentacao da conta, avaliada em SOMBRA no intake.
+DECISAO_RCO_PRAZOS_CONTA = rco_montador.DECISAO_PRAZOS_CONTA
+#: `tipo_lote` (contrato SP-OP-CONTAS-001) -> o regime que a formula de `diasAteApresentacao` nomeia: a
+#: guia de resumo de internacao (`dataFinalFaturamento`, a alta) e a guia SP/SADT (`dataExecucao`). Os
+#: demais tipos (`consulta`, `honorario`, `opme`, `misto`) nao sao nenhuma das duas guias: regime nulo.
+#: Mapeamento conservador confirmado pela coordenacao ROOT (17/11/2026); o rco vai publicar o de-para
+#: tipo de guia -> regime. LACUNA A FECHAR ANTES DE LIGAR QUALQUER PRODUTOR DE DATA (DL-0172):
+#: - guia SP/SADT com `regimeAtendimento` 02, 03, 04 ou 05 (TISS) nao e atendimento ambulatorial;
+#: - guia de internacao com `tipoFaturamento` parcial ou complementar: `dataFinalFaturamento` nao e a alta.
+#: Hoje nenhum termo de data tem produtor (`TERMOS_SEM_PRODUTOR_CONTAS`), entao o regime nao chega a
+#: escolher data nenhuma; quem ligar o produtor resolve essas duas ambiguidades primeiro.
+_REGIME_POR_TIPO_LOTE: Mapping[str, str] = MappingProxyType(
+    {"internacao": rco_montador.REGIME_INTERNACAO, "sadt": rco_montador.REGIME_AMBULATORIAL}
+)
+#: Termos das formulas de `rco_geral_prazos_conta` que NENHUM worker do Maezo produz neste caminho:
+#: - `dataFinalFaturamento`, `dataExecucao`: o contrato SP-OP-CONTAS-001 nao traz datas da guia (nem
+#:   `linhas_conta_refs`);
+#: - `dataRecebimentoLote`: `data_recebimento_lote` existe, mas o proprio intake a reescreve com a data
+#:   de HOJE quando o lote nao a traz (`_normalize_data_recebimento_lote`) e a devolve como variavel de
+#:   processo; na reentrada por `BME_LinhasAtualizadas` o valor padrao e indistinguivel do recebido.
+#:   Usa-la poria a data de hoje na formula. A fonte nao padronizada JA EXISTE: a variavel crua
+#:   `data_recebimento_lote_informada` (DL-0174; anulavel, nunca defaultada, ecoada na reentrada).
+#:   Liga-la a este termo e uma unidade SEPARADA, que so pode vir depois de fechada a lacuna de regime
+#:   de DL-0172 (acima); ate la o termo segue sem produtor;
+#: - `prazoApresentacaoContratualDias`: nenhum cadastro de contrato do prestador no Maezo o entrega;
+#: - `dataDemonstrativoAnalise`, `dataRecebimentoLoteRecurso`: datas do recurso de glosa, fora deste processo.
+TERMOS_SEM_PRODUTOR_CONTAS: frozenset[str] = frozenset(
+    {
+        "dataFinalFaturamento",
+        "dataExecucao",
+        "dataRecebimentoLote",
+        "prazoApresentacaoContratualDias",
+        "dataDemonstrativoAnalise",
+        "dataRecebimentoLoteRecurso",
+    }
+)
+
+
+def fatos_prazo_conta_rco(input_data: GlosaInput) -> rco_sombra.MontarFatos:
+    """Os fatos do caso para `rco_geral_prazos_conta`, como o montador os quer (MZO-3).
+
+    So o que o contrato de entrada do processo traz com a semantica que o dicionario K1 declara: o
+    regime da guia pelo `tipo_lote`. Nenhuma variavel de processo entra como guia, cadastro ou fora da
+    TISS (regra 5 do montador): as entradas da guia de `rco_geral_prazos_conta` (`dataAtendimento`,
+    `tipoTransacao`) e `autorizacaoExtemporanea` nao estao no contrato e entram nulas; os termos sem
+    produtor (`TERMOS_SEM_PRODUTOR_CONTAS`) entram nulos com esse motivo. Nunca le `data_recebimento_lote`.
+    """
+    regime = _REGIME_POR_TIPO_LOTE.get(str(input_data.tipo_lote or "").strip())
+
+    def montar(versao_k3: tuple[int, int]) -> rco_montador.FatosDoCaso:
+        return rco_montador.FatosDoCaso(
+            guia={},
+            versao_k3_pinada=versao_k3,
+            regime_guia=regime,
+            termos_sem_produtor=TERMOS_SEM_PRODUTOR_CONTAS,
+        )
+
+    return montar
+
+
+def identify_glosa_entry(
+    variables: dict[str, Any],
+    *,
+    kafka: KafkaPublisher | None = None,
+    dmn: DmnTransport | None = None,
+) -> dict[str, Any]:
     """Dict-boundary entry for `operadora.contas.identify_glosa` -> `identify_glosa`.
 
     This is the INTAKE: `ST_ApurarDivergencias` is the first worker on EVERY path (including the
@@ -1909,6 +2114,13 @@ def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | N
 
     * `data_recebimento_lote` — the SLA anchor. Normalised, and defaulted FAIL-SAFE to today/UTC
       with a warning when the lote does not carry it (never a fabricated past date).
+    * `data_recebimento_lote_informada` (+ `data_recebimento_lote_informada_motivo`) — DL-0174: the
+      SAME date exactly as the lote informed it, NULLABLE and NEVER defaulted (strict `AAAA-MM-DD`,
+      real calendar date, not in the future; otherwise `None` plus a closed-vocabulary motivo).
+      On the `BME_LinhasAtualizadas` re-entry (detected by `MARCADOR_REENTRADA_INTAKE`, a fact of
+      the process) it is ECHOED, never recomputed from the anchor, which may by then be the
+      defaulted today; a legacy instance without it gets `None` / `instancia_legada`; an echoed
+      pair outside the contract gets `None` / `valor_armazenado_invalido`.
     * `data_vencimento` — the payment obligation's due date, read from the lote/termo contratual
       (origin DRAFT/verify, ADR-0040 OQ-2). ECHOED verbatim (stripped), **never defaulted**: an
       invented due date is a false deadline, and `handoff_pagamento` refuses it blank. What the
@@ -1929,6 +2141,13 @@ def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | N
       contractual ORIGIN clause of `data_vencimento` stays `DRAFT/verify`). The `handoff_pagamento`
       refusal STAYS as defence in depth: the analyst may still decide `PAGAR` without the field
       ever appearing.
+
+    MZO-3 (SHADOW ONLY): after the output is fully built, the rco K1 claim-deadline decision
+    `rco_geral_prazos_conta` is evaluated in shadow (`rco_sombra.avaliar_em_sombra`) with the inputs of
+    the K1 input builder (`fatos_prazo_conta_rco`). It returns `None`, swallows every exception and
+    writes no process variable: `out` is built before and never touched by it. Its only traces are the
+    `rco_` entry of this task's `dmn_versions` (with the builder's `derivacoes`/`entradasNulas`) and the
+    observational K1 decision record. Inert today: the rco pin is `sem_pacote`.
     """
     del kafka  # unused — identify_glosa emits no domain event
     input_data = _build_glosa_input(variables)
@@ -1946,6 +2165,21 @@ def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | N
         )
     out["data_recebimento_lote"] = data_recebimento
 
+    # DL-0174: a data CRUA, separada da ancora acima (que segue defaultada para os timers).
+    data_informada, motivo_informada, computado_agora = _resolver_data_recebimento_informada(
+        variables, input_data.data_recebimento_lote
+    )
+    if computado_agora and motivo_informada is not None:
+        # So o codigo do motivo: o valor bruto NUNCA vai ao log (pode carregar qualquer coisa).
+        logger.warning(
+            "contas.identify_glosa.data_recebimento_lote_informada_nula",
+            tenant_id=input_data.tenant_id,
+            numero_lote_tiss=input_data.numero_lote_tiss,
+            motivo=motivo_informada,
+        )
+    out[DATA_RECEBIMENTO_INFORMADA_VAR] = data_informada
+    out[DATA_RECEBIMENTO_INFORMADA_MOTIVO_VAR] = motivo_informada
+
     data_vencimento = str(input_data.data_vencimento or "").strip()
     vencimento_ausente = not data_vencimento
     if vencimento_ausente:
@@ -1956,6 +2190,12 @@ def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | N
         )
     out["data_vencimento"] = data_vencimento
     out["vencimento_ausente"] = vencimento_ausente
+    rco_sombra.avaliar_em_sombra(
+        dmn,
+        DECISAO_RCO_PRAZOS_CONTA,
+        fatos_prazo_conta_rco(input_data),
+        topico="operadora.contas.identify_glosa",
+    )
     return out
 
 
@@ -2195,8 +2435,12 @@ _CONTAS_FETCH_SCOPES: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "competencia",
             "conta_origem_ref",
             "data_recebimento_lote",
+            # DL-0174: a data crua e o seu motivo (ecoados na reentrada) e o marcador de reentrada.
+            "data_recebimento_lote_informada",
+            "data_recebimento_lote_informada_motivo",
             "data_vencimento",
             "documentacao_anexa",
+            "has_glosas",
             "indicio_fraude_sinalizado",
             "instrumento_pagamento",
             "item_conforme_tabela",
@@ -2355,8 +2599,9 @@ def register_contas_workers(
     `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
     entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
     docstring for the same documented sync/async-boundary rationale. `dmn` (ADR-0028 §1 seam) is
-    threaded into `analyze_reason_entry` (`glosa_reason_normalization`) and
-    `prepare_triage_dossier_entry` (`glosa_triage`, T1.5 cutover).
+    threaded into `analyze_reason_entry` (`glosa_reason_normalization`),
+    `prepare_triage_dossier_entry` (`glosa_triage`, T1.5 cutover) and, MZO-3, `identify_glosa_entry`
+    (the SHADOW evaluation of the rco K1 table `rco_geral_prazos_conta`; never an effect).
     """
     dmn = seams.get("dmn")
     # Fenced-start seams (T-C2, mirrors register_inadimplencia_workers) — threaded into
@@ -2381,7 +2626,8 @@ def register_contas_workers(
     preinit_contas_pagto_ordem_recusada()
     harness.register_worker(
         FunctionWorker(
-            "operadora.contas.identify_glosa", functools.partial(identify_glosa_entry, kafka=kafka)
+            "operadora.contas.identify_glosa",
+            functools.partial(identify_glosa_entry, kafka=kafka, dmn=dmn),
         ),
         variables=_CONTAS_FETCH_SCOPES["operadora.contas.identify_glosa"],
     )

@@ -1,0 +1,36 @@
+{
+  "id": "EVL-COMERCIAL-01",
+  "agent": "comercial",
+  "class": "CE",
+  "tier": [
+    "A"
+  ],
+  "description": "Prospect passado pela Helena com sinal de saude do receptor no turno -> o agente comercial NAO responde: devolve a conversa a Helena (saida clinica), sem texto e sem envio. Saude vence comercial. Dados sinteticos.",
+  "input": {
+    "state": {
+      "modo": "prospect",
+      "passagem": {
+        "schema_version": "esf17-passagem-comercial.proposed.v1",
+        "para": "comercial",
+        "motivo": "intencao_contratar",
+        "message_ref": "hk1_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "primeiro_turno": true,
+      "sinal_saude": true,
+      "pedido_humano": false
+    }
+  },
+  "recorded_llm": [],
+  "expect": {
+    "fields": {
+      "rota": "devolver_helena",
+      "response_text": "",
+      "acao_de_envio": null,
+      "desfecho": "saida_clinica"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:sinal_saude"
+  ]
+}

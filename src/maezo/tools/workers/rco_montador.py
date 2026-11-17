@@ -11,10 +11,14 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
 1. Dado ausente entra NULO (`None`). Nunca inventado, presumido, com valor padrao ou inferido. Valor
    fora do tipo ou do dominio declarado no dicionario tambem entra nulo (com o motivo registrado): o
    dicionario e o contrato do que pode entrar na tabela.
-2. Entrada derivada SEM formula estruturada no dicionario (as 171 anteriores ao gate PROG-RCO-15) entra
-   nula: o montador nao adivinha formula a partir da descricao. Derivada com formula e calculada
-   EXATAMENTE pela formula publicada; se o texto da formula ou os termos mudarem no dicionario, o
-   montador recusa (`MontadorEntradasError`) ate ser revisto.
+2. Entrada derivada SEM formula estruturada no dicionario (as anteriores ao gate PROG-RCO-15 que ainda
+   estao em `derivadas_sem_formula_legado`) entra nula: o montador nao adivinha formula a partir da
+   descricao. Derivada com formula e calculada EXATAMENTE pela formula publicada; se o texto da formula
+   ou os termos mudarem no dicionario, o montador recusa (`MontadorEntradasError`) ate ser revisto.
+   Formula publicada que o Maezo ainda nao sabe calcular sem inventar (lacuna L-prog-rco-04 do rco, ou
+   termo sem produtor no Maezo) fica em `FORMULAS_PENDENTES` e entra nula
+   (`formula_publicada_nao_implementada`). Formula implementada num dicionario anterior a ela
+   (`_FormulaImplementada.desde`; a 1.1.0 nao tinha a de `diasAteApresentacao`) entra nula por desenho.
 3. Carencia com grupo e saldo, situacao cadastral e CPT na data vem do K3 v1.16 da AMH
    (`schemas/contracts/maezo/v1.16/`, UNPUBLISHED). Enquanto o contrato AMH pinado
    (`config/integrations/amh/contracts.lock.json`, `AmhContractPin.versao_manifesto_pinada`) for
@@ -29,12 +33,13 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    so dos mapas que o worker que os resolveu entrega. Da guia, `data_atendimento` e
    `codigo_procedimento_tuss` vem das variaveis do contrato de start, pelo nome que o dicionario
    declara (o valor ainda passa pelo tipo e pelo dominio do dicionario).
-6. O CARATER DO ATENDIMENTO NUNCA vem das variaveis de start: o caminho de start de hoje o preenche com
-   `"eletivo"` quando falta (`agents/rafael/delegation.py`, `agents/rafael/graph.py`), e `eletivo` -> `1`
+6. O CARATER DO ATENDIMENTO NUNCA vem das variaveis de start: ate o DL-0170 o caminho de start o
+   preenchia com `"eletivo"` quando faltava (`agents/rafael/delegation.py`, `agents/rafael/graph.py`; hoje o
+   Rafael recusa caso sem carater), a variavel de start segue sendo semente nao verificada, e `eletivo` -> `1`
    e o unico valor que deixa casar as linhas `negar` de `rco_geral_carencia`/`rco_geral_elegibilidade`.
    Ele so entra por `FatosDoCaso.carater_atendimento_guia` (valor da guia TISS, sem padrao), senao nulo.
    LIGAR O MONTADOR (MZO-3) EXIGE que o start carregue o carater da guia ou nulo: os padroes `"eletivo"`
-   do Rafael saem antes.
+   do Rafael ja sairam (DL-0170).
 7. Carencia do K3 (grupo, prazo e saldo) exige, alem do pin >= 1.16, a lacuna
    `saldo_isencoes_portabilidade` FECHADA na configuracao `config/integrations/rco/k3-lacunas.json`: o K3
    declara que nao se sabe se `saldo_dias` ja considera isencoes e portabilidade (k1-entradas-origem.yaml
@@ -48,7 +53,14 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    (`max(0, dias - tolerancia)`); `<= 0` e nulo seguem intactos. Configuracao ausente ou invalida, ou a
    tabela pinada `rco_geral_prazos_conta` ja liberando faixa positiva limitada (achado do pin), zeram a
    tolerancia: ela nunca dobra nem se amplia por erro. O registro vai em `EntradasMontadas.derivacoes`.
-   Inerte em producao enquanto `diasAteApresentacao` for nulo por desenho.
+   `diasAteApresentacao` (MZO-3, dicionario 1.2.0) e calculada das datas da guia e do protocolo do lote;
+   sem os termos (hoje nenhum worker do Maezo os produz: `FatosDoCaso.termos_sem_produtor`) segue nula.
+10. Termos de formula com origem `tiss` vem de `FatosDoCaso.tiss`, os `fora_tiss` de `FatosDoCaso.fora_tiss`
+   e os `cadastro` de `FatosDoCaso.cadastro`, pela chave de `CAMPOS_TERMO_*` — nunca das variaveis de
+   start. Data so como `AAAA-MM-DD` (ou `datetime.date`): instante com hora ou fuso entra nulo
+   (`termo_data_invalida`), porque o dia de um instante depende do fuso, que o rco nao publica. Nenhuma
+   data tem padrao: em particular, nunca a data de hoje que `contas._normalize_data_recebimento_lote`
+   usa quando o lote nao traz o recebimento.
 
 ESCOPO DESTA ENTREGA: framework + os dominios `regras-gerais` (transversal: toda guia passa por
 elegibilidade, carencia e CPT) e `diarias-taxas` (maior volume de autorizacao no agregado real do
@@ -61,8 +73,10 @@ previsto": "os demais ficam em fila humana").
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -97,6 +111,7 @@ class Fonte(StrEnum):
     FORA_TISS = "fora_tiss"  # fato da solicitacao fora da TISS
     K3_V116 = "k3_v1_16"  # rota TINA do K3 (manifest AMH v1.16)
     FORMULA = "formula"  # `formula.formula` publicada no dicionario
+    FORMULA_PENDENTE = "formula_pendente"  # formula publicada que o Maezo ainda nao calcula: nula
     NULO_POR_DESENHO = "nulo_por_desenho"  # derivada sem formula estruturada
 
 
@@ -106,6 +121,10 @@ class MotivoNulo(StrEnum):
     FORA_DO_DOMINIO = "fora_do_dominio"
     DERIVADA_SEM_FORMULA = "derivada_sem_formula"
     TERMO_AUSENTE = "termo_da_formula_ausente"
+    TERMO_SEM_PRODUTOR = "termo_sem_produtor_no_maezo"
+    TERMO_DATA_INVALIDA = "termo_data_invalida"
+    REGIME_DA_GUIA_AUSENTE = "regime_da_guia_ausente"
+    FORMULA_PENDENTE = "formula_publicada_nao_implementada"
     PRAZO_CONTRATUAL_NEGATIVO = "prazo_contratual_negativo"
     K3_NAO_PINADO = "k3_v1_16_nao_pinado"
     K3_FORA_DA_DATA = "k3_fora_da_data_do_atendimento"
@@ -146,8 +165,19 @@ class FatosDoCaso:
     fora_tiss: Mapping[str, object] = field(default_factory=dict)
     k3: FatosK3V116 | None = None
     #: Valor do elemento `caraterAtendimento` da guia TISS, como a guia o traz, SEM PADRAO: nunca a
-    #: variavel de start `carater_atendimento` (preenchida com "eletivo" quando falta). None = nulo.
+    #: variavel de start `carater_atendimento` (semente nao verificada; ate o DL-0170 era preenchida com
+    #: "eletivo" quando faltava). None = nulo.
     carater_atendimento_guia: str | None = None
+    #: Elementos da guia TISS que sao TERMOS de formula (chaves de `CAMPOS_TERMO_TISS`), entregues pelo
+    #: worker que leu a guia, sem padrao. Nunca as variaveis de start.
+    tiss: Mapping[str, object] = field(default_factory=dict)
+    #: Tipo da guia de onde vieram as datas, para a formula de `diasAteApresentacao`: `REGIME_INTERNACAO`
+    #: (guia de resumo de internacao: `dataFinalFaturamento`, a alta) ou `REGIME_AMBULATORIAL` (guia
+    #: SP/SADT: `dataExecucao`). Qualquer outro valor ou None = nulo; o montador nunca o deduz das datas.
+    regime_guia: str | None = None
+    #: Termos de formula que nenhum worker do Maezo produz no caminho que chama (nome do termo no
+    #: dicionario): entram nulos com `termo_sem_produtor_no_maezo`, mesmo que algum mapa traga a chave.
+    termos_sem_produtor: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +260,13 @@ class _FormulaImplementada:
     texto: str  # o texto EXATO de `formula.formula` no dicionario
     termos: tuple[tuple[str, str], ...]  # (nome, origem) de cada termo, na ordem do dicionario
     calcular: Callable[[Mapping[str, object]], tuple[int | None, MotivoNulo | None]]
+    #: Primeira versao do dicionario que publica esta formula. Dicionario anterior sem a formula: a
+    #: entrada e nula por desenho (nunca calculada por uma formula que aquele pacote nao publicou).
+    desde: tuple[int, int, int] = (1, 1, 0)
+    #: Fatos que o TEXTO da formula nomeia fora dos termos (hoje so o regime da guia de
+    #: `diasAteApresentacao`: "internacao, alta" x "ambulatorial"). Lidos de campos explicitos de
+    #: `FatosDoCaso` (`_condicao`), nunca deduzidos.
+    condicoes: tuple[str, ...] = ()
     #: Ajuste de CONFIGURACAO do Maezo sobre o valor ja validado (nunca regra de negocio nova): recebe o
     #: calculo bruto da formula e o valor validado contra o dicionario e devolve (valor entregue, registro
     #: de auditoria). So `diasAlemDoPrazoContratual` tem um.
@@ -363,11 +400,27 @@ def _ajustar_dias_alem_do_prazo(bruto: object, valor: object) -> tuple[object, M
     return entregue, _registro_tolerancia(valor, configurada, entregue, MotivoTolerancia.APLICADA)
 
 
+class _SemProdutor:
+    """Marca do termo que nenhum worker do Maezo produz (`FatosDoCaso.termos_sem_produtor`)."""
+
+    def __repr__(self) -> str:
+        return "SEM_PRODUTOR"
+
+
+SEM_PRODUTOR: Final[_SemProdutor] = _SemProdutor()
+
+
+def _motivo_do_termo(valor: object) -> MotivoNulo:
+    return MotivoNulo.TERMO_SEM_PRODUTOR if valor is SEM_PRODUTOR else MotivoNulo.TERMO_AUSENTE
+
+
 def _dias_alem_do_prazo_contratual(termos: Mapping[str, object]) -> tuple[int | None, MotivoNulo | None]:
     """`diasAteApresentacao - prazoApresentacaoContratualDias` (nulo se faltar um dos termos ou se o
     prazo do contrato for negativo) — dicionario K1 1.1.0, entrada `diasAlemDoPrazoContratual`."""
     dias = termos.get("diasAteApresentacao")
     prazo = termos.get("prazoApresentacaoContratualDias")
+    if prazo is SEM_PRODUTOR:
+        return None, MotivoNulo.TERMO_SEM_PRODUTOR
     if (
         not isinstance(dias, int)
         or isinstance(dias, bool)
@@ -378,6 +431,72 @@ def _dias_alem_do_prazo_contratual(termos: Mapping[str, object]) -> tuple[int | 
     if prazo < 0:
         return None, MotivoNulo.PRAZO_CONTRATUAL_NEGATIVO
     return dias - prazo, None
+
+
+_DATA_ISO: Final[re.Pattern[str]] = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def data_do_termo(valor: object) -> date | None:
+    """A data de um termo: `datetime.date` (nao `datetime`) ou texto exatamente `AAAA-MM-DD` valido.
+
+    Instante (`datetime`, ou texto com hora e/ou fuso) e qualquer outra forma = `None`: o dia de um
+    instante depende do fuso, e o rco nao publica qual. Nunca converte fuso, nunca trunca, nunca usa
+    a data corrente."""
+    if isinstance(valor, datetime):
+        return None
+    if isinstance(valor, date):
+        return valor
+    if not isinstance(valor, str) or _DATA_ISO.fullmatch(valor) is None:
+        return None
+    try:
+        return date.fromisoformat(valor)
+    except ValueError:
+        return None
+
+
+def _data(termos: Mapping[str, object], nome: str) -> tuple[date | None, MotivoNulo | None]:
+    valor = termos.get(nome)
+    if valor is None or valor is SEM_PRODUTOR or (isinstance(valor, str) and not valor.strip()):
+        return None, _motivo_do_termo(valor)
+    data = data_do_termo(valor)
+    return (data, None) if data is not None else (None, MotivoNulo.TERMO_DATA_INVALIDA)
+
+
+def _dias_entre(termos: Mapping[str, object], inicio: str, fim: str) -> tuple[int | None, MotivoNulo | None]:
+    """`fim - inicio` em dias corridos (negativo se o fim vier antes: a formula nao corta); nulo se faltar
+    ou for invalido um dos termos. O primeiro termo com problema da o motivo."""
+    data_inicio, motivo = _data(termos, inicio)
+    if motivo is not None:
+        return None, motivo
+    data_fim, motivo = _data(termos, fim)
+    if motivo is not None or data_inicio is None or data_fim is None:
+        return None, motivo or MotivoNulo.TERMO_AUSENTE
+    return (data_fim - data_inicio).days, None
+
+
+#: Valores de `FatosDoCaso.regime_guia` e o termo de inicio que cada um escolhe na formula publicada.
+REGIME_INTERNACAO: Final[str] = "internacao"
+REGIME_AMBULATORIAL: Final[str] = "ambulatorial"
+_INICIO_POR_REGIME: Final[Mapping[str, str]] = MappingProxyType(
+    {REGIME_INTERNACAO: "dataFinalFaturamento", REGIME_AMBULATORIAL: "dataExecucao"}
+)
+
+
+def _dias_ate_apresentacao(termos: Mapping[str, object]) -> tuple[int | None, MotivoNulo | None]:
+    """`dataRecebimentoLote - dataFinalFaturamento` (internacao, alta) ou `dataRecebimentoLote -
+    dataExecucao` (ambulatorial), em dias corridos, nulo se faltar um dos termos — dicionario K1 1.2.0,
+    entrada `diasAteApresentacao` (rco `docs/dicionario/regras-gerais.yaml`, f77f96ac). O regime vem
+    do tipo da guia (`regimeGuia`); sem ele, nulo: nunca se escolhe a data pela que estiver presente."""
+    inicio = _INICIO_POR_REGIME.get(str(termos.get("regimeGuia")))
+    if inicio is None:
+        return None, MotivoNulo.REGIME_DA_GUIA_AUSENTE
+    return _dias_entre(termos, inicio, "dataRecebimentoLote")
+
+
+def _dias_ate_recurso(termos: Mapping[str, object]) -> tuple[int | None, MotivoNulo | None]:
+    """`dataRecebimentoLoteRecurso - dataDemonstrativoAnalise`, em dias corridos, nulo se faltar um dos
+    termos — dicionario K1 1.2.0, entrada `diasAteRecurso`."""
+    return _dias_entre(termos, "dataDemonstrativoAnalise", "dataRecebimentoLoteRecurso")
 
 
 FORMULAS: Final[Mapping[str, _FormulaImplementada]] = MappingProxyType(
@@ -391,12 +510,87 @@ FORMULAS: Final[Mapping[str, _FormulaImplementada]] = MappingProxyType(
             calcular=_dias_alem_do_prazo_contratual,
             ajuste=_ajustar_dias_alem_do_prazo,
         ),
+        "diasAteApresentacao": _FormulaImplementada(
+            texto=(
+                "dataRecebimentoLote - dataFinalFaturamento (internação, alta) ou "
+                "dataRecebimentoLote - dataExecucao (ambulatorial), em dias corridos "
+                "(nulo se faltar um dos termos)"
+            ),
+            termos=(
+                ("dataFinalFaturamento", "tiss"),
+                ("dataExecucao", "tiss"),
+                ("dataRecebimentoLote", "fora_tiss"),
+            ),
+            calcular=_dias_ate_apresentacao,
+            desde=(1, 2, 0),
+            condicoes=("regimeGuia",),
+        ),
+        "diasAteRecurso": _FormulaImplementada(
+            texto=(
+                "dataRecebimentoLoteRecurso - dataDemonstrativoAnalise, em dias corridos "
+                "(nulo se faltar um dos termos)"
+            ),
+            termos=(("dataDemonstrativoAnalise", "fora_tiss"), ("dataRecebimentoLoteRecurso", "fora_tiss")),
+            calcular=_dias_ate_recurso,
+            desde=(1, 2, 0),
+        ),
+    }
+)
+#: Formulas que o dicionario 1.2.0 publica e o Maezo ainda NAO calcula: entram nulas. O valor diz por que
+#: (lacuna L-prog-rco-04 do rco, `governanca/decisoes/parciais/programa/lacunas-rco.md` em f77f96ac, ou
+#: termo sem produtor no Maezo). Implementar uma exige a lacuna fechada no rco e o produtor do termo aqui.
+FORMULAS_PENDENTES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "cidNaDlpDeclarada": "L-prog-rco-04 (5); sem produtor das doencas declaradas com CPT no cadastro",
+        "diasAposCirurgia": "L-prog-rco-04 (1): qual cirurgia vale com mais de uma do mesmo profissional",
+        "familiaDiariaTaxa": "L-prog-rco-04 (10); parametro regras/diarias-taxas/dominio.yaml fora do K1",
+        "internacaoObstetricaComAcompanhante": "L-prog-rco-04 (6): tipo 3 sem acompanhante no anexo",
+        "mesmoProfissionalCirurgia": "L-prog-rco-04 (2): grupo 3 da TUSS 22 sem coluna na tabela",
+        "procedimentoAlcancadoCpt": "L-prog-rco-04 (2) e (3): grupo 3 da TUSS 22 e leito de alta tecnologia",
+        "registroAnvisaItem": "L-prog-rco-04 (7): elemento ausente (false) x nao extraido (nulo)",
+        "reinternacaoMesmaCausa": "L-prog-rco-04 (8); sem produtor do historico de internacoes no Maezo",
+        "visitaNaDataDaAlta": "L-prog-rco-04 (4): elemento do XSD que marca a guia encerrada por alta",
     }
 )
 #: Chave, no mapa de cadastro, de termo de formula que nao e entrada do dicionario.
 CAMPOS_TERMO_CADASTRO: Final[Mapping[str, str]] = MappingProxyType(
     {"prazoApresentacaoContratualDias": "prazo_apresentacao_contratual_dias"}
 )
+#: Chave, em `FatosDoCaso.tiss`, dos termos de origem `tiss` (elementos da guia, nao entradas do dicionario).
+CAMPOS_TERMO_TISS: Final[Mapping[str, str]] = MappingProxyType(
+    {"dataFinalFaturamento": "data_final_faturamento", "dataExecucao": "data_execucao"}
+)
+#: Chave, em `FatosDoCaso.fora_tiss`, dos termos de origem `fora_tiss` (protocolos e demonstrativos).
+CAMPOS_TERMO_FORA_TISS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "dataRecebimentoLote": "data_recebimento_lote",
+        "dataDemonstrativoAnalise": "data_demonstrativo_analise",
+        "dataRecebimentoLoteRecurso": "data_recebimento_lote_recurso",
+    }
+)
+
+
+def _condicao(nome: str, fatos: FatosDoCaso) -> object:
+    """Os fatos que o texto de uma formula nomeia fora dos termos (`_FormulaImplementada.condicoes`)."""
+    if nome == "regimeGuia":
+        return fatos.regime_guia
+    raise MontadorEntradasError(f"condicao de formula {nome!r} sem campo em FatosDoCaso")
+
+
+def _termo(nome: str, origem: str, fatos: FatosDoCaso) -> object:
+    """O valor bruto de um termo nao derivado, do mapa da SUA origem; sem chave = MontadorEntradasError."""
+    if nome in fatos.termos_sem_produtor:
+        return SEM_PRODUTOR
+    fontes: dict[str, tuple[Mapping[str, str], Mapping[str, object]]] = {
+        "cadastro": (CAMPOS_TERMO_CADASTRO, fatos.cadastro),
+        "tiss": (CAMPOS_TERMO_TISS, fatos.tiss),
+        "fora_tiss": (CAMPOS_TERMO_FORA_TISS, fatos.fora_tiss),
+    }
+    campos, mapa = fontes.get(origem, ({}, {}))
+    chave = campos.get(nome)
+    if chave is None:
+        raise MontadorEntradasError(f"termo {nome!r} de origem {origem!r} sem chave no montador")
+    return mapa.get(chave)
 
 
 # --- mapeamento por dominio ------------------------------------------------------------------------
@@ -414,6 +608,7 @@ def _k3(atributo: str) -> MapeamentoEntrada:
 
 _SEM_FORMULA: Final[MapeamentoEntrada] = MapeamentoEntrada("derivado", Fonte.NULO_POR_DESENHO)
 _COM_FORMULA: Final[MapeamentoEntrada] = MapeamentoEntrada("derivado", Fonte.FORMULA)
+_FORMULA_PENDENTE: Final[MapeamentoEntrada] = MapeamentoEntrada("derivado", Fonte.FORMULA_PENDENTE)
 
 #: Entradas comuns aos dominios (mesma entrada do dicionario em toda tabela).
 _COMUNS: Final[dict[str, MapeamentoEntrada]] = {
@@ -446,13 +641,13 @@ MAPEAMENTOS: Final[Mapping[str, Mapping[str, MapeamentoEntrada]]] = MappingProxy
                 "pedidosExtemporaneos12mPrestador": _CADASTRO,
                 # derivadas
                 "diasAlemDoPrazoContratual": _COM_FORMULA,
-                "cidNaDlpDeclarada": _SEM_FORMULA,
-                "diasAposCirurgia": _SEM_FORMULA,
-                "diasAteApresentacao": _SEM_FORMULA,
-                "diasAteRecurso": _SEM_FORMULA,
-                "mesmoProfissionalCirurgia": _SEM_FORMULA,
-                "procedimentoAlcancadoCpt": _SEM_FORMULA,
-                "visitaNaDataDaAlta": _SEM_FORMULA,
+                "diasAteApresentacao": _COM_FORMULA,
+                "diasAteRecurso": _COM_FORMULA,
+                "cidNaDlpDeclarada": _FORMULA_PENDENTE,
+                "diasAposCirurgia": _FORMULA_PENDENTE,
+                "mesmoProfissionalCirurgia": _FORMULA_PENDENTE,
+                "procedimentoAlcancadoCpt": _FORMULA_PENDENTE,
+                "visitaNaDataDaAlta": _FORMULA_PENDENTE,
             }
         ),
         "diarias-taxas": MappingProxyType(
@@ -464,10 +659,10 @@ MAPEAMENTOS: Final[Mapping[str, Mapping[str, MapeamentoEntrada]]] = MappingProxy
                 "criterioRevisaoAtendido": _FORA_TISS,
                 "internacaoProgramadaOuComplicacao": _FORA_TISS,
                 "registroAnvisaVigente": _FORA_TISS,
-                "familiaDiariaTaxa": _SEM_FORMULA,
-                "internacaoObstetricaComAcompanhante": _SEM_FORMULA,
-                "registroAnvisaItem": _SEM_FORMULA,
-                "reinternacaoMesmaCausa": _SEM_FORMULA,
+                "familiaDiariaTaxa": _FORMULA_PENDENTE,
+                "internacaoObstetricaComAcompanhante": _FORMULA_PENDENTE,
+                "registroAnvisaItem": _FORMULA_PENDENTE,
+                "reinternacaoMesmaCausa": _FORMULA_PENDENTE,
             }
         ),
     }
@@ -539,16 +734,37 @@ def conferir_mapeamento(
         if mapeamento.fonte is Fonte.FORMULA:
             impl = FORMULAS.get(nome)
             publicada = entrada.formula
-            if impl is None or publicada is None:
-                problemas.append(f"{nome}: formula publicada e implementada tem de existir as duas")
+            if impl is None:
+                problemas.append(f"{nome}: mapeada com formula, mas sem formula implementada")
+            elif publicada is None:
+                if versao_dicionario(dicionario) >= impl.desde:
+                    problemas.append(
+                        f"{nome}: formula implementada nao publicada no dicionario {dicionario.versao}"
+                    )
             elif (
                 publicada.formula != impl.texto
                 or tuple((t.nome, t.origem) for t in publicada.termos) != impl.termos
             ):
                 problemas.append(f"{nome}: formula do dicionario diverge da implementada; reveja o montador")
+        elif mapeamento.fonte is Fonte.FORMULA_PENDENTE:
+            if nome not in FORMULAS_PENDENTES or nome in FORMULAS:
+                problemas.append(f"{nome}: formula pendente tem de estar so em FORMULAS_PENDENTES")
         elif mapeamento.fonte is Fonte.NULO_POR_DESENHO and entrada.formula is not None:
             problemas.append(f"{nome}: o dicionario publicou formula; implemente-a em vez de mandar nulo")
     return problemas
+
+
+def versao_dicionario(dicionario: DicionarioEntradasK1) -> tuple[int, int, int]:
+    """A versao SemVer do dicionario como tupla (o leitor ja garantiu o formato)."""
+    maior, menor, patch = (int(p) for p in dicionario.versao.split("."))
+    return maior, menor, patch
+
+
+def _fonte_efetiva(mapeamento: MapeamentoEntrada, entrada: EntradaK1) -> Fonte:
+    """A fonte registrada: derivada sem formula no dicionario (anterior a ela) e nula por desenho."""
+    if mapeamento.fonte in (Fonte.FORMULA, Fonte.FORMULA_PENDENTE) and entrada.formula is None:
+        return Fonte.NULO_POR_DESENHO
+    return mapeamento.fonte
 
 
 # --- montagem ---------------------------------------------------------------------------------------
@@ -578,8 +794,10 @@ def _montar_uma(
     entrada = dicionario.entradas[nome]
     mapeamento = mapa[nome]
     fonte = mapeamento.fonte
-    if fonte is Fonte.NULO_POR_DESENHO:
+    if _fonte_efetiva(mapeamento, entrada) is Fonte.NULO_POR_DESENHO:
         return None, MotivoNulo.DERIVADA_SEM_FORMULA
+    if fonte is Fonte.FORMULA_PENDENTE:
+        return None, MotivoNulo.FORMULA_PENDENTE
     if fonte is Fonte.FORMULA:
         impl = FORMULAS[nome]
         termos: dict[str, object] = {}
@@ -588,7 +806,9 @@ def _montar_uma(
                 montavel = termo in mapa and termo in dicionario.entradas
                 termos[termo] = _montar_uma(termo, dicionario, mapa, fatos, data)[0] if montavel else None
             else:
-                termos[termo] = fatos.cadastro.get(CAMPOS_TERMO_CADASTRO[termo])
+                termos[termo] = _termo(termo, origem, fatos)
+        for condicao in impl.condicoes:
+            termos[condicao] = _condicao(condicao, fatos)
         calculado, motivo = impl.calcular(termos)
         valor, motivo = (None, motivo) if motivo is not None else _validar(entrada, calculado)
         if impl.ajuste is None:
@@ -642,7 +862,7 @@ def montar_entradas(
     for nome in decisao.entradas:
         valor, motivo = _montar_uma(nome, dicionario, mapa, fatos, data, derivacoes)
         variaveis[nome] = valor
-        fontes[nome] = mapa[nome].fonte.value
+        fontes[nome] = _fonte_efetiva(mapa[nome], dicionario.entradas[nome]).value
         if valor is None:
             nulos[nome] = (motivo or MotivoNulo.AUSENTE).value
     return EntradasMontadas(

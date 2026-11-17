@@ -42,7 +42,8 @@ gate de CI: formato MAJOR 1 ou 2 LIDO, mas o pin exige 2.1.0+ com `provas[]` nao
 (`rco_manifesto.provas_ausentes_no_pin`, decisao da ROOT de 16/11/2026; as provas rodam no CIB Seven
 no shard de integracao, `rco_provas.executar_provas_do_pin`), sem `origem.sujo`, campos exatos,
 prefixo `rco_`, anexos pelo hash, colunas de saida dentro do `saidas[]`, `idRegra` emitidos =
-`regras[]`, linha adversa preenchida.
+`regras[]`, linha adversa preenchida e, no 2.2.0 (DL-0173), `composicoes[]` bem formada (exposta em
+`RcoRulesPin.composicoes`; a escolha do resultado do grupo e de `maezo.platform.rco_composicao`).
 `artifacts` tem de ser exatamente `decisoes[]` do manifesto (`caminho_consumidor` + `sha256`) e
 `provenance` a `origem` dele. Manifesto 2.0.0 (contrato estavel na branch `prog/rco/ativacao-k1` do
 rco, commit 75015304, ainda nao em `main` do rco) com regra fora de `ativacao: plena` sem aditivo e
@@ -123,6 +124,9 @@ class RcoPinnedTable:
     #: tabela (linha que libera faixa positiva limitada de `diasAlemDoPrazoContratual`). Nao vazio = o
     #: DMN ja tolera: o gate recusa o pin e o montador zera a tolerancia do Maezo (nunca dobra).
     tolerancia_no_dmn: tuple[str, ...] = ()
+    #: MZO-3: a decisao do manifesto K1 pinado (`entradas` e `dominio`, que o montador de entradas usa).
+    #: `None` sem manifesto (`sem_pacote` ou exemplo sintetico do Maezo).
+    decisao: rco_manifesto.DecisaoK1 | None = None
 
     def audit_fields(self, id_regra: str | None = None) -> dict[str, str]:
         """Campos do pin para a entrada de `dmn_versions`.
@@ -157,6 +161,19 @@ class RcoRulesPin:
     #: §7). So exposto: a politica de execucao (D1/D2, amostra, aditivo) e de unidade posterior.
     #: `None` sem pacote ou com manifesto MAJOR 1.
     parametros_ativacao: rco_manifesto.ParametrosAtivacao | None = None
+    #: MZO-3: o manifesto K1 pinado e a pasta `k1/` ao lado do pin, para o montador ler `entradas.json`
+    #: (`rco_entradas.carregar_dicionario_entradas`) sem reler o pin. `None` sem pacote.
+    manifesto: rco_manifesto.ManifestoK1 | None = None
+    k1_dir: Path | None = None
+
+    @property
+    def composicoes(self) -> tuple[rco_manifesto.ComposicaoK1, ...]:
+        """`composicoes[]` do manifesto pinado (formato 2.2.0, DL-0173); vazio sem pacote ou abaixo de 2.2.
+
+        Nenhuma decisao de um grupo (padrao inclusive) e avaliada sozinha: quem avalia usa
+        `maezo.platform.rco_composicao.exigir_avaliacao_isolada` antes e `compor` para o grupo.
+        """
+        return self.manifesto.composicoes if self.manifesto is not None else ()
 
 
 def is_rco_decision(decision_key: str) -> bool:
@@ -229,11 +246,11 @@ def checar_manifest_pin(lock: Mapping[str, Any]) -> str:
 
 def _manifesto_fixado(
     lock: Mapping[str, Any], lock_path: Path, rules_dir: Path
-) -> tuple[dict[str, rco_manifesto.DecisaoK1], rco_manifesto.ParametrosAtivacao | None, set[str]]:
+) -> tuple[rco_manifesto.ManifestoK1, rco_manifesto.ParametrosAtivacao | None, set[str]]:
     """Estado `fixado`: le e confere o manifesto K1 pinado.
 
-    Devolve as decisoes por caminho do pin, os parametros de ativacao de `vocabulario.json` e os
-    nomes aceitos em `k1/` (manifesto, anexos e arquivos de provas, como o gate).
+    Devolve o manifesto, os parametros de ativacao de `vocabulario.json` e os nomes aceitos em `k1/`
+    (manifesto, anexos e arquivos de provas, como o gate).
     """
     digest = checar_manifest_pin(lock)
     k1_dir = _k1_dir(lock_path)
@@ -276,7 +293,7 @@ def _manifesto_fixado(
         raise RcoRulesPinError(f"pin: vocabulario.json do K1 recusado: {exc}") from exc
     # A MESMA fonte do gate (`verify_rco_rules_pin`): manifesto, anexos e arquivos de `provas[]`.
     nomes_k1 = rco_manifesto.nomes_k1_declarados(raw)
-    return manifesto.decisao_por_caminho(), vocab.parametros_ativacao, nomes_k1
+    return manifesto, vocab.parametros_ativacao, nomes_k1
 
 
 def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
@@ -301,8 +318,10 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
     por_caminho: dict[str, rco_manifesto.DecisaoK1] = {}
     parametros: rco_manifesto.ParametrosAtivacao | None = None
     nomes_k1: set[str] = set()
+    manifesto: rco_manifesto.ManifestoK1 | None = None
     if estado == ESTADO_FIXADO:
-        por_caminho, parametros, nomes_k1 = _manifesto_fixado(lock, lock_path, rules_dir)
+        manifesto, parametros, nomes_k1 = _manifesto_fixado(lock, lock_path, rules_dir)
+        por_caminho = manifesto.decisao_por_caminho()
         pinados = {str(rel): digest for rel, digest in artifacts}
         if len(pinados) != len(artifacts) or pinados != {c: d.sha256 for c, d in por_caminho.items()}:
             raise RcoRulesPinError("pin: artifacts tem de ser exatamente decisoes[] do manifesto K1")
@@ -340,9 +359,20 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
                 raise RcoRulesPinError(f"pin: {rel} declara {decision_key!r}, o manifesto diz {decisao.id!r}")
             regras = decisao.regras if decisao is not None else None
             tables[decision_key] = RcoPinnedTable(
-                decision_key, str(rel), digest, regras=regras, tolerancia_no_dmn=tolerancia_no_dmn
+                decision_key,
+                str(rel),
+                digest,
+                regras=regras,
+                tolerancia_no_dmn=tolerancia_no_dmn,
+                decisao=decisao,
             )
-    return RcoRulesPin(estado=estado, tables=MappingProxyType(tables), parametros_ativacao=parametros)
+    return RcoRulesPin(
+        estado=estado,
+        tables=MappingProxyType(tables),
+        parametros_ativacao=parametros,
+        manifesto=manifesto,
+        k1_dir=_k1_dir(lock_path) if manifesto is not None else None,
+    )
 
 
 def _default_lock_path() -> Path:
@@ -379,7 +409,7 @@ def rco_pinned_table(decision_key: str) -> RcoPinnedTable | None:
 
 
 def rco_avaliacao(
-    decision_key: str, row: Mapping[str, Any] | None = None
+    decision_key: str, row: Mapping[str, Any] | None = None, *, sombra: bool = False
 ) -> tuple[dict[str, str], AvaliacaoRegra | None]:
     """Campos extras da entrada de `dmn_versions` e, quando ha regra K1 casada num manifesto MAJOR 2, a
     avaliacao que alimenta o registro de decisoes (ADR-0077 §4, 5c-2).
@@ -387,6 +417,9 @@ def rco_avaliacao(
     `{}`/`None` para Maezo. Para rco: `shaDmn` (+ `idRegra`, `versaoRegra`, `ativacaoPacote`,
     `exigeAditivo`); e, so com `ativacaoPacote` (mesma regra de presenca), `estadoManual`,
     `ativacaoEfetiva` e `modo`, calculados UMA vez aqui para que a auditoria e o registro digam o mesmo.
+
+    `sombra=True` (MZO-3, avaliacao da sombra do montador): o indicador `efeito_k1_habilitado` NAO e lido
+    (vale desligado), entao `modo` e sempre `sombra`, e a avaliacao sai marcada para nao consumir ordinal.
     """
     pinned = rco_pinned_table(decision_key)
     if pinned is None:
@@ -414,7 +447,8 @@ def rco_avaliacao(
             parametros=parametros,
             row=row,
             estados=estados_em_cache(),
-            habilitado=efeito_k1_habilitado(),
+            habilitado=False if sombra else efeito_k1_habilitado(),
+            sombra=sombra,
         )
     if avaliacao is not None:
         fields.update(avaliacao.campos_de_auditoria())

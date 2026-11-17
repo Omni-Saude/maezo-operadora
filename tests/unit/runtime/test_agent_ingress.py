@@ -193,6 +193,39 @@ def test_campo_com_default_de_suposicao_e_recusado_vazio(campo: str) -> None:
     assert harness.chamadas == [], "gastou um turno de LLM para descobrir que faltava campo"
 
 
+_CARATER_FORA_DO_DOMINIO = ("emergencia", "Urgencia", "URGENCIA", "Eletivo", "2", "1", "urgência", "x")
+
+
+@pytest.mark.parametrize("valor", _CARATER_FORA_DO_DOMINIO)
+def test_carater_fora_do_dominio_e_recusado_sem_traducao(valor: str) -> None:
+    """DL-0170: so' `urgencia` ou `eletivo`, exatos. Fora disso a `auth_sla` cairia na r4 (P5D).
+
+    O mesmo dominio da origem A2A e do Rafael (`domain/carater_atendimento.py`). Nenhum sinonimo
+    e' traduzido, e o valor recebido nao volta na resposta (pode ser texto livre).
+    """
+    harness = _HarnessFalso()
+    r = _cliente(_EstadoFalso(harness=harness)).post(
+        "/v1/autorizacoes", json={**_PEDIDO_MINIMO, "carater_atendimento": valor}
+    )
+
+    assert r.status_code == 422
+    detalhe = r.json()["detail"]
+    assert "carater_atendimento" in detalhe
+    assert "'eletivo', 'urgencia'" in detalhe
+    assert f"'{valor}'" not in detalhe
+    assert harness.chamadas == [], "gastou um turno com carater fora do dominio"
+
+
+@pytest.mark.parametrize("valor", ["urgencia", " eletivo "])
+def test_carater_canonico_passa_pela_rota(valor: str) -> None:
+    harness = _HarnessFalso(resultado={"business_key": "AUTH-amh-12345678"})
+    r = _cliente(_EstadoFalso(harness=harness)).post(
+        "/v1/autorizacoes", json={**_PEDIDO_MINIMO, "carater_atendimento": valor}
+    )
+    assert r.status_code == 200
+    assert len(harness.chamadas) == 1
+
+
 def test_booleano_falso_e_resposta_legitima_e_nao_ausencia() -> None:
     """O `is not bool` existe por causa deste caso, e um teste de veracidade o quebraria.
 

@@ -1,0 +1,114 @@
+# =============================================================================
+# DRAFT — catalogo FECHADO de eventos de processo de retencao (`ret.*`) e
+# familias PROIBIDAS como gatilho, segmento ou variavel. NAO RATIFICADO.
+# =============================================================================
+#
+# Origem: registro RT-09 (ADD-RETENTION do Adendo 01 do plano do funil, decisao
+# do coordenador sob o mandato OS-07); epico E-SF-RT-01; decisao CD-07 (so' a
+# allowlist e a cerca local; nenhum emissor). Leitor e cerca:
+# `src/maezo/platform/validation/retention_signals.py`.
+#
+# O que este arquivo E': dado versionado que a cerca le' para (1) recusar todo
+# gatilho/segmento fora do catalogo, (2) recusar todo sinal de familia clinica
+# ou assistencial e (3) fixar o esquema FECHADO de campos de cada evento.
+#
+# O que este arquivo NAO E':
+# * nao e' emissor: `emissao: nenhuma` e `emissor: nenhum` em todo evento sao
+#   CONSTANTES que o leitor exige. Medicao (A9) nao e' executavel; a emissao ao
+#   lago e' de E-SF-35r. Mudar qualquer um dos dois e' mudanca de codigo.
+# * nao e' lista de campo clinico: "campo clinico" vem da fonte que ja' existe
+#   (`phi_completeness.classify` + `PHI_LISTED_NAMES`) e da taxonomia C1-C6 de
+#   `gateway/vendor_suppression.py` (classes permitidas aqui: C5 e C6, no codigo).
+# * nao ratifica nada: `status` so' aceita DRAFT. Mudar a lista e' mudar `versao`.
+#
+# Proativo a beneficiario segue FECHADO (Adendo 01 §7 (a) e (q)): um evento
+# `*.enviado` deste catalogo so' pode nascer de portal ou de conversa iniciada
+# pelo beneficiario, e hoje nenhum nasce.
+# =============================================================================
+
+schema: maezo.retention-signals.allowlist.v1
+id: RET-SINAIS-ALLOWLIST
+versao: ret-sinais-v1
+status: DRAFT
+decisao_origem:
+  registro: RT-09
+  epico: E-SF-RT-01
+  coordenacao: CD-07
+emissao: nenhuma
+
+# Envelope LOCAL do evento de processo (nao e' o esquema do lago). Para o lago (E-SF-35r) vale OS-04:
+# so' nome, horario e resultado; numero_contrato e tenant_id NAO seguem (chave de pessoa/jornada fora;
+# tenant = residuo DPO RL-REG-46).
+campos_envelope:
+  - {nome: evento, classe: C5}
+  - {nome: versao_catalogo, classe: C6}
+  - {nome: tenant_id, classe: C6}
+  - {nome: ocorrido_em, classe: C5}
+
+eventos:
+  # --- Renovacao e reajuste (RT-01..RT-04) ---
+  - {nome: ret.aniversario.agendado, grupo: renovacao_reajuste, origem: fonte, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.aviso_r0.enviado, grupo: renovacao_reajuste, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.aviso_r0.entregue, grupo: renovacao_reajuste, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.fato_reajuste.recebido, grupo: renovacao_reajuste, origem: fonte, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.aviso_r1.enviado, grupo: renovacao_reajuste, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.recibo_renovacao.enviado, grupo: renovacao_reajuste, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.opcoes.abertas, grupo: renovacao_reajuste, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.cotacao_alternativa.solicitada, grupo: renovacao_reajuste, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.troca.solicitada, grupo: renovacao_reajuste, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.troca.concluida, grupo: renovacao_reajuste, origem: fonte, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.contestacao.protocolada, grupo: renovacao_reajuste, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.contestacao.respondida, grupo: renovacao_reajuste, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  # --- Saida (RT-05, RT-07): mede, nunca dispara retencao (DL-0098; GTM-E-64 lido com OS-08; RT-07 B) ---
+  - {nome: ret.cancelamento.pedido_aberto, grupo: saida, origem: processo, usos: [], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.cancelamento.protocolado, grupo: saida, origem: processo, usos: [], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  # Motivo SEM vinculo ao contrato: variante de RT-D1 (contagem agregada sem vinculo).
+  - {nome: ret.cancelamento.motivo_registrado, grupo: saida, origem: processo, usos: [], emissor: nenhum, campos: [{nome: codigo_motivo, classe: C5}]}
+  - {nome: ret.cancelamento.efetivado, grupo: saida, origem: fonte, usos: [], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.exclusao_dependente.protocolada, grupo: saida, origem: processo, usos: [], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  # --- Cobranca (reuso; RT-06): nenhum destes nomes existe no repositorio hoje; nunca gatilho
+  #     de retencao (RT-06 item 2) e lembrete proativo fechado (Adendo 01 §7 (q), RT-D4) ---
+  - {nome: lembrete.enviado, grupo: cobranca_reuso, origem: processo, usos: [], emissor: nenhum, campos: []}
+  - {nome: segunda_via.fornecida, grupo: cobranca_reuso, origem: processo, usos: [], emissor: nenhum, campos: []}
+  - {nome: negociacao.caso_aberto, grupo: cobranca_reuso, origem: processo, usos: [], emissor: nenhum, campos: []}
+  # --- Onboarding (RT-08): D+7 so' por tempo de casa ---
+  - {nome: ret.boas_vindas.enviada, grupo: onboarding, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+  - {nome: ret.checkin_d7.enviado, grupo: onboarding, origem: processo, usos: [gatilho, segmento], emissor: nenhum, campos: [{nome: numero_contrato, classe: C6}]}
+
+# Familias PROIBIDAS como gatilho, segmento ou variavel (RT-09, lista verbatim:
+# "qualquer evento de autorizacao, guia, sinistro, reembolso, programa de cuidado,
+# CPT/DLP, DS, internacao; 'uso/nao uso do plano'; leitura de mensagem").
+# Casamento por SEGMENTO do nome (`phi_completeness.segments`: separa em `_ . -`,
+# camelCase, e tira digitos finais). `segmento`: o segmento IGUAL ao token;
+# `radical`: o segmento COMECA com o token (dobra plural/genero).
+familias_proibidas:
+  - id: autorizacao
+    tokens: [{token: autorizac, modo: radical}, {token: auth, modo: segmento}]
+    evidencia: "topicos agents.events.auth.* (SP-OP-AUTH-001)"
+  - id: guia
+    tokens: [{token: guia, modo: segmento}, {token: guias, modo: segmento}, {token: tiss, modo: segmento}]
+    evidencia: "Guia TISS (AGENTS.md, vocabulario do dominio)"
+  - id: sinistro
+    tokens: [{token: sinistr, modo: radical}, {token: contas, modo: segmento}, {token: glosa, modo: radical}, {token: pagto, modo: segmento}]
+    evidencia: "topicos agents.events.contas.*, agents.events.pagto.* (SP-OP-CONTAS-001, SP-OP-PAGTO-001)"
+  - id: reembolso
+    tokens: [{token: reembols, modo: radical}]
+    evidencia: "topicos agents.events.reembolso.* (SP-OP-REEMBOLSO-001)"
+  - id: programa_de_cuidado
+    tokens: [{token: programa, modo: segmento}, {token: programas, modo: segmento}, {token: cuidad, modo: radical}]
+    evidencia: "topicos agents.events.programa.* (SP-OP-PROGRAMA-001)"
+  - id: cpt_dlp
+    tokens: [{token: cpt, modo: segmento}, {token: dlp, modo: segmento}]
+    evidencia: "RT-09"
+  - id: declaracao_de_saude
+    tokens: [{token: ds, modo: segmento}, {token: saude, modo: segmento}]
+    evidencia: "RT-09"
+  - id: internacao
+    tokens: [{token: internac, modo: radical}]
+    evidencia: "RT-09"
+  - id: uso_do_plano
+    tokens: [{token: uso, modo: segmento}, {token: utilizac, modo: radical}]
+    evidencia: "RT-09"
+  - id: leitura_de_mensagem
+    tokens: [{token: leitur, modo: radical}, {token: lido, modo: radical}, {token: lida, modo: radical}, {token: read, modo: segmento}, {token: visualiz, modo: radical}]
+    evidencia: "RT-09 (minimizacao)"

@@ -525,6 +525,31 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # MZO-3: desfecho de cada avaliacao em SOMBRA de uma tabela K1 do rco com as entradas do
+        # montador (`tools.workers.rco_sombra`). Rotulo FECHADO (`observability.RCO_SOMBRA_DESFECHOS`,
+        # outro valor vira `outro`): `erro_de_programacao` e o sinal de bug que a sombra nao propaga
+        # para nao mudar o desfecho do worker. Nunca tenant, lote, guia, chave ou instancia.
+        self._rco_sombra_total = Counter(
+            "maezo_rco_sombra_total",
+            "Shadow evaluations of rco K1 tables with the montador inputs, by outcome "
+            "(COUNTS ONLY; desfecho is a closed vocabulary)",
+            labelnames=["desfecho"],
+            registry=self._registry,
+        )
+
+        # DL-0173: cada composicao de decisoes K1 do rco (`platform.rco_composicao`) que caiu em
+        # revisao humana, por motivo FECHADO (`observability.RCO_COMPOSICAO_MOTIVOS`, outro valor vira
+        # `outro`). `violacao_prova_rco` = duas decisoes antes do padrao com `idRegra` (ou mais de uma
+        # linha): o que a prova do rco (`make composicao-dmn`) diz que nao acontece. Nunca tenant,
+        # lote, guia, chave ou instancia.
+        self._rco_composicao_revisao_total = Counter(
+            "maezo_rco_composicao_revisao_humana_total",
+            "rco K1 decision compositions routed to human review, by closed reason "
+            "(COUNTS ONLY; motivo is a closed vocabulary)",
+            labelnames=["motivo"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -796,3 +821,13 @@ class MetricsCollector:
         escrita_alvo | outro). COUNTS ONLY.
         """
         return self._contas_pagto_ordem_recusada
+
+    @property
+    def rco_sombra_total(self) -> Counter:
+        """Counter for rco K1 shadow evaluations (MZO-3). Label: desfecho (closed vocabulary)."""
+        return self._rco_sombra_total
+
+    @property
+    def rco_composicao_revisao_total(self) -> Counter:
+        """Counter for rco K1 compositions routed to human review (DL-0173). Label: motivo (closed)."""
+        return self._rco_composicao_revisao_total

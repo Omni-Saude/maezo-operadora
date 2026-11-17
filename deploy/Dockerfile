@@ -88,6 +88,8 @@ COPY spec/policies/roteamento ./spec/policies/roteamento
 # e, se passasse, o scrubber de PHI nunca instalaria na imagem sem erro nenhum.
 COPY spec/policies/privacy ./spec/policies/privacy
 COPY spec/policies/ans ./spec/policies/ans
+# E-SF-09: politicas DRAFT de saida a pedido (force-include correspondente no pyproject.toml).
+COPY spec/policies/saida-a-pedido ./spec/policies/saida-a-pedido
 COPY spec/schemas/tiss ./spec/schemas/tiss
 # Oitava ocorrencia (17/10/2026, ADR-0064/DL-0118): a base de conhecimento de saude da Helena.
 COPY spec/conhecimento/saude ./spec/conhecimento/saude

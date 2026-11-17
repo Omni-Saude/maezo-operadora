@@ -25,12 +25,20 @@ clear of that guard; it is a completely different concern (the DPO's per-categor
 legal-bases table), so it is named to avoid the collision rather than work around
 the guard the test enforces. Placement inside the `lifecycle` package is for
 cohesion (the lifecycle CLI is its only consumer today), not a guard requirement.
+
+Commercial profile (E-SF-10): `qualify_lead_intake` is the lifecycle gate the commercial
+gateway consults before any REAL lead intake (C6-4 invariant "No subject body parsing or
+REAL forms before qualified lifecycle/identity/representation/tenant/purpose/source gates").
+It adds three refusals on top of the loader -- lead categories missing, no source-resolved
+`retention_class` -- and `admit_category_use` refuses un-ratified rows and the uses the
+addendum closes (ex-beneficiary reactivation / admission consent as marketing basis). None
+of them chooses a period, a basis or an action.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -58,6 +66,40 @@ REASON_INVALID_YAML = "invalid_yaml"
 REASON_INVALID_SCHEMA = "invalid_schema"
 REASON_EMPTY = "empty"
 REASON_UNRATIFIED_TEMPLATE = "unratified_template"
+# Commercial-profile reasons (E-SF-10; TB-E-25-a (2), EP-REG-04b, ADDENDUM-01 §7 (e)).
+REASON_LEAD_CATEGORIES_MISSING = "lead_categories_missing"
+REASON_RETENTION_CLASS_UNRESOLVED = "retention_class_unresolved"
+REASON_CATEGORY_UNRATIFIED = "category_unratified"
+REASON_USE_REFUSED = "use_refused"
+
+# The six lead categories TB-25 (ii) (a)-(f) requires a real matrix to carry before any REAL
+# lead intake (TB-E-25-a). Identifiers only: base legal, retention and action are the
+# DPO + jurídico's (RATIFY-LATER TB-25, RL-REG-04); none is chosen here (TB-25 (iv)).
+LEAD_CATEGORIES: tuple[str, ...] = (
+    "lead_intake",  # (a) intake <=5 fields
+    "lead_permissao_contato",  # (b) contact permission / consent proof and its revocation
+    "lead_registro_atendimento",  # (c) contact.request / support.handoff records (Q1)
+    "supressao_lead",  # (d) no-contact list entry (SP-OP-SUPP-001)
+    "lead_cotacao_jornada",  # (e) saved quotes and journeys (journey.save)
+    "lead_dado_saude_escapado",  # (f) health data that escaped the TB-03/TB-24 fences
+)
+
+# Candidate-only rows (ADDENDUM-01 §6; ADD-RETENTION RT-05/RT-07): named for the DPO's review,
+# never required by the loader and never usable before a ratified matrix carries them.
+CANDIDATE_ONLY_CATEGORIES: tuple[str, ...] = ("ex_beneficiario", "motivo_cancelamento")
+
+# Uses refused whatever any matrix says -- closed by construction, reopened only by a code
+# change after the named ratification:
+# - ex_beneficiario: no proactive reactivation (RT-07 B, RT-D2 open) and the admission consent
+#   does not survive cancellation as a marketing basis (ADDENDUM-01 §7 (e), GAP-RT-05);
+# - motivo_cancelamento: never linked to the data subject without RT-D1 (variant: aggregate
+#   count by code only).
+REFUSED_CATEGORY_USES: MappingProxyType[str, frozenset[str]] = MappingProxyType(
+    {
+        "ex_beneficiario": frozenset({"reativacao_proativa", "marketing_consentimento_admissao"}),
+        "motivo_cancelamento": frozenset({"vinculo_ao_titular"}),
+    }
+)
 
 
 class RetentionMatrixUnavailableError(RuntimeError):
@@ -242,3 +284,81 @@ def load_retention_matrix(path: str | Path | None = None) -> RetentionMatrix:
 
     logger.info("retention_matrix_loaded", path=str(matrix_path), categoria_count=len(entries))
     return RetentionMatrix(entries=MappingProxyType(entries))
+
+
+def require_lead_categories(matrix: RetentionMatrix) -> RetentionMatrix:
+    """Commercial profile: refuse a loaded matrix that lacks any lead category (TB-E-25-a (2)).
+
+    A matrix ratified for the platform layers says nothing about lead data; with the
+    commercial profile on, its absence of lead rows is a typed refusal
+    (`REASON_LEAD_CATEGORIES_MISSING`), never a silent "no rule = keep forever".
+    """
+    missing = [categoria for categoria in LEAD_CATEGORIES if matrix.get(categoria) is None]
+    if missing:
+        raise _fail(
+            REASON_LEAD_CATEGORIES_MISSING,
+            f"commercial profile requires the lead categories {missing} in the ratified matrix",
+        )
+    return matrix
+
+
+def load_commercial_matrix(path: str | Path | None = None) -> RetentionMatrix:
+    """`load_retention_matrix` plus the commercial-profile lead-category requirement."""
+    return require_lead_categories(load_retention_matrix(path))
+
+
+def qualify_lead_intake(
+    path: str | Path | None = None,
+    *,
+    source_retention_classes: Mapping[str, str] | None = None,
+) -> MappingProxyType[str, RetentionMatrixEntry]:
+    """Lifecycle gate of every REAL lead intake (TB-E-25-a (3), EP-REG-04b). FAILS CLOSED.
+
+    Qualifies only when (1) a ratified matrix loads, (2) it carries every lead category and
+    (3) the source resolved a `retention_class` for every lead category, each naming a
+    category of that matrix. A source that resolves no class (the frozen C6-4 wire carries no
+    such field; its intake custody is "governed by source-defined fields/purpose/lifecycle")
+    is `REASON_RETENTION_CLASS_UNRESOLVED`: persistence without a class is refused, there is
+    no default class.
+
+    Returns:
+        The matrix entry each lead category resolves to, keyed by lead category.
+
+    Raises:
+        RetentionMatrixUnavailableError: on any failure above.
+    """
+    matrix = load_commercial_matrix(path)
+    if source_retention_classes is None:
+        raise _fail(
+            REASON_RETENTION_CLASS_UNRESOLVED,
+            "the source resolved no retention_class for lead intake; persistence is refused",
+        )
+    resolved: dict[str, RetentionMatrixEntry] = {}
+    for categoria in LEAD_CATEGORIES:
+        retention_class = source_retention_classes.get(categoria)
+        entry = matrix.get(retention_class) if isinstance(retention_class, str) else None
+        if entry is None:
+            raise _fail(
+                REASON_RETENTION_CLASS_UNRESOLVED,
+                f"lead category {categoria!r} has no source-resolved retention_class in the matrix",
+            )
+        resolved[categoria] = entry
+    return MappingProxyType(resolved)
+
+
+def admit_category_use(matrix: RetentionMatrix | None, categoria: str, uso: str) -> RetentionMatrixEntry:
+    """Consumer gate: a category is usable only through a ratified matrix row. FAILS CLOSED.
+
+    `REFUSED_CATEGORY_USES` is checked first and wins over any matrix; then a category absent
+    from the loaded matrix (or no matrix at all) is `REASON_CATEGORY_UNRATIFIED`. Candidate rows
+    (`docs/sme-dispatch/dpo/RETENTION-MATRIX-CANDIDATE.md`) are never a source of this answer.
+    """
+    if uso in REFUSED_CATEGORY_USES.get(categoria, frozenset()):
+        raise _fail(REASON_USE_REFUSED, f"use {uso!r} is refused for categoria {categoria!r}")
+    entry = matrix.get(categoria) if matrix is not None else None
+    if entry is None:
+        raise _fail(
+            REASON_CATEGORY_UNRATIFIED,
+            f"categoria {categoria!r} has no row in a ratified matrix; candidate rows are not usable",
+        )
+    return entry

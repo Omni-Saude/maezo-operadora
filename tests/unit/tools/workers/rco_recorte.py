@@ -10,6 +10,14 @@ procedencia no proprio arquivo) e `geral_carencia.dmn` (o arquivo da tabela de c
 de `dmn/regras-gerais/geral_prazos_conta.dmn` no mesmo commit, igual a `main` do rco em 323fec5c, com o
 mesmo prefixo `rco_` que o pacote poe no id; MZO-TOL). Material de teste: nada disso e
 regra do Maezo nem entra em `spec/processes/dmn/rco/` (o pin segue `sem_pacote`).
+
+`tests/fixtures/rco/k1-1.2.0-recorte/entradas.json` (MZO-3) e o MESMO recorte (as mesmas 33 entradas) do
+dicionario de entradas 1.2.0 do rco no commit f77f96aca7a43640c23cdc21e7594fce5906a584 (PR #169,
+PROG-RCO-10): gerado com `scripts/k1_entradas.py::linhas` e `hash_canonico` daquele commit, na forma de
+`scripts/pacote.py::legivel`, depois de `scripts/consolidar_fragmentos.py`; a impressao do conjunto
+(`k1_entradas.py --impressao`) confere com a registrada para 1.2.0 em `docs/programa/k1-entradas-origem.yaml`
+(sha256:7e245052...). `sha256_conteudo` e o do dicionario COMPLETO. As decisoes ficam as do recorte 1.1.0:
+`geral_prazos_conta.dmn` (as entradas de `rco_geral_prazos_conta`) e igual nos dois commits.
 """
 
 from __future__ import annotations
@@ -26,8 +34,15 @@ CARENCIA_DMN = RECORTE / "geral_carencia.dmn"
 PRAZOS_CONTA_DMN = RECORTE / "geral_prazos_conta.dmn"
 
 
+RECORTE_1_2_0 = RECORTE.parent / "k1-1.2.0-recorte"
+
+
 def dicionario() -> DicionarioEntradasK1:
     return ler_dicionario_entradas((RECORTE / "entradas.json").read_bytes())
+
+
+def dicionario_1_2_0() -> DicionarioEntradasK1:
+    return ler_dicionario_entradas((RECORTE_1_2_0 / "entradas.json").read_bytes())
 
 
 def decisoes() -> dict[str, DecisaoK1]:

@@ -160,13 +160,13 @@ describe.each([
   });
 });
 
-it("oferece sete áreas e abre a fila autorizada na visão geral e nas áreas de trabalho", async () => {
+it("oferece oito áreas e abre a fila autorizada na visão geral e nas áreas de trabalho", async () => {
   vi.mocked(fetch).mockResolvedValue(jsonResponse(session("staff")));
   const view = render(<App />);
   expect(
     await screen.findByRole("heading", { name: "Área de colaboradores" }),
   ).toBeInTheDocument();
-  expect(screen.getAllByRole("tab")).toHaveLength(7);
+  expect(screen.getAllByRole("tab")).toHaveLength(8);
   expect(
     screen.getByRole("heading", { name: "Visão geral do trabalho" }),
   ).toBeInTheDocument();

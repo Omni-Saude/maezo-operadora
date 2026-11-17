@@ -33,8 +33,10 @@ structurally untouched (A7 has no C6-4 surface and no runtime seam — mold R8).
 
 from __future__ import annotations
 
+import ast
 import inspect
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -487,6 +489,10 @@ def test_src_tree_keeps_exactly_the_lgpd_dsr_collision_plus_this_loader() -> Non
         # enquanto o negocio nao a fechar (config/integrations/rco/k3-lacunas.json). Nao le nem recebe dado de
         # portabilidade comercial; nao e superficie de intake.
         (root / "tools" / "workers" / "rco_montador.py").resolve(),
+        # E-SF-06 (EP-CORE-05b), entrada consciente: o gate de suporte A5 roda a guarda
+        # estrutural de veredito (`refuse_portability_verdict_payload`) sobre o payload de
+        # `support.handoff`; importa a guarda, nao cria superficie de portabilidade de carencias.
+        (root / "gateway" / "commercial_admission.py").resolve(),
     }
     found: dict[Path, list[int]] = {}
     for path in root.rglob("*.py"):
@@ -498,8 +504,37 @@ def test_src_tree_keeps_exactly_the_lgpd_dsr_collision_plus_this_loader() -> Non
         if lines:
             found[path.resolve()] = lines
     assert set(found) == allowed, found
+    # E-SF-06: the commercial_admission.py entry is pinned by CONTENT, not by file — every
+    # occurrence names only the imported A7 guard, and the count is exact.
+    gate = (root / "gateway" / "commercial_admission.py").resolve()
+    gate_lines = [
+        line
+        for line in gate.read_text(errors="replace").splitlines()
+        if "portabilidade" in line.lower() or "portability" in line.lower()
+    ]
+    guard = re.compile(
+        r"refuse_portability_verdict_payload|PortabilityPayloadError|portability-of-waiting-period"
+    )
+    import_line = "from maezo.gateway.commercial_portability_admission import ("
+    assert len(gate_lines) == 8, gate_lines
+    assert all(line == import_line or guard.search(line) for line in gate_lines), gate_lines
+    # …and the names imported from the A7 module are exactly the structural guard.
+    imported = {
+        alias.name
+        for node in ast.walk(ast.parse(gate.read_text()))
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "maezo.gateway.commercial_portability_admission"
+        for alias in node.names
+    }
+    assert imported == {"PortabilityPayloadError", "refuse_portability_verdict_payload"}, imported
     # …and none of the collision occurrences lives in any other gateway file.
-    nomes = {"lgpd.py", "dsr.py", "commercial_portability_admission.py", "rco_montador.py"}
+    nomes = {
+        "lgpd.py",
+        "dsr.py",
+        "commercial_portability_admission.py",
+        "rco_montador.py",
+        "commercial_admission.py",
+    }
     assert all(path.name in nomes for path in found)
 
 

@@ -396,6 +396,8 @@ class TestWhatsappPostureRuntimeBinding:
             # `LucasTurno` (handoff tipado, nunca texto), construido so' com o roteador ligado.
             "lucas": {"outbound": True, "inbound": True, "inbound_condicao": "roteador_lucas"},
             "fernando": {"outbound": True, "inbound": False},
+            # E-SF-17: o comercial recebe SO' a passagem tipada da Helena, atras do roteador comercial.
+            "comercial": {"outbound": True, "inbound": True, "inbound_condicao": "roteador_comercial"},
         }
         from maezo.agents.lucas import graph as lucas_graph
         from maezo.platform.webhooks.whatsapp import lucas_turno

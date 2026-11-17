@@ -92,7 +92,7 @@ it("F-156: todo aria-controls das abas staff aponta para um painel existente (WC
   render(<App />);
   await screen.findByRole("heading", { level: 1, name: "Área de colaboradores" });
   const tabs = within(screen.getByRole("tablist", { name: "Áreas de trabalho" })).getAllByRole("tab");
-  expect(tabs).toHaveLength(7);
+  expect(tabs).toHaveLength(8);
   for (const tab of tabs) {
     const controls = tab.getAttribute("aria-controls");
     expect(controls).toBeTruthy();

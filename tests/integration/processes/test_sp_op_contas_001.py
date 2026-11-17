@@ -735,6 +735,9 @@ async def start_contas(engine: EngineRest, deploy_artifacts: str) -> Callable[..
         # Forma guia/conta (chave PAGTO por conta, decisao do dono 2026-11-01): o teste pode dar a
         # instancia a chave contratual `CONTAS-amh-{guia}-{conta}`; o padrao segue a forma lote.
         business_key = str(overrides.pop("business_key", f"CONTAS-amh-{lote}"))
+        # `omitir`: chaves do payload canonico que o lote NAO traz (ausentes do start, nao nulas).
+        for chave in overrides.pop("omitir", ()):
+            variables.pop(chave, None)
         variables.update(overrides)
         inst = await engine.start_by_key(_PROCESS_KEY, business_key, variables)
         # Proveniencia da definicao que ESTA instancia carrega (nao a latest do momento): imune a
@@ -1728,6 +1731,114 @@ async def test_linhas_atualizadas_reavalia(
     assert await engine.instance_is_active(iid) or _END_APROVADA_INTEGRAL in ended, (
         "Apos a mensagem, a instancia deve reavaliar a triagem (ativa) ou chegar a fim neutro"
     )
+
+
+async def test_reentrada_nao_transforma_a_data_defaultada_em_data_informada(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """DL-0174, ponta a ponta no engine: o lote chega SEM `data_recebimento_lote`.
+
+    A primeira passagem do intake defaulta a ANCORA para hoje/UTC (os timers precisam dela) e grava
+    a data CRUA `data_recebimento_lote_informada` nula, motivo `ausente`. A mensagem
+    `msg.contas.linhas_atualizadas` devolve o token a `ST_ApurarDivergencias`, que agora recebe uma
+    ancora VALIDA (o hoje defaultado). A data crua tem de continuar nula: a reentrada (detectada
+    por `has_glosas`, escrito pelo proprio intake) ECOA a variavel, nunca a recalcula da ancora.
+    `get_variable` levanta se a variavel nao existir: a leitura prova tambem que o `None` escrito
+    pelo worker virou uma variavel de processo nula, nao uma chave descartada.
+    """
+    hoje_antes = datetime.now(UTC).date().isoformat()
+    inst = await start_contas(
+        categoria_normalizada="documental",
+        item_conforme_tabela=False,
+        documentacao_anexa=False,
+        has_glosas=True,
+        omitir=("data_recebimento_lote",),
+    )
+    iid = inst["id"]
+
+    await _drive_to_analista(engine, contas_probe, iid)
+    assert await engine.get_variable(iid, "data_recebimento_lote_informada") is None
+    assert await engine.get_variable(iid, "data_recebimento_lote_informada_motivo") == "ausente"
+
+    correlate_payload = {
+        "messageName": "msg.contas.linhas_atualizadas",
+        "businessKey": inst["businessKey"],
+        "processVariables": {"documentacao_anexa": {"value": False, "type": "Boolean"}},
+    }
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post("/message", json=correlate_payload)
+        assert resp.status_code in (200, 204), (
+            f"Correlacao msg.contas.linhas_atualizadas falhou [{resp.status_code}]: {resp.text[:200]}"
+        )
+
+    await _drive_to_analista(engine, contas_probe, iid)
+    hoje_depois = datetime.now(UTC).date().isoformat()
+
+    assert await engine.activity_instance_count(iid, "ST_ApurarDivergencias") == 2, (
+        "a reentrada tem de ter rodado o intake de novo — senao o teste nao prova a reentrada"
+    )
+    ancora = await engine.get_variable(iid, "data_recebimento_lote")
+    assert ancora in {hoje_antes, hoje_depois}, f"a ancora segue defaultada para hoje/UTC; veio {ancora!r}"
+    assert await engine.get_variable(iid, "data_recebimento_lote_informada") is None, (
+        "na reentrada a ancora defaultada NAO pode virar data informada"
+    )
+    assert await engine.get_variable(iid, "data_recebimento_lote_informada_motivo") == "ausente"
+    await _assert_no_glosa_without_human_task(engine, iid)
+
+
+async def test_reentrada_de_instancia_legada_nao_rederiva_a_data_informada(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """DL-0174, instancia LEGADA no engine real: iniciada antes de a variavel crua existir.
+
+    O lote chega COM uma data passada valida, entao a primeira passagem grava a data informada.
+    Apagar as duas variaveis novas via REST reproduz uma instancia iniciada antes de DL-0174 (o
+    marcador `has_glosas` continua la). Na reentrada, a data informada tem de sair NULA com motivo
+    `instancia_legada` — nunca re-derivada da ancora, que ainda guarda a mesma data valida.
+    """
+    data_passada = (datetime.now(UTC) - timedelta(days=3)).date().isoformat()
+    inst = await start_contas(
+        categoria_normalizada="documental",
+        item_conforme_tabela=False,
+        documentacao_anexa=False,
+        has_glosas=True,
+        data_recebimento_lote=data_passada,
+    )
+    iid = inst["id"]
+
+    await _drive_to_analista(engine, contas_probe, iid)
+    assert await engine.get_variable(iid, "data_recebimento_lote_informada") == data_passada
+    assert await engine.get_variable(iid, "data_recebimento_lote_informada_motivo") is None
+
+    for nome in ("data_recebimento_lote_informada", "data_recebimento_lote_informada_motivo"):
+        await engine.delete_variable(iid, nome)
+        assert await engine.get_variable_or_none(iid, nome) is None
+    assert await engine.get_variable(iid, "has_glosas") is True, "o marcador de reentrada fica"
+
+    correlate_payload = {
+        "messageName": "msg.contas.linhas_atualizadas",
+        "businessKey": inst["businessKey"],
+        "processVariables": {"documentacao_anexa": {"value": False, "type": "Boolean"}},
+    }
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post("/message", json=correlate_payload)
+        assert resp.status_code in (200, 204), (
+            f"Correlacao msg.contas.linhas_atualizadas falhou [{resp.status_code}]: {resp.text[:200]}"
+        )
+
+    await _drive_to_analista(engine, contas_probe, iid)
+
+    assert await engine.activity_instance_count(iid, "ST_ApurarDivergencias") == 2
+    assert await engine.get_variable(iid, "data_recebimento_lote") == data_passada, "ancora intocada"
+    assert await engine.get_variable(iid, "data_recebimento_lote_informada") is None, (
+        "instancia legada: a data informada nunca e re-derivada da ancora, mesmo valida"
+    )
+    assert await engine.get_variable(iid, "data_recebimento_lote_informada_motivo") == "instancia_legada"
+    await _assert_no_glosa_without_human_task(engine, iid)
 
 
 # ===========================================================================

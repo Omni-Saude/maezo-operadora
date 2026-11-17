@@ -614,3 +614,55 @@ O rascunho do registro de ciência da custódia (linha 9.1) está em
 **Ratificado por (DPO) — adendo §9:** ______________________  **data:** ______________________
 
 **Ratificado por (jurídico) — adendo §9:** ______________________  **data:** ______________________
+
+---
+
+## 10. Adendo — categorias comerciais e de lead (E-SF-10, 2026-11-16)
+
+> **PROPOSTA de engenharia, não decisão.** As linhas abaixo ficam **fora** do bloco YAML assinável
+> da §4, que continua com o escopo B e `unratified: true`. São as categorias que o funil de vendas
+> digital criaria (REG-04 / EP-REG-04a; TB-25 (ii) (a)–(f)) e as duas candidatas do adendo 01
+> ("ex-beneficiário" e "motivo de cancelamento", RT-05/RT-07). **Nenhum prazo é escolhido aqui**
+> (TB-25 (iv)): a coluna `prazo` é GAP em toda linha até o DPO e o jurídico decidirem
+> (RL-REG-04, TB-25, TB-25/D). A coluna "base candidata" repete a resposta **recomendada, não
+> decidida** de REG-04 (opção A) e de RT-07; ela não é base legal ratificada.
+
+Verbatim usado (baseline normativa do pacote, `NORMATIVE-BASELINE-v2`):
+
+- LGPD art. 16, caput + I: "Os dados pessoais serão eliminados após o término de seu tratamento,
+  no âmbito e nos limites técnicos das atividades, autorizada a conservação para as seguintes
+  finalidades: I - cumprimento de obrigação legal ou regulatória pelo controlador;"
+- LGPD art. 8º, §2º: "Cabe ao controlador o ônus da prova de que o consentimento foi obtido em
+  conformidade com o disposto nesta Lei."
+- RN 623 art. 10, §5º: "Independentemente do porte, excetuada a hipótese prevista no §6º, as
+  operadoras deverão arquivar, pelo prazo de noventa dias, se gravação telefônica, ou dois anos, no
+  que se refere a demais registros do atendimento." (o §6º não está na baseline: GAP de leitura)
+
+| # | `categoria` | Origem | Base candidata (não decidida) | `prazo` | Gatilho de início | Executor hoje | Estado |
+|---|---|---|---|---|---|---|---|
+| 10.1 | `lead_intake` | TB-25 (a); REG-04a "lead-intake" | término da finalidade (art. 16 caput): sem obrigação de guarda ANS mapeada para lead não convertido (REG-04 A (ii)) | GAP — DPO + jurídico | término da finalidade declarada | nenhum: a custódia de intake é da fonte (C6-4 C3) e o intake REAL é recusado `lifecycle_unqualified` (`src/maezo/gateway/commercial_admission.py::LEAD_INTAKE_COMMANDS`) | candidata |
+| 10.2 | `lead_permissao_contato` | TB-25 (b); REG-04a "contact-permission" | conservação da prova de consentimento e da revogação (art. 8º §2º); prazo = juízo jurídico (pretensão correspondente) | GAP — jurídico | coleta da permissão; revogação | nenhum | candidata |
+| 10.3 | `lead_registro_atendimento` | TB-25 (c) | depende de Q1: se a RN 623 alcançar prospect, art. 16 I + RN 623 art. 10 §5º; senão, término da finalidade | GAP — jurídico (Q1) | registro do `contact.request`/`support.handoff` | nenhum | candidata |
+| 10.4 | `supressao_lead` | TB-25 (d); REG-04a "supressão" | conservação do registro mínimo de oposição enquanto ela vigorar (REG-04 A, conservação nomeada 1); base a fixar (TB-25 pergunta (b)) | GAP — DPO + jurídico | registro da oposição (SP-OP-SUPP-001) | nenhum: `portal_vendor_suppressions` (migração 0021) não tem expurgo; `spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn` | candidata |
+| 10.5 | `lead_cotacao_jornada` | TB-25 (e) | término da finalidade (art. 16 caput) | GAP — DPO | `journey.save` | nenhum: `journey.save` é intake REAL recusado | candidata |
+| 10.6 | `lead_dado_saude_escapado` | TB-25 (f) | a regra-alvo é não existir (cercas TB-03/TB-24); regra própria a fixar pelo DPO; nunca insumo de retenção, segmentação ou contato | GAP — DPO | detecção do escape | nenhum | candidata |
+| 10.7 | `lead_ds_nao_convertido` | REG-04a "DS de não convertido"; REG-04 A (iii) | eliminação ao encerramento do processo de contratação | GAP — DPO | encerramento do processo de contratação sem conversão | nenhum | candidata |
+| 10.8 | `lead_historico_processo` | REG-04a "histórico de processo de lead"; EP-REG-04c | derivado da matriz ratificada, nunca literal (REG-04, decidido técnico (iii)) | GAP — DPO | fim da instância do processo | histórico do motor: `historyTimeToLive` literal em `spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn` e `spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn` (1825 nos dois) — dívida inventariada, não alterada (EP-REG-04c depende da ratificação) | candidata |
+| 10.9 | `ex_beneficiario` | ADDENDUM-01 §6; RT-07 | registros de atendimento: RN 623 art. 10 §5º (obrigação regulatória que não autoriza marketing, RT-07); **sem reativação proativa** e o consentimento da admissão **não sobrevive** como base de marketing depois do cancelamento (ADDENDUM-01 §7 (e), GAP-RT-05); mensagem única com opt-in específico só com RT-D2 | GAP — DPO + jurídico (RT-D2) | data de efeito do cancelamento | nenhum; usos recusados por código (`src/maezo/platform/lifecycle/legal_bases_matrix.py::REFUSED_CATEGORY_USES`) | candidata |
+| 10.10 | `motivo_cancelamento` | ADDENDUM-01 §6; RT-05 | lista fechada sem saúde, opcional, depois do protocolo; vínculo ao titular só com RT-D1 (variante: contagem agregada por código, sem vínculo) | GAP — DPO (RT-D1) | registro do motivo | nenhum; vínculo ao titular recusado por código (`src/maezo/platform/lifecycle/legal_bases_matrix.py::admit_category_use`) | candidata |
+
+O que já é código (e continua recusando depois desta folha):
+
+- `src/maezo/platform/lifecycle/legal_bases_matrix.py::qualify_lead_intake` só qualifica com matriz
+  ratificada, todas as `LEAD_CATEGORIES` (10.1–10.6) e `retention_class` resolvida pela fonte para
+  cada uma; o wire C6-4 não tem esse campo, então o intake REAL segue recusado.
+- `src/maezo/platform/lifecycle/legal_bases_matrix.py::require_lead_categories` recusa matriz
+  ratificada sem as categorias de lead (`lead_categories_missing`) no perfil comercial.
+- `src/maezo/platform/lifecycle/legal_bases_matrix.py::admit_category_use` recusa linha não
+  ratificada (`category_unratified`) e os usos fechados de 10.9/10.10 (`use_refused`).
+- O template `spec/policies/retention/UNRATIFIED-retention-matrix.template.yaml` ganhou as seis
+  categorias de lead como placeholders e continua `unratified: true`.
+
+**Ratificado por (DPO) — adendo §10:** ______________________  **data:** ______________________
+
+**Ratificado por (jurídico) — adendo §10:** ______________________  **data:** ______________________
