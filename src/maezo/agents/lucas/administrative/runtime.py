@@ -27,6 +27,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from maezo.agents.lucas.administrative.graph import _in_administrative_context
 from maezo.agents.lucas.administrative.handoff import AdministrativeHandoff
+from maezo.agents.lucas.administrative.identity import (
+    LUCAS_ADMINISTRATIVE_IDENTITY,
+    AdministrativeIdentity,
+)
 from maezo.gateway.capabilities.admission import AdmissionDTO
 from maezo.gateway.capabilities.durability.models import LocalRevision
 from maezo.gateway.capabilities.journeys.contracts import (
@@ -46,7 +50,7 @@ from maezo.runtime.checkpoint import checkpoint_thread_config
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.metrics import classify_agent_error_type
 
-FULL_RUNTIME_GRAPH_VERSION: Final[str] = "lucas-administrative-full-driver.proposed.v1"
+FULL_RUNTIME_GRAPH_VERSION: Final[str] = LUCAS_ADMINISTRATIVE_IDENTITY.full_runtime_graph_version
 FULL_RUNTIME_STATE_SCHEMA: Final[str] = "v21-administrative-runtime-state.proposed.v1"
 RUNTIME_STIMULUS_SCHEMA: Final[Literal["v21-administrative-runtime-stimulus.proposed.v1"]] = (
     "v21-administrative-runtime-stimulus.proposed.v1"
@@ -286,10 +290,12 @@ class AdministrativeJourneyRuntime:
         checkpointer: BaseCheckpointSaver[Any] | None = None,
         pseudonymizer: Pseudonymizer | None = None,
         enabled: bool = False,
+        identity: AdministrativeIdentity = LUCAS_ADMINISTRATIVE_IDENTITY,
     ) -> None:
         try:
             if (
-                type(binding) is not JourneyBinding
+                type(identity) is not AdministrativeIdentity
+                or type(binding) is not JourneyBinding
                 or not isinstance(driver, JourneyDriver)
                 or type(enabled) is not bool
             ):
@@ -304,7 +310,11 @@ class AdministrativeJourneyRuntime:
         self.__checkpointer = checkpointer
         self.__pseudonymizer = pseudonymizer
         self.__enabled = enabled
-        self.__graph_version, self.__schema = FULL_RUNTIME_GRAPH_VERSION, FULL_RUNTIME_STATE_SCHEMA
+        self.__identity = identity
+        self.__graph_version, self.__schema = (
+            identity.full_runtime_graph_version,
+            FULL_RUNTIME_STATE_SCHEMA,
+        )
         self.__key: str | None = None
         if isinstance(pseudonymizer, Pseudonymizer):
             material = json.dumps(
@@ -318,7 +328,7 @@ class AdministrativeJourneyRuntime:
                 separators=(",", ":"),
             )
             pseudonym = hash_message_id(material, self.__binding.tenant_ref, pseudonymizer)
-            self.__key = f"lucas:administrative:full:{pseudonym}"
+            self.__key = f"{identity.full_runtime_thread_prefix}:{pseudonym}"
         # Only same-object serialization; cross-process conflicts remain journal CAS.
         self.__lock = asyncio.Lock()
 
@@ -326,7 +336,7 @@ class AdministrativeJourneyRuntime:
         if (
             _binding(self.__driver.binding) != self.__binding
             or (self.__graph_version, self.__schema)
-            != (FULL_RUNTIME_GRAPH_VERSION, FULL_RUNTIME_STATE_SCHEMA)
+            != (self.__identity.full_runtime_graph_version, FULL_RUNTIME_STATE_SCHEMA)
             or self.__driver.currentness is not self.__currentness
         ):
             raise JourneyContractError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
@@ -437,7 +447,7 @@ class AdministrativeJourneyRuntime:
                 and type(self.__graph_version) is str
                 and type(self.__schema) is str
                 and (self.__graph_version, self.__schema)
-                == (FULL_RUNTIME_GRAPH_VERSION, FULL_RUNTIME_STATE_SCHEMA)
+                == (self.__identity.full_runtime_graph_version, FULL_RUNTIME_STATE_SCHEMA)
                 and self.__driver.currentness is self.__currentness
             )
         except (AttributeError, TypeError, ValueError):
@@ -573,7 +583,7 @@ class AdministrativeJourneyRuntime:
                 # Existing category(a): all graph failures get one safe bounded
                 # class label, then bare rethrow. Unknown/programming failures
                 # cannot become a source-availability result here.
-                record_agent_error(agent="lucas", error_type=classify_agent_error_type(exc))
+                record_agent_error(agent=self.__identity.agent_id, error_type=classify_agent_error_type(exc))
                 raise
         except _AuthenticationRefusedError:
             if refusal is None:
