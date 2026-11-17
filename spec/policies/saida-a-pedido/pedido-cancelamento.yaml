@@ -1,0 +1,32 @@
+# Pedido de cancelamento pela pagina — EP-REG-27b + RT-05 (ADD-RETENTION). Verbatim (pacote, DOU S3):
+#  RN 561 art. 6º §3º: "As solicitações realizadas por meio de acesso à página da operadora na internet
+#   serão comprovadas pela emissão de resposta automática e de protocolo ao beneficiário."
+#  RN 561 art. 15 II: "efeito imediato e caráter irrevogável da solicitação de cancelamento do contrato ou
+#   exclusão de beneficiário, a partir da ciência da operadora ou administradora de benefícios;"
+#  RN 561 art. 21: "A rescisão do contrato ou a exclusão do beneficiário independe do adimplemento contratual."
+# Portoes: RL-REG-27 (norma, bloco art. 15, teto art. 18), RT-J2, RT-J3 (a) (linha OS-08).
+versao: 1
+politica: cancel_request_rn561
+status: NAO_RATIFICADO
+toques_ate_protocolo: 2
+ratificacao:
+  reg27_juridico: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+  rtj3a_juridico: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+bloco_art15:
+  incisos_exigidos: [I, II, III, IV, V, VI]
+  destaque_obrigatorio: [II]
+  texto_ratificado: false          # GAP-09-1: so' o inciso II tem verbatim no pacote
+  texto_ref: null
+prazo_comprovante_efetivo:
+  exibir: false                    # art. 18 (10 d.u.) — so' com reg27_juridico
+  dispositivo_ref: RN561-art18
+linha_alternativa_os08:
+  existencia: DECIDIDO_PELO_DONO_OS08
+  redacao_ratificada: false        # RT-J3 (a)
+  exibir: false
+textos:                            # RT-05 itens 1-4 (DECIDIDO-coordenador); rascunho
+  entrada_titular_pf: "Cancelar meu plano"
+  entrada_dependente_coletivo: "Pedir minha exclusão"
+  botao_toque_1: "Pedir cancelamento"
+  botao_toque_2: "Confirmar pedido de cancelamento"
+  estado_aguardando: "Aguardando o comprovante de cancelamento"
