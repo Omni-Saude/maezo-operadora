@@ -2559,3 +2559,19 @@ Tudo segue atras de `MAEZO_PAGTO_COMITE_COLEGIADO` (desligada).
 
 Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo das secoes
 acima — tokens deste arquivo sao ancorados por numero de linha.
+
+## E-SF-17 — agente `comercial` e Faixa Assistida (flag desligada)
+
+Agente novo construido e validado em dev com a flag desligada (GTM-01 D2/D3, SC-03). Nenhuma raiz de
+composicao o constroi; `graph.py:build` recusa montar sem `comercial_ligado=True`. A passagem
+Helena -> comercial so' existe com `roteador_comercial_enabled=True`, que nenhuma composicao passa.
+
+| Artefato | O que precisa de revisao humana | Revisor | Status |
+|---|---|---|---|
+| `spec/agents/comercial/agent.yaml` + `src/maezo/agents/comercial/` | Persona SEM nome (nomear e' ato do dono, GAP-PERSONA-NAME); dono declarado por duas pessoas (GAP-HEADCOUNT); textos fixos PROVISORIOS de identificacao ("atendimento automatizado" + oferta de pessoa) e de encaminhamento; modo `staff_assist` sem conteudo gerado ate SC-03.D1. Ligar fora de dev: GTM-01.R1 (DPO, dado de saude na recomendacao), R2 (DPO, LGPD art. 20), R3 (juridico, identificacao do agente e conteudo pre-aceite) e OWNER-DEPLOY | dono + DPO + juridico | `DRAFT — flag OFF; nao vai a deploy ligado` |
+| `spec/policies/autonomy/L0-core.yaml` — `actions.send_prospect_message: { level: L3 }` (nova, aditiva) | Acao nao-hard nova (CD-13): resposta ao prospect so' na sessao que ele iniciou. Nenhuma acao existente mudou de nivel ou aprovador; `_hard_frozen.yaml` byte-identico. A classe de efeito `comunicacao_prospect` (DRAFT, declarada e nao aprovada) NAO foi acrescentada a `action-approvals.yaml`: exige o registro de codigo `gateway/effect_classes.py` e o mapeamento no chokepoint do WhatsApp, fora da posse deste pacote; ate la o envio, se existisse, seria classificado como `comunicacao_beneficiario` (shadow) | compliance + arquitetura (CODEOWNERS) | `DRAFT — classe comunicacao_prospect pendente (gateway)` |
+| `src/maezo/agents/helena/habilidades/passagem/comercial.py` (lexico de intencao de contratar) | Lexico PROVISORIO e conservador ("quero contratar/cotar um plano"); so' escolhe destino, nao decide elegibilidade/preco/produto. Precedencia fixa: travas de saude da Helena e qualquer sinal de saude vencem. Ligar exige o aditamento de ADR-0062/DL-0053 a Compras (ato do dono) | dono + gestao comercial | `DRAFT — flag OFF` |
+| `docs/design/v21-capabilities/{administrative-contracts.md,contracts.json}` — lead de COMPRA/C1/C2/C3 = `especialista_comercial` | Papel humano "Especialista comercial — Faixa Assistida"; pessoas, grupo e headcount sao ato do dono. Os digests destes dois arquivos citados em `durability-contract.json`/`source-readiness.json`/`proposals/` sao registros de base observada e ficaram defasados | dono | `DRAFT — staffing pendente` |
+
+Nota de posicionamento (cerca W7): secao registrada NO FIM do arquivo pelo mesmo motivo das secoes
+acima — tokens deste arquivo sao ancorados por numero de linha.

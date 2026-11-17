@@ -70,6 +70,7 @@ _AGENTS_ENFORCED: tuple[str, ...] = (
     "andre",
     "beatriz",
     "carolina",
+    "comercial",  # E-SF-17: gatilhos sinal_saude/pedido_humano tracados em EVL-COMERCIAL-01/02
     "fernando",
     "gustavo",
     "helena",

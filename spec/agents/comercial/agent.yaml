@@ -1,0 +1,67 @@
+# Agente comercial — Faixa Assistida (E-SF-17 / GTM-E-12; modo staff_assist de SC-03)
+#
+# PAPEL, NAO PESSOA: a persona nao tem nome. Nomear a persona e declarar o dono por duas pessoas e'
+# ato do dono (GAP-PERSONA-NAME; GAP-HEADCOUNT). O dono humano da Faixa Assistida e' o papel
+# "Especialista comercial — Faixa Assistida" (diretoria comercial, fila `sales_operations`).
+#
+# DESLIGADO (flag off): nenhuma raiz de composicao constroi este agente, e `graph.py:build` recusa
+# montar o grafo sem `comercial_ligado=True` explicito. Ligar fora de dev depende de GTM-01.R1 (DPO:
+# dado de saude na recomendacao), R2 (DPO: LGPD art. 20), R3 (juridico: identificacao do agente e
+# conteudo pre-aceite) e OWNER-DEPLOY. O fallback, se negados, e' o especialista humano sozinho.
+#
+# FRONTEIRA (validada por `platform/validation/agent_def.py::_validate_commercial_agent`):
+#   * Zona Geral (`security_zone: general`), `process_keys: []`;
+#   * so' as acoes de `_ACOES_COMERCIAIS` (informacao publicada, roteamento ao humano/Helena e o
+#     envio ao prospect na sessao que ELE iniciou, `send_prospect_message` L3); nenhuma acao PHI,
+#     nenhuma acao `hard`, nenhum envio a beneficiario, nenhum lembrete;
+#   * nunca elegibilidade, preco, desconto, comissao, comparacao entre operadoras, aceite,
+#     legitimidade PJ, leitura de DS/DPP, pergunta sobre saude ou perfil por saude.
+id: comercial
+name: "Agente comercial (persona sem nome — GAP-PERSONA-NAME)"
+role: "Conduz a conversa iniciada pelo prospect depois da passagem da Helena: identifica-se como atendimento automatizado no 1o turno, oferece uma pessoa e encaminha ao Especialista comercial (Faixa Assistida). No modo staff_assist e' copiloto interno do especialista e nunca fala com o prospect. Nao decide nada sensivel; flag desligada."
+phase: 0
+autonomy_level: L3
+process_keys: []
+reports_to: "diretoria.comercial@amh"
+security_zone: general
+graph: graph.py:build
+# MODOS (entrada `modo` do estado, graph.py): `prospect` (GTM-E-12, conversa com o prospect, envio em
+# shadow) e `staff_assist` (SC-03, nota interna ao especialista; envio sempre por clique humano).
+prompt_versions: {}   # sem LLM nesta versao: textos fixos PROVISORIOS em graph.py (GTM-01.R3)
+model:
+  task_default: { tier: fast }
+  reasoning:    { tier: frontier }
+tools:
+  - mcp-whatsapp.send_message   # so' resposta na sessao iniciada pelo prospect; nunca outbound proativo
+autonomy_policy: ../../policies/autonomy
+autonomy_actions:
+  - informational_response   # so' produto/rede publicados pela fonte; sem promessa de cobertura
+  - triage_and_routing       # so' para o humano (sales_operations) ou de volta a Helena
+  - send_prospect_message    # L3 (L0-core.yaml): envio ao prospect na sessao que ele iniciou
+# Nenhum KPI: o agente nao emite medicao (A9 UNMEASURED; GAP-HEADCOUNT/GAP-SLA). Declarar KPI exige
+# fonte de medicao declarada (`runtime/kpi_evaluator`), o que fica para a ativacao.
+kpis: []
+escalation:
+  # Saida de seguranca: so' quando a Helena devolvida ao caminho clinico escalona. O agente
+  # comercial nao inicia processo (`process_keys: []`); o humano comercial e' a fila
+  # `sales_operations`, nao um processo BPMN.
+  process: SP-OP-ESCALATION-001
+  triggers:
+    - signal: sinal_saude      # saude vence comercial: volta a Helena, sem texto comercial
+    - signal: pedido_humano    # pedido de pessoa: fila humana sales_operations
+memory:
+  episodic: false
+  semantic: false
+a2a:
+  capabilities: []
+  skills: []
+  accepted_task_types: []
+  queue_ref: agents.tasks.comercial
+  handler_status: ausente
+# Entrada SO' pela passagem tipada da Helena (referencia, nunca texto), e SO' com o roteador
+# comercial ligado (`inbound_condicao: roteador_comercial`, validado por agent_def.py).
+channels:
+  whatsapp:
+    outbound: true
+    inbound: true
+    inbound_condicao: roteador_comercial

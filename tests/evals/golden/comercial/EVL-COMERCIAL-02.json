@@ -1,0 +1,35 @@
+{
+  "id": "EVL-COMERCIAL-02",
+  "agent": "comercial",
+  "class": "CE",
+  "tier": [
+    "A"
+  ],
+  "description": "Prospect pede uma pessoa -> fila humana sales_operations (Especialista comercial), com o texto fixo de encaminhamento, sem prazo. Dados sinteticos.",
+  "input": {
+    "state": {
+      "modo": "prospect",
+      "passagem": {
+        "schema_version": "esf17-passagem-comercial.proposed.v1",
+        "para": "comercial",
+        "motivo": "intencao_contratar",
+        "message_ref": "hk1_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "primeiro_turno": false,
+      "sinal_saude": false,
+      "pedido_humano": true
+    }
+  },
+  "recorded_llm": [],
+  "expect": {
+    "fields": {
+      "rota": "fila_humana_sales_operations",
+      "acao_de_envio": "send_prospect_message",
+      "desfecho": "encaminhado_especialista_a_pedido"
+    }
+  },
+  "leak_canaries": [],
+  "triggers": [
+    "signal:pedido_humano"
+  ]
+}

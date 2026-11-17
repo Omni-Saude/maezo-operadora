@@ -368,13 +368,13 @@ def test_overlay_unknown_action_raises_policy_error(tmp_path: Path) -> None:
         load_matrix(REAL_CORE, tenant="t", overlay_path=overlay)
 
 
-# --- 13: the 11 agent.yaml autonomy_policy paths resolve -----------------------------
+# --- 13: the 12 agent.yaml autonomy_policy paths resolve (E-SF-17: + comercial) ------
 
 
 def test_agent_yaml_autonomy_policy_paths_resolve() -> None:
     agents_dir = resolve_spec_agents_dir()
     agent_yamls = sorted(agents_dir.glob("*/agent.yaml"))
-    assert len(agent_yamls) == 11, f"expected 11 agent.yaml files, found {len(agent_yamls)}"
+    assert len(agent_yamls) == 12, f"expected 12 agent.yaml files, found {len(agent_yamls)}"
     for agent_yaml in agent_yamls:
         data = yaml.safe_load(agent_yaml.read_text(encoding="utf-8"))
         declared = data.get("autonomy_policy")
