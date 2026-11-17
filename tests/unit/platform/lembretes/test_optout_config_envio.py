@@ -192,7 +192,7 @@ async def test_send_template_recusa_autorizacao_alterada_e_faixa_sintetica() -> 
 
     from maezo.gateway.communications.outbound_gate import EnvioProativoRecusadoError
 
-    aut = await _autorizacao(("a", "b", "c"))
+    aut = await _autorizacao(("outubro de 2026", "320,25", "16/10"))
     client = _httpx_mock()
     with patch("httpx.AsyncClient", return_value=client), pytest.raises(EnvioProativoRecusadoError):
         # autorizacao valida ALTERADA (outro nome) perde o selo: recusa antes de qualquer POST
