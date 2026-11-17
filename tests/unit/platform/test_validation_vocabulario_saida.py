@@ -415,7 +415,8 @@ def test_arquivo_de_dados_ausente_reprova(tmp_path: Path) -> None:
 
 def test_arvore_real_passa_sem_permissoes() -> None:
     files = dmn.list_dmn_files(DMN_DIR)
-    assert sum(1 for p in files if not dmn.is_rco_dmn(p)) == 70
+    # E-SF-08: +funnel_deadline_catalog.dmn
+    assert sum(1 for p in files if not dmn.is_rco_dmn(p)) == 71
     report = _run(files)
     assert report.ok, _messages(report)
     assert carregar(VOCAB).permissoes == ()
