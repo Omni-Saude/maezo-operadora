@@ -19,8 +19,12 @@ What this module is:
 - `require_disclosure_before_decision` is the server-side precondition of the buyer decision
   (the C6-4 `acceptance.record` `decision: accept`; maezo has no buyer UI button — the hosted
   terms surface belongs to the issuer). Missing or invalid content for any of I–IX or §1º
-  refuses with `disclosure_incompleto_rn413_art4`. A decline is never blocked. The gate is not
-  wired into `CommercialGateway` because the pinned wire carries no inciso content (GAP).
+  refuses with `disclosure_incompleto_rn413_art4`. A decline is never blocked. It is wired
+  into the bound Sales admission (`maezo.gateway.commercial_admission`), which reads the
+  `DISCLOSURE_TERMS_FIELDS` slots of the decision payload. The pinned C6-4
+  `AcceptanceRecordPayload` is closed and carries none of them (GAP), so on that wire every
+  `accept` refuses before any source step, even with the A3 record admitted; it opens only
+  when a successor contract carries the inciso content.
 
 Inciso VII ("formação do preço") holds ONLY the public price fact as integer cents. A mapping,
 a string, a breakdown or any intermediary-remuneration/component content is not representable
@@ -30,10 +34,11 @@ module never names the remuneration vocabulary the A8 lock pins to its own loade
 (`tests/unit/test_commercial_admission_a8.py`), so the D-36 anti-comparison fence is not
 imported here: a text-level comparator check belongs to E-SF-36r (EP-REG-07a).
 
-Normative text is quoted verbatim from NORMATIVE-BASELINE-v2 §2.3 (RN 413/2016, DOU 14/11/2016
-S1 p. 109; art. 4º §2º and art. 18 from the official SEI 31143600 copy, caveat GAP-2). Incisos
-V and VI are elided ("[...]") in that baseline: their verbatim is a GAP (`None` below), never
-written from memory; their terms slots still count for presence.
+Normative text is quoted verbatim from `docs/compliance/legal/textos-base/RN-413-2016.md`
+(RN 413/2016, DOU 14/11/2016 S1 p. 109; art. 4º caput and §1º). Art. 4º §2º and art. 18 come
+only from the official SEI 31143600 copy, not conferred with the DOU and outside that excerpt
+(caveat GAP-2). Incisos V and VI are elided ("[...]") in that excerpt: their verbatim is a GAP
+(`None` below), never written from memory; their terms slots still count for presence.
 """
 
 from __future__ import annotations
@@ -47,6 +52,7 @@ from maezo.gateway.required_text import is_blank
 
 __all__ = [
     "DISCLOSURE_STATUS_PENDING",
+    "DISCLOSURE_TERMS_FIELDS",
     "GUIA_ART18_SLOT",
     "GUIA_ART18_SOURCE",
     "PUBLIC_PRICE_FIELD",
@@ -63,9 +69,10 @@ __all__ = [
 DISCLOSURE_STATUS_PENDING: Final = "incompleto_fonte_pendente"
 DisclosureStatus = Literal["incompleto_fonte_pendente"]
 
-_SOURCE_DOU: Final = "RN 413/2016, DOU 14/11/2016 S1 p. 109 (NORMATIVE-BASELINE-v2 §2.3)"
-_SOURCE_SEI: Final = "RN 413/2016, cópia oficial SEI 31143600 (NORMATIVE-BASELINE-v2 §2.3; caveat GAP-2)"
-_GAP_ELIDED: Final = "GAP: verbatim elidido '[...]' em NORMATIVE-BASELINE-v2 §2.3"
+_TEXTO_BASE: Final = "docs/compliance/legal/textos-base/RN-413-2016.md"
+_SOURCE_DOU: Final = f"RN 413/2016, DOU 14/11/2016 S1 p. 109 ({_TEXTO_BASE})"
+_SOURCE_SEI: Final = "RN 413/2016, cópia oficial SEI 31143600 (não conferida no DOU; caveat GAP-2)"
+_GAP_ELIDED: Final = f"GAP: verbatim elidido '[...]' em {_TEXTO_BASE}"
 
 
 @final
@@ -153,6 +160,10 @@ GUIA_ART18_SOURCE: Final[str | None] = None
 PUBLIC_PRICE_FIELD: Final = "terms.rn413_art4_vii"
 
 _ART4_FIELDS: Final = frozenset(item.terms_field for item in RN413_ART4_CHECKLIST)
+
+#: Every slot the gate reads from a decision payload: I–IX/§1º plus the pending Guia slot (so a
+#: filled Guia slot reaches the gate and refuses `fonte_normativa_pendente_rn413_art18`).
+DISCLOSURE_TERMS_FIELDS: Final = _ART4_FIELDS | {GUIA_ART18_SLOT.terms_field}
 
 
 def _refuse(reason: DisclosureRefusal) -> DisclosureChecklistError:

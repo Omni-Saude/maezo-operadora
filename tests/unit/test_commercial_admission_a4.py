@@ -449,8 +449,8 @@ async def test_admitted_a4_unlocks_only_the_coverage_read_dimension(schema_bytes
 async def test_a1_a2_a3_surfaces_are_unchanged_while_the_coverage_gate_is_installed(schema_bytes):
     # Independence, one direction: A1 admitted + A2 admitted + A3 admitted and the coverage
     # gate shipped — the catalog serves, the session serves, the acceptance effect stays
-    # codec-held, and a source-asserted coverage fact stays gated. No admission re-grids
-    # another's surface.
+    # held (accept by the E-SF-36 disclosure precondition, decline by the codec), and a
+    # source-asserted coverage fact stays gated. No admission re-grids another's surface.
     scope_authority = FullScopeAuthority()
     calls = []
     kwargs = dict(
@@ -475,6 +475,10 @@ async def test_a1_a2_a3_surfaces_are_unchanged_while_the_coverage_gate_is_instal
     served = await post_command(app, wire_command())
     assert served.status_code == 200
     held = await post_command(app, acceptance_command())
+    assert held.status_code == 403
+    # An `accept` is held by the E-SF-36 disclosure precondition (no inciso content on C6-4).
+    assert held.json()["reason_code"] == "terms_review_required"
+    held = await post_command(app, acceptance_command("decline"))
     assert held.status_code == 403
     assert held.json()["reason_code"] == "terms_mismatch"
     gated = await post_journey(app)

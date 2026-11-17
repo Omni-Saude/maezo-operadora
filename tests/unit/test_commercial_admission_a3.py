@@ -115,7 +115,7 @@ def a3_admission():
     return parse_acceptance_record_admission(a3_record(), now=datetime.now(UTC))
 
 
-def acceptance_command():
+def acceptance_command(decision="accept"):
     # A schema-valid C6-4 `acceptance.record` wire command (scope interop/sales.contract).
     return {
         "schema_version": "omni-commercial.proposed.v1",
@@ -127,7 +127,7 @@ def acceptance_command():
             "source_revision": 1,
             "party_linkage_ref": "SYN-LINKAGE",
             "terms_digest": "a" * 64,
-            "decision": "accept",
+            "decision": decision,
             "terms_review_ref": "SYN-REVIEW",
         },
     }
@@ -255,10 +255,13 @@ async def test_without_a3_no_acceptance_effect_executes(schema_bytes):
 
 @pytest.mark.asyncio
 async def test_admitted_a3_unlocks_only_the_acceptance_surface(schema_bytes):
-    # Controlled positive: with A3 admitted the same command passes the admission gate and
-    # is held by the codec's own C6-3 terms authority (`terms_mismatch`) — the issuer
-    # runtime stays absent and nothing simulates it. The catalog (A1) surface on the same
-    # app stays closed, and the non-acceptance command is unchanged.
+    # Controlled positive: with A3 admitted the same command passes the A3 admission gate.
+    # An `accept` is then held by the RN 413 art. 4º disclosure precondition (E-SF-36): the
+    # pinned C6-4 payload carries no inciso content, so it refuses `terms_review_required`
+    # once the scope is current, before any source step. A `decline` (never blocked by the
+    # disclosure) reaches the codec's own C6-3 terms authority (`terms_mismatch`) — the
+    # issuer runtime stays absent and nothing simulates it. The catalog (A1) surface on the
+    # same app stays closed, and the non-acceptance command is unchanged.
     calls = []
     app = build_app(
         schema_bytes, calls, sales_admitted=True, catalog_admitted=False, acceptance_admitted=True
@@ -266,8 +269,12 @@ async def test_admitted_a3_unlocks_only_the_acceptance_surface(schema_bytes):
     authority = app.state.commercial_gateway.admission._authority
     accepted = await post_command(app, acceptance_command())
     assert accepted.status_code == 403
-    assert accepted.json()["reason_code"] == "terms_mismatch"
+    assert accepted.json()["reason_code"] == "terms_review_required"
     assert authority.phases == ["before_body", "before_source"]
+    declined = await post_command(app, acceptance_command("decline"))
+    assert declined.status_code == 403
+    assert declined.json()["reason_code"] == "terms_mismatch"
+    assert authority.phases == ["before_body", "before_source"] * 2
     assert calls == []  # the refusal is local: no source dispatch, no fabrication
     served = await post_command(app, wire_command())
     assert served.status_code == 200 and served.json() == wire_result()
@@ -689,7 +696,9 @@ async def test_acceptance_double_submit_is_forwarded_once_per_post_without_gatew
     # source's dedupe by `command_ref` (here simulated by the source answering
     # reconcile-only) — an open GAP (DEC-REG REG-16, "Decidido dentro do registro" item
     # (3)), not a Maezo guarantee. What this pins is the Maezo side: one wire request per
-    # caller POST, no gateway resend, and the answer is disclosed as `uncertain`.
+    # caller POST, no gateway resend, and the answer is disclosed as `uncertain`. The
+    # submission is a `decline`: an `accept` never reaches the source on the pinned C6-4
+    # wire (E-SF-36 disclosure precondition), and the decision value is not what this pins.
     calls = []
 
     def transport(request):
@@ -720,7 +729,7 @@ async def test_acceptance_double_submit_is_forwarded_once_per_post_without_gatew
     )
     app.include_router(commercial_router)
     for submitted in (1, 2):
-        answered = await post_command(app, acceptance_command())
+        answered = await post_command(app, acceptance_command("decline"))
         assert answered.status_code == 202
         body = answered.json()
         assert body["status"] == "uncertain" and body["reason_code"] == "reconciliation_required"
