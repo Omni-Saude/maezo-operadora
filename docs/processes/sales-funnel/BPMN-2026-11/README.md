@@ -19,7 +19,7 @@
 | E06-contrato-e-pagamento | `bd39e7d125bd86a8` |
 | E07-declaracao-de-saude | `eb19a831a844cf69` |
 | E08-admissao-e-acompanhamento | `03cb8d88ccf1f169` |
-| E09-pos-venda | `7c2cd44f069cbcca` |
+| E09-pos-venda | `920374ac5cf0dbec` |
 | E2E-ponta-a-ponta | `d2d6ae739b4ca562` |
 | F01-mediacao | `a6610bcf20bdbcbb` |
 | F02-recuperacao-e-mensagens | `a81b77132cc7f0f0` |

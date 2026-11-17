@@ -522,10 +522,10 @@
         <dc:Bounds x="420" y="970" width="280" height="110" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Annotation_Nivel2_di" bpmnElement="Annotation_Nivel2">
-        <dc:Bounds x="1300" y="1440" width="280" height="110" />
+        <dc:Bounds x="1300" y="1440" width="340" height="110" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Annotation_MedicaoA9_di" bpmnElement="Annotation_MedicaoA9">
-        <dc:Bounds x="200" y="700" width="180" height="90" />
+        <dc:Bounds x="200" y="700" width="200" height="90" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Annotation_RTD4_di" bpmnElement="Annotation_RTD4">
         <dc:Bounds x="2700" y="940" width="240" height="150" />
