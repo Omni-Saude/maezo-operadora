@@ -148,6 +148,8 @@ _CASES: list[tuple[str, str, dict[str, Any], str, str, dict[str, Any]]] = [
             "business_key": "AUTH-amh-1",
             "route": "human_auditor",
             "desfecho": "encaminhado_auditor",
+            # DL-0170: o carater e' afirmado pelo caso de teste — o grafo nao o presume mais.
+            "carater_atendimento": "eletivo",
         },
     ),
     (

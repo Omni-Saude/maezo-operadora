@@ -130,6 +130,62 @@ CategoriaProcedimento = Literal[
 #: alcancavel pela delegacao A2A — e la' tambem e' melhor cair no conservador.
 CATEGORIA_PROCEDIMENTO_AUSENTE: Final[str] = ""
 
+#: `carater_atendimento` e' OBRIGATORIO para o Rafael — sem default, em nenhum caminho.
+#:
+#: DL-0170 (decisao do dono de 17/11/2026). Ate esta data o grafo e a delegacao A2A presumiam
+#: `"eletivo"` quando o campo faltava. A presuncao escolhe o prazo LONGO da `auth_sla`
+#: (P5D/P10D em vez de PT2H) para um caso que pode ser de urgencia, e ninguem e' avisado. E' a
+#: mesma falha que a rota de ingresso (`runtime/agent_runtime/ingress.py::CAMPOS_OBRIGATORIOS`)
+#: ja' recusa com 422 desde 24/08/2026; aqui a regra passa a valer tambem na delegacao A2A e
+#: dentro do proprio grafo.
+#:
+#: Ausente = `None`, chave faltando, texto vazio ou so' espacos — o MESMO criterio da rota
+#: (`str(valor or "").strip()`). O caso NAO e' iniciado: quem chamou recebe a recusa tipada e
+#: precisa informar o carater. Nada aqui escolhe um valor no lugar de quem chamou.
+#:
+#: O que este modulo NAO faz, e por que: encaminhar o caso sem carater para analise humana sob o
+#: prazo de urgencia exigiria mudar o BPMN SP-OP-AUTH-001 ou a `auth_sla.dmn` (a linha r4 da
+#: tabela devolve P5D para carater vazio). As duas ficaram como estao; o caso simplesmente nao
+#: nasce sem carater. Cerca: `tests/unit/agents/test_carater_atendimento_sem_default.py`.
+CAMPO_CARATER_ATENDIMENTO: Final[str] = "carater_atendimento"
+
+
+class CaraterAtendimentoAusenteError(ValueError):
+    """Recusa tipada: o caso chegou ao Rafael sem `carater_atendimento` (DL-0170).
+
+    `ValueError` de proposito: na delegacao A2A o dispatcher trata essa familia como falha
+    TERMINAL de produtor (`a2a/dispatcher.py::_TERMINAL_HANDLER_ERROR_CLASSES`) e devolve uma
+    rejeicao estruturada e selada, cujo `detail` carrega o nome desta classe — o pedido de dado
+    que falta chega a quem originou, sem PHI e sem reexecucao infinita. A mensagem nao contem
+    dado do caso.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "carater_atendimento ausente ou vazio: o Rafael nao presume carater (DL-0170). "
+            "Informe 'urgencia' ou 'eletivo' e reenvie; um default aqui escolheria o prazo "
+            "regulatorio sem ninguem perceber."
+        )
+
+
+def carater_atendimento_exigido(valor: Any) -> str:
+    """O carater informado (sem espacos nas pontas) ou `CaraterAtendimentoAusenteError`.
+
+    UM ponto de leitura para todo o modulo e para a delegacao A2A: nenhum sitio le o campo com
+    um valor padrao. Mesmo criterio de ausencia da rota de ingresso.
+    """
+    texto = str(valor or "").strip()
+    if not texto:
+        raise CaraterAtendimentoAusenteError()
+    return texto
+
+
+def _carater(state: RafaelState) -> str:
+    # Chave LITERAL de proposito: as cercas de paridade de contrato e de allowlist leem o grafo
+    # por AST e reconhecem `state.get("<campo>")`, nao um nome de constante.
+    return carater_atendimento_exigido(state.get("carater_atendimento"))
+
+
 DMN_ADMISSIBILITY = "auth_admissibility"
 DMN_AUTO_APPROVAL = "auth_auto_approval"
 DMN_SLA = "auth_sla"
@@ -159,7 +215,7 @@ class RafaelState(TypedDict, total=False):
     # Request data (contract SP-OP-AUTH-001 input variables).
     codigo_procedimento_tuss: str
     categoria_procedimento: CategoriaProcedimento
-    carater_atendimento: str  # urgencia | eletivo
+    carater_atendimento: str  # urgencia | eletivo — OBRIGATORIO, sem default (DL-0170)
     valor_estimado_brl: float
     cid10: str
     documentos_refs: list[dict[str, Any]]
@@ -437,7 +493,13 @@ class RafaelGraph:
         not set `sla_analise`/`recomendacao_auto`: post-reset those carry their neutral defaults
         (`""`/`None`) instead of a planted value, so `_build_dossier`/`_contract_variables` can
         never ship a forged SLA or auto-recommendation into the engine dossier.
+
+        (0) DL-0170: `carater_atendimento` ausente/vazio LEVANTA `CaraterAtendimentoAusenteError`
+        aqui, antes de tudo — o turno nao segue com um carater presumido.
         """
+        # DL-0170: sem carater nao ha turno. A recusa vem ANTES de qualquer DMN, LLM ou start —
+        # um caso sem carater nunca chega a `auth_sla` nem ao SP-OP-AUTH-001 com valor presumido.
+        _carater(state)
         reset: dict[str, Any] = dict(_RAFAEL_NEUTRAL_OUTPUTS)
         reset["business_key"] = _business_key(state)
         return reset
@@ -557,7 +619,7 @@ class RafaelGraph:
         sla_result = await self._evaluate_dmn(
             DMN_SLA,
             {
-                "carater_atendimento": str(state.get("carater_atendimento", "eletivo")),
+                "carater_atendimento": _carater(state),
                 "categoria_procedimento": str(
                     state.get("categoria_procedimento", CATEGORIA_PROCEDIMENTO_AUSENTE)
                 ),
@@ -611,7 +673,7 @@ class RafaelGraph:
             "criterio_financeiro_ok": state.get("criterio_financeiro_ok") is True,
             "criterio_regulatorio_ok": state.get("criterio_regulatorio_ok") is True,
             "criterio_contratual_ok": state.get("criterio_contratual_ok") is True,
-            "carater_atendimento": str(state.get("carater_atendimento", "eletivo")),
+            "carater_atendimento": _carater(state),
         }
         auto_result = await self._evaluate_dmn(DMN_AUTO_APPROVAL, auto_in)
         if auto_result.get("error"):
@@ -753,7 +815,7 @@ class RafaelGraph:
             "numero_guia_tiss": state.get("numero_guia_tiss", ""),
             "codigo_procedimento_tuss": state.get("codigo_procedimento_tuss", ""),
             "categoria_procedimento": state.get("categoria_procedimento", CATEGORIA_PROCEDIMENTO_AUSENTE),
-            "carater_atendimento": state.get("carater_atendimento", ""),
+            "carater_atendimento": _carater(state),
             "valor_estimado_brl": state.get("valor_estimado_brl", 0.0),
             "cid10": state.get("cid10"),
             "beneficiario_ativo": state.get("beneficiario_ativo"),
@@ -821,7 +883,7 @@ class RafaelGraph:
             "categoria_procedimento": str(
                 state.get("categoria_procedimento", CATEGORIA_PROCEDIMENTO_AUSENTE)
             ),
-            "carater_atendimento": str(state.get("carater_atendimento", "eletivo")),
+            "carater_atendimento": _carater(state),
             "valor_estimado_brl": float(state.get("valor_estimado_brl", 0.0)),
             "documentos_refs": state.get("documentos_refs") or [],
             "requer_autorizacao": bool(state.get("requer_autorizacao", True)),

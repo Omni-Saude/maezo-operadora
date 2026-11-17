@@ -29,12 +29,13 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    so dos mapas que o worker que os resolveu entrega. Da guia, `data_atendimento` e
    `codigo_procedimento_tuss` vem das variaveis do contrato de start, pelo nome que o dicionario
    declara (o valor ainda passa pelo tipo e pelo dominio do dicionario).
-6. O CARATER DO ATENDIMENTO NUNCA vem das variaveis de start: o caminho de start de hoje o preenche com
-   `"eletivo"` quando falta (`agents/rafael/delegation.py`, `agents/rafael/graph.py`), e `eletivo` -> `1`
+6. O CARATER DO ATENDIMENTO NUNCA vem das variaveis de start: ate o DL-0170 o caminho de start o
+   preenchia com `"eletivo"` quando faltava (`agents/rafael/delegation.py`, `agents/rafael/graph.py`; hoje o
+   Rafael recusa caso sem carater), a variavel de start segue sendo semente nao verificada, e `eletivo` -> `1`
    e o unico valor que deixa casar as linhas `negar` de `rco_geral_carencia`/`rco_geral_elegibilidade`.
    Ele so entra por `FatosDoCaso.carater_atendimento_guia` (valor da guia TISS, sem padrao), senao nulo.
    LIGAR O MONTADOR (MZO-3) EXIGE que o start carregue o carater da guia ou nulo: os padroes `"eletivo"`
-   do Rafael saem antes.
+   do Rafael ja sairam (DL-0170).
 7. Carencia do K3 (grupo, prazo e saldo) exige, alem do pin >= 1.16, a lacuna
    `saldo_isencoes_portabilidade` FECHADA na configuracao `config/integrations/rco/k3-lacunas.json`: o K3
    declara que nao se sabe se `saldo_dias` ja considera isencoes e portabilidade (k1-entradas-origem.yaml
@@ -146,7 +147,8 @@ class FatosDoCaso:
     fora_tiss: Mapping[str, object] = field(default_factory=dict)
     k3: FatosK3V116 | None = None
     #: Valor do elemento `caraterAtendimento` da guia TISS, como a guia o traz, SEM PADRAO: nunca a
-    #: variavel de start `carater_atendimento` (preenchida com "eletivo" quando falta). None = nulo.
+    #: variavel de start `carater_atendimento` (semente nao verificada; ate o DL-0170 era preenchida com
+    #: "eletivo" quando faltava). None = nulo.
     carater_atendimento_guia: str | None = None
 
 

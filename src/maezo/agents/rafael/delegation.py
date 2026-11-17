@@ -51,11 +51,13 @@ from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.dmn_transport import DmnTransport
 
 from .graph import (
+    CAMPO_CARATER_ATENDIMENTO,
     CATEGORIA_PROCEDIMENTO_AUSENTE,
     FhirReader,
     RafaelState,
     _business_key,
     build,
+    carater_atendimento_exigido,
     new_rafael_state,
 )
 
@@ -96,6 +98,10 @@ def state_from_envelope(envelope: DelegationEnvelope) -> RafaelState:
     `graph.py:258-274`) rather than a raw `cast` — an unknown/output-only key raises loudly
     instead of silently entering the state (design doc §9.2's one deliberate change vs. the
     donor's `state_from_envelope`, which cast directly).
+
+    DL-0170: `carater_atendimento` is REQUIRED, the same rule the `/v1/autorizacoes` ingress
+    route enforces (`ingress.py::CAMPOS_OBRIGATORIOS`). Missing/blank raises
+    `CaraterAtendimentoAusenteError` before any graph node runs — never a presumed `"eletivo"`.
     """
     meta = dict(envelope.payload_meta)
     raw: dict[str, Any] = {
@@ -106,7 +112,10 @@ def state_from_envelope(envelope: DelegationEnvelope) -> RafaelState:
         "canal": "a2a",
         "codigo_procedimento_tuss": meta.get("codigo_procedimento_tuss", ""),
         "categoria_procedimento": meta.get("categoria_procedimento", CATEGORIA_PROCEDIMENTO_AUSENTE),
-        "carater_atendimento": meta.get("carater_atendimento", "eletivo"),
+        # DL-0170: sem default. Ausente/vazio LEVANTA `CaraterAtendimentoAusenteError` (um
+        # `ValueError`), que o dispatcher devolve a quem originou como rejeicao TERMINAL e selada
+        # — o pedido do dado que falta. O caso nao e' iniciado com um carater presumido.
+        CAMPO_CARATER_ATENDIMENTO: carater_atendimento_exigido(meta.get(CAMPO_CARATER_ATENDIMENTO)),
         "valor_estimado_brl": float(meta.get("valor_estimado_brl", 0.0) or 0.0),
         "coverage_ref": envelope.payload_ref,
     }
