@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
-from types import MappingProxyType
 from typing import Any, Final, cast
 
 from langchain_core.runnables import RunnableConfig
@@ -30,6 +29,7 @@ from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.platform.error_types import classify_agent_error_type
 
 from .handoff import AdministrativeInputError, AdministrativeTask, handoff_priority, require_reference
+from .identity import LUCAS_ADMINISTRATIVE_IDENTITY, AdministrativeIdentity
 from .state import (
     AdministrativeGraphInput,
     AdministrativeState,
@@ -37,31 +37,8 @@ from .state import (
     validate_administrative_input,
 )
 
-# Candidate dispatch topology from the admitted ledger, not an autonomy grant.
-_COMMON_OPERATIONS: Final[frozenset[str]] = frozenset(
-    {
-        "access.resolve",
-        "case.open_or_update",
-        "external_wait.settle",
-        "notice.prepare_or_send",
-        "milestone.publish",
-    }
-)
-OPERATIONS_BY_TASK: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
-    {
-        "journey.compras.step": _COMMON_OPERATIONS
-        | frozenset(
-            {
-                "offer.compose",
-                "acceptance.record",
-                "enrollment.request",
-                "reservation.command",
-                "fulfillment.observe",
-            }
-        ),
-        "journey.suporte.step": _COMMON_OPERATIONS | frozenset({"feedback.record"}),
-    }
-)
+# Candidate dispatch topology lives in identity.py; alias kept for importers.
+OPERATIONS_BY_TASK: Final[Mapping[str, frozenset[str]]] = LUCAS_ADMINISTRATIVE_IDENTITY.operations_by_task
 
 
 async def _in_administrative_context[Result](operation: Callable[[], Awaitable[Result]]) -> Result:
@@ -113,6 +90,7 @@ class CompiledAdministrativeConsumer:
             tenant_ref=self.__consumer.tenant_ref,
             journey_ref=journey_ref,
             pseudonymizer=self.__pseudonymizer,
+            identity=self.__consumer.identity,
         )
         if supplied is not None:
             configurable = supplied.get("configurable") if type(supplied) is dict else None
@@ -155,7 +133,9 @@ class CompiledAdministrativeConsumer:
             # Validation remains outside this seam; drained cancellation is not failure.
             from maezo.platform.observability import record_agent_error
 
-            record_agent_error(agent="lucas", error_type=classify_agent_error_type(exc))
+            record_agent_error(
+                agent=self.__consumer.identity.agent_id, error_type=classify_agent_error_type(exc)
+            )
             raise
 
     async def aget_state(self, *, journey_ref: str) -> StateSnapshot:
@@ -217,11 +197,17 @@ class AdministrativeConsumer:
         tenant_ref: str,
         service: CapabilityService,
         enabled: bool = False,
+        identity: AdministrativeIdentity = LUCAS_ADMINISTRATIVE_IDENTITY,
     ) -> None:
-        if task_type not in OPERATIONS_BY_TASK or type(enabled) is not bool:
+        if (
+            type(identity) is not AdministrativeIdentity
+            or task_type not in identity.operations_by_task
+            or type(enabled) is not bool
+        ):
             raise AdministrativeInputError("administrative_consumer_contract_mismatch")
         if enabled and not service.is_bound_to_task(task_type):
             raise AdministrativeInputError("administrative_consumer_task_binding_unavailable")
+        self.identity = identity
         self.task_type = task_type
         self.tenant_ref = require_reference(tenant_ref)
         self.service = service
@@ -250,7 +236,7 @@ class AdministrativeConsumer:
             return {"technical_status": "interrupted_human", "outcome": None}
         if not self.enabled:
             return {"technical_status": "disabled", "outcome": None}
-        if turn.envelope.operation_name not in OPERATIONS_BY_TASK[self.task_type]:
+        if turn.envelope.operation_name not in self.identity.operations_by_task[self.task_type]:
             return {"technical_status": "operation_not_in_task", "outcome": None}
         outcome = await self.service.execute(turn.envelope, turn.payload)
         # A clinical context reference is not administrative fulfillment data.
@@ -274,16 +260,32 @@ class AdministrativeConsumer:
 
 
 def compras_consumer(
-    *, tenant_ref: str, service: CapabilityService, enabled: bool = False
+    *,
+    tenant_ref: str,
+    service: CapabilityService,
+    enabled: bool = False,
+    identity: AdministrativeIdentity = LUCAS_ADMINISTRATIVE_IDENTITY,
 ) -> AdministrativeConsumer:
     return AdministrativeConsumer(
-        task_type="journey.compras.step", tenant_ref=tenant_ref, service=service, enabled=enabled
+        task_type="journey.compras.step",
+        tenant_ref=tenant_ref,
+        service=service,
+        enabled=enabled,
+        identity=identity,
     )
 
 
 def suporte_consumer(
-    *, tenant_ref: str, service: CapabilityService, enabled: bool = False
+    *,
+    tenant_ref: str,
+    service: CapabilityService,
+    enabled: bool = False,
+    identity: AdministrativeIdentity = LUCAS_ADMINISTRATIVE_IDENTITY,
 ) -> AdministrativeConsumer:
     return AdministrativeConsumer(
-        task_type="journey.suporte.step", tenant_ref=tenant_ref, service=service, enabled=enabled
+        task_type="journey.suporte.step",
+        tenant_ref=tenant_ref,
+        service=service,
+        enabled=enabled,
+        identity=identity,
     )
