@@ -35,6 +35,7 @@ import structlog
 from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.platform.keys import key_segment
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, StartOutcome, start_process_idempotent
+from maezo.tools.workers import rco_montador, rco_sombra
 from maezo.tools.workers.base import (
     FunctionWorker,
     non_blank,
@@ -1899,7 +1900,69 @@ def _normalize_data_recebimento_lote(raw: Any) -> tuple[str, bool]:
     return datetime.now(UTC).strftime("%Y-%m-%d"), True
 
 
-def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+#: MZO-3: a decisao K1 do rco de prazo de apresentacao da conta, avaliada em SOMBRA no intake.
+DECISAO_RCO_PRAZOS_CONTA = rco_montador.DECISAO_PRAZOS_CONTA
+#: `tipo_lote` (contrato SP-OP-CONTAS-001) -> o regime que a formula de `diasAteApresentacao` nomeia: a
+#: guia de resumo de internacao (`dataFinalFaturamento`, a alta) e a guia SP/SADT (`dataExecucao`). Os
+#: demais tipos (`consulta`, `honorario`, `opme`, `misto`) nao sao nenhuma das duas guias: regime nulo.
+#: Mapeamento conservador confirmado pela coordenacao ROOT (17/11/2026); o rco vai publicar o de-para
+#: tipo de guia -> regime. LACUNA A FECHAR ANTES DE LIGAR QUALQUER PRODUTOR DE DATA (DL-0172):
+#: - guia SP/SADT com `regimeAtendimento` 02, 03, 04 ou 05 (TISS) nao e atendimento ambulatorial;
+#: - guia de internacao com `tipoFaturamento` parcial ou complementar: `dataFinalFaturamento` nao e a alta.
+#: Hoje nenhum termo de data tem produtor (`TERMOS_SEM_PRODUTOR_CONTAS`), entao o regime nao chega a
+#: escolher data nenhuma; quem ligar o produtor resolve essas duas ambiguidades primeiro.
+_REGIME_POR_TIPO_LOTE: Mapping[str, str] = MappingProxyType(
+    {"internacao": rco_montador.REGIME_INTERNACAO, "sadt": rco_montador.REGIME_AMBULATORIAL}
+)
+#: Termos das formulas de `rco_geral_prazos_conta` que NENHUM worker do Maezo produz neste caminho:
+#: - `dataFinalFaturamento`, `dataExecucao`: o contrato SP-OP-CONTAS-001 nao traz datas da guia (nem
+#:   `linhas_conta_refs`);
+#: - `dataRecebimentoLote`: `data_recebimento_lote` existe, mas o proprio intake a reescreve com a data
+#:   de HOJE quando o lote nao a traz (`_normalize_data_recebimento_lote`) e a devolve como variavel de
+#:   processo; na reentrada por `BME_LinhasAtualizadas` o valor padrao e indistinguivel do recebido.
+#:   Usa-la poria a data de hoje na formula: fica sem produtor ate o contrato ter uma fonte nao padronizada;
+#: - `prazoApresentacaoContratualDias`: nenhum cadastro de contrato do prestador no Maezo o entrega;
+#: - `dataDemonstrativoAnalise`, `dataRecebimentoLoteRecurso`: datas do recurso de glosa, fora deste processo.
+TERMOS_SEM_PRODUTOR_CONTAS: frozenset[str] = frozenset(
+    {
+        "dataFinalFaturamento",
+        "dataExecucao",
+        "dataRecebimentoLote",
+        "prazoApresentacaoContratualDias",
+        "dataDemonstrativoAnalise",
+        "dataRecebimentoLoteRecurso",
+    }
+)
+
+
+def fatos_prazo_conta_rco(input_data: GlosaInput) -> rco_sombra.MontarFatos:
+    """Os fatos do caso para `rco_geral_prazos_conta`, como o montador os quer (MZO-3).
+
+    So o que o contrato de entrada do processo traz com a semantica que o dicionario K1 declara: o
+    regime da guia pelo `tipo_lote`. Nenhuma variavel de processo entra como guia, cadastro ou fora da
+    TISS (regra 5 do montador): as entradas da guia de `rco_geral_prazos_conta` (`dataAtendimento`,
+    `tipoTransacao`) e `autorizacaoExtemporanea` nao estao no contrato e entram nulas; os termos sem
+    produtor (`TERMOS_SEM_PRODUTOR_CONTAS`) entram nulos com esse motivo. Nunca le `data_recebimento_lote`.
+    """
+    regime = _REGIME_POR_TIPO_LOTE.get(str(input_data.tipo_lote or "").strip())
+
+    def montar(versao_k3: tuple[int, int]) -> rco_montador.FatosDoCaso:
+        return rco_montador.FatosDoCaso(
+            guia={},
+            versao_k3_pinada=versao_k3,
+            regime_guia=regime,
+            termos_sem_produtor=TERMOS_SEM_PRODUTOR_CONTAS,
+        )
+
+    return montar
+
+
+def identify_glosa_entry(
+    variables: dict[str, Any],
+    *,
+    kafka: KafkaPublisher | None = None,
+    dmn: DmnTransport | None = None,
+) -> dict[str, Any]:
     """Dict-boundary entry for `operadora.contas.identify_glosa` -> `identify_glosa`.
 
     This is the INTAKE: `ST_ApurarDivergencias` is the first worker on EVERY path (including the
@@ -1929,6 +1992,13 @@ def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | N
       contractual ORIGIN clause of `data_vencimento` stays `DRAFT/verify`). The `handoff_pagamento`
       refusal STAYS as defence in depth: the analyst may still decide `PAGAR` without the field
       ever appearing.
+
+    MZO-3 (SHADOW ONLY): after the output is fully built, the rco K1 claim-deadline decision
+    `rco_geral_prazos_conta` is evaluated in shadow (`rco_sombra.avaliar_em_sombra`) with the inputs of
+    the K1 input builder (`fatos_prazo_conta_rco`). It returns `None`, swallows every exception and
+    writes no process variable: `out` is built before and never touched by it. Its only traces are the
+    `rco_` entry of this task's `dmn_versions` (with the builder's `derivacoes`/`entradasNulas`) and the
+    observational K1 decision record. Inert today: the rco pin is `sem_pacote`.
     """
     del kafka  # unused — identify_glosa emits no domain event
     input_data = _build_glosa_input(variables)
@@ -1956,6 +2026,12 @@ def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | N
         )
     out["data_vencimento"] = data_vencimento
     out["vencimento_ausente"] = vencimento_ausente
+    rco_sombra.avaliar_em_sombra(
+        dmn,
+        DECISAO_RCO_PRAZOS_CONTA,
+        fatos_prazo_conta_rco(input_data),
+        topico="operadora.contas.identify_glosa",
+    )
     return out
 
 
@@ -2355,8 +2431,9 @@ def register_contas_workers(
     `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
     entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
     docstring for the same documented sync/async-boundary rationale. `dmn` (ADR-0028 §1 seam) is
-    threaded into `analyze_reason_entry` (`glosa_reason_normalization`) and
-    `prepare_triage_dossier_entry` (`glosa_triage`, T1.5 cutover).
+    threaded into `analyze_reason_entry` (`glosa_reason_normalization`),
+    `prepare_triage_dossier_entry` (`glosa_triage`, T1.5 cutover) and, MZO-3, `identify_glosa_entry`
+    (the SHADOW evaluation of the rco K1 table `rco_geral_prazos_conta`; never an effect).
     """
     dmn = seams.get("dmn")
     # Fenced-start seams (T-C2, mirrors register_inadimplencia_workers) — threaded into
@@ -2381,7 +2458,8 @@ def register_contas_workers(
     preinit_contas_pagto_ordem_recusada()
     harness.register_worker(
         FunctionWorker(
-            "operadora.contas.identify_glosa", functools.partial(identify_glosa_entry, kafka=kafka)
+            "operadora.contas.identify_glosa",
+            functools.partial(identify_glosa_entry, kafka=kafka, dmn=dmn),
         ),
         variables=_CONTAS_FETCH_SCOPES["operadora.contas.identify_glosa"],
     )

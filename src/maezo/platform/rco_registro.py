@@ -98,12 +98,18 @@ class AvaliacaoRegra:
     amostra_posterior_pct: int | float
     conferencia_negativa_admin_decisoes: int
     alertas: tuple[str, ...] = ()
+    #: MZO-3: avaliacao feita pela SOMBRA do montador (`rco_sombra`), fora do caminho que decide. Sempre
+    #: `modo=sombra` (o indicador do K1 nem e lido) e NUNCA consome ordinal nem entra na amostragem: a
+    #: janela de revisao inicial (5d/5e) conta so decisoes do caminho que decide. A linha fica com
+    #: `ordinal` e `motivo_amostra` nulos e `amostrada=false`, sem coluna nova (migracao 0035 intacta).
+    sombra: bool = False
 
     @property
     def tem_ordinal(self) -> bool:
-        """So a adversa coerente com a classe que a revisao inicial mira (ADR-0077 §3)."""
+        """So a adversa coerente com a classe que a revisao inicial mira (ADR-0077 §3); nunca a sombra."""
         return (
-            self.decisao in ativ.DECISOES_COM_AMOSTRAGEM
+            not self.sombra
+            and self.decisao in ativ.DECISOES_COM_AMOSTRAGEM
             and self.classe_adverso in ativ.CLASSES_COM_EFEITO.get(self.decisao or "", frozenset())
         )
 
@@ -125,10 +131,13 @@ def avaliar_regra(
     row: Mapping[str, Any] | None,
     estados: ativ.EstadosManuais,
     habilitado: bool,
+    sombra: bool = False,
 ) -> AvaliacaoRegra | None:
     """`None` quando a regra nao tem `ativacao`/`exige_aditivo` (manifesto MAJOR 1): nada a registrar.
 
     `override` e sempre `None` aqui: so o monitor de reversao (5e) o grava, e nunca promove.
+    `sombra=True` (MZO-3): o indicador e tratado como desligado, qualquer que seja `habilitado`, e a
+    avaliacao sai marcada (`AvaliacaoRegra.sombra`): `modo=sombra`, sem ordinal.
     """
     if regra.ativacao is None or regra.exige_aditivo is None:
         return None
@@ -137,7 +146,7 @@ def avaliar_regra(
         estado_manual=estado_manual,
         ativacao_pacote=regra.ativacao,
         override=None,
-        efeito_k1_habilitado=habilitado,
+        efeito_k1_habilitado=habilitado and not sombra,
         arquivo_ilegivel=estados.ilegivel,
     )
     linha = row if row is not None else {}
@@ -159,6 +168,7 @@ def avaliar_regra(
         amostra_posterior_pct=parametros.amostra_posterior_pct,
         conferencia_negativa_admin_decisoes=parametros.conferencia_negativa_admin_decisoes,
         alertas=efetivo.alertas,
+        sombra=sombra,
     )
 
 

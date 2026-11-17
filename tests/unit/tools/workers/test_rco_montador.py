@@ -18,6 +18,7 @@ import dataclasses
 import json
 import re
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 from xml.etree import ElementTree as ET
 
@@ -86,8 +87,16 @@ def test_mapeamento_segue_a_origem_e_a_formula_do_dicionario(dic: DicionarioEntr
             entrada = dic.entradas[nome]
             assert m.origem == entrada.origem, nome
             if entrada.origem == "derivado":
+                # 1.1.0: so `diasAlemDoPrazoContratual` tem formula; as que a 1.2.0 publica (implementadas
+                # ou pendentes) sao nulas por desenho neste dicionario anterior a elas.
+                efetiva = mt._fonte_efetiva(m, entrada)
                 esperado = mt.Fonte.FORMULA if entrada.formula is not None else mt.Fonte.NULO_POR_DESENHO
-                assert m.fonte is esperado, nome
+                assert efetiva is esperado, nome
+                assert m.fonte in (mt.Fonte.FORMULA, mt.Fonte.FORMULA_PENDENTE, mt.Fonte.NULO_POR_DESENHO)
+                if m.fonte is mt.Fonte.FORMULA:
+                    assert nome in mt.FORMULAS, nome
+                if m.fonte is mt.Fonte.FORMULA_PENDENTE:
+                    assert nome in mt.FORMULAS_PENDENTES and nome not in mt.FORMULAS, nome
             if m.fonte in (mt.Fonte.GUIA, mt.Fonte.CADASTRO, mt.Fonte.FORA_TISS):
                 # a chave na fonte e o nome Maezo do PROPRIO dicionario (`nome_maezo`, senao `nome_snake`)
                 assert m.campo is None, nome
@@ -554,8 +563,15 @@ def test_formula_publicada_diferente_da_implementada_recusa(
 
 
 def test_formula_publicada_para_entrada_que_o_montador_manda_nula_recusa(
-    dic: DicionarioEntradasK1, decisoes: dict[str, Any]
+    dic: DicionarioEntradasK1, decisoes: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Derivada mapeada como nula por desenho (sem formula) e o dicionario publica uma: recusa. Hoje
+    nenhuma derivada dos dois dominios esta assim (as 11 tem formula na 1.2.0); o mapa e do teste."""
+    mapas = dict(mt.MAPEAMENTOS)
+    mapas["diarias-taxas"] = MappingProxyType(
+        {**mt.MAPEAMENTOS["diarias-taxas"], "familiaDiariaTaxa": mt._SEM_FORMULA}
+    )
+    monkeypatch.setattr(mt, "MAPEAMENTOS", MappingProxyType(mapas))
     nova = FormulaK1("x", (TermoFormulaK1("dataAtendimento", "tiss", "guia"),))
     outra = _com_entrada(dic, "familiaDiariaTaxa", formula=nova)
     fatos = mt.FatosDoCaso(guia=_guia(), versao_k3_pinada=PIN_SEM_K3)
