@@ -221,9 +221,13 @@ def test_conferida_real_confere_ate_o_ordinal_30(
             FILA,
         )
         assert acao == at.AcaoDeSaida("conferencia", FILA)
-    # Depois do ordinal 30 o roteamento de hoje deixa a adversa `conferida` ir a efeito com amostragem;
-    # a coordenacao decidiu que `negar` em `conferida` nunca e automatico, e a unidade 5d-1 fecha isso.
-    # Este teste nao fixa o comportamento depois do ordinal 30 (DL-0181).
+    # Depois do ordinal 30: `negar` em `conferida` continua em conferencia (nunca automatico, DL-0181);
+    # `glosar` segue o roteamento do ADR-0077 §3 e a contagem de conferencias e da unidade 5d-1.
+    linha, acao = runtime.decidir(decisao_id, id_regra, decisao, "administrativo", 31)
+    if decisao == "negar":
+        assert (linha.acao, acao) == ("conferencia", at.AcaoDeSaida("conferencia", FILA))
+    else:
+        assert linha.acao != "efeito"
 
 
 @pytest.mark.usefixtures("efeito_ligado")

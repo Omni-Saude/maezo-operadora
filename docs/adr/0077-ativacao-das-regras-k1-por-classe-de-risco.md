@@ -180,7 +180,7 @@ Um PR por unidade, um executor por vez, revisão independente em cada:
     - com o indicador ligado, o roteamento do §3 já fecha para o humano (`em_correcao` adversa e `exige_aditivo` sem aditivo vão a `revisao_humana`; `conferida` confere as primeiras decisões), provado com o pacote real em `tests/unit/platform/test_rco_k1_2_2_ativacao.py`;
     - o monitor do 5e só muda algo para regra fora de `sombra`, o que não acontece antes da Onda 3.
     Lacunas que ficam para a unidade 5d-1:
-    - com o indicador ligado, depois do ordinal 30 uma saída adversa de regra `conferida` vira hoje `efeito_com_amostragem`; o 5d-1 fecha isso (`negar` em `conferida` nunca é automático);
+    - `negar` de regra `conferida` já NÃO vira automático em nenhum ordinal (fechado no próprio 5e-0, DL-0181 (4)(c)); `glosar` de regra `conferida` depois do ordinal 30 segue `efeito_com_amostragem` com o indicador ligado, e o indicador não é ligado em nenhum ambiente antes do 5d-1 incorporado (DL-0181 (4)(b));
     - as decisões em sombra consomem hoje a janela de ordinais da `conferida` (`AvaliacaoRegra.tem_ordinal`, em `src/maezo/platform/rco_registro.py`, exclui só a sombra do montador); o 5d-1 conta só conferências confirmadas por humano.
 5. **5e:** monitor de reversão, override e alertas. (Texto original: "Só neste PR, com 5c e 5d na `main`, sai a recusa `ativacao_nao_suportada`"; emendado em 17/11/2026: a recusa saiu no 5e-0, item 4a.)
 6. **5b:** provas, quando o formato for publicado.

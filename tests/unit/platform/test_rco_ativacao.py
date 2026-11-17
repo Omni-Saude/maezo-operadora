@@ -28,6 +28,27 @@ def _ambiente_limpo(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(at.VARIAVEL_DO_AMBIENTE, raising=False)
 
 
+def test_nenhum_deploy_ou_config_liga_o_efeito_k1() -> None:
+    # DL-0181: o indicador nasce desligado e nao e ligado em nenhum ambiente antes do 5d-1. Nenhum
+    # arquivo de deploy, compose, config ou chart pode citar a chave (a unica forma de liga-la).
+    raiz = Path(__file__).resolve().parents[3]
+    alvos = [raiz / "deploy", raiz / "config", raiz / "docker-compose.yml"]
+    achados = []
+    for alvo in alvos:
+        arquivos = [alvo] if alvo.is_file() else [p for p in alvo.rglob("*") if p.is_file()]
+        for arquivo in arquivos:
+            if arquivo.suffix == ".md":
+                continue  # documentacao pode citar a chave
+            try:
+                texto = arquivo.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if at.CHAVE_EFEITO_K1 in texto:
+                achados.append(str(arquivo.relative_to(raiz)))
+    assert achados == []
+    assert alvos[0].is_dir() and alvos[1].is_dir() and alvos[2].is_file()
+
+
 def test_allowlist_so_tem_dev() -> None:
     assert frozenset({"dev"}) == at.AMBIENTES_QUE_PODEM_LIGAR
 
@@ -412,11 +433,20 @@ def test_conferencia_integral_bloqueia_negar_e_glosar() -> None:
 
 def test_conferida_confere_so_as_primeiras() -> None:
     est = _estado("ativa", "conferida")
-    assert _f(est, "negar", inicial=True).acao == "conferencia"
-    assert _f(est, "negar", inicial=False, amostrada=True) == at.AcaoDeSaida(
+    assert _f(est, "glosar", inicial=True).acao == "conferencia"
+    assert _f(est, "glosar", inicial=False, amostrada=True) == at.AcaoDeSaida(
         "efeito_com_amostragem", "faturamento", None, True
     )
-    assert _f(est, "negar", inicial=False).amostrada is False
+    assert _f(est, "glosar", inicial=False).amostrada is False
+
+
+@pytest.mark.parametrize("inicial", [True, False])
+@pytest.mark.parametrize("amostrada", [True, False])
+def test_negar_em_conferida_nunca_e_automatico(inicial: bool, amostrada: bool) -> None:
+    # DL-0181: com o indicador ligado, `negar` de regra `conferida` vai a conferencia em qualquer ordinal.
+    acao = _f(_estado("ativa", "conferida"), "negar", inicial=inicial, amostrada=amostrada)
+    assert acao == at.AcaoDeSaida("conferencia", "faturamento")
+    assert acao.acao not in {"efeito", "efeito_com_amostragem"}
 
 
 def test_plena_amostra_so_negar_e_glosar_e_clinico_e_decisao() -> None:
