@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="Defs_Fixture" targetNamespace="http://maezo.example/bpmn-gates/fixtures">
+  <!-- Fixture NEGATIVA do gate 4: GW_G4 junta E bifurca (bpmnlint no-gateway-join-fork, categoria error). -->
+  <bpmn:process id="Fixture_G4" isExecutable="true">
+    <bpmn:startEvent id="Start_G4" name="Inicio">
+      <bpmn:outgoing>Flow_G4_1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:task id="Task_G4" name="Tarefa">
+      <bpmn:incoming>Flow_G4_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_G4_2</bpmn:outgoing>
+      <bpmn:outgoing>Flow_G4_3</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:parallelGateway id="GW_G4" name="Junta e bifurca">
+      <bpmn:incoming>Flow_G4_2</bpmn:incoming>
+      <bpmn:incoming>Flow_G4_3</bpmn:incoming>
+      <bpmn:outgoing>Flow_G4_4</bpmn:outgoing>
+      <bpmn:outgoing>Flow_G4_5</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:endEvent id="End_G4_A" name="Fim A">
+      <bpmn:incoming>Flow_G4_4</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_G4_B" name="Fim B">
+      <bpmn:incoming>Flow_G4_5</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_G4_1" sourceRef="Start_G4" targetRef="Task_G4"/>
+    <bpmn:sequenceFlow id="Flow_G4_2" sourceRef="Task_G4" targetRef="GW_G4"/>
+    <bpmn:sequenceFlow id="Flow_G4_3" sourceRef="Task_G4" targetRef="GW_G4"/>
+    <bpmn:sequenceFlow id="Flow_G4_4" sourceRef="GW_G4" targetRef="End_G4_A"/>
+    <bpmn:sequenceFlow id="Flow_G4_5" sourceRef="GW_G4" targetRef="End_G4_B"/>
+  </bpmn:process>
+</bpmn:definitions>

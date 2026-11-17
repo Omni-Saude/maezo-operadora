@@ -91,6 +91,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from maezo.agents.rafael.graph import new_rafael_state
+from maezo.domain.carater_atendimento import CAMPO_CARATER_ATENDIMENTO, CARATERES_CANONICOS
 from maezo.platform.privacy.key_scrubber import egress_pseudonymizer, scrub_key_value
 from maezo.tools.process_business_keys import BusinessKeyComponentError, auth_business_key
 
@@ -113,9 +114,11 @@ ROTA_DECLARADA: Final[str] = f"POST {PREFIXO_DA_ROTA}{CAMINHO_DA_ROTA}"
 #:
 #: Medido em 24/08/2026, e foi o que motivou a lista crescer de dois campos para cinco:
 #:
-#:   - `carater_atendimento` ausente vira `"eletivo"` — o prazo LONGO. Um caso de urgência
-#:     que chegue sem o campo ganha 5 dias úteis em vez de 2 horas, e ninguém é avisado.
-#:     É a falha mais cara da lista, porque é regulatória (RN 259) e silenciosa.
+#:   - [HISTÓRICO, 24/08/2026] `carater_atendimento` ausente virava `"eletivo"` — o prazo
+#:     LONGO. Um caso de urgência que chegasse sem o campo ganhava 5 dias úteis em vez de 2
+#:     horas, e ninguém era avisado. Era a falha mais cara da lista, porque é regulatória e
+#:     silenciosa. Desde o DL-0170 (17/11/2026) o Rafael não tem mais esse default, e o valor
+#:     também precisa estar no domínio fechado (`CAMPOS_DE_DOMINIO_FECHADO`, abaixo).
 #:   - `categoria_procedimento` ausente vira `"consulta"` — e o prazo é calculado como se
 #:     fosse consulta. Foi exatamente o que aconteceu no teste de 19/08: a DMN de SLA
 #:     "rodou sem significado", devolvendo a regra genérica.
@@ -140,6 +143,17 @@ CAMPOS_OBRIGATORIOS: tuple[str, ...] = (
 #: `True` — o valor que MANDA o caso seguir para análise. Um pedido que não requer
 #: autorização e chega sem o campo entra no fluxo inteiro à toa.
 CAMPOS_BOOLEANOS_OBRIGATORIOS: tuple[str, ...] = ("requer_autorizacao",)
+
+#: Campos obrigatórios cujo valor precisa estar num DOMÍNIO FECHADO (comparação exata após
+#: `strip()`, sem sinônimo, sem `lower()`).
+#:
+#: DL-0170: `carater_atendimento` fora de `{"urgencia", "eletivo"}` (`"emergencia"`,
+#: `"URGENCIA"`, `"2"`) cairia na linha r4 da `auth_sla` — P5D, o prazo longo — exatamente o
+#: efeito do default que o DL-0170 removeu. O domínio é o de `domain/carater_atendimento.py`, o
+#: MESMO que a origem da delegação A2A e o próprio Rafael aplicam: as três entradas concordam.
+CAMPOS_DE_DOMINIO_FECHADO: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
+    {CAMPO_CARATER_ATENDIMENTO: CARATERES_CANONICOS}
+)
 
 #: Campos de saída que a resposta devolve. Lista fechada de propósito: devolver o estado
 #: inteiro exporia campos internos do grafo e faria a resposta mudar de forma a cada nó
@@ -181,6 +195,8 @@ class IngressSpec:
     campos_obrigatorios: tuple[str, ...]
     campos_booleanos_obrigatorios: tuple[str, ...]
     campos_de_resposta: tuple[str, ...]
+    #: Campo -> valores aceitos (exatos após `strip()`). Fora do domínio = 422, nunca tradução.
+    campos_de_dominio_fechado: Mapping[str, frozenset[str]]
 
 
 #: OS AGENTES QUE DECLARAM CANAL DE INGRESSO HTTP. Hoje: só o Rafael (`portal_tiss`).
@@ -203,6 +219,7 @@ INGRESS_BY_AGENT: Final[Mapping[str, IngressSpec]] = MappingProxyType(
             campos_obrigatorios=CAMPOS_OBRIGATORIOS,
             campos_booleanos_obrigatorios=CAMPOS_BOOLEANOS_OBRIGATORIOS,
             campos_de_resposta=CAMPOS_DE_RESPOSTA,
+            campos_de_dominio_fechado=CAMPOS_DE_DOMINIO_FECHADO,
         ),
     }
 )
@@ -298,6 +315,23 @@ def build_ingress_router(state: AgentState) -> APIRouter:
                     f"campos obrigatórios ausentes, vazios ou de tipo errado: {sorted(faltando)}. "
                     "Esta rota não assume valor por campo faltante: um default aqui vira prazo "
                     "regulatório errado sem ninguém perceber."
+                ),
+            )
+
+        fora_do_dominio = sorted(
+            campo
+            for campo, aceitos in spec.campos_de_dominio_fechado.items()
+            if str(payload.get(campo) or "").strip() not in aceitos
+        )
+        if fora_do_dominio:
+            # O valor recebido NÃO volta na resposta (pode ser texto livre); os aceitos, sim.
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"campos fora do domínio aceito: {fora_do_dominio}. Aceitos: "
+                    + "; ".join(f"{c} = {sorted(spec.campos_de_dominio_fechado[c])}" for c in fora_do_dominio)
+                    + ". Esta rota não traduz sinônimo, maiúscula, acento ou código: traduzir "
+                    "escolheria o prazo regulatório no lugar de quem informou (DL-0170)."
                 ),
             )
 

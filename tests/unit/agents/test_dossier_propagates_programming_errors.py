@@ -218,7 +218,13 @@ async def _marina_dossier(fake: object) -> Any:
 
 async def _rafael_dossier(fake: object) -> Any:
     graph = RafaelGraph(inference=_llm(fake), **_seams())
-    state: Any = {"tenant_id": "amh", "numero_guia_tiss": "GUIA-1", "route": "human_auditor"}
+    # DL-0170: caso de teste AFIRMA o carater (o grafo nao presume mais nenhum).
+    state: Any = {
+        "tenant_id": "amh",
+        "numero_guia_tiss": "GUIA-1",
+        "route": "human_auditor",
+        "carater_atendimento": "eletivo",
+    }
     return await graph._build_dossier(state)
 
 
