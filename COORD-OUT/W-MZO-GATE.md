@@ -153,3 +153,8 @@ Status enviado à mescladora.
 ## 2026-11-17 ~06:50Z
 
 #1287: head f6a0beca8b3c7935c232153305fa0f6253c4adea com 40 checks em success e 2 skipped; integração lida do junit (5 shards, 1403 testes, 0 falhas). O head está 18 commits atrás da main 12497495 (#1280, #1283, #1284, #1286). Simulei o merge localmente: 15639 passed, só a falha ambiental de root. Status enviado à mescladora; o PRONTO depende da decisão dela.
+
+## 2026-11-17 ~06:50Z (2)
+
+- #1287 (E-SF-36) mesclado; main 7a64eb94.
+- E-SF-20, o último da janela: main trazida por merge num clone isolado (diff de 17 arquivos, todos do épico). Antes do push estão rodando: Python (ci, adapters, ports, gateway, portal, platform, docs, agents, comercial, validate, check_program_dark_flags) e web (npm ci, tsc, vitest).
