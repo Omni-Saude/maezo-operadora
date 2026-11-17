@@ -373,10 +373,8 @@ class LegitimacyScreenGateway(CommercialGateway):
         Nova revisão da MESMA instância (mesmo `screen_ref`/`opportunity_ref`), critérios
         do recibo copiados (critério→resultado→referência — o guard não inventa critério),
         `would_block`/`art39_signaled` da postura, âncora canônica do art. 39. Cabeça que
-        já carrega a observação postural (`would_block` E `art39_signaled`, o par que só o
-        guard escreve junto), aprovação, e PJ sem recibo: nada a escrever. A linha do
-        aniversário (`would_block` sem art. 39) não conta como observação do guard.
-        """
+        já carrega o par `would_block`+`art39_signaled`, aprovação, e PJ sem recibo: nada a
+        escrever (linha do aniversário, `would_block` sem art. 39, não conta)."""
         receipt = evaluation.receipt
         if receipt is None or not evaluation.would_block or (receipt.would_block and receipt.art39_signaled):
             return
