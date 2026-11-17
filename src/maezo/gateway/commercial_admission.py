@@ -34,9 +34,10 @@ from maezo.gateway.commercial_catalog_admission import CatalogSourceAdmission
 from maezo.gateway.commercial_collective_hold import CollectiveHoldCatalogCodec
 from maezo.gateway.commercial_coverage_admission import CoverageReadAdmission
 from maezo.gateway.commercial_disclosure_checklist import (
-    DISCLOSURE_TERMS_FIELDS,
-    DisclosureChecklistError,
-    require_disclosure_before_decision,
+    DISCLOSURE_GATED_COMMANDS as DISCLOSURE_GATED_COMMANDS,
+)
+from maezo.gateway.commercial_disclosure_checklist import (
+    require_precontract_disclosure as require_precontract_disclosure,
 )
 from maezo.gateway.commercial_portability_admission import (
     PortabilityPayloadError,
@@ -86,36 +87,6 @@ A1_CATALOG_DERIVED_COMMANDS: Final = frozenset({"offer.quote"})
 # the codec before it. EP-REG-04b suggested purpose_denied/SOURCE_UNAVAILABLE;
 # lifecycle_unqualified is used because TB-25 (i) anchors the gate on C6-4 :445 lifecycle.
 LEAD_INTAKE_COMMANDS: Final = frozenset({"prospect.save", "contact.request", "journey.save"})
-
-
-# E-SF-36 (EP-REG-34): the RN 413 art. 4º disclosure precondition of the buyer decision. An
-# `acceptance.record` that is not an explicit `decline` must carry, in its own payload, the
-# I–IX/§1º content of the checklist (`commercial_disclosure_checklist`) before it can reach the
-# source; a decline is never blocked. The pinned C6-4 `AcceptanceRecordPayload` is closed
-# (`additionalProperties: false`) and has none of these slots, so on that wire every `accept`
-# refuses — with or without the A3 record. The internal checklist token stays the `__cause__`;
-# the wire answer is the C6-4 `denied/terms_review_required` (the terms review that the
-# decision needs is not complete). Nothing here states the disclosure as complete: the checklist
-# status stays `incompleto_fonte_pendente` while the art. 18 Guia is pending.
-DISCLOSURE_GATED_COMMANDS: Final = frozenset({"acceptance.record"})
-
-
-def require_precontract_disclosure(command: CommercialCommand) -> None:
-    """Refuse an `acceptance.record` accept whose payload lacks the art. 4º disclosure."""
-    if command.command not in DISCLOSURE_GATED_COMMANDS:
-        return
-    selection = command.terms_selection
-    if selection is not None and selection.decision == "decline":
-        return
-    try:
-        envelope = json.loads(command.wire_bytes)
-        payload = envelope["payload"]
-        if not isinstance(payload, dict):
-            raise TypeError("payload")
-        presented = {key: value for key, value in payload.items() if key in DISCLOSURE_TERMS_FIELDS}
-        require_disclosure_before_decision(presented, decision="accept")
-    except (DisclosureChecklistError, ValueError, KeyError, TypeError) as exc:
-        raise CommercialRefusalError("denied", "terms_review_required") from exc
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)

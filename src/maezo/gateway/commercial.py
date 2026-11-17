@@ -14,6 +14,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Literal
 
+from maezo.gateway.commercial_disclosure_checklist import require_precontract_disclosure
 from maezo.ports.commercial import (
     CommercialCodec,
     CommercialCommand,
@@ -329,6 +330,9 @@ class CommercialGateway:
                 raise CommercialRefusalError("denied", "invalid_request")
             async with asyncio.timeout(self.timeout_seconds):
                 scope = await self._current(scope, "before_source", command)
+                # E-SF-36: also here, so an admission other than the bound Sales one
+                # cannot skip the RN 413 art. 4º disclosure precondition.
+                require_precontract_disclosure(command)
                 self._publication(await self.source.admit(scope), scope)
                 prepared = await self.source.prepare(command, scope)
                 self._prepared(command, scope, prepared)

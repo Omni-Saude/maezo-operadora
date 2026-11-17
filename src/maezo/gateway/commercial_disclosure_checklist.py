@@ -43,14 +43,17 @@ only from the official SEI 31143600 copy, not conferred with the DOU and outside
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, Literal, final
 
 from maezo.gateway.required_text import is_blank
+from maezo.ports.commercial import CommercialCommand, CommercialRefusalError
 
 __all__ = [
+    "DISCLOSURE_GATED_COMMANDS",
     "DISCLOSURE_STATUS_PENDING",
     "DISCLOSURE_TERMS_FIELDS",
     "GUIA_ART18_SLOT",
@@ -63,6 +66,7 @@ __all__ = [
     "DisclosureStatus",
     "claim_status",
     "require_disclosure_before_decision",
+    "require_precontract_disclosure",
 ]
 
 #: The only checklist status while GAP-10 is open (REG-34 acceptance).
@@ -215,3 +219,49 @@ def require_disclosure_before_decision(
         elif is_blank(value):
             raise _refuse(DisclosureRefusal.DISCLOSURE_INCOMPLETO)
     return DISCLOSURE_STATUS_PENDING
+
+
+# --- the wiring (E-SF-36) ------------------------------------------------------------------
+#
+# An `acceptance.record` that is not an explicit `decline` must carry, in its own payload, the
+# I–IX/§1º content of the checklist before it can reach the source; a decline is never
+# blocked. The pinned C6-4 `AcceptanceRecordPayload` is closed (`additionalProperties:
+# false`) and has none of these slots, so on that wire every `accept` refuses — with or
+# without the A3 record. The internal checklist token stays the `__cause__`; the wire answer
+# is the C6-4 `denied/terms_review_required` (the terms review that the decision needs is not
+# complete). Nothing here states the disclosure as complete: the checklist status stays
+# `incompleto_fonte_pendente` while the art. 18 Guia is pending. Called by the bound Sales
+# admission (`commercial_admission`) and again by `CommercialGateway.execute`, so a gateway
+# composed with another admission does not skip it.
+
+DISCLOSURE_GATED_COMMANDS: Final = frozenset({"acceptance.record"})
+
+#: Every `terms.*` key of a decision payload reaches the checklist, so content outside the
+#: closed slots (e.g. a price-formation breakdown) refuses instead of being dropped.
+_TERMS_PREFIX: Final = "terms."
+
+
+def require_precontract_disclosure(command: CommercialCommand) -> None:
+    """Refuse an `acceptance.record` that is not a decline and lacks the art. 4º disclosure.
+
+    The decline exemption needs the payload AND the parsed selection to say `decline`; any
+    divergence, a missing selection or an unreadable payload is treated as an accept.
+    """
+    if command.command not in DISCLOSURE_GATED_COMMANDS:
+        return
+    try:
+        envelope = json.loads(command.wire_bytes)
+        payload = envelope["payload"]
+        if not isinstance(payload, dict):
+            raise TypeError("payload")
+        selection = command.terms_selection
+        if payload.get("decision") == "decline" and selection is not None and selection.decision == "decline":
+            return
+        presented = {
+            key: value
+            for key, value in payload.items()
+            if key in DISCLOSURE_TERMS_FIELDS or (isinstance(key, str) and key.startswith(_TERMS_PREFIX))
+        }
+        require_disclosure_before_decision(presented, decision="accept")
+    except (DisclosureChecklistError, ValueError, KeyError, TypeError) as exc:
+        raise CommercialRefusalError("denied", "terms_review_required") from exc

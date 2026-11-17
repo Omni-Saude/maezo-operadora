@@ -19,6 +19,7 @@ from dataclasses import replace
 import pytest
 
 from maezo.adapters.amh.commercial import CommercialWire
+from maezo.gateway.commercial import CommercialGateway
 from maezo.gateway.commercial_admission import (
     DISCLOSURE_GATED_COMMANDS,
     AcceptanceSupportUnadmittedSalesAdmission,
@@ -36,7 +37,7 @@ from maezo.gateway.commercial_disclosure_checklist import (
     DisclosureChecklistError,
     DisclosureRefusal,
 )
-from maezo.ports.commercial import CommercialRefusalError
+from maezo.ports.commercial import CommercialRefusalError, SalesAdmission
 from tests.unit.test_commercial_admission_a3 import (
     AcceptanceScopeAuthority,
     acceptance_command,
@@ -107,6 +108,35 @@ def test_successor_payload_opens_only_with_every_item_present(schema_bytes, item
     with pytest.raises(CommercialRefusalError) as exc:
         require_precontract_disclosure(_with_payload(command, missing))
     assert _refusal(exc) == ("denied", "terms_review_required")
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"terms.rn413_art4_vii_breakdown": {"administracao": 1_000}},
+        {"terms.comparativo_operadoras": "texto"},
+    ],
+)
+def test_terms_content_outside_the_slots_is_never_dropped(schema_bytes, extra) -> None:
+    # The checklist shape is closed: extra `terms.*` content reaches it and refuses, so a
+    # price-formation breakdown cannot ride along a complete I–IX/§1º payload.
+    command = _with_payload(_parsed(schema_bytes, acceptance_command()), {**_full_disclosure(), **extra})
+    with pytest.raises(CommercialRefusalError) as exc:
+        require_precontract_disclosure(command)
+    assert _refusal(exc) == ("denied", "terms_review_required")
+
+
+def test_decline_exemption_needs_payload_and_selection_to_agree(schema_bytes) -> None:
+    accept = _parsed(schema_bytes, acceptance_command())
+    decline = _parsed(schema_bytes, acceptance_command("decline"))
+    # Selection says decline, wire says accept: treated as accept and refused.
+    with pytest.raises(CommercialRefusalError):
+        require_precontract_disclosure(replace(accept, terms_selection=decline.terms_selection))
+    # Wire says decline, selection says accept (or is absent): refused as well.
+    with pytest.raises(CommercialRefusalError):
+        require_precontract_disclosure(replace(decline, terms_selection=accept.terms_selection))
+    with pytest.raises(CommercialRefusalError):
+        require_precontract_disclosure(replace(decline, terms_selection=None))
 
 
 def test_filled_guia_slot_refuses_as_pending_source(schema_bytes) -> None:
@@ -187,4 +217,37 @@ async def test_bound_route_refuses_accept_with_zero_source_dispatch(schema_bytes
         assert refused.json()["status"] == "denied"
         assert refused.json()["reason_code"] == "terms_review_required"
         assert b"rn413" not in refused.content and b"incompleto" not in refused.content
+    assert calls == []
+
+
+class _ForeignAdmission(SalesAdmission):
+    """An admission that is NOT the bound Sales one: it never runs the disclosure gate."""
+
+    def __init__(self, scope) -> None:
+        self.scope = scope
+        self.phases: list[str] = []
+
+    async def acquire(self, transport):
+        return self.scope
+
+    async def current(self, scope, *, phase, command=None):
+        self.phases.append(phase)
+        return scope
+
+
+@pytest.mark.asyncio
+async def test_gateway_runs_the_gate_whatever_the_admission(schema_bytes) -> None:
+    # Defense in depth: `CommercialGateway.execute` calls the gate after the before_source
+    # currentness, so a gateway composed with another admission still refuses the accept
+    # with no source step.
+    calls: list[object] = []
+    bound = build_app(
+        schema_bytes, calls, sales_admitted=True, catalog_admitted=False, acceptance_admitted=True
+    ).state.commercial_gateway
+    foreign = _ForeignAdmission(AcceptanceScopeAuthority().scope)
+    gateway = CommercialGateway(codec=bound.codec, admission=foreign, source=bound.source)
+    accept = _parsed(schema_bytes, acceptance_command())
+    result = await gateway.execute(accept, foreign.scope)
+    assert (result.status, result.reason_code) == ("denied", "terms_review_required")
+    assert foreign.phases == ["before_source"]
     assert calls == []

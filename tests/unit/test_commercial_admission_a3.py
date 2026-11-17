@@ -694,8 +694,8 @@ async def test_acceptance_double_submit_is_forwarded_once_per_post_without_gatew
     # with the same `command_ref` (double click / reload) IS forwarded to the source, once
     # and byte-identical. "Zero redispatch" of that second POST therefore depends on the
     # source's dedupe by `command_ref` (here simulated by the source answering
-    # reconcile-only) — an open GAP (DEC-REG REG-16, "Decidido dentro do registro" item
-    # (3)), not a Maezo guarantee. What this pins is the Maezo side: one wire request per
+    # reconcile-only) — an open GAP (source dedupe by `command_ref`, REG-16), not a Maezo
+    # guarantee. What this pins is the Maezo side: one wire request per
     # caller POST, no gateway resend, and the answer is disclosed as `uncertain`. The
     # submission is a `decline`: an `accept` never reaches the source on the pinned C6-4
     # wire (E-SF-36 disclosure precondition), and the decision value is not what this pins.
