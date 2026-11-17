@@ -182,6 +182,7 @@ Lane **Consultor comercial** (`LN_CA1_COMPRA_ConsultorComercial`) — **volume: 
 - **Executa:** o recebimento das três intenções de compra (`CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#CP_Start_Necessidade`, `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#CP_Start_Reacao`, `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#CP_Start_NovaNecessidade`) e a chamada de entendimento/recomendação (`CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#CP_CA_C1`).
 - **Acompanha/recebe:** o retorno de consentimento negado (`CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#CP_B_ConsentimentoNegado`) e os fins de nutrição e encaminhamento ao suporte (`CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#CP_End_Nutrir`, `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#CP_End_Suporte`).
 - **Pré-requisitos:** consultoria de cobertura com **treinamento explícito em A-04**: falar de direito-base sem prometer cobertura de serviço; e em A-05: a recomendação vinda de C1 é sugestão, não veredito.
+- **Quem ocupa (E-SF-17 / GTM-01 D1, refinado por SC-02):** o papel humano **Especialista comercial — Faixa Assistida**, empregado próprio da operadora, lotado na diretoria comercial (não no atendimento ao beneficiário nem em compliance). É o `owner_ref` humano da fila `sales_operations` (`responsible_queue_ref` "Faixa Assistida"). Conduz a venda; o cadastro fica com a lane de back-office abaixo, outro papel e outra pessoa. Nunca registra aceite, nunca digita dado pessoal em nome do comprador, nunca vê, preenche ou "presencia" a DS, e nunca decide elegibilidade, preço, legitimidade PJ ou comissão. O agente de cobrança não ocupa esta lane. O agente `comercial` (flag desligada) só conduz conversa e encaminha a este papel quando ativado pelos portões de GTM-01.
 
 Lane **Contratação e back-office comercial** (`LN_CA1_COMPRA_ContratacaoBackOfficeComercial`) — **volume: Média** (1 gateway: `CP_GW_Decisao`, 3 saídas)
 - **Decide:** o que fazer com a decisão do cliente — aceite, recusa ou sem decisão (`CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#CP_GW_Decisao`).
@@ -231,6 +232,7 @@ Lane **Consultor comercial** (`LN_CA1_C1_ConsultorComercial`) — **volume: Méd
 - **Executa:** o cruzamento de perfil 360 com oferta de cuidado (`CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#C1_T_Cruzar`).
 - **Acompanha/recebe:** o fim sem proposta (`CA_1_COMPRA (com suporte)_v4_adaptado.bpmn#C1_End_SemProposta`), que devolve ao macro.
 - **Pré-requisitos:** catálogo de ofertas e critério de relevância **escrito** (a condição é regra nomeável); LGPD art. 11 §5º — vedada seleção de risco na contratação ou exclusão, inclusive por ofertas/proxies que produzam esse efeito. Recomendações assistenciais exigem finalidade, necessidade, base e autoridade próprias; o §5º não as proíbe indiscriminadamente.
+- **Quem ocupa (E-SF-17):** o mesmo papel humano **Especialista comercial — Faixa Assistida** da lane de COMPRA. Até o DPO responder GTM-01.R1, a recomendação usa só produto, região, composição e modalidade publicados: nenhum campo de saúde do perfil 360 e nenhuma informação de saúde dita na conversa entram no cruzamento (`C1_T_Cruzar`); a menção de saúde volta à Helena / `external_clinical`.
 
 Lane **Agenda e capacidade** (`LN_CA1_C1_AgendaCapacidade`) — **volume: Baixa**
 - **Decide:** nada local — aplica política.
@@ -548,7 +550,7 @@ Lane **Resolução e encaminhamento** (`LN_CA3_S4_Resolucao`) — **volume: Baix
 | **Dados e CRM (consolidação de perfil)** | H3, H3.1, C3 | Dono do perfil 360 — e, com ele, da resposta a pedidos de eliminação |
 | **Modelagem e growth** | H3, H3.2, C1 | Mecanismo compartilhado; finalidade, regra e autoridade de oferta/cuidado continuam específicas |
 | **Governança clínica** | H2, H3.2, C3 (e `CA_3_SUPORTE_v4_adaptado.bpmn#S3_T_Enfermagem` no grupo) | Revisão de mensagem, recomendação e parecer têm autoridades específicas; grupo de acesso/lane não prova mesmas pessoas nem escassez física |
-| **Consultor comercial** | COMPRA, C1 | Consultoria com critério de relevância único |
+| **Consultor comercial** | COMPRA, C1 | Consultoria com critério de relevância único. Papel: **Especialista comercial — Faixa Assistida** (diretoria comercial; dono humano da fila `sales_operations`). Dono declarado por duas pessoas, no padrão de `spec/agents/helena/agent.yaml` (`owner`): nomes, grupo e headcount pendentes de ato do dono (`GAP-PERSONA-NAME`, `GAP-HEADCOUNT`). Separado do back-office de cadastro (SC-02) |
 | **Contratação e back-office comercial** | COMPRA, C2 | Políticas de prazo de decisão e slot reservado |
 | **Cadastro e operações** | COMPRA, C3 | Habilitação e autorização — onde A-04 precisa virar procedimento |
 | **Retenção e relacionamento** | COMPRA, C4 | Recovery com fronteira slot ≠ contrato |

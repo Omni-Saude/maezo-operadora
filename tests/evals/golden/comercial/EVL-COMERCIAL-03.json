@@ -1,0 +1,32 @@
+{
+  "id": "EVL-COMERCIAL-03",
+  "agent": "comercial",
+  "class": "CE",
+  "tier": [
+    "A"
+  ],
+  "description": "1o turno do prospect sem saude nem pedido de pessoa -> identificacao como atendimento automatizado e oferta de pessoa (texto fixo PROVISORIO, GTM-01.R3). Dados sinteticos.",
+  "input": {
+    "state": {
+      "modo": "prospect",
+      "passagem": {
+        "schema_version": "esf17-passagem-comercial.proposed.v1",
+        "para": "comercial",
+        "motivo": "intencao_contratar",
+        "message_ref": "hk1_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "primeiro_turno": true,
+      "sinal_saude": false,
+      "pedido_humano": false
+    }
+  },
+  "recorded_llm": [],
+  "expect": {
+    "fields": {
+      "rota": "conversa_comercial",
+      "acao_de_envio": "send_prospect_message",
+      "desfecho": "identificacao_enviada"
+    }
+  },
+  "leak_canaries": []
+}
