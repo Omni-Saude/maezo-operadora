@@ -87,6 +87,11 @@ def test_recipient_address_never_in_outbox_or_logs(
     }
     assert "corpo" not in RegistroDeSaida.__slots__ and "endereco" not in RegistroDeSaida.__slots__
     assert reg.destinatario_ref == "custodia:opaca-1"
+    espiao2 = Espiao()
+    with caplog.at_level(logging.DEBUG), pytest.raises(ComposicaoRecusada) as e:
+        _enviar(espiao2, destinatario_ref=ENDERECO)
+    assert e.value.code == "recipient_ref_not_opaque" and ENDERECO not in str(e.value)
+    assert espiao2.chamadas == [] and ENDERECO not in caplog.text
 
 
 @pytest.mark.parametrize(

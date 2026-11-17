@@ -9,6 +9,7 @@ from typing import Final, Literal
 
 from maezo.platform.notices.email.admissao import QualificacaoDoCanal, admitir_canal
 from maezo.platform.notices.email.composicao import compor_email_de_protocolo
+from maezo.platform.notices.email.erros import ComposicaoRecusada
 from maezo.platform.notices.email.porta import MensagemDeEmail, TransporteDeEmail
 
 EstadoDeSaida = Literal["pendente", "aceito_pelo_provedor", "entregue", "falhou"]
@@ -41,6 +42,8 @@ async def enviar_protocolo_por_email(
     message_id: str,
 ) -> RegistroDeSaida:
     admitir_canal(qualificacao)  # PRIMEIRO: recusa antes de compor ou chamar o transporte
+    if type(destinatario_ref) is not str or not destinatario_ref or "@" in destinatario_ref:
+        raise ComposicaoRecusada("recipient_ref_not_opaque")
     assunto, corpo = compor_email_de_protocolo(protocolo_ref=protocolo_ref, etapas=etapas)
     await transporte.enviar(
         MensagemDeEmail(
