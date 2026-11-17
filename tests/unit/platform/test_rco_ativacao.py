@@ -32,13 +32,28 @@ def test_nenhum_deploy_ou_config_liga_o_efeito_k1() -> None:
     # DL-0181: o indicador nasce desligado e nao e ligado em nenhum ambiente antes do 5d-1. Nenhum
     # arquivo de deploy, compose, config ou chart pode citar a chave (a unica forma de liga-la).
     raiz = Path(__file__).resolve().parents[3]
-    alvos = [raiz / "deploy", raiz / "config", raiz / "docker-compose.yml"]
+    alvos = [
+        raiz / "deploy",
+        raiz / "config",
+        raiz / "docker-compose.yml",
+        raiz / ".github",
+        raiz / "scripts",
+        raiz / "tools",
+        raiz / "Makefile",
+        *sorted(p for p in raiz.iterdir() if p.is_file() and (".env" in p.name or "compose" in p.name)),
+    ]
+    # Fora de deploy/, documentacao pode citar a chave (README de config/integrations/rco/ a explica).
+    so_doc_fora_de_deploy = {".md"}
     achados = []
     for alvo in alvos:
+        if not alvo.exists():
+            continue
         arquivos = [alvo] if alvo.is_file() else [p for p in alvo.rglob("*") if p.is_file()]
         for arquivo in arquivos:
-            if arquivo.suffix == ".md":
-                continue  # documentacao pode citar a chave
+            if "__pycache__" in arquivo.parts:
+                continue
+            if arquivo.suffix in so_doc_fora_de_deploy and (raiz / "deploy") not in arquivo.parents:
+                continue
             try:
                 texto = arquivo.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
