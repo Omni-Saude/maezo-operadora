@@ -357,15 +357,16 @@ ainda nao esta ligado a nenhum worker deste processo. Regras:
   contrato, pelo nome Maezo que o dicionario declara; o valor ainda passa pelo tipo e pelo dominio do dicionario
   (fora deles, nulo). Nao e garantia de que a variavel foi copiada da guia sem alteracao: isso e dever de quem
   inicia o processo.
-- **O carater do atendimento NUNCA vem da variavel `carater_atendimento` deste contrato.** O caminho de start de
-  hoje a preenche com `"eletivo"` quando falta (`src/maezo/agents/rafael/delegation.py`, `graph.py`), e
-  `eletivo` = `1` e justamente o valor que deixa casar as linhas `negar` de `rco_geral_carencia` e
-  `rco_geral_elegibilidade`. O montador so le o carater de um campo explicito (`carater_atendimento_guia`: o
+- **O carater do atendimento NUNCA vem da variavel `carater_atendimento` deste contrato.** Ate o DL-0170
+  (17/11/2026) o caminho de start a preenchia com `"eletivo"` quando faltava (`src/maezo/agents/rafael/delegation.py`,
+  `graph.py`); desde entao o Rafael recusa caso sem carater (`CaraterAtendimentoAusenteError`), mas a variavel
+  de start continua sendo semente nao verificada, e `eletivo` = `1` e justamente o valor que deixa casar as
+  linhas `negar` de `rco_geral_carencia` e `rco_geral_elegibilidade`. O montador so le o carater de um campo explicito (`carater_atendimento_guia`: o
   valor do elemento `caraterAtendimento` da guia TISS, sem padrao); sem ele, a entrada e nula. O de-para para a
   TUSS tabela 23 e o que o rco declara (`config/integrations/rco/carater-tuss23.json`, com a origem): `eletivo`
   = `1`; `urgencia` e `emergencia` = `2`; `1` e `2` como estao; casamento exato; qualquer outro valor entra nulo.
   **Ligar o montador (MZO-3) exige que o start carregue o carater da guia ou nulo:** os padroes `"eletivo"` do
-  Rafael saem antes da ligacao.
+  Rafael ja sairam (DL-0170).
 - **Cadastro e solicitacao fora da TISS nunca vem das variaveis de processo** (sementes do start, nao
   verificadas): so dos fatos que o worker que os resolveu entregar ao montador. Hoje nenhum worker do AUTH os
   resolve, entao entram nulos.

@@ -456,6 +456,8 @@ async def test_real_graph_start_process_node_propagates_the_redaction_error() ->
         "beneficiario_pseudo_id": "pseudo-123",
         "route": "human_auditor",
         "dossier": dossier,
+        # DL-0170: o carater e' afirmado pelo caso de teste — o grafo nao o presume mais.
+        "carater_atendimento": "eletivo",
     }
 
     with pytest.raises(StartVariableRedactionError):
