@@ -39,14 +39,14 @@ self-service purpose does not include collective contracting while REG-08 is unr
 public catalog route renders every refusal with its own fixed body, so no hold detail leaves
 the process.
 
-Buyer-facing text (ADDENDUM-01 §6: "texto de recusa de EP-REG-08a nomeia o critério e oferece
-caminho PF (SC-08)"). `COLLECTIVE_HOLD_REFUSAL_TEXT` names the criterion with the rubric of
-RN 489/2022 art. 23-A as pinned verbatim in NORMATIVE-BASELINE-v2 ("Legitimidade da pessoa
-jurídica contratante de beneficiário em plano coletivo") and offers the two SC-08 paths
-verbatim ("Contratar como individual/familiar", "Falar com especialista"). It says nothing
-about who sells: no sales-channel figure is named or characterized (REG-08 (iii); parecer §3
-as transcribed in REG-08). It cites no article text of RN 557/2022, which the baseline does
-not hold verbatim. The C6-4 refusal carries no text slot, so this constant is the reviewed
+Buyer-facing text (funnel plan, EP-REG-08a with addition SC-08: the refusal names the criterion
+and offers the PF path). `COLLECTIVE_HOLD_REFUSAL_TEXT` names the criterion with the rubric of
+RN 489/2022 art. 23-A, inserted by RN 659/2025, verbatim from this repository's
+`docs/compliance/legal/textos-base/RN-659-2025.md` ("Legitimidade da pessoa jurídica contratante
+de beneficiário em plano coletivo"), and offers the two SC-08 paths ("Contratar como
+individual/familiar", "Falar com especialista"). It says nothing about who sells: no
+sales-channel figure is named or characterized (REG-08 (iii)). It cites no article text of
+RN 557/2022. The C6-4 refusal carries no text slot, so this constant is the reviewed
 copy the consumer renders (E-SF-ADD01-06); nothing here sends it to anyone.
 """
 

@@ -44,6 +44,7 @@ from tests.unit.test_commercial_c6 import public_body, public_rig
 _ROOT = Path(__file__).resolve().parents[3]
 _CONTRACT = _ROOT / "tests" / "candidate_artifacts" / "commercial" / "contract-c6-4.json"
 _HOLD_MODULE = _ROOT / "src" / "maezo" / "gateway" / "commercial_collective_hold.py"
+_TEXTO_BASE = _ROOT / "docs" / "compliance" / "legal" / "textos-base" / "RN-659-2025.md"
 _BASELINE_RUBRIC = "Legitimidade da pessoa jurídica contratante de beneficiário em plano coletivo"
 _HEADERS = {
     "Authorization": "Bearer SYN-SALES-CREDENTIAL",
@@ -225,7 +226,7 @@ def test_the_hold_never_reads_the_screen_store_nor_mounts_a_guard() -> None:
 
 
 # ----------------------------------------------------------------------------------
-# The buyer-facing refusal copy (ADDENDUM-01 §6 / SC-08; REG-08 (iii)).
+# The buyer-facing refusal copy (EP-REG-08a + SC-08; REG-08 (iii)).
 # ----------------------------------------------------------------------------------
 
 
@@ -237,7 +238,8 @@ def test_refusal_text_names_the_criterion_and_offers_the_pf_path() -> None:
         "caminho_pf",
         "rota_humana",
     }
-    # The criterion is the art. 23-A rubric as pinned verbatim in NORMATIVE-BASELINE-v2.
+    # The criterion is the art. 23-A rubric, verbatim in this repository's RN 659/2025 text-base.
+    assert _BASELINE_RUBRIC in _TEXTO_BASE.read_text(encoding="utf-8")
     assert COLLECTIVE_HOLD_REFUSAL_TEXT["criterio"] == _BASELINE_RUBRIC
     # The two alternative paths, verbatim from SC-08 ("sempre na mesma tela").
     assert COLLECTIVE_HOLD_REFUSAL_TEXT["caminho_pf"] == "Contratar como individual/familiar"
