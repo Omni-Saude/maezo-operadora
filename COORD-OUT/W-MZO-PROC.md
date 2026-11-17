@@ -42,3 +42,5 @@ Recomendação: registrar como demanda à W-AMH (proposta de sucessor), sem bloq
 ## Estado dos PRs
 
 PRONTO maezo-operadora #1271 head c267f6338cb34567e2ca868b300a2e4d631095a1 checks verdes (integração lida do junit: 5 shards, 1269 testes, 0 falhas, 0 erros, 7 skip) — E-SF-08; revisão independente PASS. Próximo da janela, depois do merge: E-SF-12 (empilhado), depois E-SF-09 e E-SF-RT-01 (prontos localmente, revisão PASS).
+
+pronto: maezo-operadora #1277, head c8486be5a986548217c64846d94e0b8124c3e6cb, checks verdes (integração lida do junit: 5 shards, 1269 testes, 0 falhas, 0 erros, 7 skip) — E-SF-12; revisão independente PASS. #1271 (E-SF-08) mesclado em main 1d784aa.
