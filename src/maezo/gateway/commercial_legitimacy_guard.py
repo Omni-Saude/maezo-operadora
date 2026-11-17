@@ -252,7 +252,7 @@ _OUTCOME_EVENT_KINDS: Final[dict[str, LegitimacyEventKind]] = {
 LegitimacyScreenGuardFactory = Callable[[CommercialGateway], "LegitimacyScreenGateway"]
 
 
-class _RevisionContended(Exception):
+class _RevisionContendedError(Exception):
     """A releitura após `revision_taken` colidiu de novo: carrega a avaliação relida."""
 
     def __init__(self, evaluation: LegitimacyScreenEvaluation) -> None:
@@ -388,7 +388,7 @@ class LegitimacyScreenGateway(CommercialGateway):
         par `would_block`+`art39_signaled`, aprovação e PJ sem recibo: nada a escrever.
         Corrida (`revision_taken`, outro escritor gravou a revisão antes): relê a cabeça UMA
         vez e decide sobre a revisão vigente, registrando sobre ela no máximo uma vez; nova
-        colisão levanta `_RevisionContended` com a avaliação relida. Devolve a avaliação
+        colisão levanta `_RevisionContendedError` com a avaliação relida. Devolve a avaliação
         sobre a qual a postura decide."""
         if not self._needs_row(evaluation):
             return evaluation
@@ -405,7 +405,7 @@ class LegitimacyScreenGateway(CommercialGateway):
             await self.store.save(self._observation(reread.receipt))  # type: ignore[arg-type]
         except LegitimacyScreenStoreError as exc:
             if exc.code == "revision_taken":
-                raise _RevisionContended(reread) from None
+                raise _RevisionContendedError(reread) from None
             raise
         return reread
 
@@ -485,7 +485,7 @@ class LegitimacyScreenShadow(LegitimacyScreenGateway):
                 evaluation = await self._evaluate(scope)
                 try:
                     evaluation = await self._register(evaluation, scope)
-                except _RevisionContended as raced:
+                except _RevisionContendedError as raced:
                     # Corrida dupla: sem linha nesta tentativa (o próximo comando relê); sinal sai.
                     evaluation = raced.evaluation
                 self._signal(evaluation)
