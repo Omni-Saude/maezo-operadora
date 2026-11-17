@@ -72,3 +72,5 @@ pronto: maezo-operadora #1290, head b69c390783d37fb7f3c3eeb51c989bd4a523898d, ch
 - Pendência humana: flip-path-review-gate do #1282 (deploy/Dockerfile) sem aprovação de code owner; aceito pela mescladora.
 - Custo de CI: #1271 1 push; #1277 1 push (+1 Update da mescladora); #1282 4 pushes (1 correção de empacotamento, 2 merges da main a pedido); #1290 1 push.
 - Ledger/DL pedidos (entrega em lote pela coordenação): DL para o catálogo de prazos e calendário com feriados no SUPP (E-SF-08); DL para a política de saída a pedido (E-SF-09); linhas de ledger de E-SF-08, 12, 09 e RT-01.
+
+DONE 776b6ac linhas=76
