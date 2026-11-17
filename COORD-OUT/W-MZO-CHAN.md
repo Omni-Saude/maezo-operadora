@@ -57,3 +57,7 @@ Nota de fila: CD-21 item 2 dá prioridade ao E-SF-13 na fila do maezo. Ele só a
 - E-SF-13: PR #1274 aberto (head 3ebad170, rebaseado sobre b3512b7), revisão independente PASS; sem a migração 0036 (CD-31); aguarda CI.
 - E-SF-18: pronto em ramo local (rebaseado), abre depois do #1274 conforme CD-29/CD-31.
 - E-SF-17: pronto em ramo local; entra com as 8 linhas autorizadas (CD-31).
+
+PRONTO maezo-operadora #1274 head 3ebad170ee6a0edc8d64b89eb5f628dda4a45e5c checks verdes (integração lida do junit: cancel-contas 136/0 falhas, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0) — exceto `flip-path-review-gate`: `scripts/ci/check_whatsapp_templates.py` (novo) exige APPROVED de membro verificado de `@Omni-Saude/security-team` (o único dono usuário de `/scripts/ci/` é o autor). Revisão independente PASS no mesmo conteúdo.
+
+E-SF-18: PR #1276 aberto 2026-11-17 ~00:08Z (revisão independente PASS), CI em curso.
