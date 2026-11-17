@@ -21,3 +21,4 @@ ACHADO docs/compliance/legal/MANIFEST.sha256 — a linha de `R-054-RATIFICACAO-C
 ACHADO docs/plans/maezo-completion-program.md:251 — cita MAPA-ELEMENTOS-V4:106; após E-SF-30 o alvo está em :108 (caminho fora da janela).
 PRONTO maezo-operadora #1267 head 0a39b325cffb8c0dd7153e5fe37a1a573d627b12 checks verdes (integração: 5 shards verdes; o PR não traz teste de integração próprio; 2 pushes, o 2º corrige S307 do test_noqa_hygiene)
 PRONTO maezo-operadora #1272 head 1333992760eb45a5d20d95a3acc2123574acbea9 checks verdes (integração: 5 shards verdes; o PR não traz teste de integração próprio; 2 pushes, o 2º corrige falso positivo do gitleaks)
+PRONTO maezo-operadora #1272 head 726b72b63d65a82025f2e5a90c8870282c598939 checks verdes (após Update branch da mescladora; 5 shards de integração verdes; aviso direto enviado à mescladora, CD-42)
