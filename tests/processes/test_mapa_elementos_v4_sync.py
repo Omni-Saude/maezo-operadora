@@ -544,7 +544,7 @@ def test_negativo_d2_estado_das_linhas_nao_fecha_com_o_titulo() -> None:
         "fila humana SP-OP (NPS/form = wiring futuro) | — (C-7) | C-7 | **CASA** |"
     )
     texto = _mutar(_mapa(), linha, linha.replace("| **CASA** |", "| LACUNA |"))
-    assert any("linhas citam 44 CASA + 32 LACUNA" in p for p in problemas_d2(texto))
+    assert any("linhas citam 41 CASA + 35 LACUNA" in p for p in problemas_d2(texto))
 
 
 def test_negativo_d3_elemento_contado_e_nao_citado() -> None:
@@ -602,18 +602,20 @@ def test_negativo_bpmn_muda_sem_regenerar_o_json(tmp_path: Path) -> None:
 
 
 def test_negativo_flip_aplicado_sem_disposicao_adotada() -> None:
-    linha = (
-        "| `CP_Start_NovoBeneficiario` | startEvent | cadastro de beneficiário | "
-        "— (C-1 `cadastro.py`) | C-1 | **CASA** |"
+    # O flip #1 adotado e aplicado (LACUNA); voltar a disposicao para pendente sem
+    # desfazer o estado e flip aplicado sem disposicao `adotado`.
+    texto = _mutar(
+        _mapa(),
+        "`acesso.py` sem ramo de prospect | adotado |",
+        "`acesso.py` sem ramo de prospect | pendente |",
     )
-    texto = _mutar(_mapa(), linha, linha.replace("| **CASA** |", "| LACUNA |"))
     assert any("CP_Start_NovoBeneficiario" in p for p in problemas_flips(texto))
 
 
 def test_negativo_disposicao_fora_do_vocabulario() -> None:
     texto = _mutar(
         _mapa(),
-        "| máquina determinística de consentimento `acesso.py` | pendente |",
+        "| máquina determinística de consentimento `acesso.py` | rejeitado |",
         "| máquina determinística de consentimento `acesso.py` | aceito |",
     )
     assert any("vocabulario" in p for p in problemas_flips(texto))
@@ -629,14 +631,29 @@ def test_negativo_gerador_recusa_flow_node_de_tipo_desconhecido() -> None:
 
 
 def test_negativo_flip_aplicado_com_estado_vigente_reescrito() -> None:
-    linha = (
-        "| `CP_Start_NovoBeneficiario` | startEvent | cadastro de beneficiário | "
-        "— (C-1 `cadastro.py`) | C-1 | **CASA** |"
-    )
-    texto = _mutar(_mapa(), linha, linha.replace("| **CASA** |", "| LACUNA |"))
+    # Reescrever o estado de partida para igualar o alvo nao e flip: recusa.
     texto = _mutar(
-        texto,
+        _mapa(),
         "| 1 | `CP_Start_NovoBeneficiario` | CA_1 | CASA | DO |",
         "| 1 | `CP_Start_NovoBeneficiario` | CA_1 | LACUNA | DO |",
     )
     assert any("CP_Start_NovoBeneficiario" in p for p in problemas_flips(texto))
+
+
+def test_negativo_flip_rejeitado_aplicado_mesmo_assim() -> None:
+    # #8 rejeitado: `CP_End_SemConsentimento` tem de seguir LACUNA; aplicado (CASA) recusa.
+    linha = next(
+        linha
+        for linha in _mapa().splitlines()
+        if "`CP_End_SemConsentimento`" in linha and linha.rstrip().endswith("| LACUNA |")
+    )
+    ids = linha.split("|")[1]
+    sem = ids.replace(", `CP_End_SemConsentimento`", "")
+    texto = _mutar(_mapa(), linha, linha.replace(ids, sem))
+    texto = texto.replace(
+        "| — | LACUNA→wiring sobre C-10 (não é candidato a processo novo) | LACUNA |",
+        "| — | LACUNA→wiring sobre C-10 (não é candidato a processo novo) | LACUNA |\n"
+        "| `CP_End_SemConsentimento` | endEvent | consentimento | — | C-6 | **CASA** |",
+        1,
+    )
+    assert any("CP_End_SemConsentimento" in p for p in problemas_flips(texto))
