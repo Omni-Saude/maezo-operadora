@@ -51,3 +51,24 @@ pronto: maezo-operadora #1282, head 39e49fbf864cb4dc576ea4d20e1568fabbc5a47c, ch
 CAMINHO pyproject.toml, deploy/Dockerfile, tests/unit/ci/test_spec_packaging_fence.py — E-SF-09: force-include + COPY + subtree esperado de spec/policies/saida-a-pedido, exigidos pela cerca de empacotamento (PROVISÓRIO-aguarda-coordenador).
 
 pronto: maezo-operadora #1282, head c989c8d64ea2e7416e5991795e0bb4e116aa8ca8, checks verdes (após 2 merges da main; integração lida do junit: 5 shards, 1403 testes, 0 falhas, 0 erros, 7 skip; flip-path-review-gate vermelho por deploy/Dockerfile, exceção aceita) — repassado à mescladora pelo coordenador às ~07:18Z.
+
+pronto: maezo-operadora #1290, head b69c390783d37fb7f3c3eeb51c989bd4a523898d, checks verdes (integração lida do junit: 5 shards, 1403 testes, 0 falhas, 0 erros, 7 skip) — E-SF-RT-01; revisão independente PASS.
+
+## Relatório final — W-MZO-PROC
+
+| Épico | Estado | PR | Revisor (cego, Opus) |
+|---|---|---|---|
+| E-SF-08 | mesclado (main 1d784aa) | #1271 | PASS após FAIL (pins de contagem, noqa inerte) |
+| E-SF-12 | mesclado (main 2b421e5), empilhado sobre 08 | #1277 | PASS após FAIL (só metadado de commit) |
+| E-SF-09 | mesclado (main d9e2c56) | #1282 | PASS após FAIL (2 guardas de TB-E-17-a; protocolo RN 561) |
+| E-SF-RT-01 | PR aberto, pronto | #1290 | PASS após 4 rodadas (OS-04, pin A9, esquema literal, exclusão de templates) |
+
+- Não verificado localmente: shards de integração (sem Docker; lidos do junit de cada PR) e `tests/unit/{ci,deploy,dev}` completos (helm ausente, clone raso, root; todas as falhas também na main).
+- Portões fechados por construção (testes afirmam): catálogo de prazos e políticas todos DRAFT, sem ETA nem prazo exibido (REG-23, REG-27, TB-13/16); sem promessa numérica de arrependimento (REG-03/Q3); art. 15 não publicável; linha OS-08 ausente (RT-J3 a); `contract_termination` só por pessoa (PEP real); seam de supressão não servido no daemon; `beneficiario` sem suporte em SUPP-001; `ret.*` sem emissor (A9) e templates ret.* sem aprovação.
+- Parados por campo novo no sucessor do C6-4 (CD-26): projeção de prazo em journey.get (EP-REG-23b, TB-E-13-b); 2º recibo de estorno (EP-REG-19a item 4); protocolo/comprovante pelo fio (EP-REG-27b).
+- Sem filho executável (CD-03): promoção de SP-OP-SUPP-001 (E-SF-12r).
+- Deriva principal: GAP-C6 já resolvido por `platform/calendario`; `service.py` do plano = `runtime/worker_runtime/service.py`; `tipo_titular` = `categoria_sujeito`; âncora `cancel.py:731` obsoleta; pacote de E-SF-09 fora de `domain/` (catraca ADR-0037); E-SF-13 passou a declarar templates ret.*.
+- Caminhos fora da tabela, aceitos (CD-24, CD-46): registro de aprovações, allowlist de órfãos, pins de contagem, `platform/saida_a_pedido/`, `platform/validation/retention_signals.py`, `pyproject.toml`/`deploy/Dockerfile`/cerca de empacotamento.
+- Pendência humana: flip-path-review-gate do #1282 (deploy/Dockerfile) sem aprovação de code owner; aceito pela mescladora.
+- Custo de CI: #1271 1 push; #1277 1 push (+1 Update da mescladora); #1282 4 pushes (1 correção de empacotamento, 2 merges da main a pedido); #1290 1 push.
+- Ledger/DL pedidos (entrega em lote pela coordenação): DL para o catálogo de prazos e calendário com feriados no SUPP (E-SF-08); DL para a política de saída a pedido (E-SF-09); linhas de ledger de E-SF-08, 12, 09 e RT-01.
