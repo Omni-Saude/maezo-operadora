@@ -9,9 +9,11 @@ bytes nao canonicos, prefixo `rco_`, caminho nao plano, anexo adulterado, coluna
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 from collections.abc import Callable
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -254,8 +256,8 @@ def test_major2_campos_exatos_da_regra_sao_os_do_contrato() -> None:
 
 
 def test_major2_le_ativacao_exige_aditivo_e_parametros(tmp_path: Path) -> None:
-    """O LEITOR le todo o conjunto fechado; quem recusa o que ainda nao tem significado e
-    `ativacao_nao_suportada` (gate e runtime)."""
+    """O LEITOR le todo o conjunto fechado e, desde o 5e-0 (DL-0181), o pin aceita as tres ativacoes com
+    ou sem aditivo (`ativacao_nao_suportada` vazia), tudo em sombra."""
     raiz = tmp_path
     sint.montar(
         raiz,
@@ -272,7 +274,7 @@ def test_major2_le_ativacao_exige_aditivo_e_parametros(tmp_path: Path) -> None:
     assert vocab.parametros_ativacao == k1.ParametrosAtivacao(**sint.PARAMETROS_ATIVACAO)
     assert _verificar(raiz) == []
     assert lido.decisoes["rco_sint_b"].regras["SINT-B-0001"].ativacao == "em_correcao"
-    assert len(k1.ativacao_nao_suportada(lido)) == 2
+    assert k1.ativacao_nao_suportada(lido) == []
 
 
 def test_major1_continua_lido_sem_campos_do_major2(tmp_path: Path) -> None:
@@ -504,14 +506,46 @@ def test_nits_de_forma_reprovam(
     assert trecho in str(excinfo.value)
 
 
-def test_ativacao_nao_suportada_so_aceita_plena_sem_aditivo(tmp_path: Path) -> None:
-    sint.montar(tmp_path)
+@pytest.mark.parametrize(
+    "ativacao",
+    [
+        ("plena", False),
+        ("plena", True),
+        ("conferida", False),
+        ("conferida", True),
+        ("em_correcao", False),
+        ("em_correcao", True),
+    ],
+)
+def test_ativacao_nao_suportada_aceita_o_conjunto_fechado(tmp_path: Path, ativacao: tuple[str, bool]) -> None:
+    """5e-0 (DL-0181): as tres ativacoes do contrato, com ou sem aditivo, passam no pin (tudo em sombra)."""
+    sint.montar(tmp_path, ativacoes={"SINT-A-0001": ativacao})
     assert k1.ativacao_nao_suportada(_ler(tmp_path)) == []
-    sint.montar(tmp_path, ativacoes={"SINT-A-0001": ("plena", True)})
-    (problema,) = k1.ativacao_nao_suportada(_ler(tmp_path))
-    assert "SINT-A-0001" in problema and "Onda 2 item 5" in problema
     sint.montar(tmp_path, major=1)
     assert k1.ativacao_nao_suportada(_ler(tmp_path)) == []  # MAJOR 1 nao tem ativacao
+
+
+@pytest.mark.parametrize(
+    ("ativacao", "exige_aditivo"), [("automatica", False), ("PLENA", False), (None, False), ("plena", None)]
+)
+def test_ativacao_nao_suportada_recusa_fora_do_contrato(
+    tmp_path: Path, ativacao: str | None, exige_aditivo: bool | None
+) -> None:
+    """Defesa em profundidade: um `ManifestoK1` montado por outro caminho, com valor que o leitor ja
+    recusaria, continua recusado no pin (gate e runtime)."""
+    sint.montar(tmp_path)
+    lido = _ler(tmp_path)
+    decisao = lido.decisoes["rco_sint_a"]
+    regra = dataclasses.replace(decisao.regras["SINT-A-0001"], ativacao=ativacao, exige_aditivo=exige_aditivo)
+    regras = MappingProxyType({**decisao.regras, "SINT-A-0001": regra})
+    trocado = dataclasses.replace(
+        lido,
+        decisoes=MappingProxyType(
+            {**lido.decisoes, "rco_sint_a": dataclasses.replace(decisao, regras=regras)}
+        ),
+    )
+    (problema,) = k1.ativacao_nao_suportada(trocado)
+    assert problema.startswith("rco_sint_a/SINT-A-0001:") and "fora do contrato K1 §7" in problema
 
 
 def test_leitor_nao_importa_o_pacote_maezo() -> None:

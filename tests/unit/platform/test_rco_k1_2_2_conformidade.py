@@ -11,7 +11,8 @@ procedencia em `ORIGEM.json`):
 - a expectativa do grupo derivada dos casos do rco (`rco_k1_2_2_recorte.expectativa`) e `escolher` sobre
   as saidas que o rco declara; a avaliacao das tres decisoes no motor real fica em
   `tests/integration/dmn/test_rco_k1_2_2_composicao_engine.py`;
-- a guarda recusa avaliar sozinho qualquer membro do grupo, o padrao inclusive.
+- a guarda recusa avaliar sozinho qualquer membro do grupo, o padrao inclusive;
+- desde o 5e-0 (DL-0181) a `ativacao` do pacote real e aceita pelo pin, tudo em sombra.
 """
 
 from __future__ import annotations
@@ -102,17 +103,23 @@ def test_dmn_do_recorte_e_o_do_manifesto(decisao: str) -> None:
     assert lido.dominio == "ortopedia-opme"
 
 
-def test_ativacao_do_pacote_real_ainda_recusada_pelo_pin() -> None:
-    # Achado do pacote real (nao e da composicao): o gate e o runtime recusam hoje `ativacao` sem
-    # significado ligado no consumidor (Onda 2 item 5; so `plena` sem aditivo e aceito). O 2.2.0 do rco tem
-    # 46 regras assim, tres delas no grupo de ortopedia; por isso este recorte prova o leitor e a
-    # composicao, mas o pacote ainda nao pode ser pinado.
-    recusas = k1.ativacao_nao_suportada(rec.manifesto())
-    assert len(recusas) == 46
-    assert sorted(r.split(" ", 1)[0] for r in recusas if r.split("/", 1)[0] in rec.ORDEM) == [
-        "rco_mex_ortop/OMNI-ORTOP-MEX-0001:",
-        "rco_mex_ortop_joelho_curativo/OMNI-ORTOP-MEX-0002:",
-        "rco_mex_ortop_joelho_curativo/OMNI-ORTOP-MEX-0007:",
+def test_ativacao_do_pacote_real_aceita_pelo_pin() -> None:
+    # 5e-0 (DL-0181): o pin aceita `ativacao` do conjunto fechado com ou sem aditivo, tudo em sombra. As 46
+    # regras do 2.2.0 que a recusa anterior barrava (43 `plena` com aditivo, 3 `conferida`; tres delas no
+    # grupo de ortopedia) passam; o roteamento de cada uma esta em `test_rco_k1_2_2_ativacao.py`.
+    lido = rec.manifesto()
+    assert k1.ativacao_nao_suportada(lido) == []
+    antes = sorted(
+        f"{d.id}/{r.id_regra}"
+        for d in lido.decisoes.values()
+        for r in d.regras.values()
+        if r.ativacao != "plena" or r.exige_aditivo is not False
+    )
+    assert len(antes) == 46
+    assert [a for a in antes if a.split("/", 1)[0] in rec.ORDEM] == [
+        "rco_mex_ortop/OMNI-ORTOP-MEX-0001",
+        "rco_mex_ortop_joelho_curativo/OMNI-ORTOP-MEX-0002",
+        "rco_mex_ortop_joelho_curativo/OMNI-ORTOP-MEX-0007",
     ]
 
 
