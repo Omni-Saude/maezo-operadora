@@ -61,3 +61,5 @@ Nota de fila: CD-21 item 2 dá prioridade ao E-SF-13 na fila do maezo. Ele só a
 PRONTO maezo-operadora #1274 head 3ebad170ee6a0edc8d64b89eb5f628dda4a45e5c checks verdes (integração lida do junit: cancel-contas 136/0 falhas, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0) — exceto `flip-path-review-gate`: `scripts/ci/check_whatsapp_templates.py` (novo) exige APPROVED de membro verificado de `@Omni-Saude/security-team` (o único dono usuário de `/scripts/ci/` é o autor). Revisão independente PASS no mesmo conteúdo.
 
 E-SF-18: PR #1276 aberto 2026-11-17 ~00:08Z (revisão independente PASS), CI em curso.
+
+pronto: maezo-operadora #1276, head 099d399da433f16931188ce6fdb81f38e3b5756e, checks verdes (integração lida do junit: cancel-contas 136/0 falhas, cred-ans 129/0, recurso-nip 130/0, reembolso 56/0, restante 818/0; flip-path-review-gate verde). Enviado à mescladora (CD-42).
