@@ -58,3 +58,11 @@ ACHADO: o catálogo GT-GTM-018/099 não existe no pacote (busca por id em todo o
 
 - Arquivo: `tests/unit/platform/lembretes/test_optout_config_envio.py`, uma linha em `test_send_template_recusa_autorizacao_alterada_e_faixa_sintetica`: a autorização sintética usa valores placeholder `("a","b","c")`, que o gate agora recusa por classe (`VARIABLE_VALUE_INVALID`). Troca proposta: valores no formato do produtor de lembretes (`("outubro de 2026","320,25","16/10")`). Nenhuma asserção muda. Fora da posse da W2-MZO-CA (pasta de lembretes). Espero a CD antes do PR; o PR só abre depois do merge de ADD01-02.
 - Estado: linha 2 (ADD01-02) em verificação local para o PR; linha nova implementada em ramo `sf-w2/mzo-ca/classes-fechadas` (sem PR); linha 3 (GTM-E-63) implementada em ramo `sf-w2/mzo-ca/gtm-e-63` (sem PR). Ordem: ADD01-02 → classes fechadas → GTM-E-63 → E-SF-23 → E-SF-15 → E-SF-22r → E-SF-16/16r.
+
+## 2026-11-17 ~21:05Z — merge do #1299 e PR da linha 2
+
+- maezo-operadora #1299 (telemetria do agente comercial fechada + GTM-E-11) mesclado; main `972130a0`.
+- CD-91 e CD-92 lidas. Linha 2: maezo-operadora #1303 (ADD01-02) aberto, head `e01db68e9018638853593200e7a4b11407695175`, contém a main `972130a0`. Revisão independente FAIL → reparo literal → PASS. Local: `tests/unit/portal` + `tests/unit/ci` sem falha exclusiva do ramo.
+- Linha 3 (GTM-E-63): revisão independente FAIL (citação de artigo) → reparo literal → PASS; em ramo.
+- Linha de classes fechadas: implementada em ramo; aplico o CAMINHO aceito (CD-91 item 2) e o teste de valores reais (CD-91 item 3) antes da revisão.
+- Disco do container encheu com temporários do pytest (28 GB em `/tmp/pytest-of-root`); limpo.
