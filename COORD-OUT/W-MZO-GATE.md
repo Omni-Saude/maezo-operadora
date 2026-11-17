@@ -68,3 +68,15 @@ E-SF-06 pronto localmente. O ramo `sf-w1/gate/E-SF-06` (25c2e02) foi publicado s
   - GAP-10-2. C6-4 sem campo `retention_class`: o intake real segue recusado mesmo com matriz válida (sucessor).
   - GAP-10-3. RN 623 art. 10 §6º ausente de NORMATIVE-BASELINE-v2.
 - Nota do E-SF-10: `prospect.save`, `contact.request` e `journey.save` passam a recusar `unavailable/lifecycle_unqualified` em toda composição enquanto não houver matriz ratificada. O texto do TB-25 (i) exige isso. A vitrine pública e o preço por catálogo seguem servidos.
+
+## 2026-11-17 ~00:20Z
+
+- #1273 (E-SF-04): o CI pegou duas falhas reais que o meu recorte local não cobria. (1) Pureza do adaptador: o `maezo.adapters.amh` não pode importar `maezo.gateway`, e o módulo de cercas foi movido para `maezo.adapters.amh.commercial_fences`. (2) Dois `# noqa: PLC0415` inertes. Os dois reparos já foram publicados; o head atual é 714cfdb e o CI está rodando. Daqui em diante rodo `tests/unit/ci`, `tests/unit/adapters` e `tests/unit/ports` antes de cada push.
+- **E-SF-36 — caminho fixado (o plano não nomeia arquivos):** `src/maezo/gateway/commercial_disclosure_checklist.py` + `tests/unit/gateway/test_esf36_disclosure_checklist.py`. Motivo: o REG-34 põe o checklist na admissão de `offer.terms`, no gateway, ao lado dos `commercial_*.py` da GATE. O arquivo novo não está na tabela do §4.
+  - CAMINHO src/maezo/gateway/commercial_disclosure_checklist.py — registrar como da GATE.
+  - O ramo `sf-w1/gate/E-SF-36` (1c3e69f) foi publicado sem PR. A revisão independente deu PASS. O módulo ainda não está ligado ao gateway: não existe botão de decisão no maezo, e o C6-4 não tem campo por inciso.
+  - GAPs:
+    - GAP-36-1. Incisos V e VI do art. 4º da RN 413 elididos ("[...]") na NORMATIVE-BASELINE-v2; ficam com verbatim nulo.
+    - GAP-36-2. O Guia do art. 18 continua sem fonte (GAP-10); o slot fica impreenchível.
+    - GAP-36-3. O C6-4 não tem campo por inciso; os slots são candidatos para o sucessor.
+    - GAP-36-4. Falta superfície de botão de decisão; o teste usa a pré-condição de `acceptance.record` com decision=accept.
