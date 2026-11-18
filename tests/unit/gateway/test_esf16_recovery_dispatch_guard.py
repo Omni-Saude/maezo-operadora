@@ -5,16 +5,16 @@ from __future__ import annotations
 import ast
 import dataclasses
 import inspect
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from maezo.domain.rn413_contracting_clock import EstadoDoRelogio, EventoCandidato, estado_do_relogio
+from maezo.gateway.communications import recovery_dispatch as rc
 from maezo.gateway.communications.finalidades_do_aceite import AceiteDeFinalidades
-from maezo.gateway.communications.recovery_eligibility import MotivoRecuperacao, RecuperacaoRecusada
-from maezo.platform.webhooks.whatsapp import recuperacao as rc
-from maezo.platform.webhooks.whatsapp.recuperacao import (
+from maezo.gateway.communications.recovery_dispatch import (
     MotivoDespachoRecuperacao,
     PedidoDeRecuperacao,
     RecuperacaoDespachoRecusado,
@@ -22,10 +22,11 @@ from maezo.platform.webhooks.whatsapp.recuperacao import (
     guardar_envio_de_recuperacao,
     ler_chave_da_recuperacao,
 )
+from maezo.gateway.communications.recovery_eligibility import MotivoRecuperacao, RecuperacaoRecusada
 
 D = "6" * 64
 INICIO = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
-_RAIZ = Path(rc.__file__).resolve().parents[5]
+_RAIZ = Path(rc.__file__).resolve().parents[4]
 
 
 class _Supressao:
@@ -208,13 +209,32 @@ def test_pedido_sem_dado_pessoal_nem_de_saude() -> None:
 
 
 def test_nao_importado_por_dispatch_nem_por_raiz_de_composicao() -> None:
+    # Ninguem em src importa a guarda: nem `platform/webhooks/whatsapp/dispatch.py`, nem raiz de composicao.
+    arquivos = list((_RAIZ / "src" / "maezo").rglob("*.py"))
+    assert (_RAIZ / "src/maezo/platform/webhooks/whatsapp/dispatch.py") in arquivos  # a varredura e' real
     usos = [
         str(p.relative_to(_RAIZ))
-        for p in (_RAIZ / "src" / "maezo").rglob("*.py")
-        if p.resolve() != Path(rc.__file__).resolve()
-        and ("whatsapp.recuperacao" in (t := p.read_text(encoding="utf-8")) or "from .recuperacao" in t)
+        for p in arquivos
+        if p.resolve() != Path(rc.__file__).resolve() and "recovery_dispatch" in p.read_text(encoding="utf-8")
     ]
     assert usos == []
+
+
+def test_sem_logger_sem_log_e_sem_wamid_ou_telefone() -> None:
+    # A cerca de wamid do webhook nao cobre este modulo; esta cobre.
+    arvore = ast.parse(inspect.getsource(rc))
+    importados = {
+        a.name.split(".")[0] for n in ast.walk(arvore) if isinstance(n, ast.Import) for a in n.names
+    } | {n.module or "" for n in ast.walk(arvore) if isinstance(n, ast.ImportFrom)}
+    assert not {m for m in importados if "log" in m.lower()}, importados
+    nomes = {n.id for n in ast.walk(arvore) if isinstance(n, ast.Name)} | {
+        n.attr for n in ast.walk(arvore) if isinstance(n, ast.Attribute)
+    }
+    assert not {n for n in nomes if n.lower() in {"logger", "log", "logging", "structlog", "print"}}
+    sensiveis = re.compile(r"wamid|telefone|phone|numero|msisdn|celular", re.I)
+    for funcao in (rc.guardar_envio_de_recuperacao, rc.despachar_recuperacao, rc.ler_chave_da_recuperacao):
+        assert not [p for p in inspect.signature(funcao).parameters if sensiveis.search(p)]
+    assert not [f.name for f in dataclasses.fields(PedidoDeRecuperacao) if sensiveis.search(f.name)]
 
 
 def test_sem_assert_e_sem_nome_de_sinal_na_fonte() -> None:

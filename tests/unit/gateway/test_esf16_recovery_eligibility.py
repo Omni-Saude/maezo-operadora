@@ -144,4 +144,4 @@ def test_sem_importador_em_src() -> None:
         and "recovery_eligibility" in p.read_text(encoding="utf-8")
     ]
     # So' a guarda de despacho (nao montada) o importa.
-    assert usos == ["src/maezo/platform/webhooks/whatsapp/recuperacao.py"]
+    assert usos == ["src/maezo/gateway/communications/recovery_dispatch.py"]

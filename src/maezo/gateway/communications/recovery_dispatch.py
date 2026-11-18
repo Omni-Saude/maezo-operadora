@@ -11,7 +11,9 @@ Ordem (a primeira recusa encerra):
   4. permissao: aceite valido do proprio titular, que liste a finalidade 7 (retomada); nada herdado;
   5. cadencia: toques ja' enviados >= toques permitidos (zero) recusa.
 
-Nao importado por `dispatch.py`, pelo despachante nem por raiz de composicao (teste).
+Mora ao lado do portao de saida (`gateway/communications/`), nao no caminho de entrada do webhook. Nao importa
+logger, nao loga nada e nao recebe wamid nem telefone: so' referencias opacas e o estado do relogio. Nao e'
+importado por `platform/webhooks/whatsapp/dispatch.py`, pelo despachante nem por raiz de composicao (teste).
 """
 
 from __future__ import annotations
@@ -20,9 +22,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
-from maezo.gateway.communications.finalidades_do_aceite import aceite_autoriza, validar_aceite
-from maezo.gateway.communications.outbound_gate import FonteDeSupressao
-from maezo.gateway.communications.recovery_eligibility import Elegivel, avaliar_elegibilidade
+from .finalidades_do_aceite import aceite_autoriza, validar_aceite
+from .outbound_gate import FonteDeSupressao
+from .recovery_eligibility import Elegivel, avaliar_elegibilidade
 
 __all__ = [
     "CANAL",
