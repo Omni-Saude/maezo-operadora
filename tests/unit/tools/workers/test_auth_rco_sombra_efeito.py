@@ -914,25 +914,123 @@ def test_conclusao_acontece_antes_de_qualquer_chamada_rco_ao_motor(
     assert [r.decision for r, _ in sink.emitted] == [harness_mod.AUDIT_DECISION_COMPLETE]
 
 
-def test_teto_da_espera_pos_conclusao_nao_falha_a_tarefa(
-    pin_real: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.fixture(autouse=True)
+def _vaga_livre() -> Iterator[None]:
+    """Cada teste comeca e termina com a vaga do executor de sombra livre (nenhum trabalho preso vaza)."""
+    yield
+    assert harness_mod._VAGA_POS_CONCLUSAO.acquire(timeout=10), "trabalho de sombra preso"
+    harness_mod._VAGA_POS_CONCLUSAO.release()
+
+
+def _harness_cru(adiar: Callable[[], None]) -> tuple[WorkerHarness, FakeWorkerTransport, FakeAuditSink]:
+    """Um harness com um handler cru que so adia `adiar` (sem pin nem motor)."""
+    from maezo.tools.workers._audit_ctx import adiar_pos_conclusao
+
+    transport = FakeWorkerTransport()
+    sink = FakeAuditSink()
+    h = WorkerHarness(transport, worker_id="w", tenant="amh", audit_sink=sink)
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        assert adiar_pos_conclusao(adiar)
+        return {"ok": True}
+
+    h.register(TOPICO, handler)
+    return h, transport, sink
+
+
+def test_teto_da_espera_pos_conclusao_nao_falha_a_tarefa(monkeypatch: pytest.MonkeyPatch) -> None:
     """A espera pelo trabalho adiado tem teto; estourado, a tarefa (ja completa) nao muda e o desfecho e
-    `teto_estourado`."""
-    monkeypatch.setattr(auth_rco, "PRAZO_SOMBRA_AUTH_S", 0.3)
-    monkeypatch.setattr(harness_mod, "_POS_CONCLUSAO_TIMEOUT_S", 0.01)
+    `teto_estourado`. A vaga so volta quando a thread termina."""
+    import threading
+
+    monkeypatch.setattr(harness_mod, "_POS_CONCLUSAO_TIMEOUT_S", 0.05)
     pos: list[str] = []
     monkeypatch.setattr(harness_mod, "record_rco_sombra_pos_conclusao", pos.append)
-    h, transport, sink, registro, _ = _harness(_motor_lento())
+    solta = threading.Event()
+    h, transport, sink = _harness_cru(lambda: solta.wait(5))
     _rodar(h, _task())
     assert transport.failures == [] and len(transport.completed) == 1
     assert pos == ["teto_estourado"]
-    assert len(sink.emitted) == 1 and registro.chamadas == []
+    assert not harness_mod._VAGA_POS_CONCLUSAO.acquire(blocking=False)  # a thread ainda ocupa a vaga
+    solta.set()
 
 
-def test_fato_de_sombra_que_falha_nao_falha_a_tarefa(
+def test_ocupado_descarta_sem_fila_e_sem_motor(
     pin_real: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Com a vaga ocupada o trabalho e DESCARTADO (`descartada_ocupado`), nunca enfileirado: nenhuma chamada
+    `rco_` ao motor, nenhum fato de sombra, nenhum registro."""
+    pos: list[str] = []
+    monkeypatch.setattr(harness_mod, "record_rco_sombra_pos_conclusao", pos.append)
+    dmn = _dmn()
+    h, transport, sink, registro, _ = _harness(dmn)
+    assert harness_mod._VAGA_POS_CONCLUSAO.acquire(blocking=False)
+    try:
+        _rodar(h, _task())
+    finally:
+        harness_mod._VAGA_POS_CONCLUSAO.release()
+    assert transport.failures == [] and len(transport.completed) == 1
+    assert pos == ["descartada_ocupado"]
+    assert _rco_chamadas(dmn) == [] and len(sink.emitted) == 1 and registro.chamadas == []
+
+
+def test_trabalho_que_comeca_depois_do_prazo_nao_chama_o_motor(
+    pin_real: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pos: list[str] = []
+    monkeypatch.setattr(harness_mod, "record_rco_sombra_pos_conclusao", pos.append)
+    original = harness_mod._rodar_adiados
+    # o instante-limite que o harness calcula ja vencido quando a thread comeca
+    monkeypatch.setattr(
+        harness_mod, "_rodar_adiados", lambda adiados, limite: original(adiados, limite - 3600)
+    )
+    dmn = _dmn()
+    h, transport, sink, registro, _ = _harness(dmn)
+    _rodar(h, _task())
+    assert transport.failures == [] and len(transport.completed) == 1
+    assert pos == ["prazo_vencido_antes_de_iniciar"]
+    assert _rco_chamadas(dmn) == [] and len(sink.emitted) == 1 and registro.chamadas == []
+
+
+def test_sombra_presa_nao_atrasa_o_executor_dos_workers() -> None:
+    """DETERMINISTICO: com a sombra presa num `Event` na thread dela, um `asyncio.to_thread` (o caminho de
+    todo worker registrado) roda na hora, em outra thread; a sombra roda no executor proprio."""
+    import threading
+
+    entrou = threading.Event()
+    solta = threading.Event()
+    nomes: list[str] = []
+
+    def preso() -> None:
+        nomes.append(threading.current_thread().name)
+        entrou.set()
+        solta.wait(5)
+
+    h, transport, _ = _harness_cru(preso)
+
+    async def cenario() -> str:
+        tarefa = asyncio.ensure_future(h._handle(_task()))
+        for _ in range(200):
+            if entrou.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert entrou.is_set()
+        nome = await asyncio.wait_for(asyncio.to_thread(lambda: threading.current_thread().name), 1.0)
+        solta.set()
+        await tarefa
+        return nome
+
+    nome_worker = asyncio.run(cenario())
+    assert nomes and nomes[0].startswith("maezo-sombra-pos")
+    assert not nome_worker.startswith("maezo-sombra-pos")
+    assert len(transport.completed) == 1
+
+
+def test_fato_de_sombra_que_falha_nao_falha_a_tarefa_e_nao_registra(
+    pin_real: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sem o fato de sombra gravado, o registro K1 nao e escrito (o registro nunca existe sem a linha de
+    auditoria); um desfecho so por execucao."""
     pos: list[str] = []
     monkeypatch.setattr(harness_mod, "record_rco_sombra_pos_conclusao", pos.append)
     h, transport, sink, registro, _ = _harness(_dmn())
@@ -946,8 +1044,51 @@ def test_fato_de_sombra_que_falha_nao_falha_a_tarefa(
     sink.emit_once = falha_na_sombra  # type: ignore[method-assign]
     _rodar(h, _task())
     assert transport.failures == [] and len(transport.completed) == 1
-    assert pos == ["auditoria_falhou", "executada"]
-    assert len(registro.chamadas) == 3  # o registro K1 de sombra segue (fail-open)
+    assert pos == ["auditoria_falhou"]
+    assert registro.chamadas == []
+
+
+def test_fato_de_sombra_lento_tem_teto(
+    pin_real: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pos: list[str] = []
+    monkeypatch.setattr(harness_mod, "record_rco_sombra_pos_conclusao", pos.append)
+    monkeypatch.setattr(harness_mod, "_RCO_SOMBRA_AUDITORIA_TIMEOUT_S", 0.05)
+    h, transport, sink, registro, _ = _harness(_dmn())
+    emit_once = sink.emit_once
+
+    async def lento(record: Any, *, dedup_key: str) -> str:
+        if ":sombra:" in dedup_key:
+            await asyncio.sleep(30)
+        return await emit_once(record, dedup_key=dedup_key)
+
+    sink.emit_once = lento  # type: ignore[method-assign]
+    _rodar(h, _task())
+    assert transport.failures == [] and len(transport.completed) == 1
+    assert pos == ["auditoria_teto_estourado"]
+    assert registro.chamadas == [] and len(sink.emitted) == 1
+
+
+def test_execucao_normal_conta_um_so_desfecho(
+    pin_real: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pos: list[str] = []
+    monkeypatch.setattr(harness_mod, "record_rco_sombra_pos_conclusao", pos.append)
+    h, _, _, registro, _ = _harness(_dmn())
+    _rodar(h, _task())
+    assert pos == ["executada"] and len(registro.chamadas) == 3
+
+
+def test_rodar_adiados_com_prazo_vencido_nao_chama_nada() -> None:
+    chamados: list[int] = []
+    _v, _a, _c, erros, vencido = harness_mod._rodar_adiados((lambda: chamados.append(1),), -1.0)
+    assert (chamados, erros, vencido) == ([], [], True)
+
+
+def test_drain_encerra_o_executor_e_ele_e_recriado() -> None:
+    primeiro = harness_mod._executor_pos_conclusao()
+    harness_mod.encerrar_executor_pos_conclusao()
+    assert harness_mod._executor_pos_conclusao() is not primeiro
 
 
 def test_paridade_dos_desfechos_pos_conclusao() -> None:

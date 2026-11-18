@@ -956,7 +956,16 @@ def record_rco_entrada_cobertura(
 #: DL-0187: vocabulario FECHADO de `maezo_rco_sombra_pos_conclusao_total`
 #: (= `harness.SOMBRA_POS_CONCLUSAO_DESFECHOS`, paridade em teste). Valor fora do conjunto vira `outro`.
 RCO_SOMBRA_POS_CONCLUSAO_DESFECHOS: Final[frozenset[str]] = frozenset(
-    {"executada", "teto_estourado", "erro_de_programacao", "auditoria_falhou", "auditoria_nao_configurada"}
+    {
+        "executada",
+        "descartada_ocupado",
+        "prazo_vencido_antes_de_iniciar",
+        "teto_estourado",
+        "erro_de_programacao",
+        "auditoria_falhou",
+        "auditoria_teto_estourado",
+        "auditoria_nao_configurada",
+    }
 )
 
 

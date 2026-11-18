@@ -108,6 +108,13 @@ class RegistroAuditado:
 
     dedup_key: str
     dmn_versions: Mapping[str, Any]
+    #: A `decision` da linha da cadeia (`COMPLETE` ou, DL-0187, `SHADOW`).
+    decisao: str = DECISAO_CONCLUSAO
+
+    def de_sombra(self, tenant: str) -> bool:
+        """DL-0187: fato de sombra (decisao `SHADOW` ou namespace `sombra:`): TODA entrada dele e de sombra,
+        qualquer que seja o `composicaoK1.modo` gravado; nunca espera linha no outbox."""
+        return self.decisao == DECISAO_SOMBRA or self.dedup_key.startswith(f"{tenant}:{NAMESPACE_SOMBRA}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +253,7 @@ def _esperados(
     suprimidos: set[tuple[str, str]] = set()
     fora_do_vocabulario: set[tuple[str, str]] = set()
     for registro in registros:
+        de_sombra = registro.de_sombra(tenant)
         task_id = _task_id(tenant, registro.dedup_key)
         if task_id is None:
             divergencias.append(Divergencia(CHAVE_AUDITORIA_FORA_DA_FORMA))
@@ -260,7 +268,7 @@ def _esperados(
             # DL-0187: o modo e o nome vem do registro DURAVEL, ANTES do pin de agora: uma entrada de sombra
             # nunca espera linha, mesmo que o pin tenha mudado e a decisao nao esteja mais em grupo algum.
             grupo = por_decisao.get(decisao)
-            modo = _modo(entrada)
+            modo = MODO_SOMBRA if de_sombra else _modo(entrada)
             nome = _nome_duravel(entrada) or (grupo.nome if grupo is not None else "")
             if modo is None:
                 if (task_id, nome) not in fora_do_vocabulario:
@@ -358,7 +366,7 @@ def reconciliar(
 
 #: Conclusoes da janela com `sinaisAuditoria` em alguma entrada; a `dedup_key` vem da reivindicacao (0005).
 _AUDITORIA_SQL: Final[str] = (
-    "SELECT d.dedup_key, c.dmn_versions FROM audit_chain c "
+    "SELECT d.dedup_key, c.dmn_versions, c.decision FROM audit_chain c "
     "JOIN audit_emit_dedup d ON d.tenant = c.tenant_id AND d.record_hash = c.record_hash "
     "WHERE c.tenant_id = $1 AND c.timestamp >= $2 AND c.timestamp < $3 AND c.decision = ANY($4::text[]) "
     "AND jsonb_path_exists(c.dmn_versions, '$.*.sinaisAuditoria') "
@@ -432,7 +440,9 @@ class PostgresFonteReconciliacao:
 
     async def ler_auditoria(self, desde: datetime, ate: datetime) -> list[RegistroAuditado]:
         rows = await self._ler(_AUDITORIA_SQL, self._tenant, desde, ate, [DECISAO_CONCLUSAO, DECISAO_SOMBRA])
-        return [RegistroAuditado(str(r["dedup_key"]), _jsonb(r["dmn_versions"])) for r in rows]
+        return [
+            RegistroAuditado(str(r["dedup_key"]), _jsonb(r["dmn_versions"]), str(r["decision"])) for r in rows
+        ]
 
     async def status_no_outbox(self, chaves: Sequence[str]) -> dict[str, str]:
         if not chaves:

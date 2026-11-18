@@ -149,6 +149,19 @@ def test_fato_de_sombra_pos_conclusao_e_lido_pelo_namespace_proprio() -> None:
     assert {d.codigo for d in rel.divergencias} == {rr.CHAVE_AUDITORIA_FORA_DA_FORMA}
 
 
+def test_fato_shadow_e_sempre_sombra_mesmo_com_modo_efeito_gravado() -> None:
+    """DL-0187 (item 4): uma entrada rotulada `efeito` DENTRO de um fato `SHADOW` (ou no namespace `sombra:`)
+    nunca espera linha no outbox."""
+    efeito = _com_modo("efeito")
+    for registro in (
+        rr.RegistroAuditado("amh:sombra:task-1", efeito.dmn_versions),
+        rr.RegistroAuditado("amh:task-1", efeito.dmn_versions, rr.DECISAO_SOMBRA),
+        rr.RegistroAuditado("amh:sombra:task-1", _registro().dmn_versions, rr.DECISAO_SOMBRA),
+    ):
+        rel = rr.reconciliar([registro], tenant="amh", status_no_outbox={}, **_pacote())
+        assert rel.ok and (rel.esperados, rel.suprimidos_sombra) == (0, 1)
+
+
 @pytest.mark.parametrize("modo", ["ativa", None, 1, ""])
 def test_modo_fora_do_vocabulario_e_codigo_fechado(modo: object) -> None:
     rel = rr.reconciliar([_com_modo(modo)], tenant="amh", status_no_outbox={}, **_pacote())

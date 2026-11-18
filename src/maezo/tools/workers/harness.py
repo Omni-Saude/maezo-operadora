@@ -68,8 +68,10 @@ import logging
 import os
 import random
 import re
+import threading
 import time
 from collections.abc import Callable, Coroutine, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple, Protocol, runtime_checkable
 
@@ -191,8 +193,19 @@ _POS_CONCLUSAO_TIMEOUT_S: float = 6.0
 #: DL-0187: desfechos de `maezo_rco_sombra_pos_conclusao_total`
 #: (= `observability.RCO_SOMBRA_POS_CONCLUSAO_DESFECHOS`, paridade em teste).
 SOMBRA_POS_CONCLUSAO_DESFECHOS: frozenset[str] = frozenset(
-    {"executada", "teto_estourado", "erro_de_programacao", "auditoria_falhou", "auditoria_nao_configurada"}
+    {
+        "executada",
+        "descartada_ocupado",
+        "prazo_vencido_antes_de_iniciar",
+        "teto_estourado",
+        "erro_de_programacao",
+        "auditoria_falhou",
+        "auditoria_teto_estourado",
+        "auditoria_nao_configurada",
+    }
 )
+#: DL-0187: teto do append do fato de sombra na cadeia (o mesmo do enfileiramento dos avisos).
+_RCO_SOMBRA_AUDITORIA_TIMEOUT_S: float = 3.0
 #: Teto TOTAL do enfileiramento dos avisos de `sinalAuditoria` de uma tarefa (DL-0185). Roda DEPOIS de
 #: completar a tarefa e e fail-open: estourar o teto so perde o aviso no outbox (a auditoria o guarda).
 _RCO_AVISO_TIMEOUT_S: float = 3.0
@@ -206,23 +219,52 @@ def _avisos_do_pin_de_bordo() -> Mapping[str, AvisoK6]:
 
 
 def _rodar_adiados(
-    adiados: Sequence[Callable[[], None]],
-) -> tuple[dict[str, Any], dict[str, AvaliacaoRegra], dict[str, ComposicaoRegistrada], list[str]]:
-    """Roda o trabalho adiado (DL-0187) numa thread, com coletores proprios; devolve o que eles colheram e o
-    TIPO de cada `Exception` que escapou (o trabalho de sombra ja e total; isto e cinto e suspensorio)."""
+    adiados: Sequence[Callable[[], None]], limite: float
+) -> tuple[dict[str, Any], dict[str, AvaliacaoRegra], dict[str, ComposicaoRegistrada], list[str], bool]:
+    """Roda o trabalho adiado (DL-0187) na thread do executor de sombra, com coletores proprios; devolve o
+    que eles colheram, o TIPO de cada `Exception` que escapou e se o instante-limite (`time.monotonic`, do
+    harness) venceu ANTES de algum chamavel comecar (esse nao roda: nenhuma chamada ao motor)."""
     erros: list[str] = []
+    vencido = False
     with (
         collect_dmn_versions() as dmn_versions,
         collect_rco_avaliacoes() as avaliacoes,
         collect_rco_composicoes() as composicoes,
     ):
         for adiado in adiados:
+            if time.monotonic() >= limite:
+                vencido = True
+                break
             try:
                 adiado()
             except Exception as exc:
                 erros.append(type(exc).__name__)
         reaplicar_sinais_auditoria(dmn_versions, composicoes)
-        return dict(dmn_versions), dict(avaliacoes), dict(composicoes), erros
+        return dict(dmn_versions), dict(avaliacoes), dict(composicoes), erros, vencido
+
+
+#: DL-0187: o executor PROPRIO do trabalho de sombra depois de completar (uma thread, criado sob demanda) e a
+#: vaga de admissao (um trabalho por processo, sem fila). Nunca o executor padrao, que roda os workers.
+_EXECUTOR_POS_CONCLUSAO: ThreadPoolExecutor | None = None
+_EXECUTOR_POS_CONCLUSAO_LOCK = threading.Lock()
+_VAGA_POS_CONCLUSAO = threading.BoundedSemaphore(1)
+
+
+def _executor_pos_conclusao() -> ThreadPoolExecutor:
+    global _EXECUTOR_POS_CONCLUSAO
+    with _EXECUTOR_POS_CONCLUSAO_LOCK:
+        if _EXECUTOR_POS_CONCLUSAO is None:
+            _EXECUTOR_POS_CONCLUSAO = ThreadPoolExecutor(max_workers=1, thread_name_prefix="maezo-sombra-pos")
+        return _EXECUTOR_POS_CONCLUSAO
+
+
+def encerrar_executor_pos_conclusao() -> None:
+    """Encerra o executor de sombra sem esperar (chamado por `WorkerHarness.drain`); recriado sob demanda."""
+    global _EXECUTOR_POS_CONCLUSAO
+    with _EXECUTOR_POS_CONCLUSAO_LOCK:
+        executor, _EXECUTOR_POS_CONCLUSAO = _EXECUTOR_POS_CONCLUSAO, None
+    if executor is not None:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _descartar_resultado(trabalho: asyncio.Future[Any]) -> None:
@@ -1651,6 +1693,9 @@ class WorkerHarness:
         re-deliver it to a surviving replica immediately (rather than waiting out
         `lock_duration_ms`, v1's only mechanism).
         """
+        # DL-0187: o executor de sombra nao aceita mais trabalho; o que estiver rodando termina dentro do
+        # orcamento do motor dele (a thread nao segura o processo: `shutdown(wait=False)`).
+        encerrar_executor_pos_conclusao()
         pending = [fut for fut, _task in self._inflight.values()]
         if not pending:
             return
@@ -1994,59 +2039,31 @@ class WorkerHarness:
         (salvo cancelamento).
 
         Por que depois de `complete`: a sombra nao pode custar nada ao caso real; aqui ela nao segura o
-        bloqueio da tarefa nem atrasa a conclusao. O trabalho e sincrono (motor via `evaluate_sync`), entao
-        roda em `asyncio.to_thread`, com coletores PROPRIOS (`dmn_versions`, avaliacoes K1, composicoes).
-        Depois:
+        bloqueio da tarefa nem atrasa a conclusao. O trabalho e sincrono (motor via `evaluate_sync`) e roda
+        num executor PROPRIO de UMA thread (`_executor_pos_conclusao`), nunca no executor padrao que roda os
+        workers (`register_worker` -> `asyncio.to_thread`): uma sombra lenta nao atrasa nenhuma outra tarefa.
+
+        Admissao sem fila: so UM trabalho de sombra por processo de cada vez (`_VAGA_POS_CONCLUSAO`,
+        `acquire(blocking=False)`); ocupado, este e descartado (`descartada_ocupado`), nunca enfileirado.
+        Prazo: o harness calcula o instante-limite (`time.monotonic`, AQUI: o montador e `rco_sombra` nao
+        leem relogio) e o trabalho que comecar depois dele volta sem chamar o motor
+        (`prazo_vencido_antes_de_iniciar`); o mesmo vale entre um chamavel adiado e o seguinte. Depois:
 
         1. o que ele auditou vai a um FATO separado na mesma cadeia (`AUDIT_DECISION_SOMBRA`, dedup
-           `{tenant}:sombra:{task_id}`: a re-entrega converge na mesma linha); a reconciliacao de avisos o le;
-        2. as avaliacoes K1 (so `modo=sombra`; outra coisa e descartada com log) vao ao registro de decisoes
-           pelo caminho de sempre (`_registrar_decisoes_rco`, com o teto proprio `_RCO_REGISTRO_TIMEOUT_S`);
+           `{tenant}:sombra:{task_id}`), com teto proprio (`_RCO_SOMBRA_AUDITORIA_TIMEOUT_S`);
+        2. SO com o fato gravado, as avaliacoes K1 (so `modo=sombra`) vao ao registro de decisoes
+           (`_registrar_decisoes_rco`, teto `_RCO_REGISTRO_TIMEOUT_S`): o registro nunca existe sem a linha
+           de auditoria;
         3. as composicoes (so de sombra) contam `suprimido_sombra`; nada vai ao outbox.
 
-        Ocupacao: a espera tem teto (`_POS_CONCLUSAO_TIMEOUT_S`); o motor ja e limitado pelo orcamento do
-        trabalho. Os dois tetos nao seguram mais o bloqueio, so limitam quanto a thread e o `_handle` ficam
-        ocupados depois da conclusao. Toda falha vira log (so tipo/codigo) e
-        `maezo_rco_sombra_pos_conclusao_total{desfecho}`.
+        UM desfecho por execucao em `maezo_rco_sombra_pos_conclusao_total{desfecho}` (`executada` so se nada
+        mais aconteceu); toda falha vira log so com tipo/codigo.
         """
         if not adiados:
             return
+        desfecho = "executada"
         try:
-            trabalho = asyncio.ensure_future(asyncio.to_thread(_rodar_adiados, tuple(adiados)))
-            try:
-                done, _ = await asyncio.wait({trabalho}, timeout=_POS_CONCLUSAO_TIMEOUT_S)
-            except BaseException:
-                trabalho.cancel()
-                raise
-            if not done:
-                trabalho.add_done_callback(_descartar_resultado)
-                logger.error(
-                    "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro="teto"
-                )
-                record_rco_sombra_pos_conclusao("teto_estourado")
-                return
-            dmn_versions, avaliacoes, composicoes, erros = trabalho.result()
-            for erro in erros:
-                logger.error(
-                    "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro=erro
-                )
-                record_rco_sombra_pos_conclusao("erro_de_programacao")
-            if dmn_versions:
-                await self._emitir_fato_sombra(task, dmn_versions)
-            sombra = {k: a for k, a in avaliacoes.items() if a.modo == MODO_SOMBRA}
-            if len(sombra) != len(avaliacoes):
-                logger.error(
-                    "rco_sombra_pos_conclusao_falhou",
-                    task_id=task.task_id,
-                    topic=task.topic,
-                    erro="modo_nao_sombra",
-                )
-                record_rco_sombra_pos_conclusao("erro_de_programacao")
-            await self._registrar_decisoes_rco(task, sombra)
-            self._avisos_rco_suprimidos_sombra(
-                task, {n: c for n, c in composicoes.items() if c.modo == MODO_SOMBRA}
-            )
-            record_rco_sombra_pos_conclusao("executada")
+            desfecho = await self._executar_pos_conclusao_desfecho(task, tuple(adiados))
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # cinto e suspensorio: a tarefa ja completou; nada sobe para `_handle`.
@@ -2056,21 +2073,83 @@ class WorkerHarness:
                 topic=task.topic,
                 erro=type(exc).__name__,
             )
-            record_rco_sombra_pos_conclusao("erro_de_programacao")
+            desfecho = "erro_de_programacao"
+        record_rco_sombra_pos_conclusao(desfecho)
+
+    async def _executar_pos_conclusao_desfecho(
+        self, task: ExternalTask, adiados: tuple[Callable[[], None], ...]
+    ) -> str:
+        if not _VAGA_POS_CONCLUSAO.acquire(blocking=False):
+            logger.warning(
+                "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro="ocupado"
+            )
+            return "descartada_ocupado"
+        limite = time.monotonic() + _POS_CONCLUSAO_TIMEOUT_S
+        try:
+            futuro = _executor_pos_conclusao().submit(_rodar_adiados, adiados, limite)
+        except BaseException:
+            _VAGA_POS_CONCLUSAO.release()
+            raise
+        # A vaga so volta quando a THREAD termina (ou o futuro e cancelado antes de comecar), nunca quando o
+        # harness desiste de esperar: e isso que impede trabalho acumulado atras de um trabalho preso.
+        futuro.add_done_callback(lambda _f: _VAGA_POS_CONCLUSAO.release())
+        trabalho = asyncio.wrap_future(futuro)
+        try:
+            done, _ = await asyncio.wait({trabalho}, timeout=_POS_CONCLUSAO_TIMEOUT_S)
+        except BaseException:
+            trabalho.cancel()
+            raise
+        if not done:
+            trabalho.add_done_callback(_descartar_resultado)
+            logger.error(
+                "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro="teto"
+            )
+            return "teto_estourado"
+        dmn_versions, avaliacoes, composicoes, erros, vencido = trabalho.result()
+        desfecho = "executada"
+        for erro in erros:
+            logger.error("rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro=erro)
+            desfecho = "erro_de_programacao"
+        if vencido and desfecho == "executada":
+            desfecho = "prazo_vencido_antes_de_iniciar"
+        sombra = {k: a for k, a in avaliacoes.items() if a.modo == MODO_SOMBRA}
+        if len(sombra) != len(avaliacoes):
+            logger.error(
+                "rco_sombra_pos_conclusao_falhou",
+                task_id=task.task_id,
+                topic=task.topic,
+                erro="modo_nao_sombra",
+            )
+            desfecho = "erro_de_programacao"
+        gravado = True
+        if dmn_versions:
+            falha = await self._emitir_fato_sombra(task, dmn_versions)
+            if falha is not None:
+                gravado = False
+                if desfecho == "executada":
+                    desfecho = falha
+        if gravado:
+            await self._registrar_decisoes_rco(task, sombra)
+        self._avisos_rco_suprimidos_sombra(
+            task, {n: c for n, c in composicoes.items() if c.modo == MODO_SOMBRA}
+        )
+        return desfecho
 
     def _audit_sombra_dedup_key(self, task: ExternalTask) -> str:
         """DL-0187: `{tenant}:sombra:{task_id}`, namespace proprio (como `refuse:`): o fato de sombra nunca
         colide com a conclusao da mesma tarefa, e a re-entrega converge na mesma linha."""
         return f"{self._tenant}:sombra:{task.task_id}"
 
-    async def _emitir_fato_sombra(self, task: ExternalTask, dmn_versions: dict[str, Any]) -> None:
-        """Grava o fato de sombra (DL-0187). Fail-open: a tarefa ja completou; falha vira log e metrica."""
+    async def _emitir_fato_sombra(self, task: ExternalTask, dmn_versions: dict[str, Any]) -> str | None:
+        """Grava o fato de sombra (DL-0187) com teto proprio. Devolve `None` se gravou, senao o desfecho
+        fechado (`auditoria_nao_configurada`, `auditoria_teto_estourado`, `auditoria_falhou`). Fail-open: a
+        tarefa ja completou. Custo real: e um SEGUNDO append na cadeia do tenant (com o advisory lock dela)
+        por tarefa do AUTH, so quando o pin do rco nao esta em `sem_pacote`."""
         if self._audit_sink is None:
             logger.error(
                 "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro="sem_sink"
             )
-            record_rco_sombra_pos_conclusao("auditoria_nao_configurada")
-            return
+            return "auditoria_nao_configurada"
         record = AuditRecord(
             agent_id=AUDIT_AGENT_ID,
             tenant_id=self._tenant,
@@ -2082,18 +2161,33 @@ class WorkerHarness:
             model_id=None,
             prompt_version=None,
         )
+        trabalho = asyncio.ensure_future(
+            self._audit_sink.emit_once(record, dedup_key=self._audit_sombra_dedup_key(task))
+        )
         try:
-            await self._audit_sink.emit_once(record, dedup_key=self._audit_sombra_dedup_key(task))
-        except PROGRAMMING_ERRORS:
+            done, _ = await asyncio.wait({trabalho}, timeout=_RCO_SOMBRA_AUDITORIA_TIMEOUT_S)
+        except BaseException:
+            trabalho.cancel()
             raise
-        except Exception as exc:  # so o tipo: a mensagem do driver pode trazer a linha
+        if not done:
+            trabalho.cancel()
+            trabalho.add_done_callback(_descartar_resultado)
             logger.error(
-                "rco_sombra_pos_conclusao_falhou",
-                task_id=task.task_id,
-                topic=task.topic,
-                erro=type(exc).__name__,
+                "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro="teto"
             )
-            record_rco_sombra_pos_conclusao("auditoria_falhou")
+            return "auditoria_teto_estourado"
+        if trabalho.cancelled():
+            return "auditoria_falhou"
+        exc = trabalho.exception()
+        if exc is None:
+            return None
+        if isinstance(exc, PROGRAMMING_ERRORS):
+            raise exc
+        # so o tipo: a mensagem do driver pode trazer a linha
+        logger.error(
+            "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro=type(exc).__name__
+        )
+        return "auditoria_falhou"
 
     def _avisos_rco_suprimidos_sombra(
         self, task: ExternalTask, composicoes: Mapping[str, ComposicaoRegistrada]

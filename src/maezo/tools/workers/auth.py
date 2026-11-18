@@ -803,6 +803,10 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 contratual=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
                 status="validator_unavailable",
             )
+        # DL-0187: tem de ser a ULTIMA coisa antes do `return`. `WorkerBase.run` pode repetir `execute` numa
+        # nova tentativa (aqui `max_retries=1`, e `execute` nunca levanta); se algum dia isso mudar, um
+        # adiamento feito antes de uma excecao ficaria na lista da tarefa junto com o da tentativa seguinte
+        # (a lista de trabalho adiado vale para a TAREFA, nao para a tentativa).
         auth_rco.adiar_sombra_auth(self._dmn, process_vars, topico=self.topic)
         return result
 

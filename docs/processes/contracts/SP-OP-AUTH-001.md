@@ -412,10 +412,13 @@ decisao `rco_geral_elegibilidade` (`src/maezo/tools/workers/auth_rco.py`):
   origem e motivo do nulo), nao a concordancia com o portao.
 - **Sem aviso:** a composicao em sombra nao enfileira aviso do K6 (`maezo_rco_aviso_total{desfecho=
   "suprimido_sombra"}`); a reconciliacao de avisos le o modo da auditoria e nao espera linha para ela.
-- **Ocupacao depois da conclusao:** um orcamento de motor de 5 s por tarefa (`auth_rco.PRAZO_SOMBRA_AUTH_S`),
-  repartido estaticamente entre as tres avaliacoes (os dois membros da composicao e a elegibilidade); a leitura
-  do pin e o montador sao locais e ficam fora dele. A espera do harness tem teto de 6 s e o registro K1 o seu de
-  5 s; nenhum deles segura o bloqueio da tarefa, so limitam a ocupacao do worker depois da conclusao.
+- **Ocupacao depois da conclusao:** a sombra roda num executor proprio de uma thread, nunca no que roda os
+  workers, com admissao sem fila (ocupado = descartada) e um instante-limite (trabalho atrasado nao chama o
+  motor). Um orcamento de motor de 5 s por tarefa (`auth_rco.PRAZO_SOMBRA_AUTH_S`) e repartido estaticamente
+  entre as tres avaliacoes; a leitura do pin e o montador sao locais e ficam fora dele. O fato de sombra e um
+  segundo append na cadeia de auditoria do tenant (teto de 3 s; so com pin real do K1) e o registro K1 so e
+  gravado depois dele (teto de 5 s). Nada disso segura o bloqueio da tarefa; o tempo entra na duracao medida do
+  topico.
 - **Inerte hoje:** o pin do rco de producao esta em `sem_pacote`; a sombra so avalia algo com o primeiro pin
   real do K1.
 
