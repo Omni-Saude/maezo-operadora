@@ -1,8 +1,11 @@
 """Sombra do K1 do rco no portao de criterios do AUTH (SP-OP-AUTH-001, DL-0187).
 
 O QUE ISTO FAZ. `ValidateAutoCriteriaWorker.execute` (topico `operadora.auth.validate_auto_criteria`), DEPOIS
-de o resultado dos quatro criterios estar pronto (inclusive o da degradacao), chama `avaliar_em_sombra_auth`,
-que avalia em SOMBRA:
+de o resultado dos quatro criterios estar pronto (inclusive o da degradacao), chama `adiar_sombra_auth`, que
+so ADIA a sombra para depois de o harness completar a tarefa (`_audit_ctx.adiar_pos_conclusao`): dentro de
+`execute` nada roda, a sombra nao custa nada ao caso real (nem motor, nem tempo dentro do bloqueio da
+tarefa).
+Depois de completar, o harness roda `avaliar_em_sombra_auth`, que avalia em SOMBRA:
 
 - a composicao `composicao_carencia_cpt` (`rco_geral_carencia` + `rco_geral_cpt`, regra `mais_restritiva`):
   as duas decisoes sao membros de um grupo de `composicoes[]` do K1 2.3.0 e nunca sao avaliadas sozinhas
@@ -12,9 +15,10 @@ que avalia em SOMBRA:
   `pares_mutuamente_exclusivos_ortop`), por `rco_sombra.avaliar_em_sombra` (a guarda de membro isolado
   continua valendo: se um pacote futuro a puser num grupo, sai `membro_de_composicao`, nada avaliado).
 
-Nada disto toca o resultado do worker: as duas portas devolvem `None`, nunca levantam `Exception` e nao
-escrevem variavel de processo; o resultado ja esta montado quando elas rodam. O efeito e so a auditoria
-(`dmn_versions` com a auditoria do montador e `composicaoK1`), o registro observacional de decisoes K1 em
+Nada disto toca o resultado do worker: a tarefa ja completou quando a sombra roda; as duas portas devolvem
+`None`, nunca levantam `Exception` e nao escrevem variavel de processo. O efeito e so o FATO de sombra na
+cadeia de auditoria (decisao `SHADOW`, dedup `{tenant}:sombra:{task_id}`, com o `dmn_versions` das tabelas
+`rco_`, a auditoria do montador e `composicaoK1`), o registro observacional de decisoes K1 em
 `modo=sombra` e as metricas. A composicao e registrada com `modo=sombra` (`rco_sombra`): nenhum aviso do K6 e
 enfileirado. INERTE em producao enquanto o pin do rco estiver em `sem_pacote`.
 
@@ -43,7 +47,7 @@ from collections.abc import Mapping
 from typing import Any, Final
 
 from maezo.platform.observability import record_rco_sombra
-from maezo.tools.workers import rco_montador, rco_sombra
+from maezo.tools.workers import _audit_ctx, rco_montador, rco_sombra
 from maezo.tools.workers.dmn_transport import DmnTransport
 
 #: O grupo de `composicoes[]` do K1 2.3.0 com carencia e CPT (`rco_geral_carencia`, `rco_geral_cpt`).
@@ -93,6 +97,20 @@ def fatos_carencia_cpt_auth(process_vars: Mapping[str, Any]) -> rco_sombra.Monta
     return montar
 
 
+def adiar_sombra_auth(dmn: DmnTransport | None, process_vars: Mapping[str, Any], *, topico: str) -> None:
+    """Adia a sombra do AUTH para DEPOIS de completar a tarefa (DL-0187); dentro de `execute` nada roda.
+
+    Copia AGORA so `CAMPOS_GUIA_START` (o resto das variaveis nunca chega a sombra) e entrega ao harness
+    (`_audit_ctx.adiar_pos_conclusao`) o chamavel que roda `avaliar_em_sombra_auth`. Fora de um despacho
+    auditado nada e adiado nem roda. NUNCA levanta."""
+    try:
+        guia = {campo: process_vars[campo] for campo in CAMPOS_GUIA_START if campo in process_vars}
+        _audit_ctx.adiar_pos_conclusao(lambda: avaliar_em_sombra_auth(dmn, guia, topico=topico))
+    except Exception as exc:  # o adiamento nunca muda o portao
+        record_rco_sombra(rco_sombra.ERRO_DE_PROGRAMACAO)
+        rco_sombra.logger.error("rco_sombra_auth_erro_de_programacao", erro=type(exc).__name__, topico=topico)
+
+
 def avaliar_em_sombra_auth(dmn: DmnTransport | None, process_vars: Mapping[str, Any], *, topico: str) -> None:
     """Avalia em sombra a composicao de carencia/CPT e a elegibilidade; devolve `None` e nunca levanta
     `Exception` (as duas portas de `rco_sombra` ja engolem e contam; esta guarda e cinto e suspensorio e
@@ -128,6 +146,7 @@ __all__ = [
     "COMPOSICAO_CARENCIA_CPT",
     "DECISAO_ELEGIBILIDADE",
     "TERMOS_SEM_PRODUTOR_AUTH",
+    "adiar_sombra_auth",
     "avaliar_em_sombra_auth",
     "fatos_carencia_cpt_auth",
 ]

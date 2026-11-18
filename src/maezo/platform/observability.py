@@ -953,6 +953,27 @@ def record_rco_entrada_cobertura(
         logger.debug("rco_entrada_cobertura_metric_emit_failed", exc_info=True)
 
 
+#: DL-0187: vocabulario FECHADO de `maezo_rco_sombra_pos_conclusao_total`
+#: (= `harness.SOMBRA_POS_CONCLUSAO_DESFECHOS`, paridade em teste). Valor fora do conjunto vira `outro`.
+RCO_SOMBRA_POS_CONCLUSAO_DESFECHOS: Final[frozenset[str]] = frozenset(
+    {"executada", "teto_estourado", "erro_de_programacao", "auditoria_falhou", "auditoria_nao_configurada"}
+)
+
+
+def record_rco_sombra_pos_conclusao(desfecho: str) -> None:
+    """Count ONE run of the shadow work deferred to AFTER task completion —
+    `maezo_rco_sombra_pos_conclusao_total{desfecho}` (DL-0187).
+
+    Sitio de chamada unico: `tools.workers.harness.WorkerHarness._executar_pos_conclusao`. A tarefa ja
+    completou: nenhum desfecho aqui muda o caso. Rotulo fechado; nunca tarefa, tenant ou dado de caso.
+    """
+    rotulo = desfecho if desfecho in RCO_SOMBRA_POS_CONCLUSAO_DESFECHOS else "outro"
+    try:
+        _get_metrics_collector().rco_sombra_pos_conclusao_total.labels(desfecho=rotulo).inc()
+    except Exception:  # never let telemetry disturb the caller.
+        logger.debug("rco_sombra_pos_conclusao_metric_emit_failed", exc_info=True)
+
+
 #: DL-0173: vocabulario FECHADO de `maezo_rco_composicao_revisao_humana_total` (= os motivos de
 #: `platform.rco_composicao`, paridade fixada em teste). Valor fora do conjunto vira `outro`.
 RCO_COMPOSICAO_MOTIVOS: Final[frozenset[str]] = frozenset(

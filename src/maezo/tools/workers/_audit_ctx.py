@@ -39,7 +39,7 @@ consult none).
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -118,6 +118,37 @@ _RCO_AVALIACOES: ContextVar[dict[str, AvaliacaoRegra] | None] = ContextVar("rco_
 _RCO_COMPOSICOES: ContextVar[dict[str, ComposicaoRegistrada] | None] = ContextVar(
     "rco_composicoes", default=None
 )
+
+# DL-0187: trabalho de SOMBRA que o worker adia para DEPOIS de completar a tarefa (lista de chamaveis sem
+# argumento, na ordem). Mesmo desenho dos coletores acima: container mutavel que sobrevive a copia de
+# contexto.
+_POS_CONCLUSAO: ContextVar[list[Callable[[], None]] | None] = ContextVar("pos_conclusao", default=None)
+
+
+def adiar_pos_conclusao(trabalho: Callable[[], None]) -> bool:
+    """Adia `trabalho` (sincrono, sem argumentos) para DEPOIS de completar a tarefa (DL-0187). NUNCA levanta.
+
+    So para trabalho de SOMBRA, que nao pode custar nada ao caso: o harness o roda depois de `complete`, fora
+    do bloqueio da tarefa, com coletores proprios, e grava o que ele auditar num fato separado da cadeia
+    (`WorkerHarness._executar_pos_conclusao`). Devolve `False` (e nada roda) fora de um despacho auditado;
+    o mesmo fail-open de `record_dmn_version`. Numa tarefa que nao completa, o trabalho adiado e descartado.
+    """
+    adiados = _POS_CONCLUSAO.get()
+    if adiados is None:
+        return False
+    adiados.append(trabalho)
+    return True
+
+
+@contextmanager
+def collect_pos_conclusao() -> Iterator[list[Callable[[], None]]]:
+    """Liga a lista do trabalho adiado da tarefa (DL-0187). Reset por tarefa, como `collect_dmn_versions`."""
+    adiados: list[Callable[[], None]] = []
+    token = _POS_CONCLUSAO.set(adiados)
+    try:
+        yield adiados
+    finally:
+        _POS_CONCLUSAO.reset(token)
 
 
 def record_dmn_version(

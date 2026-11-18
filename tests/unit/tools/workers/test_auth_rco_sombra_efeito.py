@@ -46,7 +46,7 @@ from maezo.platform.rco_manifesto import ManifestoK1InvalidoError
 from maezo.platform.rco_registro import AvaliacaoRegra, ContextoDecisao, montar_linha
 from maezo.tools.workers import auth, auth_rco, rco_montador, rco_pin, rco_sombra
 from maezo.tools.workers import harness as harness_mod
-from maezo.tools.workers._audit_ctx import collect_dmn_versions, collect_rco_avaliacoes
+from maezo.tools.workers._audit_ctx import collect_dmn_versions, collect_pos_conclusao
 from maezo.tools.workers.auth import ValidateAutoCriteriaWorker
 from maezo.tools.workers.auth_criteria import CriteriaSources
 from maezo.tools.workers.dmn_transport import DmnVersion, FakeDmnTransport
@@ -259,8 +259,20 @@ def test_pin_fixado_real_expoe_o_grupo_e_a_elegibilidade_fora_dele(pin_real: rco
     assert not cmp.membro_de_composicao(rec.manifesto(), ELEGIBILIDADE)
 
 
+def test_execute_nao_roda_a_sombra_so_a_adia(pin_real: rco_pin.RcoRulesPin) -> None:
+    """DL-0187: dentro de `execute` a sombra NAO roda (nenhuma chamada `rco_` ao motor); so um trabalho e
+    adiado quando ha despacho auditado, e nenhum fora dele."""
+    dmn = _dmn()
+    saida = _worker(dmn, degradado=False, ratificadas=True).execute(_vars())
+    assert _rco_chamadas(dmn) == []
+    with collect_pos_conclusao() as adiados:
+        de_novo = _worker(dmn, degradado=False, ratificadas=True).execute(_vars())
+    assert _rco_chamadas(dmn) == [] and len(adiados) == 1
+    assert de_novo == saida
+
+
 @pytest.mark.parametrize(("nome", "variaveis", "tabelas", "degradado", "ratificadas"), CASOS)
-def test_execute_identico_com_sombra_ligada_e_neutralizada(
+def test_conclusao_identica_com_sombra_ligada_e_neutralizada(
     pin_real: rco_pin.RcoRulesPin,
     monkeypatch: pytest.MonkeyPatch,
     nome: str,
@@ -270,21 +282,28 @@ def test_execute_identico_com_sombra_ligada_e_neutralizada(
     ratificadas: bool,
 ) -> None:
     dmn_ligada = _dmn(tabelas_auth=tabelas)
+    worker = _worker(dmn_ligada, degradado=degradado, ratificadas=ratificadas)
+    h, t_lig, sink, registro, _ = _harness(dmn_ligada, worker=worker)
     entrada = copy.deepcopy(variaveis)
-    with collect_dmn_versions() as versoes, collect_rco_avaliacoes() as avaliacoes:
-        ligada = _worker(dmn_ligada, degradado=degradado, ratificadas=ratificadas).execute(entrada)
-    assert entrada == variaveis  # a sombra nao muda as variaveis de entrada
-    # a sombra rodou de verdade, com o pior caso: as tres tabelas `rco_` avaliadas, em sombra
+    _rodar(h, _task(entrada))
+    # a sombra rodou de verdade DEPOIS de completar, com o pior caso: as tres tabelas `rco_`, em sombra
     assert sorted(_rco_chamadas(dmn_ligada)) == sorted(RCO), nome
-    assert {versoes[k]["modo"] for k in RCO} == {"sombra"}
-    assert {(avaliacoes[k].sombra, avaliacoes[k].tem_ordinal) for k in RCO} == {(True, False)}
+    fato = _fato_sombra(sink)
+    assert {fato.dmn_versions[k]["modo"] for k in RCO} == {"sombra"}
+    assert {(a.sombra, a.tem_ordinal) for a, _ in registro.chamadas} == {(True, False)}
+    # a auditoria da CONCLUSAO nao leva nada da sombra
+    assert not any(k.startswith("rco_") for k in sink.emitted[0][0].dmn_versions)
 
     _pinar(monkeypatch, SEM_PACOTE)
     dmn_neutra = _dmn(tabelas_auth=tabelas)
-    neutra = _worker(dmn_neutra, degradado=degradado, ratificadas=ratificadas).execute(
-        copy.deepcopy(variaveis)
+    h2, t_neu, sink2, _, _ = _harness(
+        dmn_neutra, worker=_worker(dmn_neutra, degradado=degradado, ratificadas=ratificadas)
     )
+    _rodar(h2, _task(variaveis))
     assert _rco_chamadas(dmn_neutra) == []
+    assert t_lig.failures == [] and t_neu.failures == []
+    [(_, ligada)] = t_lig.completed
+    [(_, neutra)] = t_neu.completed
     assert ligada == neutra
     for chave in (
         "auto_criteria_shadow",
@@ -297,7 +316,8 @@ def test_execute_identico_com_sombra_ligada_e_neutralizada(
         "criterio_contratual_ok",
     ):
         assert ligada[chave] == neutra[chave], chave
-    assert not any(isinstance(v, str) and v.startswith("rco_") for v in ligada.values())
+    assert sink.emitted[0][0].dmn_versions == sink2.emitted[0][0].dmn_versions
+    assert len(sink2.emitted) == 1  # neutralizada: nenhum fato de sombra
 
 
 def test_financeiro_aprova_e_a_sombra_adversa_nao_muda_nada(pin_real: rco_pin.RcoRulesPin) -> None:
@@ -354,6 +374,19 @@ def _rodar(h: WorkerHarness, task: ExternalTask) -> None:
     asyncio.run(h._handle(task))
 
 
+def _fato_sombra(sink: FakeAuditSink) -> Any:
+    """O fato de sombra (DL-0187): o SEGUNDO registro, depois da conclusao, no namespace `sombra:`."""
+    assert [(r.decision, k) for r, k in sink.emitted] == [
+        (harness_mod.AUDIT_DECISION_COMPLETE, "amh:task-auth-1"),
+        (harness_mod.AUDIT_DECISION_SOMBRA, "amh:sombra:task-auth-1"),
+    ]
+    return sink.emitted[1][0]
+
+
+def _sombra_direta(dmn: FakeDmnTransport, variaveis: dict[str, Any]) -> None:
+    auth_rco.avaliar_em_sombra_auth(dmn, variaveis, topico=TOPICO)
+
+
 @pytest.fixture
 def avisos_contados(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int]]:
     contados: list[tuple[str, int]] = []
@@ -386,8 +419,8 @@ def test_harness_completa_igual_sem_aviso_e_registra_so_sombra(
     # sombra nao notifica: nada no outbox, o sinal contado como suprimido (DL-0187)
     assert outbox.linhas == {}
     assert avisos_contados == [("suprimido_sombra", 1)]
-    # a auditoria duravel leva o modo e o sinal nas entradas do grupo
-    dmn_versions = sink.emitted[0][0].dmn_versions
+    # o fato de sombra (depois da conclusao) leva o modo e o sinal nas entradas do grupo
+    dmn_versions = _fato_sombra(sink).dmn_versions
     for membro in rec.ORDEM:
         assert dmn_versions[membro]["composicaoK1"] == {
             "nome": GRUPO,
@@ -424,7 +457,7 @@ def test_indicador_ligado_e_levantando_segue_sombra_sem_ordinal(
     h, transport, sink, registro, outbox = _harness(_dmn())
     _rodar(h, _task())
     assert transport.failures == [] and len(transport.completed) == 1
-    dmn_versions = sink.emitted[0][0].dmn_versions
+    dmn_versions = _fato_sombra(sink).dmn_versions
     assert {dmn_versions[k]["modo"] for k in RCO} == {"sombra"}
     assert {dmn_versions[m]["composicaoK1"]["modo"] for m in rec.ORDEM} == {"sombra"}
     assert {(a.modo, a.tem_ordinal) for a, _ in registro.chamadas} == {("sombra", False)}
@@ -515,7 +548,6 @@ def test_falhas_injetadas_nao_mudam_variaveis_nem_falham_a_tarefa(
     monkeypatch.setattr(rco_sombra, "record_rco_sombra", desfechos.append)
 
     _pinar(monkeypatch, SEM_PACOTE)
-    neutra = _worker(_dmn(), degradado=False, ratificadas=True).execute(_vars())
     h_sem, t_sem, _, _, _ = _harness(_dmn())
     _rodar(h_sem, _task())
     _pinar(monkeypatch, baseline_pin)
@@ -523,14 +555,14 @@ def test_falhas_injetadas_nao_mudam_variaveis_nem_falham_a_tarefa(
 
     if injetar is not None:
         injetar(monkeypatch)
-    ligada = _worker(_motor(esgota), degradado=False, ratificadas=True).execute(_vars())
-    assert ligada == neutra
-    # a falha foi de fato exercitada e virou desfecho fechado
-    assert desfechos and set(desfechos) <= desfechos_esperados | {rco_sombra.AVALIADA}
-    assert set(desfechos) & desfechos_esperados
-
+    pos: list[str] = []
+    monkeypatch.setattr(harness_mod, "record_rco_sombra_pos_conclusao", pos.append)
     h, t, _, _, outbox = _harness(_motor(esgota))
     _rodar(h, _task())
+    # a falha foi de fato exercitada (depois de completar) e virou desfecho fechado
+    assert desfechos and set(desfechos) <= desfechos_esperados | {rco_sombra.AVALIADA}
+    assert set(desfechos) & desfechos_esperados
+    assert pos == ["executada"]
     assert t.failures == [] and t_sem.failures == []
     assert [v for _, v in t.completed] == [v for _, v in t_sem.completed]
     assert outbox.linhas == {}
@@ -617,7 +649,7 @@ def test_nada_do_caso_em_log_auditoria_registro_metrica_ou_motor(pin_real: rco_p
     with structlog.testing.capture_logs() as logs:
         _rodar(h, _task())
     assert transport.failures == []
-    _assert_permitidos(logs, sink.emitted[0][0].dmn_versions, registro)
+    _assert_permitidos(logs, _fato_sombra(sink).dmn_versions, registro)
     for nome, rotulos in _metricas_rco():
         assert not any(p in v for v in rotulos.values() for p in PROIBIDOS), nome
     # o motor recebe so as entradas do dicionario: nenhum identificador do caso nem variavel de start crua
@@ -643,7 +675,7 @@ def test_cobertura_das_entradas_com_o_start_de_hoje(
 ) -> None:
     """Com o start de hoje so `dataAtendimento` vem preenchida (origem do start, sem procedencia declarada):
     a primeira medida da sombra e a cobertura, nao a concordancia."""
-    _worker(_dmn(), degradado=False, ratificadas=True).execute(_vars())
+    _sombra_direta(_dmn(), _vars())
     por_unidade: dict[str, dict[str, tuple[str, str, str]]] = {}
     for c in cobertura:
         unidade = por_unidade.setdefault(c["unidade"], {})
@@ -672,7 +704,7 @@ def test_cobertura_das_entradas_com_o_start_de_hoje(
 def test_cobertura_sem_data_atendimento(
     pin_real: rco_pin.RcoRulesPin, cobertura: list[dict[str, str]]
 ) -> None:
-    _worker(_dmn(), degradado=False, ratificadas=True).execute(_vars(data_atendimento=_REMOVER))
+    _sombra_direta(_dmn(), _vars(data_atendimento=_REMOVER))
     grupo = {c["entrada"]: c for c in cobertura if c["unidade"] == GRUPO}
     assert (grupo["dataAtendimento"]["estado"], grupo["dataAtendimento"]["motivo"]) == (
         "nula",
@@ -682,7 +714,7 @@ def test_cobertura_sem_data_atendimento(
 
 
 def test_metrica_de_cobertura_com_rotulos_fechados(pin_real: rco_pin.RcoRulesPin) -> None:
-    _worker(_dmn(), degradado=False, ratificadas=True).execute(_vars())
+    _sombra_direta(_dmn(), _vars())
     amostras = [r for n, r in _metricas_rco() if n == "maezo_rco_entrada_cobertura_total"]
     assert amostras
     for rotulos in amostras:
@@ -835,22 +867,91 @@ def test_motor_lento_soma_no_maximo_o_orcamento_da_tarefa(
     monkeypatch.setattr(rco_sombra, "record_rco_sombra", desfechos.append)
 
     inicio = time.monotonic()
-    ligada = _worker(_motor_lento(), degradado=False, ratificadas=True).execute(_vars())
-    com_sombra = time.monotonic() - inicio
-    desfechos_ligada = list(desfechos)
-    _pinar(monkeypatch, SEM_PACOTE)
-    inicio = time.monotonic()
-    neutra = _worker(_motor_lento(), degradado=False, ratificadas=True).execute(_vars())
-    sem_sombra = time.monotonic() - inicio
+    _sombra_direta(_motor_lento(), _vars())
+    gasto = time.monotonic() - inicio
 
-    assert ligada == neutra
-    assert desfechos_ligada == [rco_sombra.PRAZO_ESGOTADO, rco_sombra.PRAZO_ESGOTADO]
+    assert desfechos == [rco_sombra.PRAZO_ESGOTADO, rco_sombra.PRAZO_ESGOTADO]
     # cada chamada ao motor com a sua parte do orcamento: o primeiro membro esgota e `compor` para (o segundo
     # nem e chamado), depois a elegibilidade; o que se planejou para a tarefa (3 partes) e o orcamento
     parte = orcamento / auth_rco.AVALIACOES_AUTH
     assert prazos == [pytest.approx(parte), pytest.approx(parte)]
     assert parte * auth_rco.AVALIACOES_AUTH == pytest.approx(orcamento)
-    assert com_sombra - sem_sombra <= orcamento + 0.5
+    assert gasto <= orcamento + 0.5
+
+
+def test_conclusao_acontece_antes_de_qualquer_chamada_rco_ao_motor(
+    pin_real: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DL-0187, prova DETERMINISTICA de custo zero: com um motor lento nas tabelas `rco_`, a ordem dos
+    eventos e: as tres tabelas do AUTH, `complete`, e so DEPOIS as chamadas `rco_`. Nenhuma chamada `rco_`
+    acontece antes de completar, entao o instante de `complete` nao depende da sombra."""
+    monkeypatch.setattr(auth_rco, "PRAZO_SOMBRA_AUTH_S", 0.15)
+    eventos: list[str] = []
+
+    class _MotorQueAnota(_MotorLento):
+        async def evaluate(self, decision_key: str, variables: dict[str, Any], **kwargs: Any) -> Any:
+            eventos.append(f"motor:{decision_key}")
+            return await super().evaluate(decision_key, variables, **kwargs)
+
+    dmn = _MotorQueAnota()
+    for chave, (linhas, _versao) in _dmn()._responses.items():
+        dmn.register(chave, linhas)
+    h, transport, sink, _, _ = _harness(dmn)
+    completar = transport.complete
+
+    async def complete(task_id: str, worker_id: str, variables: dict[str, Any]) -> None:
+        eventos.append("complete")
+        await completar(task_id, worker_id, variables)
+
+    transport.complete = complete  # type: ignore[method-assign]
+    _rodar(h, _task())
+    posicao = eventos.index("complete")
+    assert all(not e.startswith("motor:rco_") for e in eventos[:posicao])
+    assert {e for e in eventos[:posicao]} == {f"motor:{t}" for t in _FONTES}
+    assert any(e.startswith("motor:rco_") for e in eventos[posicao + 1 :])
+    assert transport.failures == [] and len(transport.completed) == 1
+    # o motor esgotou o prazo em toda chamada `rco_` (nada a auditar): so a conclusao esta na cadeia
+    assert [r.decision for r, _ in sink.emitted] == [harness_mod.AUDIT_DECISION_COMPLETE]
+
+
+def test_teto_da_espera_pos_conclusao_nao_falha_a_tarefa(
+    pin_real: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A espera pelo trabalho adiado tem teto; estourado, a tarefa (ja completa) nao muda e o desfecho e
+    `teto_estourado`."""
+    monkeypatch.setattr(auth_rco, "PRAZO_SOMBRA_AUTH_S", 0.3)
+    monkeypatch.setattr(harness_mod, "_POS_CONCLUSAO_TIMEOUT_S", 0.01)
+    pos: list[str] = []
+    monkeypatch.setattr(harness_mod, "record_rco_sombra_pos_conclusao", pos.append)
+    h, transport, sink, registro, _ = _harness(_motor_lento())
+    _rodar(h, _task())
+    assert transport.failures == [] and len(transport.completed) == 1
+    assert pos == ["teto_estourado"]
+    assert len(sink.emitted) == 1 and registro.chamadas == []
+
+
+def test_fato_de_sombra_que_falha_nao_falha_a_tarefa(
+    pin_real: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pos: list[str] = []
+    monkeypatch.setattr(harness_mod, "record_rco_sombra_pos_conclusao", pos.append)
+    h, transport, sink, registro, _ = _harness(_dmn())
+    emit_once = sink.emit_once
+
+    async def falha_na_sombra(record: Any, *, dedup_key: str) -> str:
+        if ":sombra:" in dedup_key:
+            raise RuntimeError("banco fora")
+        return await emit_once(record, dedup_key=dedup_key)
+
+    sink.emit_once = falha_na_sombra  # type: ignore[method-assign]
+    _rodar(h, _task())
+    assert transport.failures == [] and len(transport.completed) == 1
+    assert pos == ["auditoria_falhou", "executada"]
+    assert len(registro.chamadas) == 3  # o registro K1 de sombra segue (fail-open)
+
+
+def test_paridade_dos_desfechos_pos_conclusao() -> None:
+    assert harness_mod.SOMBRA_POS_CONCLUSAO_DESFECHOS == observability.RCO_SOMBRA_POS_CONCLUSAO_DESFECHOS
 
 
 # --- cinto e suspensorio do AUTH conta como as portas (DL-0187, L3) ---------------------------------------

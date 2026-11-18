@@ -551,6 +551,18 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # DL-0187: cada execucao do trabalho de SOMBRA adiado para DEPOIS de completar a tarefa
+        # (`harness._executar_pos_conclusao`), por desfecho FECHADO
+        # (`observability.RCO_SOMBRA_POS_CONCLUSAO_DESFECHOS`, outro valor vira `outro`). A tarefa ja
+        # completou.
+        self._rco_sombra_pos_conclusao_total = Counter(
+            "maezo_rco_sombra_pos_conclusao_total",
+            "Shadow work run after task completion (never affects the completed task), by closed outcome "
+            "(COUNTS ONLY; desfecho is a closed vocabulary)",
+            labelnames=["desfecho"],
+            registry=self._registry,
+        )
+
         # DL-0187: cobertura das entradas que o montador entrega a cada avaliacao em SOMBRA
         # (`tools.workers.rco_sombra`): uma contagem por entrada distinta da avaliacao, com a unidade
         # avaliada, a origem K1 (ou `start_sem_procedencia`), o estado (`preenchida`|`nula`) e o motivo
@@ -913,6 +925,11 @@ class MetricsCollector:
     def rco_aviso_consumo_total(self) -> Counter:
         """Counter for rco K1 audit-signal notices consumed by the inbox (DL-0186). Label: desfecho."""
         return self._rco_aviso_consumo_total
+
+    @property
+    def rco_sombra_pos_conclusao_total(self) -> Counter:
+        """`maezo_rco_sombra_pos_conclusao_total{desfecho}` (DL-0187)."""
+        return self._rco_sombra_pos_conclusao_total
 
     @property
     def rco_entrada_cobertura_total(self) -> Counter:

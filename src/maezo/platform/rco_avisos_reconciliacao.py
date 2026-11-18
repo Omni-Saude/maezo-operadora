@@ -9,8 +9,10 @@ ferramenta para a unidade 2b; e esta.
 O QUE FAZ, SO LEITURA. Para uma janela `[desde, ate)` de um tenant:
 
 1. le da cadeia de auditoria (`audit_chain` x `audit_emit_dedup`, migracoes 0002/0005) os registros de
-   conclusao (`decision = 'COMPLETE'`) cuja `dmn_versions` tem alguma `sinaisAuditoria`, com a `dedup_key`
-   `{tenant}:{task_id}` do harness (`WorkerHarness._audit_dedup_key`);
+   conclusao (`decision = 'COMPLETE'`, `dedup_key` `{tenant}:{task_id}` do harness,
+   `WorkerHarness._audit_dedup_key`) e os FATOS de sombra gravados depois de completar (DL-0187:
+   `decision = 'SHADOW'`, `dedup_key` `{tenant}:sombra:{task_id}`) cuja `dmn_versions` tem alguma
+   `sinaisAuditoria`;
 2. recalcula, com o manifesto e os `avisos` do PIN de bordo, as linhas que o harness teria gravado: a
    composicao de cada decisao (`ManifestoK1.composicao_de`), `rco_avisos.avisos_para` e a
    `chave_idempotencia` de `tenant:task_id:composicao:sinal:fila`. DL-0187: SO a composicao em
@@ -68,6 +70,10 @@ from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
 CHAVE_SINAIS: Final[str] = "sinaisAuditoria"
 #: `harness.AUDIT_DECISION_COMPLETE` (paridade em teste): so conclusoes enfileiram aviso.
 DECISAO_CONCLUSAO: Final[str] = "COMPLETE"
+#: DL-0187: `harness.AUDIT_DECISION_SOMBRA` (paridade em teste): o FATO de sombra gravado DEPOIS de completar
+#: a tarefa, com dedup `{tenant}:sombra:{task_id}`. Tambem e lido: as entradas dele estao em `modo=sombra`.
+DECISAO_SOMBRA: Final[str] = "SHADOW"
+NAMESPACE_SOMBRA: Final[str] = "sombra:"
 #: DL-0187: a chave com o resumo da composicao (= `_audit_ctx.CHAVE_COMPOSICAO_K1`, paridade em teste) e os
 #: modos (= `_audit_ctx.MODOS_COMPOSICAO`). So `efeito` espera linha no outbox.
 CHAVE_COMPOSICAO: Final[str] = "composicaoK1"
@@ -183,6 +189,10 @@ def _task_id(tenant: str, dedup_key: str) -> str | None:
     # `{tenant}:refuse:{task_id}` e outro namespace (recusa), nao conclusao.
     if not task_id or task_id.startswith("refuse:"):
         return None
+    # DL-0187: `{tenant}:sombra:{task_id}` e o fato de sombra da MESMA tarefa (depois de completar).
+    if task_id.startswith(NAMESPACE_SOMBRA):
+        task_id = task_id[len(NAMESPACE_SOMBRA) :]
+        return task_id or None
     return task_id
 
 
@@ -350,7 +360,7 @@ def reconciliar(
 _AUDITORIA_SQL: Final[str] = (
     "SELECT d.dedup_key, c.dmn_versions FROM audit_chain c "
     "JOIN audit_emit_dedup d ON d.tenant = c.tenant_id AND d.record_hash = c.record_hash "
-    "WHERE c.tenant_id = $1 AND c.timestamp >= $2 AND c.timestamp < $3 AND c.decision = $4 "
+    "WHERE c.tenant_id = $1 AND c.timestamp >= $2 AND c.timestamp < $3 AND c.decision = ANY($4::text[]) "
     "AND jsonb_path_exists(c.dmn_versions, '$.*.sinaisAuditoria') "
     "ORDER BY c.timestamp, d.dedup_key"
 )
@@ -421,7 +431,7 @@ class PostgresFonteReconciliacao:
             ) from None
 
     async def ler_auditoria(self, desde: datetime, ate: datetime) -> list[RegistroAuditado]:
-        rows = await self._ler(_AUDITORIA_SQL, self._tenant, desde, ate, DECISAO_CONCLUSAO)
+        rows = await self._ler(_AUDITORIA_SQL, self._tenant, desde, ate, [DECISAO_CONCLUSAO, DECISAO_SOMBRA])
         return [RegistroAuditado(str(r["dedup_key"]), _jsonb(r["dmn_versions"])) for r in rows]
 
     async def status_no_outbox(self, chaves: Sequence[str]) -> dict[str, str]:
@@ -537,6 +547,7 @@ __all__ = [
     "CODIGOS",
     "COMPOSICAO_DESCONHECIDA",
     "DECISAO_CONCLUSAO",
+    "DECISAO_SOMBRA",
     "MODOS",
     "MODO_EFEITO",
     "MODO_FORA_DO_VOCABULARIO",

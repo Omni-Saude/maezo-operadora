@@ -770,13 +770,13 @@ class ValidateAutoCriteriaWorker(WorkerBase):
             and NEVER produces a denial.
 
         RCO K1 SHADOW (DL-0187). After `result` is fully built — on the normal AND the degraded path,
-        OUTSIDE the degradation try/except so a shadow problem can never zero the four criteria —
-        `auth_rco.avaliar_em_sombra_auth` evaluates the composition `composicao_carencia_cpt` and the
-        decision `rco_geral_elegibilidade` in SHADOW. It returns `None`, never raises and never touches
-        `result` (`auto_criteria_shadow`/`auto_criteria_falhas` included): its only traces are the audit's
-        `dmn_versions`, the observational K1 decision record (`modo=sombra`) and closed-label metrics. The
-        composition is registered with `modo=sombra`, so no K6 notice is enqueued. Inert while the rco pin
-        is `sem_pacote`.
+        OUTSIDE the degradation try/except — `auth_rco.adiar_sombra_auth` only DEFERS the shadow (the
+        composition `composicao_carencia_cpt` and the decision `rco_geral_elegibilidade`) to AFTER the
+        harness completes the task (`_audit_ctx.adiar_pos_conclusao`): nothing of it runs inside `execute`,
+        so it costs the real case nothing (no engine call, no time inside the task lock). It never raises
+        and never touches `result`. Its traces, written after completion, are a separate `SHADOW` audit
+        fact, the observational K1 decision record (`modo=sombra`) and closed-label metrics; no K6 notice is
+        enqueued. Outside an audited dispatch nothing is deferred. Inert while the rco pin is `sem_pacote`.
         """
         try:
             result = self._evaluate_criteria(process_vars)
@@ -803,7 +803,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 contratual=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
                 status="validator_unavailable",
             )
-        auth_rco.avaliar_em_sombra_auth(self._dmn, process_vars, topico=self.topic)
+        auth_rco.adiar_sombra_auth(self._dmn, process_vars, topico=self.topic)
         return result
 
     def _record_unavailability(self, token: str) -> None:

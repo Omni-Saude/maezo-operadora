@@ -133,6 +133,22 @@ def test_sombra_depois_de_rodar_o_pin_nao_vira_composicao_desconhecida() -> None
         assert {d.codigo for d in rel.divergencias} == {rr.COMPOSICAO_DESCONHECIDA}
 
 
+def test_fato_de_sombra_pos_conclusao_e_lido_pelo_namespace_proprio() -> None:
+    """DL-0187: o fato `SHADOW` (dedup `{tenant}:sombra:{task_id}`) e da MESMA tarefa; suprimido."""
+    registro = _com_modo("sombra")
+    fato = rr.RegistroAuditado("amh:sombra:task-1", registro.dmn_versions)
+    rel = rr.reconciliar([fato], tenant="amh", status_no_outbox={}, **_pacote())
+    assert rel.ok and (rel.esperados, rel.suprimidos_sombra) == (0, 1)
+    assert rr.DECISAO_SOMBRA == harness.AUDIT_DECISION_SOMBRA
+    rel = rr.reconciliar(
+        [rr.RegistroAuditado("amh:sombra:", registro.dmn_versions)],
+        tenant="amh",
+        status_no_outbox={},
+        **_pacote(),
+    )
+    assert {d.codigo for d in rel.divergencias} == {rr.CHAVE_AUDITORIA_FORA_DA_FORMA}
+
+
 @pytest.mark.parametrize("modo", ["ativa", None, 1, ""])
 def test_modo_fora_do_vocabulario_e_codigo_fechado(modo: object) -> None:
     rel = rr.reconciliar([_com_modo(modo)], tenant="amh", status_no_outbox={}, **_pacote())

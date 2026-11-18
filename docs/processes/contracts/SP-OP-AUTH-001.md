@@ -397,12 +397,14 @@ nenhuma variavel de saida. Regras:
 a composicao `composicao_carencia_cpt` (`rco_geral_carencia` + `rco_geral_cpt`, regra `mais_restritiva`) e a
 decisao `rco_geral_elegibilidade` (`src/maezo/tools/workers/auth_rco.py`):
 
-- **Quando:** depois de o resultado dos quatro criterios estar pronto (inclusive o da degradacao) e fora do
-  tratamento de degradacao. A sombra devolve nada, nunca levanta e nao toca nenhuma variavel de saida
-  (`criterio_*_ok`, `auto_criteria_verificado`, `auto_criteria_falhas`, `auto_criteria_shadow`,
-  `motivo_bloqueio_criterios`). Rastro so na auditoria (`dmn_versions` das tabelas `rco_`, com a auditoria do
-  montador e `composicaoK1` com `modo=sombra`), no registro observacional de decisoes K1 (sempre `modo=sombra`,
-  sem ordinal) e em metricas de rotulo fechado.
+- **Quando:** o worker so ADIA a sombra (depois de o resultado dos quatro criterios estar pronto, inclusive o
+  da degradacao); ela e o registro de decisoes K1 dela rodam DEPOIS de o harness completar a tarefa, fora do
+  bloqueio, fail-open. Dentro do worker nenhuma tabela `rco_` e avaliada: a sombra nao custa nada ao caso e nao
+  toca nenhuma variavel de saida (`criterio_*_ok`, `auto_criteria_verificado`, `auto_criteria_falhas`,
+  `auto_criteria_shadow`, `motivo_bloqueio_criterios`). Rastro so num FATO de auditoria separado, gravado
+  depois da conclusao (decisao `SHADOW`, `dmn_versions` das tabelas `rco_` com a auditoria do montador e
+  `composicaoK1` com `modo=sombra`), no registro observacional de decisoes K1 (sempre `modo=sombra`, sem
+  ordinal) e em metricas de rotulo fechado. Falha ou teto depois da conclusao nao muda a tarefa.
 - **Entradas:** so `data_atendimento` e `codigo_procedimento_tuss` deste contrato; o carater do atendimento
   entra nulo (a variavel `carater_atendimento` nunca e lida pelo montador), assim como K3, cadastro e os termos
   de data e hora da urgencia, que nenhum worker deste processo produz. Com o start de hoje quase toda entrada
@@ -410,10 +412,10 @@ decisao `rco_geral_elegibilidade` (`src/maezo/tools/workers/auth_rco.py`):
   origem e motivo do nulo), nao a concordancia com o portao.
 - **Sem aviso:** a composicao em sombra nao enfileira aviso do K6 (`maezo_rco_aviso_total{desfecho=
   "suprimido_sombra"}`); a reconciliacao de avisos le o modo da auditoria e nao espera linha para ela.
-- **Latencia:** um orcamento de motor de 5 s por tarefa (`auth_rco.PRAZO_SOMBRA_AUTH_S`), repartido
-  estaticamente entre as tres avaliacoes (os dois membros da composicao e a elegibilidade); a leitura do pin e o
-  montador sao locais e ficam fora dele. Somado ao teto ja existente de 5 s do registro de decisoes K1 do
-  harness, o pior caso antes de completar e de cerca de 10 s, abaixo do bloqueio de 30 s da tarefa externa.
+- **Ocupacao depois da conclusao:** um orcamento de motor de 5 s por tarefa (`auth_rco.PRAZO_SOMBRA_AUTH_S`),
+  repartido estaticamente entre as tres avaliacoes (os dois membros da composicao e a elegibilidade); a leitura
+  do pin e o montador sao locais e ficam fora dele. A espera do harness tem teto de 6 s e o registro K1 o seu de
+  5 s; nenhum deles segura o bloqueio da tarefa, so limitam a ocupacao do worker depois da conclusao.
 - **Inerte hoje:** o pin do rco de producao esta em `sem_pacote`; a sombra so avalia algo com o primeiro pin
   real do K1.
 

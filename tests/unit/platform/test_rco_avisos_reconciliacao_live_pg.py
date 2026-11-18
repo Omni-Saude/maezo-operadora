@@ -43,11 +43,10 @@ async def test_reconciliacao_acha_o_aviso_que_nao_chegou_ao_outbox() -> None:
     tenant = await _schema_novo(dsn)
     auditoria = PostgresAuditSink(dsn, tenant)
     try:
+        from maezo.tools.workers import _audit_ctx
 
-        async def handler(task: ExternalTask) -> dict[str, Any]:
+        def _composicao(modo: str) -> None:
             # a entrada auditada da decisao do grupo (o que `record_dmn_version` grava), depois a composicao
-            from maezo.tools.workers import _audit_ctx
-
             coletor = _audit_ctx._DMN_AUDIT_COLLECTOR.get()
             assert coletor is not None
             coletor["rco_geral_carencia"] = {"version": 1, "shaDmn": "sha256:x"}
@@ -58,9 +57,15 @@ async def test_reconciliacao_acha_o_aviso_que_nao_chegou_ao_outbox() -> None:
                     avaliadas=("rco_geral_carencia",),
                     sinais=(SINAL,),
                 ),
-                # DL-0187: a tarefa `sombra-*` registra em `modo=sombra` (auditada, nunca enfileirada)
-                modo="sombra" if task.task_id.startswith("sombra") else "efeito",
+                modo=modo,
             )
+
+        async def handler(task: ExternalTask) -> dict[str, Any]:
+            if task.task_id.startswith("sombra"):
+                # DL-0187: a sombra e ADIADA para depois de completar (como no AUTH); vai ao fato `SHADOW`
+                assert _audit_ctx.adiar_pos_conclusao(lambda: _composicao("sombra"))
+            else:
+                _composicao("efeito")
             return {"ok": True}
 
         def _harness(outbox: PostgresAvisosRco | None) -> WorkerHarness:
@@ -92,6 +97,19 @@ async def test_reconciliacao_acha_o_aviso_que_nao_chegou_ao_outbox() -> None:
             dsn, tenant, "SELECT count(*) FROM rco_aviso_auditoria WHERE task_id = 'sombra-3'"
         )
         assert linha["count"] == 0
+        # o fato de sombra esta na cadeia REAL, depois da conclusao, no namespace proprio
+        fatos = await _sql(
+            dsn,
+            tenant,
+            "SELECT c.decision, d.dedup_key FROM audit_chain c JOIN audit_emit_dedup d "
+            "ON d.tenant = c.tenant_id AND d.record_hash = c.record_hash WHERE d.dedup_key LIKE $1 "
+            "ORDER BY c.timestamp",
+            f"{tenant}:%sombra-3",
+        )
+        assert [(f["decision"], f["dedup_key"]) for f in fatos] == [
+            ("COMPLETE", f"{tenant}:sombra-3"),
+            ("SHADOW", f"{tenant}:sombra:sombra-3"),
+        ]
 
         antes = await _sql(dsn, tenant, "SELECT count(*) FROM rco_aviso_auditoria")
         agora = datetime.now(UTC)
