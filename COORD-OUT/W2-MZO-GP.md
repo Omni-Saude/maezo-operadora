@@ -411,3 +411,16 @@ Verificação:
   - mergeable=true, clean.
 - 4 merges atrás (#1328, #1330, #1329, #1332), sem arquivo em comum nem uso dos símbolos tocados, não trazidos. Simulação de merge real sobre `6c12804c` (worktree destacada, removida): comerciais + gateway 7783 passed, 1 falha de ambiente.
 - Depois do merge: LIMPEZA #1333, depois a 05r-c (CAMINHO aceito na CD-162: `production.py` não muda, as rotas seguem 503, com o teste que prova).
+
+## 2026-11-18 ~17:00Z — #1333 mesclado (main `587a759b`); LIMPEZA #1333 (CD-149)
+
+- #1333 mesclado; a main `587a759b` contém o head `1c46c31605f2bb49e22006ea3a73941f10596a7d`.
+- **LIMPEZA #1333**
+  - Ramos para o dono apagar:
+    - `sf-w2/mzo-gp/esf05r-b` @ `1c46c31605f2bb49e22006ea3a73941f10596a7d`, no remoto.
+    - O mesmo ramo no LOCAL: não tentei apagar, porque `git branch -d` foi negado nesta sessão na LIMPEZA #1327. Fica no meu disco, junto com `sf-w2/mzo-gp/esf05r-a`.
+  - Ramos locais nunca enviados: nenhum novo (`esf26-parse-ca` @ `e1822aa2` segue só registrado).
+  - PR órfão ou substituído: nenhum. Nenhum PR meu aberto no maezo.
+  - Título e corpo do #1333 descrevem o que entrou.
+  - Disco: worktrees de mutação, comparação e simulação removidas sem `--force`; scratchpad sem temporários; `git status` limpo. Worktrees: só o clone principal (em `main` `587a759b`) e o canal.
+- Próxima: 05r-c sobre `587a759b`. `production.py` não muda (CD-163; ROOT reforçou que mudança nele passa por ele).
