@@ -45,7 +45,8 @@ prefixo `rco_`, anexos pelo hash, colunas de saida dentro do `saidas[]`, `idRegr
 `regras[]`, linha adversa preenchida e, no 2.2.0 (DL-0173), `composicoes[]` bem formada (exposta em
 `RcoRulesPin.composicoes`; a escolha do resultado do grupo e de `maezo.platform.rco_composicao`) e, no
 2.3.0 (DL-0183), `ordem_restricao`, `sinalAuditoria` e `avisos` do K6 conferidos e expostos
-(`RcoRulesPin.ordem_restricao`, `.sinais_auditoria`, `.avisos`).
+(`RcoRulesPin.ordem_restricao`, `.sinais_auditoria`, `.avisos`); o `grupo_principal` de cada fila do K6
+(DL-0186) em `.grupos_principais`.
 `artifacts` tem de ser exatamente `decisoes[]` do manifesto (`caminho_consumidor` + `sha256`) e
 `provenance` a `origem` dele. Manifesto MAJOR 2 com `ativacao` em `plena`, `conferida` ou `em_correcao`,
 com ou sem `exige_aditivo`, e aceito desde a unidade 5e-0 (DL-0181), tudo em sombra: o efeito e de
@@ -176,6 +177,10 @@ class RcoRulesPin:
     ordem_restricao: tuple[str, ...] = ()
     sinais_auditoria: tuple[str, ...] = rco_manifesto.SINAIS_SO_VAZIO
     avisos: Mapping[str, rco_manifesto.AvisoK6] = field(default_factory=lambda: MappingProxyType({}))
+    #: DL-0186: `filas.<f>.grupo_principal` do K6 (2.3.0), so as filas que o declaram. O consumidor dos avisos
+    #: (`notifications_inbox`) endereca a linha a esse grupo; fila fora do mapa nao tem grupo e o aviso dela
+    #: termina como falha com codigo fechado. Vazio sem pacote ou abaixo de 2.3.0.
+    grupos_principais: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     #: `combinacao.adversas` e `combinacao.adversa_exige_preenchidos` de `vocabulario.json` (contrato §6):
     #: quem compoe passa os dois a `rco_composicao.compor` (vencedora adversa incompleta -> revisao humana).
     #: Vazios sem pacote: a composicao usa entao o piso dela.
@@ -266,13 +271,14 @@ def _manifesto_fixado(
     rco_manifesto.ManifestoK1,
     rco_manifesto.VocabularioPacoteK1,
     Mapping[str, rco_manifesto.AvisoK6],
+    Mapping[str, str],
     set[str],
 ]:
     """Estado `fixado`: le e confere o manifesto K1 pinado.
 
     Devolve o manifesto, o `vocabulario.json` tipado (parametros de ativacao; `ordem_restricao` e
-    `sinalAuditoria` no 2.3.0), os `avisos` do K6 (2.3.0) e os nomes aceitos em `k1/` (manifesto, anexos e
-    arquivos de provas, como o gate).
+    `sinalAuditoria` no 2.3.0), os `avisos` e os `grupo_principal` do K6 (2.3.0) e os nomes aceitos em
+    `k1/` (manifesto, anexos e arquivos de provas, como o gate).
     """
     digest = checar_manifest_pin(lock)
     k1_dir = _k1_dir(lock_path)
@@ -311,11 +317,12 @@ def _manifesto_fixado(
     try:
         vocab = rco_manifesto.carregar_vocabulario(manifesto, k1_dir=k1_dir)
         avisos = rco_manifesto.carregar_avisos_k6(manifesto, vocab, k1_dir=k1_dir)
+        grupos = rco_manifesto.carregar_grupos_k6(manifesto, k1_dir=k1_dir)
     except rco_manifesto.ManifestoK1InvalidoError as exc:
         raise RcoRulesPinError(f"pin: vocabulario.json ou k6-filas.json do K1 recusado: {exc}") from exc
     # A MESMA fonte do gate (`verify_rco_rules_pin`): manifesto, anexos e arquivos de `provas[]`.
     nomes_k1 = rco_manifesto.nomes_k1_declarados(raw)
-    return manifesto, vocab, avisos, nomes_k1
+    return manifesto, vocab, avisos, grupos, nomes_k1
 
 
 def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
@@ -341,10 +348,11 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
     parametros: rco_manifesto.ParametrosAtivacao | None = None
     vocab: rco_manifesto.VocabularioPacoteK1 | None = None
     avisos: Mapping[str, rco_manifesto.AvisoK6] = MappingProxyType({})
+    grupos: Mapping[str, str] = MappingProxyType({})
     nomes_k1: set[str] = set()
     manifesto: rco_manifesto.ManifestoK1 | None = None
     if estado == ESTADO_FIXADO:
-        manifesto, vocab, avisos, nomes_k1 = _manifesto_fixado(lock, lock_path, rules_dir)
+        manifesto, vocab, avisos, grupos, nomes_k1 = _manifesto_fixado(lock, lock_path, rules_dir)
         parametros = vocab.parametros_ativacao
         por_caminho = manifesto.decisao_por_caminho()
         pinados = {str(rel): digest for rel, digest in artifacts}
@@ -400,6 +408,7 @@ def load_rco_rules_pin(lock_path: Path, *, rules_dir: Path) -> RcoRulesPin:
         ordem_restricao=vocab.ordem_restricao if vocab is not None else (),
         sinais_auditoria=vocab.sinais_auditoria if vocab is not None else rco_manifesto.SINAIS_SO_VAZIO,
         avisos=avisos,
+        grupos_principais=grupos,
         adversas=vocab.adversas if vocab is not None else frozenset(),
         adversa_exige_preenchidos=vocab.adversa_exige_preenchidos if vocab is not None else (),
     )

@@ -574,6 +574,18 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # DL-0186: o CONSUMO de cada aviso `rco.aviso_auditoria` pelo inbox (`notifications_inbox`): linha
+        # nova do grupo, re-entrega, fila sem `grupo_principal` no pin, mensagem fora da forma, consumidor sem
+        # inbox ligado ou pin ilegivel. Rotulo FECHADO (`observability.RCO_AVISO_CONSUMO_DESFECHOS`, outro
+        # valor vira `outro`). Nunca tenant, tarefa, sinal, fila ou grupo.
+        self._rco_aviso_consumo_total = Counter(
+            "maezo_rco_aviso_consumo_total",
+            "rco K1 audit-signal notices consumed by the notifications inbox, by closed outcome "
+            "(COUNTS ONLY; desfecho is a closed vocabulary)",
+            labelnames=["desfecho"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -860,6 +872,11 @@ class MetricsCollector:
     def rco_aviso_total(self) -> Counter:
         """Counter for rco K1 audit-signal notices (DL-0185). Label: desfecho (closed vocabulary)."""
         return self._rco_aviso_total
+
+    @property
+    def rco_aviso_consumo_total(self) -> Counter:
+        """Counter for rco K1 audit-signal notices consumed by the inbox (DL-0186). Label: desfecho."""
+        return self._rco_aviso_consumo_total
 
     @property
     def rco_composicao_revisao_total(self) -> Counter:

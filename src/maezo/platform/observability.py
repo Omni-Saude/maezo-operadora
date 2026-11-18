@@ -1464,6 +1464,34 @@ def record_rco_aviso(desfecho: str, quantidade: int = 1) -> None:
         logger.debug("rco_aviso_metric_emit_failed", exc_info=True)
 
 
+#: DL-0186: vocabulario FECHADO de `maezo_rco_aviso_consumo_total` (= `notifications_inbox.RCO_AVISO_CONSUMO`,
+#: paridade fixada em teste). Valor fora do conjunto vira `outro`.
+RCO_AVISO_CONSUMO_DESFECHOS: Final[frozenset[str]] = frozenset(
+    {
+        "registrado",
+        "repetido",
+        "fila_sem_grupo",
+        "invalido",
+        "nao_configurado",
+        "pin_indisponivel",
+    }
+)
+
+
+def record_rco_aviso_consumo(desfecho: str) -> None:
+    """Count rco K1 audit-signal notices consumed by the inbox — `maezo_rco_aviso_consumo_total` (DL-0186).
+
+    Sitio de chamada unico: `platform.integrations.notifications_inbox` (mensagem `rco.aviso_auditoria`).
+    Rotulo fechado; nunca tenant, tarefa, sinal, fila ou grupo. Best-effort: a telemetria nunca muda o que o
+    inbox grava nem o avanco do offset.
+    """
+    rotulo = desfecho if desfecho in RCO_AVISO_CONSUMO_DESFECHOS else "outro"
+    try:
+        _get_metrics_collector().rco_aviso_consumo_total.labels(desfecho=rotulo).inc()
+    except Exception:  # never let telemetry disturb the caller.
+        logger.debug("rco_aviso_consumo_metric_emit_failed", exc_info=True)
+
+
 #: DL-0182: vocabulario FECHADO de `maezo_rco_conferencia_rejeitada_total` (as ativacoes efetivas em que
 #: ha conferencia: `rco_ativacao.filtrar_saida`). Valor fora do conjunto vira `outro`.
 RCO_CONFERENCIA_ATIVACOES: Final[frozenset[str]] = frozenset({"conferida", "conferencia_integral"})

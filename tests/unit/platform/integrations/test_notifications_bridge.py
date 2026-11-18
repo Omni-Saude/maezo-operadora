@@ -1115,4 +1115,7 @@ def test_malformed_error_codes_are_all_in_the_closed_vocabulary() -> None:
         "resume_phi_in_event",
         "resume_history_mismatch",
         "resume_recipient_unavailable",
+        # DL-0186: the inbox's `rco.aviso_auditoria` refusals (shape, and a fila with no pinned group).
+        "rco_aviso_invalido",
+        "rco_fila_sem_grupo",
     } == BRIDGE_DLQ_REASONS

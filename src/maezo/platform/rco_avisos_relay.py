@@ -13,7 +13,8 @@ indisponivel. No modo continuo, outbox indisponivel vira log, metrica (`outbox_i
 intervalo, e a varredura continua.
 
 INVOCADO EXPLICITAMENTE, nunca iniciado pelos daemons (mesmo motivo de `maezo.a2a.outbox_relay`): ligar
-trafego real num topico e decisao de implantacao, e o consumidor das mensagens e de unidade posterior (2b).
+trafego real num topico e decisao de implantacao, e o consumidor das mensagens (`notifications_inbox`,
+DL-0186) so as registra com um inbox ligado.
 Enquanto o relay nao roda, as linhas ficam `pendente` e nada se perde.
 
 ORDEM POR LINHA: publicar e DEPOIS marcar `entregue`. Queda entre os dois deixa a linha `reivindicada` com
