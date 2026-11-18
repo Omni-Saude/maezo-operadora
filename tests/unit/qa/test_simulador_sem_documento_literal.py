@@ -308,7 +308,7 @@ def test_linha_de_comando_do_roster(
 ) -> None:
     arquivo = str(_SIMULADOR / "roster.sql")
     monkeypatch.delenv(roster.VARIAVEL_DO_DOCUMENTO, raising=False)
-    assert roster._principal(["parametros", arquivo]) == 2
+    assert roster._principal(["submeter", arquivo, "--work-group", "wg"], fabrica_cliente=_proibida) == 2
     assert roster.VARIAVEL_DO_DOCUMENTO in capsys.readouterr().err
     invalido = _cpf_invalido()
     monkeypatch.setenv(roster.VARIAVEL_DO_DOCUMENTO, invalido)
@@ -317,7 +317,93 @@ def test_linha_de_comando_do_roster(
     assert invalido not in saida.err + saida.out and saida.out == ""
     documento = cpf_sintetico_valido()
     monkeypatch.setenv(roster.VARIAVEL_DO_DOCUMENTO, documento)
-    assert roster._principal(["parametros", arquivo]) == 0
-    assert capsys.readouterr().out.split() == [f"'{documento}'"] * 2
     assert roster._principal(["consulta", arquivo]) == 0
     assert documento not in capsys.readouterr().out
+    with pytest.raises(SystemExit):  # o modo que imprimia o valor nao existe mais
+        roster._principal(["parametros", arquivo])
+
+
+class _AthenaFalso:
+    def __init__(self, *, falha: Exception | None = None) -> None:
+        self.chamadas: list[dict[str, Any]] = []
+        self.regioes: list[str] = []
+        self._falha = falha
+
+    def fabrica(self, regiao: str) -> _AthenaFalso:
+        self.regioes.append(regiao)
+        return self
+
+    def start_query_execution(self, **kwargs: Any) -> dict[str, str]:
+        self.chamadas.append(kwargs)
+        if self._falha is not None:
+            raise self._falha
+        return {"QueryExecutionId": "qid-falso-0001"}
+
+
+def _proibida(_regiao: str) -> Any:
+    raise AssertionError("o cliente do Athena nao pode ser criado numa recusa")
+
+
+@pytest.mark.parametrize(
+    ("arquivo", "numero", "marcadores"), [("roster.sql", 1, 2), ("roster_lucas_v4.sql", 2, 1)]
+)
+def test_submeter_manda_o_documento_so_em_execution_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+    arquivo: str,
+    numero: int,
+    marcadores: int,
+) -> None:
+    documento = cpf_sintetico_valido()
+    monkeypatch.setenv(roster.VARIAVEL_DO_DOCUMENTO, documento)
+    monkeypatch.setenv("AWS_REGION", "sa-east-1")
+    athena = _AthenaFalso()
+    argv = ["submeter", str(_SIMULADOR / arquivo), "--numero", str(numero), "--work-group", "wg-teste"]
+    with capture_logs() as logs, caplog.at_level(logging.DEBUG):
+        assert roster._principal(argv, fabrica_cliente=athena.fabrica) == 0
+    (chamada,) = athena.chamadas
+    assert chamada["WorkGroup"] == "wg-teste" and athena.regioes == ["sa-east-1"]
+    assert chamada["ExecutionParameters"] == [f"'{documento}'"] * marcadores
+    assert chamada["QueryString"].count("?") == marcadores
+    _sem_vazamento(documento, chamada["QueryString"])
+    saida = capsys.readouterr()
+    assert saida.out == "qid-falso-0001\n"  # so' o id da execucao
+    _sem_vazamento(
+        documento, saida.out, saida.err, json.dumps(logs, default=str), caplog.text, " ".join(argv)
+    )
+
+
+@pytest.mark.parametrize("valor", ["", "invalido"])
+def test_submeter_recusa_sem_documento_valido_sem_criar_cliente(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], valor: str
+) -> None:
+    invalido = _cpf_invalido() if valor == "invalido" else ""
+    monkeypatch.setenv(roster.VARIAVEL_DO_DOCUMENTO, invalido)
+    argv = ["submeter", str(_SIMULADOR / "roster.sql"), "--work-group", "wg"]
+    assert roster._principal(argv, fabrica_cliente=_proibida) == 2
+    saida = capsys.readouterr()
+    assert saida.out == "" and roster.VARIAVEL_DO_DOCUMENTO in saida.err
+    if invalido:
+        _sem_vazamento(invalido, saida.out, saida.err)
+
+
+def test_submeter_erro_do_athena_nao_ecoa_a_mensagem(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    documento = cpf_sintetico_valido()
+    monkeypatch.setenv(roster.VARIAVEL_DO_DOCUMENTO, documento)
+    athena = _AthenaFalso(falha=RuntimeError(f"InvalidRequest: parametro {documento}"))
+    argv = ["submeter", str(_SIMULADOR / "roster.sql"), "--work-group", "wg"]
+    assert roster._principal(argv, fabrica_cliente=athena.fabrica) == 2
+    saida = capsys.readouterr()
+    assert saida.out == "" and "RuntimeError" in saida.err
+    _sem_vazamento(documento, saida.out, saida.err)
+
+
+def test_linha_de_comando_do_roster_nao_tem_opcao_com_o_documento(capsys: pytest.CaptureFixture[str]) -> None:
+    for modo in ("consulta", "submeter"):
+        with pytest.raises(SystemExit):
+            roster._principal([modo, "--help"])
+        ajuda = capsys.readouterr().out.lower()
+        assert "--numero" in ajuda and "documento" not in ajuda and "cpf" not in ajuda

@@ -11,8 +11,8 @@
 -- (resolve-by-document) e usa as primeiras que resolverem (padrao 40).
 --
 -- O documento da primeira linha NAO esta' neste arquivo: cada `?` abaixo e' um parametro de execucao do Athena
--- (`--execution-parameters`), o MESMO valor nas duas posicoes, montado e validado (11 digitos com o
--- digito verificador do CPF) por `python -m maezo.qa.simulador.roster parametros` a partir da
+-- (`ExecutionParameters`), o MESMO valor nas duas posicoes, montado em memoria e validado (11 digitos com
+-- o digito verificador do CPF) por `python -m maezo.qa.simulador.roster submeter` a partir da
 -- variavel MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA (comando no runbook). Sem a variavel nao ha' consulta.
 --
 -- Saida: cpf,nascimento,nome (nascimento em AAAA-MM-DD).

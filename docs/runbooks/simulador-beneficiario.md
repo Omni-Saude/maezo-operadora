@@ -69,18 +69,18 @@ cada execução, na consulta do roster e na task. Não tem valor padrão. Sem el
 é CPF válido, a consulta não é montada e o simulador sai com o código 2 antes de qualquer outra coisa;
 a mensagem nunca repete o valor. Não grave o valor em arquivo, no repositório nem em `SIMULADOR_ARGS`
 (os argumentos vão para o manifesto). Os SQLs recebem o valor como **parâmetro de execução do Athena**
-(`?` no texto, `--execution-parameters` no comando), montado e validado por
-`python -m maezo.qa.simulador.roster`; o texto da consulta nunca contém o valor.
+(`?` no texto): `python -m maezo.qa.simulador.roster submeter` valida o valor, monta os
+`ExecutionParameters` em memória, submete a consulta e imprime só o `QueryExecutionId`; o valor não
+passa por argumento de linha de comando nem pela saída, e o texto da consulta nunca o contém. O
+histórico de consultas do Athena guarda o valor como parâmetro de execução (ExecutionParameters), como
+antes guardava no texto da consulta; quem tem acesso ao histórico do workgroup o vê.
 
 ```
 export AWS_PROFILE=amh-data-dev AWS_REGION=sa-east-1 PYTHONPATH=src
 read -rs MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA && export MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA
 BUCKET=maezo-operadora-dev-qa-simulador-203312548462
 SQL=src/maezo/qa/simulador/roster.sql
-QID=$(aws athena start-query-execution --work-group amh-austa_operadora-analytics-dev \
-  --query-string "$(python -m maezo.qa.simulador.roster consulta $SQL)" \
-  --execution-parameters $(python -m maezo.qa.simulador.roster parametros $SQL) \
-  --query QueryExecutionId --output text)
+QID=$(python -m maezo.qa.simulador.roster submeter $SQL --work-group amh-austa_operadora-analytics-dev)
 aws athena get-query-execution --query-execution-id "$QID" --query QueryExecution.Status.State --output text
 # quando SUCCEEDED:
 SAIDA=$(aws athena get-query-execution --query-execution-id "$QID" \

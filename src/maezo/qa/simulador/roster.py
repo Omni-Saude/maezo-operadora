@@ -13,7 +13,9 @@ e a chave do objeto lido.
 O documento da primeira linha do roster NAO esta' no codigo: e' parametro
 OBRIGATORIO da execucao, na variavel `MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA`. Sem ela, ou com um
 valor que nao e' CPF valido, o simulador nao roda; a mensagem nunca repete o valor. Os SQLs recebem o
-mesmo valor como parametro de execucao do Athena (`?`), montado por `python -m maezo.qa.simulador.roster`.
+mesmo valor como parametro de execucao do Athena (`?`): `python -m maezo.qa.simulador.roster submeter`
+monta os `ExecutionParameters` em memoria e chama o `StartQueryExecution` pelo boto3; o valor nao passa
+por stdout nem por argumento de linha de comando (visivel em `ps`).
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -180,30 +183,73 @@ async def preflight(
     return resolvidos, descartados
 
 
-def _principal(argv: Sequence[str] | None = None) -> int:
-    """`python -m maezo.qa.simulador.roster {consulta|parametros} ARQUIVO.sql [--numero N]`.
+def _cliente_athena_boto3(regiao: str) -> Any:
+    """O cliente do Athena: o `boto3` da imagem (extra `anthropic[bedrock]`), como o S3 do armazenamento."""
+    import boto3  # type: ignore[import-untyped]  # extra [bedrock] da imagem
 
-    `consulta` imprime o texto da consulta (com `?`, sem o valor) para `--query-string`; `parametros`
-    imprime os `ExecutionParameters` para `--execution-parameters`. Ambos exigem
-    `MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA` valida; o erro vai ao stderr sem o valor (codigo 2)."""
+    return boto3.client("athena", region_name=regiao)
+
+
+#: Constroi o cliente do Athena a partir da regiao. Os testes trocam por um cliente falso.
+FabricaClienteAthena = Callable[[str], Any]
+
+
+def submeter_consulta(sql: str, documento: str, *, work_group: str, cliente: Any, numero: int = 1) -> str:
+    """Submete a consulta `numero` ao Athena e devolve o `QueryExecutionId`. O documento so' vai em
+    `ExecutionParameters` (montado em memoria por `montar_consulta`, ja' validado); `QueryString` leva
+    so' o `?`."""
+    consulta, parametros = montar_consulta(sql, documento, numero=numero)
+    resposta = cliente.start_query_execution(
+        QueryString=consulta, ExecutionParameters=parametros, WorkGroup=work_group
+    )
+    return str(resposta["QueryExecutionId"])
+
+
+def _regiao() -> str:
+    return os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "sa-east-1"
+
+
+def _principal(
+    argv: Sequence[str] | None = None, *, fabrica_cliente: FabricaClienteAthena | None = None
+) -> int:
+    """`python -m maezo.qa.simulador.roster consulta ARQUIVO.sql [--numero N]` ou
+    `python -m maezo.qa.simulador.roster submeter ARQUIVO.sql [--numero N] --work-group WG`.
+
+    `consulta` imprime o texto da consulta (com `?`, sem o valor). `submeter` envia a consulta ao Athena
+    com o documento em `ExecutionParameters` e imprime SO' o `QueryExecutionId`. Ambos exigem
+    `MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA` valida (so' do ambiente; nenhuma opcao carrega o
+    documento); o erro vai ao stderr sem o valor (codigo 2)."""
     p = argparse.ArgumentParser(prog="python -m maezo.qa.simulador.roster")
-    p.add_argument("saida", choices=("consulta", "parametros"))
-    p.add_argument("arquivo")
-    p.add_argument("--numero", type=int, default=1)
+    modos = p.add_subparsers(dest="modo", required=True)
+    for modo in ("consulta", "submeter"):
+        sub = modos.add_parser(modo)
+        sub.add_argument("arquivo")
+        sub.add_argument("--numero", type=int, default=1)
+        if modo == "submeter":
+            sub.add_argument("--work-group", required=True)
     args = p.parse_args(argv)
-    # A saida vai para `$(...)` no comando do Athena: qualquer log do processo (os imports da plataforma
-    # registram metricas em stdout) e' desviado para o stderr; no stdout so' a consulta ou os parametros.
+    # A saida vai para `$(...)`: qualquer log do processo (os imports da plataforma registram metricas em
+    # stdout) e' desviado para o stderr; no stdout so' a consulta ou o id da execucao.
     saida = sys.stdout
     try:
         with contextlib.redirect_stdout(sys.stderr):
             documento = documento_da_primeira_linha()
-            consulta, parametros = montar_consulta(
-                Path(args.arquivo).read_text(encoding="utf-8"), documento, numero=args.numero
-            )
+            sql = Path(args.arquivo).read_text(encoding="utf-8")
+            if args.modo == "consulta":
+                resultado, _ = montar_consulta(sql, documento, numero=args.numero)
+            else:
+                montar_consulta(sql, documento, numero=args.numero)  # recusa antes de criar o cliente
+                cliente = (fabrica_cliente or _cliente_athena_boto3)(_regiao())
+                resultado = submeter_consulta(
+                    sql, documento, work_group=args.work_group, cliente=cliente, numero=args.numero
+                )
     except (DocumentoDaPrimeiraLinhaError, ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    print(consulta if args.saida == "consulta" else " ".join(parametros), file=saida)
+    except Exception as exc:  # erro do AWS: so' o tipo (a mensagem do servico poderia citar parametros)
+        print(f"roster: o Athena recusou a submissao ({type(exc).__name__})", file=sys.stderr)
+        return 2
+    print(resultado, file=saida)
     return 0
 
 
@@ -217,6 +263,7 @@ __all__ = [
     "ler_roster_csv",
     "montar_consulta",
     "preflight",
+    "submeter_consulta",
     "validar_documento",
 ]
 
