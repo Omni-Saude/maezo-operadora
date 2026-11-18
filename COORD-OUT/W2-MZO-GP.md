@@ -234,3 +234,7 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 - Falha de processo: uma rodada local caiu por disco cheio (19G de `--basetemp` do `tests/unit/ci` + 9,6G de sobra de rodada interrompida). Apaguei só temporários meus; as suítes passaram a rodar em partes, com o `--basetemp` apagado ao fim de cada parte.
 - CD-149: lida. Passivo conferido: os 6 ramos meus já mesclados (esf36-ligacao, mapa-ajustes, gtm-e-66, esf20r, esf21r, esf25) estão na lista do pacote, nada faltando. `git status` limpo. Ramo local `sf-w2/mzo-gp/esf26-parse-ca` (commit `e1822aa2`, nunca enviado): só registrado.
 - Próximo: CI completo do head `ca609e7d`; verde → pronto ao ROOT com os comandos e contagens acima, e depois LIMPEZA no merge.
+
+## 2026-11-18 ~12:20Z — CD-155 lida; estado do #1318
+
+- Push da correção feito (~11:50Z), head `ca609e7d`. CI desse head: 37 success, 2 skipped, 0 vermelho (`bpmn-gates` incluído); 4 shards de integração em curso. Main em `7fefa48d`: 0 merges atrás. Sem push novo até o CI terminar (CD-155: um push por rodada).
