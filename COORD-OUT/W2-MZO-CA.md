@@ -141,3 +141,8 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
 - Visão do console (CD-94 item 2), ramo `sf-w2/mzo-ca/console-valores`: revisão independente deu FAIL (prefixo livre de letras na referência opaca permitia escrever palavra, ex. termo clínico + hex, e os seis valores ficam fora da varredura). Reparo literal aplicado: prefixo em conjunto fechado (`jrn_`, `pro_`, `acc_`, `pty_`) e caso no teste. Local sem falha exclusiva do ramo. PR depois do merge do #1306.
 - GTM-E-63: suíte local refeita com `--basetemp` próprio sobre a main `6520e4a1`; sem falha exclusiva do ramo. PR na vez dela.
 - Pedido de linha (CD-99 item 3): veracidade do valor das classes só por formato (data e valor do fato) é propriedade do produtor de lembretes, posse da W2-MZO-GP; não tocado.
+
+## 2026-11-18 ~02:40Z — PRONTO #1309 (visão do console, CD-94 item 2)
+
+- PRONTO: maezo-operadora #1309, head `af729d3fc51e41c005cbb147fcdc04ee6bff6023`, checks verdes (42: 40 success, 2 skipped; integração 1411 testes, 0 falhas, 0 erros). Contém `70c9b97a`; main atual `22790308` um merge à frente (#1301), arquivos disjuntos (CD-80). Simulação de merge limpa e abortada.
+- Próximas, com a main `70c9b97a` incorporada e empurradas sem PR: GTM-E-63 (local sem falha exclusiva do ramo), E-SF-23, E-SF-15, E-SF-22r (suítes locais em curso).
