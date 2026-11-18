@@ -131,7 +131,7 @@ async def guardar_envio_de_recuperacao(
         raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SUBJECT_REF_INVALID)
     try:
         vigentes = await supressao.vigentes()
-    except Exception as exc:  # noqa: BLE001 - fonte que nao responde nunca vira "sem oposicao"
+    except Exception as exc:  # fonte que nao responde nunca vira "sem oposicao"
         raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SUPPRESSION_UNAVAILABLE) from exc
     if not isinstance(vigentes, (frozenset, set)) or not all(
         type(v) is tuple and len(v) == 2 and all(type(x) is str for x in v) for v in vigentes
