@@ -136,6 +136,16 @@ def test_nunca_chama_aceite_contrato_ou_matricula_e_sem_assert() -> None:
     assert not re.search(r"\bret\.\w+\.\w+", fonte)
 
 
+def test_os_dois_modulos_nao_redefinem_limiar_do_relogio() -> None:
+    # Os limiares (15, 20, 23, 25) vivem so' nas constantes do relogio canonico; aqui so' se le o estado.
+    from maezo.gateway.communications import recovery_dispatch as rd
+
+    for modulo in (re_mod, rd):
+        fonte = inspect.getsource(modulo)
+        assert not re.search(r"(?<![\w.])(15|20|23|25)(?![\w.])", fonte), modulo.__name__
+        assert not re.search(r"DIA_(ALARME|CORTE|BLOQUEIO)", fonte), modulo.__name__
+
+
 def test_sem_importador_em_src() -> None:
     usos = [
         str(p.relative_to(_RAIZ))
