@@ -181,3 +181,25 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
 - Suíte local sobre `204999bf`: `tests/unit/gateway` 6320 passed, `tests/unit/processes` 114 passed (a cerca incluída), `tests/unit/sec` 162 passed, `tests/unit/ci` 3403 passed; falhas e erros só os da lista da main limpa. Revisão independente: PASS, sem reparo. Corpo do PR atualizado (CD-123 item 6).
 - CI do head `395f141b`: 38 success, 2 skipped, 2 em curso (integração), nenhuma falha até agora.
 - Main atual `8c509a09` está um merge à frente do ramo (#1316, rco), arquivos disjuntos dos meus e sem nome `ret.*` novo (CD-80). Simulação de merge sobre ela vai no pronto.
+
+## 2026-11-18 ~08:05Z — PRONTO #1315 (E-SF-22r) e RELATÓRIO PARCIAL (CD-121; sem DONE)
+
+- PRONTO: maezo-operadora #1315, head `395f141bd7c441a05cbd686b58e5b62fed6d860d`, checks verdes (43: 41 success, 2 skipped; integração 1416 testes, 0 falhas, 0 erros). Cerca de `ret.*` da RT-01 NÃO alterada; identificador do modelo injetado (CD-123). Contém `204999bf`; main `8c509a09` um merge à frente (#1316), disjunto e sem `ret.*` novo. Simulação de merge limpa; nela a cerca e os testes do módulo passam (83).
+
+### Relatório parcial
+1. Telemetria comercial + GTM-E-11 — #1299 mesclado; revisão PASS; portão de medição fechado (`comercial` sem medição admitida).
+2. ADD01-02 console do especialista — #1303 mesclado; PASS; console não montado, compromisso N não ratificado e nunca exibido.
+3. Classes fechadas (CD-87/88/91) — #1304 mesclado; PASS depois de reparo.
+4. `primeiro_nome` pela fonte + doze meses (CD-94/95/99) — #1306 mesclado; PASS; todo modelo com `primeiro_nome` recusado (sem fonte).
+5. Visão do console por classe fechada (CD-94 item 2) — #1309 mesclado; FAIL (prefixo livre) → reparo → PASS.
+6. GTM-E-63 contestação de reajuste — #1311 mesclado; PASS; prazo do art. 11 sem linha no catálogo (GAP), protocolo só da custódia.
+7. E-SF-23 e-mail de protocolo — #1313 mesclado; PASS; canal recusado na admissão.
+8. E-SF-15 portão de campanha — #1314 mesclado; PASS; registro vazio, campanha nasce parada.
+9. E-SF-22r boas-vindas — #1315 com PRONTO; PASS; envio fechado, identificador injetado.
+10. E-SF-16 e 16r — NÃO iniciadas: dependem de E-SF-07 (W2-MZO-GP), ausente da main em `8c509a09`.
+- Não verificado (todas): helm e testes que exigem histórico completo ou usuário não root, só no CI; integração lida do junit do CI.
+- Portões fechados (todas): nenhuma mensagem proativa, nenhum evento de medição, zero dado de saúde, idade fora de critério, nenhum prazo ou norma ao cliente, política não ratificada.
+- Pedidos de linha: (a) veracidade do valor das classes só por formato no produtor de lembretes (W2-MZO-GP), pré-condição de D20–D22; (b) aprovação humana de campanha (pré-condição de ligar E-SF-15); (c) fonte de protocolo de suporte (GTM-E-63) e linha do prazo do art. 11 no catálogo; (d) provedor de e-mail e verificador de eventos (E-SF-23); (e) formato fixo das referências no contrato comercial (console); (f) ponte para programas de cuidado, documentos dos coletivos e canal do destinatário (E-SF-22r); (g) fonte de primeiro nome na custódia.
+- ACHADOS: testes de `tests/unit/portal/test_admin_read_api.py` dependentes de ordem (também na main limpa); limites do detector por lista (corrigidos por classe, nunca por exceção); corrida da tela de legitimidade (não minha).
+- Falhas de processo: id de sessão errado no primeiro commit do canal; limpeza de temporários no meio de suíte; diretório temporário de 15–20 GB por rodada de `tests/unit/ci` esgotando a cota (agora apagado a cada rodada); `tests/unit/processes` fora da suíte local da E-SF-22r (corrigido).
+- Ramos para apagar depois dos merges (não apago): `sf-w2/mzo-ca/telemetria-gtm-e-11`, `add01-02`, `classes-fechadas`, `primeiro-nome`, `console-valores`, `gtm-e-63`, `esf23`, `esf15`; `esf22r` depois do merge do #1315.
