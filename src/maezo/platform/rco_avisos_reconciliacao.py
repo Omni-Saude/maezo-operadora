@@ -19,18 +19,22 @@ O QUE FAZ, SO LEITURA. Para uma janela `[desde, ate)` de um tenant:
 O RELATORIO e so ids e codigos fechados (`CODIGOS`): `ausente_no_outbox` (o aviso esperado nao tem linha),
 `composicao_desconhecida` (decisao com `sinaisAuditoria` fora de toda composicao do manifesto pinado),
 `sinal_sem_aviso` (sinal que o K6 pinado nao endereca), `chave_auditoria_fora_da_forma` (registro cuja
-`dedup_key` nao e `{tenant}:{task_id}`). Mais as contagens por `status` das linhas encontradas. Nada do caso,
-nenhuma linha da DMN, nenhum texto livre.
+`dedup_key` nao e `{tenant}:{task_id}`), `aviso_falhou` (a linha esperada existe mas terminou `falhou`; leva o
+`ultimo_erro` fechado do outbox, `publicacao_falhou` ou `fila_sem_grupo`: o aviso NAO saiu e espera o
+operador). Mais as contagens por `status` das linhas encontradas. Nada do caso, nenhuma linha da DMN, nenhum
+texto livre.
 
 LIMITES, ditos: (a) o esperado e calculado com o pin de AGORA; uma auditoria gravada sob outro pin pode
 divergir (`composicao_desconhecida`/`sinal_sem_aviso` aparecem entao como codigo, nunca como palpite);
 (b) a janela precisa caber na retencao de `audit_emit_dedup` (varredura por idade, 0005); (c) a juncao por
-`record_hash` nao tem indice proprio: a janela deve ser curta. Reenfileirar o ausente NAO e feito aqui (a
-ferramenta so le); e ato de operador.
+`record_hash` nao tem indice proprio: a janela deve ser curta; (d) o CONSUMO nao e reconciliado: uma linha
+`entregue` do outbox prova a publicacao, nao a linha `rco_aviso_grupo` (0037) do inbox (fora do escopo).
+Reenfileirar o ausente ou o falhado NAO e feito aqui (a ferramenta so le); e ato de operador.
 
     python -m maezo.platform.rco_avisos_reconciliacao --desde 2026-11-18T00:00:00Z --ate 2026-11-19T00:00:00Z
 
-SAIDA: JSON no stdout; codigo 0 = nenhuma divergencia, 1 = alguma divergencia, 2 = banco ou pin indisponivel.
+SAIDA: JSON no stdout; codigo 0 = nenhuma divergencia, 1 = alguma divergencia (inclusive `aviso_falhou`), 2 =
+banco ou pin indisponivel.
 O indicador `efeito_k1_habilitado` NAO e lido aqui.
 """
 
@@ -49,7 +53,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from maezo.gateway.audit_postgres import normalize_dsn, schema_for_tenant
-from maezo.platform.rco_avisos import TABELA, avisos_para, chave_idempotencia
+from maezo.platform.rco_avisos import ERROS, TABELA, avisos_para, chave_idempotencia
 from maezo.platform.rco_manifesto import AvisoK6, ComposicaoK1
 from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
 
@@ -62,9 +66,11 @@ AUSENTE_NO_OUTBOX: Final[str] = "ausente_no_outbox"
 COMPOSICAO_DESCONHECIDA: Final[str] = "composicao_desconhecida"
 SINAL_SEM_AVISO: Final[str] = "sinal_sem_aviso"
 CHAVE_AUDITORIA_FORA_DA_FORMA: Final[str] = "chave_auditoria_fora_da_forma"
+#: DL-0186: a linha esperada existe mas terminou `falhou` (o aviso nao saiu); leva o `ultimo_erro` fechado.
+AVISO_FALHOU: Final[str] = "aviso_falhou"
 #: Codigos FECHADOS do relatorio.
 CODIGOS: Final[frozenset[str]] = frozenset(
-    {AUSENTE_NO_OUTBOX, COMPOSICAO_DESCONHECIDA, SINAL_SEM_AVISO, CHAVE_AUDITORIA_FORA_DA_FORMA}
+    {AUSENTE_NO_OUTBOX, COMPOSICAO_DESCONHECIDA, SINAL_SEM_AVISO, CHAVE_AUDITORIA_FORA_DA_FORMA, AVISO_FALHOU}
 )
 
 
@@ -98,6 +104,8 @@ class Divergencia:
     sinal: str = ""
     fila: str = ""
     chave_idempotencia: str = ""
+    #: So em `aviso_falhou`: o codigo fechado de `rco_aviso_auditoria.ultimo_erro` (`rco_avisos.ERROS`).
+    ultimo_erro: str = ""
 
     def como_dict(self) -> dict[str, str]:
         return {k: v for k, v in _campos(self).items() if v}
@@ -112,6 +120,7 @@ def _campos(d: Divergencia) -> dict[str, str]:
         "sinal": d.sinal,
         "fila": d.fila,
         "chave_idempotencia": d.chave_idempotencia,
+        "ultimo_erro": d.ultimo_erro,
     }
 
 
@@ -210,8 +219,14 @@ def reconciliar(
     composicoes: Sequence[ComposicaoK1],
     avisos_do_pin: Mapping[str, AvisoK6],
     status_no_outbox: Mapping[str, str],
+    erros_no_outbox: Mapping[str, str] | None = None,
 ) -> Relatorio:
-    """Funcao pura: compara o esperado com `status_no_outbox` (chave -> status) e monta o relatorio."""
+    """Funcao pura: compara o esperado com `status_no_outbox` (chave -> status) e monta o relatorio.
+
+    Linha esperada em `falhou` vira `aviso_falhou` com o `ultimo_erro` de `erros_no_outbox` (chave -> codigo);
+    codigo fora de `rco_avisos.ERROS` (ou ausente) vai vazio, nunca o texto lido.
+    """
+    erros = erros_no_outbox or {}
     esperados, divergencias = esperados_da_auditoria(
         registros, tenant=tenant, composicoes=composicoes, avisos_do_pin=avisos_do_pin
     )
@@ -231,6 +246,19 @@ def reconciliar(
             )
         else:
             por_status[status] = por_status.get(status, 0) + 1
+            if status == "falhou":
+                erro = erros.get(aviso.chave_idempotencia, "")
+                divergencias.append(
+                    Divergencia(
+                        AVISO_FALHOU,
+                        task_id=aviso.task_id,
+                        composicao=aviso.composicao,
+                        sinal=aviso.sinal,
+                        fila=aviso.fila,
+                        chave_idempotencia=aviso.chave_idempotencia,
+                        ultimo_erro=erro if erro in ERROS else "",
+                    )
+                )
     return Relatorio(
         registros=len(registros),
         esperados=len(esperados),
@@ -255,6 +283,11 @@ _OUTBOX_SQL: Final[str] = (
     f"SELECT chave_idempotencia, status FROM {TABELA} "  # nosec B608 # fonte: constante do modulo
     "WHERE tenant = $1 AND chave_idempotencia = ANY($2::text[])"
 )
+#: DL-0186: o codigo fechado das linhas `falhou` (CHECK da 0036/0037).
+_ERROS_SQL: Final[str] = (
+    f"SELECT chave_idempotencia, ultimo_erro FROM {TABELA} "  # nosec B608 # fonte: constante do modulo
+    "WHERE tenant = $1 AND chave_idempotencia = ANY($2::text[]) AND status = 'falhou'"
+)
 STATEMENT_TIMEOUT: Final[str] = "30s"
 
 
@@ -266,6 +299,8 @@ class FonteReconciliacao(Protocol):
     async def ler_auditoria(self, desde: datetime, ate: datetime) -> list[RegistroAuditado]: ...
 
     async def status_no_outbox(self, chaves: Sequence[str]) -> dict[str, str]: ...
+
+    async def erros_no_outbox(self, chaves: Sequence[str]) -> dict[str, str]: ...
 
 
 def _jsonb(valor: Any) -> Mapping[str, Any]:
@@ -320,6 +355,12 @@ class PostgresFonteReconciliacao:
         rows = await self._ler(_OUTBOX_SQL, self._tenant, list(chaves))
         return {str(r["chave_idempotencia"]): str(r["status"]) for r in rows}
 
+    async def erros_no_outbox(self, chaves: Sequence[str]) -> dict[str, str]:
+        if not chaves:
+            return {}
+        rows = await self._ler(_ERROS_SQL, self._tenant, list(chaves))
+        return {str(r["chave_idempotencia"]): str(r["ultimo_erro"] or "") for r in rows}
+
 
 async def executar(
     fonte: FonteReconciliacao,
@@ -335,13 +376,16 @@ async def executar(
     esperados, _ = esperados_da_auditoria(
         registros, tenant=tenant, composicoes=composicoes, avisos_do_pin=avisos_do_pin
     )
-    status = await fonte.status_no_outbox([e.chave_idempotencia for e in esperados])
+    chaves = [e.chave_idempotencia for e in esperados]
+    status = await fonte.status_no_outbox(chaves)
+    erros = await fonte.erros_no_outbox(chaves) if "falhou" in status.values() else {}
     return reconciliar(
         registros,
         tenant=tenant,
         composicoes=composicoes,
         avisos_do_pin=avisos_do_pin,
         status_no_outbox=status,
+        erros_no_outbox=erros,
     )
 
 

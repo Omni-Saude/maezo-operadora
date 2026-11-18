@@ -133,6 +133,18 @@ async def _existe(dsn: str, tenant: str, tabela: str) -> bool:
     return rows[0]["t"] is not None
 
 
+async def _funcoes_imutavel(dsn: str, tenant: str) -> int:
+    """`rco_aviso_grupo_imutavel` no schema deste tenant (outros schemas de teste nao contam)."""
+    rows = await _sql(
+        dsn,
+        tenant,
+        "SELECT count(*) AS n FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+        "WHERE p.proname = 'rco_aviso_grupo_imutavel' AND n.nspname = $1",
+        tenant,
+    )
+    return int(rows[0]["n"])
+
+
 async def test_check_alargado_relay_sem_grupo_e_downgrade_explicito_ao_vivo() -> None:
     dsn = _default_test_dsn()
     tenant = await _schema_novo(dsn, "0036")
@@ -186,14 +198,12 @@ async def test_check_alargado_relay_sem_grupo_e_downgrade_explicito_ao_vivo() ->
         versao = await _sql(dsn, tenant, f'SELECT version_num FROM "{tenant}_alembic_version"')
         assert [r["version_num"] for r in versao] == ["0037"]
 
+        assert await _funcoes_imutavel(dsn, tenant) == 1  # a funcao vive no schema DESTE tenant
         # O operador decide (`--reprocessar`) e repete: CHECK original de volta, tabela e funcao apagadas.
         assert await rco_avisos_relay.reprocessar(store) == 3  # as duas `fila_sem_grupo` e a antiga
         await _migrate(dsn, tenant, "downgrade", "0036")
         assert not await _existe(dsn, tenant, "rco_aviso_grupo")
-        funcao = await _sql(
-            dsn, tenant, "SELECT count(*) AS n FROM pg_proc WHERE proname = 'rco_aviso_grupo_imutavel'"
-        )
-        assert funcao[0]["n"] == 0
+        assert await _funcoes_imutavel(dsn, tenant) == 0
         check = await _sql(
             dsn,
             tenant,

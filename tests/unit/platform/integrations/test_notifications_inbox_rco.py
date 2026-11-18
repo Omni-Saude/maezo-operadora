@@ -224,6 +224,8 @@ async def test_fila_sem_grupo_vai_a_fila_morta_com_fato_duravel_e_confirma(conta
 
 
 async def test_fila_sem_grupo_sem_dlq_nao_commita(contados: list[str]) -> None:
+    """Contrato do laco para chamadores injetados (`dlq=None`): re-levanta e nao commita. O daemon real
+    nunca roda assim: `main()` liga a fila morta obrigatoria (`build_inbox_dlq`)."""
     consumer = FakeBridgeKafkaConsumer([_mensagem("cadastro")])
     with pytest.raises(MalformedRcoAvisoError):
         await run_inbox_loop(consumer, _SpyInbox(), avisos_rco=InboxRcoEmMemoria(), grupos_do_pin=lambda: {})
@@ -431,28 +433,60 @@ def test_o_destino_postgres_sem_database_url_recusa_subir() -> None:
     assert isinstance(sink, inbox_mod.PostgresInboxAvisosRco)
 
 
-async def test_o_daemon_liga_os_avisos_rco_no_laco(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`main()` compoe o inbox de escalonamento E o destino dos avisos rco (mesmo DSN/tenant) e os passa ao
-    laco; sem o destino ligado, `rco.aviso_auditoria` seria so `nao_configurado`."""
+class _ConsumidorFalso:
+    def __init__(self, **kw: Any) -> None:
+        self.kw = kw
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+
+class _PublicadorDlqFalso:
+    def __init__(self, **kw: Any) -> None:
+        self.kw = kw
+        self.iniciado = False
+        self.parado = False
+
+    async def start(self) -> None:
+        self.iniciado = True
+
+    async def stop(self) -> None:
+        self.parado = True
+
+
+def _daemon(monkeypatch: pytest.MonkeyPatch, grupos: Any) -> list[dict[str, Any]]:
+    from maezo.platform.integrations import notifications_bridge as bridge_mod
+
     monkeypatch.setenv("DATABASE_URL", "postgresql://x@h/db")
     monkeypatch.setenv("TENANT_ID", "amh")
     chamadas: list[dict[str, Any]] = []
 
-    class _Consumidor:
-        def __init__(self, **kw: Any) -> None:
-            self.kw = kw
-
-        async def start(self) -> None:
-            return None
-
-        async def stop(self) -> None:
-            return None
-
     async def _laco(consumer: Any, inbox: Any, **kw: Any) -> None:
         chamadas.append({"consumer": consumer, "inbox": inbox, **kw})
 
-    monkeypatch.setattr(inbox_mod, "AioKafkaBridgeConsumer", _Consumidor)
+    monkeypatch.setattr(inbox_mod, "AioKafkaBridgeConsumer", _ConsumidorFalso)
+    monkeypatch.setattr(bridge_mod, "AioKafkaDlqPublisher", _PublicadorDlqFalso)
     monkeypatch.setattr(inbox_mod, "run_inbox_loop", _laco)
+    monkeypatch.setattr(inbox_mod, "_grupos_do_pin_de_bordo", grupos)
+    return chamadas
+
+
+async def test_o_daemon_liga_avisos_rco_fila_morta_e_grupos_lidos_na_subida(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`main()` compoe o inbox de escalonamento, o destino dos avisos rco (mesmo DSN/tenant), a fila morta
+    OBRIGATORIA (sem ela uma recusa deterministica derrubaria o daemon em laco) e os grupos do pin lidos UMA
+    vez na subida."""
+    leituras: list[int] = []
+
+    def grupos() -> Mapping[str, str]:
+        leituras.append(1)
+        return {"auditoria_medica": "g-bordo"}
+
+    chamadas = _daemon(monkeypatch, grupos)
     await inbox_mod.main()
     assert len(chamadas) == 1
     chamada = chamadas[0]
@@ -460,3 +494,24 @@ async def test_o_daemon_liga_os_avisos_rco_no_laco(monkeypatch: pytest.MonkeyPat
     rco = chamada["avisos_rco"]
     assert isinstance(rco, inbox_mod.PostgresInboxAvisosRco) and isinstance(rco, InboxAvisosRco)
     assert rco._tenant == chamada["inbox"]._tenant == "amh"
+    dlq = chamada["dlq"]
+    assert isinstance(dlq, BridgeDlqShunt) and dlq.tenant_id == "amh"
+    assert dlq.publisher.iniciado and dlq.publisher.parado  # sobe antes do laco, para na saida
+    assert dict(chamada["grupos_do_pin"]()) == {"auditoria_medica": "g-bordo"}
+    chamada["grupos_do_pin"]()
+    assert leituras == [1]  # o pin foi lido so' na subida
+
+
+async def test_o_daemon_recusa_subir_com_pin_ilegivel(monkeypatch: pytest.MonkeyPatch) -> None:
+    def ilegivel() -> Mapping[str, str]:
+        raise k1.ManifestoK1InvalidoError(["k6-filas.json invalido"])
+
+    chamadas = _daemon(monkeypatch, ilegivel)
+    with pytest.raises(RuntimeError, match="pin rco de bordo e' ilegivel"):
+        await inbox_mod.main()
+    assert chamadas == []  # nada consumido
+
+
+async def test_o_daemon_recusa_subir_sem_banco_para_a_fila_morta() -> None:
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        inbox_mod.build_inbox_dlq(inbox_mod.NotificationsInboxSettings(DATABASE_URL=None))

@@ -64,7 +64,7 @@ NOSEC_B608: Final[dict[str, int]] = {
     "gateway/staff_cases/postgres.py": 1,
     "platform/integrations/amh_inbox.py": 1,
     # DL-0186: leitura do outbox pela reconciliacao (tabela = constante `rco_avisos.TABELA`).
-    "platform/rco_avisos_reconciliacao.py": 1,
+    "platform/rco_avisos_reconciliacao.py": 2,
     "platform/webhooks/whatsapp/acesso_limite_cpf.py": 3,
     "platform/webhooks/whatsapp/acesso_store.py": 3,
     "platform/webhooks/whatsapp/roteamento.py": 4,

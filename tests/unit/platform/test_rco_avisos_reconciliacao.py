@@ -65,16 +65,42 @@ def test_esperado_e_uma_linha_por_fila_uma_vez_por_tarefa_e_composicao() -> None
 
 
 def test_tudo_no_outbox_nao_diverge() -> None:
-    status = {_chave("task-1", "auditoria_medica"): "entregue", _chave("task-1", "cadastro"): "falhou"}
+    status = {_chave("task-1", "auditoria_medica"): "entregue", _chave("task-1", "cadastro"): "pendente"}
     rel = rr.reconciliar([_registro()], tenant="amh", status_no_outbox=status, **_pacote())
     assert rel.ok
     assert rel.como_dict() == {
         "registros": 1,
         "esperados": 2,
-        "encontrados_por_status": {"entregue": 1, "falhou": 1},
+        "encontrados_por_status": {"entregue": 1, "pendente": 1},
         "divergencias_por_codigo": {},
         "divergencias": [],
     }
+
+
+@pytest.mark.parametrize(
+    ("lido", "esperado"),
+    [("fila_sem_grupo", "fila_sem_grupo"), ("publicacao_falhou", "publicacao_falhou"), ("texto livre", "")],
+)
+def test_linha_falhou_diverge_com_o_codigo_fechado(lido: str, esperado: str) -> None:
+    """DL-0186: o aviso que terminou `falhou` NAO saiu; aparece como `aviso_falhou` e a saida e 1."""
+    chave = _chave("task-1", "cadastro")
+    status = {_chave("task-1", "auditoria_medica"): "entregue", chave: "falhou"}
+    rel = rr.reconciliar(
+        [_registro()], tenant="amh", status_no_outbox=status, erros_no_outbox={chave: lido}, **_pacote()
+    )
+    assert not rel.ok
+    assert rel.como_dict()["encontrados_por_status"] == {"entregue": 1, "falhou": 1}
+    item = {
+        "codigo": "aviso_falhou",
+        "task_id": "task-1",
+        "composicao": rec.COMPOSICAO,
+        "sinal": SINAL,
+        "fila": "cadastro",
+        "chave_idempotencia": chave,
+    }
+    if esperado:
+        item["ultimo_erro"] = esperado
+    assert [d.como_dict() for d in rel.divergencias] == [item]
 
 
 def test_aviso_ausente_e_reportado_so_com_ids_e_codigo() -> None:
@@ -154,6 +180,9 @@ class FonteEmMemoria:
         self.consultadas.append(list(chaves))
         return {c: s for c, s in self.status.items() if c in chaves}
 
+    async def erros_no_outbox(self, chaves: Sequence[str]) -> dict[str, str]:
+        return {c: "fila_sem_grupo" for c, s in self.status.items() if c in chaves and s == "falhou"}
+
 
 async def test_executar_le_so_as_chaves_esperadas() -> None:
     fonte = FonteEmMemoria(
@@ -201,6 +230,12 @@ async def test_cli_codigo_de_saida_pelo_relatorio(
     assert saida["divergencias_por_codigo"] == {"ausente_no_outbox": 2}
     fonte.status = {_chave("task-1", f): "entregue" for f in ("auditoria_medica", "cadastro")}
     assert await rr.main(argv) == 0
+    capsys.readouterr()
+    fonte.status[_chave("task-1", "cadastro")] = "falhou"  # DL-0186: linha esperada que nao saiu
+    assert await rr.main(argv) == 1
+    saida = json.loads(capsys.readouterr().out)
+    assert saida["divergencias_por_codigo"] == {"aviso_falhou": 1}
+    assert saida["divergencias"][0]["ultimo_erro"] == "fila_sem_grupo"
 
 
 async def test_banco_fora_vira_codigo_so_com_o_tipo() -> None:

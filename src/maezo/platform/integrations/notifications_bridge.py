@@ -1095,10 +1095,25 @@ def build_dlq_shunt(
     that most needs it. The seam that CAN be `None` is `run_consumer_loop(dlq=...)`, and its only
     user is the unit suite proving the pre-GAP-SC-04-a behaviour is unchanged when no shunt exists.
     """
-    return BridgeDlqShunt(
-        publisher=AioKafkaDlqPublisher(bootstrap_servers=settings.kafka_bootstrap_servers),
+    return make_dlq_shunt(
+        bootstrap_servers=settings.kafka_bootstrap_servers,
         audit_sink=audit_sink,
         tenant_id=settings.tenant_id,
+    )
+
+
+def make_dlq_shunt(
+    *, bootstrap_servers: str, audit_sink: DedupReportingAuditSink, tenant_id: str
+) -> BridgeDlqShunt:
+    """The ONE place the production shunt is assembled (real Kafka DLQ publisher + the caller's audit sink).
+
+    Shared by `build_dlq_shunt` (this daemon) and `notifications_inbox.build_inbox_dlq` (DL-0186), so the two
+    consumers of `operadora.notifications.internal` quarantine the same way.
+    """
+    return BridgeDlqShunt(
+        publisher=AioKafkaDlqPublisher(bootstrap_servers=bootstrap_servers),
+        audit_sink=audit_sink,
+        tenant_id=tenant_id,
     )
 
 

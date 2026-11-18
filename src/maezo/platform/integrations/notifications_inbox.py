@@ -60,15 +60,18 @@ outbox relay publishes (`platform/rco_avisos_relay.py`, DL-0185). When an `Inbox
 `chave_idempotencia` that matches the message's own content) and addressed to the `grupo_principal` the
 PINNED K6 declares for its `fila` (`rco_pin.RcoRulesPin.grupos_principais`) — data from the pin, never a
 name written here. One message = one fila = one group = one row; `notice_ref` digests
-`(type, tenant, chave_idempotencia, grupo)`, so a redelivery converges on one row. A fila with no
+`(type, tenant, chave_idempotencia, grupo, audience)`, so a redelivery converges on one row. A fila with no
 `grupo_principal` ends as a closed-code failure (`rco_fila_sem_grupo`, dead-lettered like any deterministic
 refusal), never delivered to another group; the relay already marks such a row `fila_sem_grupo` before
 publishing, so this refusal is the SECOND barrier (a consumer pin that differs from the relay's). Without a
 sink the type is skipped as before (counted as `nao_configurado`). The durable sink is
 `PostgresInboxAvisosRco` over its own immutable table `rco_aviso_grupo` (migration 0037; NOT
 `escalation_team_notice`, which has no column for the notice kind, `sinal`, `fila` or `prazo_parametro`),
-wired by `main()` with the same DSN and tenant as the escalation inbox. Counted by
-`maezo_rco_aviso_consumo_total{desfecho}`.
+wired by `main()` with the same DSN and tenant as the escalation inbox. `main()` also wires the dead-letter
+shunt (`build_inbox_dlq`, the bridge's `make_dlq_shunt`; mandatory, so a deterministic refusal is quarantined
+instead of crash-looping the daemon and blocking escalation notices behind it) and reads the on-board pin's
+groups ONCE at startup (`carregar_grupos_de_bordo`; unreadable pin = the daemon refuses to start). Counted
+by `maezo_rco_aviso_consumo_total{desfecho}`.
 
 **HONEST EXTERNAL-VALIDATION BOUNDARY** (same convention as `notifications_bridge`'s own
 docstring). Unit-provable here: parsing, fail-closed refusal, the receipt/ordering contract, the
@@ -88,6 +91,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any, Final, Protocol, runtime_checkable
 
 import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
@@ -95,7 +99,7 @@ import structlog
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from maezo.gateway.audit_postgres import normalize_dsn, schema_for_tenant
+from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn, schema_for_tenant
 from maezo.platform import rco_avisos
 from maezo.platform.integrations.notifications_bridge import (
     REASON_MISSING_ESCALATION_ANCHOR,
@@ -106,7 +110,9 @@ from maezo.platform.integrations.notifications_bridge import (
     BridgeDlqShunt,
     BridgeKafkaConsumer,
     MalformedBridgeMessageError,
+    make_dlq_shunt,
 )
+from maezo.platform.topic_registry import dlq_topic_for
 from maezo.tools.workers.escalation import (
     NOTIFY_SUPERVISOR_NOTIFICATION_TYPE,
     NOTIFY_TEAM_NOTIFICATION_TYPE,
@@ -900,11 +906,56 @@ def build_avisos_rco(settings: NotificationsInboxSettings) -> PostgresInboxAviso
     return PostgresInboxAvisosRco(dsn=settings.database_url, tenant=settings.tenant_id)
 
 
+def build_inbox_dlq(settings: NotificationsInboxSettings) -> BridgeDlqShunt:
+    """A fila morta do inbox (DL-0186), montada como a da ponte (`notifications_bridge.make_dlq_shunt`).
+
+    Publicador Kafka real no `{topico}.dlq` + `PostgresAuditSink` do tenant (o fato duravel da recusa com
+    o `reason_code`). FAIL-CLOSED como `build_inbox`: sem `DATABASE_URL` nao ha cadeia de auditoria para o
+    fato da recusa, e o daemon NAO sobe. Nao existe ajuste "sem fila morta": com o consumidor dos avisos rco
+    ligado, uma recusa deterministica (`rco_aviso_invalido`, `rco_fila_sem_grupo`, aviso de equipe sem
+    ancora) sem fila morta re-levantaria em laco e bloquearia a particao para os avisos de escalonamento.
+    """
+    if not settings.database_url:
+        raise RuntimeError(
+            "notifications_inbox: DATABASE_URL is required — the dead-letter shunt records each refusal in "
+            "the tenant's durable audit chain, and without it a poison message would block the partition"
+        )
+    return make_dlq_shunt(
+        bootstrap_servers=settings.kafka_bootstrap_servers,
+        audit_sink=PostgresAuditSink(settings.database_url, settings.tenant_id),
+        tenant_id=settings.tenant_id,
+    )
+
+
+def carregar_grupos_de_bordo() -> Mapping[str, str]:
+    """`grupo_principal` por fila do pin de BORDO, lido UMA vez na subida do daemon (DL-0186).
+
+    O pin e' estatico por imagem: ilegivel e' falha de implantacao, visivel na subida, nunca um laco de
+    re-entrega no meio do fluxo. Levanta `RuntimeError` (so o tipo do erro original) e o daemon nao sobe.
+    Pin sem pacote ou abaixo de 2.3.0 devolve vazio: todo aviso rco vai a fila morta (`rco_fila_sem_grupo`),
+    nunca a outro grupo.
+    """
+    try:
+        return MappingProxyType(dict(_grupos_do_pin_de_bordo()))
+    except Exception as exc:
+        raise RuntimeError(
+            f"notifications_inbox: o pin rco de bordo e' ilegivel ({type(exc).__name__}) — recusando subir "
+            "com o consumidor dos avisos rco.aviso_auditoria ligado"
+        ) from None
+
+
 async def main() -> None:
-    """Run the consume loop until SIGTERM/SIGINT. Mirrors `notifications_bridge.main()`."""
+    """Run the consume loop until SIGTERM/SIGINT. Mirrors `notifications_bridge.main()`.
+
+    DL-0186: compoe o inbox de escalonamento, o destino dos avisos rco (`build_avisos_rco`), a fila morta
+    (`build_inbox_dlq`, obrigatoria) e os grupos do pin lidos uma vez (`carregar_grupos_de_bordo`). Qualquer
+    um deles indisponivel = o daemon recusa subir.
+    """
     settings = NotificationsInboxSettings()
     inbox = build_inbox(settings)
     avisos_rco = build_avisos_rco(settings)
+    dlq = build_inbox_dlq(settings)
+    grupos = carregar_grupos_de_bordo()
     consumer: BridgeKafkaConsumer = AioKafkaBridgeConsumer(
         bootstrap_servers=settings.kafka_bootstrap_servers,
         topic=settings.kafka_topic,
@@ -915,16 +966,32 @@ async def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop_event.set)
     await consumer.start()
+    # Antes do laco (molde da ponte): broker da fila morta inalcancavel e' falha de subida, nao surpresa da
+    # primeira mensagem envenenada.
+    await dlq.publisher.start()
     logger.info(
         "notifications_inbox.started",
         topic=settings.kafka_topic,
         group_id=settings.kafka_group_id,
         tenant_id=settings.tenant_id,
+        dlq_topic=dlq_topic_for(settings.kafka_topic),
+        filas_com_grupo=len(grupos),
     )
     try:
-        await run_inbox_loop(consumer, inbox, stop_event=stop_event, avisos_rco=avisos_rco)
+        await run_inbox_loop(
+            consumer,
+            inbox,
+            stop_event=stop_event,
+            dlq=dlq,
+            avisos_rco=avisos_rco,
+            grupos_do_pin=lambda: grupos,
+        )
     finally:
         await consumer.stop()
+        try:
+            await dlq.publisher.stop()
+        except Exception:  # higiene de saida: nunca mascara a falha do laco
+            logger.debug("notifications_inbox.dlq_stop_failed")
         logger.info("notifications_inbox.stopped")
 
 

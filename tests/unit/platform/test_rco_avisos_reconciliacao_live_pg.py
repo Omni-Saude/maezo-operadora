@@ -109,6 +109,25 @@ async def test_reconciliacao_acha_o_aviso_que_nao_chegou_ao_outbox() -> None:
         ]
         assert await _sql(dsn, tenant, "SELECT count(*) FROM rco_aviso_auditoria") == antes  # so leitura
 
+        # DL-0186: uma linha esperada que terminou `falhou` (aqui `fila_sem_grupo`, CHECK da 0037) diverge
+        await _sql(
+            dsn,
+            tenant,
+            "UPDATE rco_aviso_auditoria SET status = 'falhou', ultimo_erro = 'fila_sem_grupo' "
+            "WHERE task_id = 'task-1' AND fila = 'cadastro'",
+        )
+        falhou = await rr.executar(
+            rr.PostgresFonteReconciliacao(dsn=dsn, tenant=tenant),
+            tenant=tenant,
+            desde=agora - timedelta(hours=1),
+            ate=agora + timedelta(hours=1),
+            composicoes=GRUPOS,
+            avisos_do_pin=AVISOS,
+        )
+        assert [
+            (d.codigo, d.task_id, d.fila, d.ultimo_erro) for d in falhou.divergencias if d.task_id == "task-1"
+        ] == [("aviso_falhou", "task-1", "cadastro", "fila_sem_grupo")]
+
         # fora da janela: nada
         vazio = await rr.executar(
             rr.PostgresFonteReconciliacao(dsn=dsn, tenant=tenant),

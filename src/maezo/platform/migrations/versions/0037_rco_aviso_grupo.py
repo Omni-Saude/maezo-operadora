@@ -41,8 +41,9 @@ tenant (DL-0017, `search_path`).
 **Downgrade.** Apaga a tabela e a funcao e devolve o CHECK original (`= 'publicacao_falhou'`). Se houver
 linha do outbox com `ultimo_erro = 'fila_sem_grupo'`, o downgrade FALHA com excecao explicita antes de mudar
 qualquer coisa: reescrever o codigo para `publicacao_falhou` falsificaria o registro (nada foi publicado) e
-apagar a linha perderia o aviso. O operador decide antes (`rco_avisos_relay --reprocessar` devolve as `falhou`
-a `pendente` com `ultimo_erro` nulo) e repete o downgrade.
+apagar a linha perderia o aviso. O operador PARA o relay (senao a proxima varredura marca de novo
+`fila_sem_grupo` entre o `--reprocessar` e o downgrade), decide as linhas (`rco_avisos_relay --reprocessar`
+devolve as `falhou` a `pendente` com `ultimo_erro` nulo) e repete o downgrade.
 
 **Cadeia alembic.** `down_revision = "0036"` (head da `main` com o outbox dos avisos, DL-0185).
 
