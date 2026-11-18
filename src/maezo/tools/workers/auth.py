@@ -493,7 +493,11 @@ class ValidateAutoCriteriaWorker(WorkerBase):
     longer hold the task past its lock (the engine would re-deliver it to another worker and reject
     this worker's late `complete`). Each evaluation gets what is left; once it is spent, the
     remaining tables fail closed exactly like an unreachable table (`*_TABELA_INDISPONIVEL`, human
-    review) and the engine is not called again for this task.
+    review) and the engine is not called again for this task. SOFT bound: synchronous blocking
+    that escapes `wait_for` (DNS resolution when the per-call HTTP client is built, awaited by
+    `asyncio.run`'s executor shutdown) can overrun it, at most once per task (the next call raises
+    before any network). An exhausted budget reports the same `*_TABELA_INDISPONIVEL` token as an
+    outage, by design (identical output); the log's `error_type` tells them apart.
 
     DEGRADATION (design §6) — fail-safe AND visible. An unexpected error anywhere returns all
     four criteria false plus `VALIDADOR_INDISPONIVEL`, with an `error` log line, a

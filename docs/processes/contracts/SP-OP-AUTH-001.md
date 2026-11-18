@@ -613,7 +613,10 @@ por tarefa: `WorkerRuntimeSettings.auth_dmn_budget_s`, o bloqueio da tarefa (`WO
 margem que nao deixe orcamento. Cada avaliacao recebe o que resta; esgotado, as tabelas que faltam
 saem como `*_TABELA_INDISPONIVEL` sem chamar o motor — a mesma saida de uma tabela indisponivel, que
 leva ao catch-all `ANALISE_HUMANA` (nunca negativa). Antes disso, uma tabela lenta podia segurar a
-tarefa alem do bloqueio: o motor a re-entregava a outro worker e recusava o `complete` tardio.
+tarefa alem do bloqueio: o motor a re-entregava e uma das copias tinha o `complete` recusado.
+Teto brando: bloqueio sincrono que escapa do `wait_for` (DNS na criacao do cliente HTTP) pode passar
+do prazo uma vez por tarefa; a margem de 10 s e uma suposicao (auditoria e `complete` nao tem timeout
+ligado ao bloqueio). Orcamento esgotado usa o mesmo token de tabela indisponivel; o log distingue.
 
 ### `auth_junta_admissibility` (FIRST — DRAFT, R-064)
 in: `carater_atendimento: string`

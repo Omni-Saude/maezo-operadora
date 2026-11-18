@@ -156,9 +156,10 @@ class _MotorCamunda7:
         retries: int,
         retry_timeout_ms: int,
     ) -> None:
-        del task_id, error_message, error_details, retries, retry_timeout_ms
+        del task_id, error_message, error_details, retries
         self._validar("failure", worker_id)
-        self.dono = None
+        # Como o motor: o `workerId` fica, e a tarefa so volta a ser buscavel depois de `retryTimeout`.
+        self.expira_em = self.agora() + retry_timeout_ms / 1000.0
 
     async def handle_bpmn_error(self, task_id: str, worker_id: str, **_: Any) -> None:
         del task_id
