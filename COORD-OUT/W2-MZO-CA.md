@@ -203,3 +203,40 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
 - ACHADOS: testes de `tests/unit/portal/test_admin_read_api.py` dependentes de ordem (também na main limpa); limites do detector por lista (corrigidos por classe, nunca por exceção); corrida da tela de legitimidade (não minha).
 - Falhas de processo: id de sessão errado no primeiro commit do canal; limpeza de temporários no meio de suíte; diretório temporário de 15–20 GB por rodada de `tests/unit/ci` esgotando a cota (agora apagado a cada rodada); `tests/unit/processes` fora da suíte local da E-SF-22r (corrigido).
 - Ramos para apagar depois dos merges (não apago): `sf-w2/mzo-ca/telemetria-gtm-e-11`, `add01-02`, `classes-fechadas`, `primeiro-nome`, `console-valores`, `gtm-e-63`, `esf23`, `esf15`; `esf22r` depois do merge do #1315.
+
+## 2026-11-18 ~08:35Z — CAMINHO E-SF-RT-04 ("Meu plano") na variante RT-04r (CD-128; sem push de código)
+
+Base: main `ee1ac446`. Ramo previsto: `sf-w2/mzo-ca/rt04`. Módulo puro, na mesma forma do console do especialista: nada montado, nenhum router, nenhuma importação em `app.py`.
+
+Arquivos (só estes, todos novos):
+- `src/maezo/portal/api/meu_plano.py`
+- `tests/unit/portal/test_rt04_meu_plano.py`
+Nenhuma migração, nada em `spec/policies/autonomy/`, sem CODEOWNERS, sem arquivo de contagem, sem `portal/web/` (as telas ficam como projeção tipada; o molde web é de outro PR). Não toca `specialist_console.py`, `legitimacy_screen.py` nem nenhum arquivo do console da trilha do programa.
+
+O que o módulo faz, e o que fica fechado (com o teste de cada um):
+1. Chave da superfície desligada (`MEU_PLANO_LIGADO = False`). O leitor recusa toda projeção com `meu_plano_desligado`. Teste: `test_superficie_desligada_recusa`.
+2. Visão do plano só com fatos da fonte, nunca calculados: data de aniversário, valor antes e depois do reajuste e data do fato vêm da porta de fonte (sem implementação: GAP), cada um com validador de classe fechada.
+   - Nenhum percentual, total ou diferença calculados aqui (J8/J12). Teste: `test_meu_plano_sem_total_local`.
+   - Varredura de AST: sem aritmética sobre valores e sem campo de percentual.
+3. Renovação com zero ação (RT-04): nenhuma ação "renovar" ou "confirmar renovação" na visão; o recibo D0 só existe com fato de fonte. Teste: `test_sem_botao_renovar`.
+4. Cancelar sempre visível em toda visão de "Meu plano", no primeiro nível. Pedido em 2 toques até o protocolo: o protocolo vem só da custódia (porta sem implementação, recusa sem ela), e nenhum prazo é exibido. Testes: `test_cancelar_sempre_visivel`, `test_cancelamento_dois_toques`.
+5. Opções a pedido (RT-03, variante informativa): só existem depois do pedido; catálogo fechado do portfólio, sem preço calculado.
+   - Troca de plano só assistida (J54 b = B): vira pedido para pessoa, com protocolo da custódia.
+   - Sem DS e sem critério de idade, uso ou saúde. Testes: `test_opcoes_so_a_pedido`, `test_troca_so_assistida`.
+6. Linha de alternativa no "quero cancelar" (J54 a = A): estrutura construída com exibição DESLIGADA (`LINHA_ALTERNATIVA_EXIBIDA = False`), só no portal, nunca no WhatsApp.
+   - Texto `None`: sem redação aprovada.
+   - Teste do estado fechado: a visão do cancelamento nunca traz a linha nem passo extra. Teste: `test_linha_alternativa_desligada`.
+7. Sem oferta no bloco do aviso de reajuste: `test_aviso_sem_oferta_no_bloco`.
+8. Zero dado de saúde: esquema fechado na entrada e detector como defesa em profundidade; valor fora da classe recusa sem eco. Testes por classe com o detector desligado.
+9. Nenhum envio e nenhum evento de medição. Sem nome `ret.*` em `src/` (a cerca da RT-01 continua valendo; se precisar de identificador de modelo, será injetado, como em CD-123).
+
+Subperguntas sem item na cédula, com o padrão conservador proposto:
+- S1. J54 (a): a resposta do dono a Q-OS08-1 diz "sem linha"; a decisão verificada diz "construir com exibição desligada". Proponho construir desligada e sem texto, com teste do estado fechado. Ligar fica para ato do dono com a redação do jurídico.
+- S2. Recibo D0 e aviso no coletivo (J5 pendente): texto neutro, sem a frase do art. 13; nenhum dispositivo exibido ao cliente.
+- S3. Retirada de dependente em individual/familiar (GAP-RT-04): fora do catálogo de opções.
+- S4. Exibição do teto do prazo do cancelamento (J72 B): não exibido.
+- S5. Casa da superfície (GAP-RT-06): maezo provisório, como na cédula; nada no omni.
+- S6. Fonte dos fatos (aniversário, valores do reajuste, recibo): porta sem implementação, e a visão recusa sem fonte, sem valor padrão. Fato de reajuste é da AMH (E-01/E-02), não construído aqui.
+- S7. Decreto 11.034 (J74 C): conferido só no que cabe ao módulo (cancelar no primeiro nível e protocolo); o resto do checklist é da linha de cancelamento (E-SF-09).
+
+Suíte local antes do push: `tests/unit/portal`, `tests/unit/processes`, `tests/unit/sec`, `tests/unit/ci`, com `--basetemp` próprio apagado a cada rodada. Revisão independente antes do push. Mutação em cópia isolada: chave ligada; linha exibida; total calculado; cancelar escondido; troca em autosserviço. Cada uma tem de deixar teste vermelho.
