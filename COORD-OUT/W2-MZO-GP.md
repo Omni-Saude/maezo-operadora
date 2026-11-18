@@ -349,3 +349,19 @@ Nada de DMN, migração, DL, `PLANS.md`, CODEOWNERS, workflows ou contrato. Arqu
   - Título e corpo do #1327 descrevem o que entrou.
   - Disco: temporários desta linha apagados. A worktree destacada `mainu` (main limpa `bef44a63`) segue ativa só para a comparação da CD-173/174 e sai sem `--force` ao fim.
 - CD-173/174: a rodada do resto de `tests/unit` sobre o head mesclado acabou (partes 1–4 com falhas, parte 5 limpa). A comparação nome a nome com a main limpa está em curso; o resultado vem na próxima entrada.
+
+## 2026-11-18 ~15:05Z — CD-173/174: resto de tests/unit para a 05r-a; nenhuma falha causada
+
+`tests/unit` fora do que a rodada do #1327 cobria, sobre o head mesclado `b158b334` × main limpa `bef44a63` (worktree destacada, já removida sem `--force`), com o mesmo comando (`-n 4 -rfE`) e as linhas de resumo comparadas com mensagem e caminhos normalizados:
+
+| parte | diretórios | resultado (ramo = main) | só no ramo | só na main | comuns |
+|---|---|---|---|---|---|
+| 1 | a2a, adapters, agents, commercial, deploy | 46 failed, 10151 passed, 114 errors | 0 | 0 | 160 |
+| 2 | dev, dmn, docs, domain, evals | 3 failed, 1167 passed, 104 errors | 0 | 0 | 107 |
+| 3 | integration_support, load, ops, platform, ports | 15 failed, 7790 passed | 0 | 0 | 15 |
+| 4 | qa, runtime, spec, staff_install, staff_materials, support, tools | 14 failed, 9570 passed, 5 errors | 0 | 0 | 19 |
+| 5 | arquivos soltos de tests/unit (fora `test_commercial_*`) | 10 passed | — | — | — |
+
+- As contagens de linhas batem com os totais de cada parte (a comparação viu todas as falhas).
+- `tests/unit/adapters/amh/test_no_foreign_exception_escapes.py::…::test_corpus_is_not_vacuous` falha só com `-n 4` e passa sozinho (153 passed). Falha igual na main nas duas rodadas.
+- Com as rodadas anteriores (comerciais, gateway, sec, processes, portal, ci), a 05r-a passou por `tests/unit` inteiro. Nenhuma falha é dela.
