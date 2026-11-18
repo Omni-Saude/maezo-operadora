@@ -104,10 +104,11 @@ SOURCE_UNAVAILABLE_REASON: Final = "SOURCE_UNAVAILABLE"
 #: pedido de reembolso pelo WhatsApp, DL-0162 (29/10/2026; entrou depois da 0032 e a revisa — a 0031
 #: ficou vaga); 0034 = razao append-only das obrigacoes de pagamento, PAGTO PR-E (escura,
 #: 01/11/2026; revisa 0033); 0035 = registro append-only das decisoes das regras K1 do rco, MZO-5c-2
-#: (escuro, 16/11/2026; revisa 0034) — nenhuma delas e' do plano vendor, so' empurraram a head linear).
-EXPECTED_HEAD: Final = "0035"
+#: (escuro, 16/11/2026; revisa 0034); 0036 = outbox dos avisos de `sinalAuditoria` do K1 do rco, DL-0185
+#: (escuro, 18/11/2026; revisa 0035) — nenhuma delas e' do plano vendor, so' empurraram a head linear).
+EXPECTED_HEAD: Final = "0036"
 #: O pai IMEDIATO da head (o par de revisão que o item (b) prova estruturalmente).
-EXPECTED_HEAD_PARENT: Final = "0034"
+EXPECTED_HEAD_PARENT: Final = "0035"
 VENDOR_MIGRATIONS: Final = ("0019", "0020", "0021")
 
 #: (e) — quantos bytes bastam para probar decodabilidade SEM parse de conteúdo.

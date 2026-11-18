@@ -79,9 +79,18 @@ import structlog
 from maezo.gateway.action_execution import Decision as ActionDecision
 from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
+from maezo.platform.observability import record_rco_aviso
+from maezo.platform.rco_avisos import AvisoInvalidoError, OutboxAvisosRco, linhas_de_aviso
+from maezo.platform.rco_manifesto import AvisoK6
 from maezo.platform.rco_registro import AvaliacaoRegra, RegistroDecisoesRco, contexto_da_tarefa
 from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
-from maezo.tools.workers._audit_ctx import collect_dmn_versions, collect_rco_avaliacoes
+from maezo.tools.workers._audit_ctx import (
+    ComposicaoRegistrada,
+    collect_dmn_versions,
+    collect_rco_avaliacoes,
+    collect_rco_composicoes,
+    reaplicar_sinais_auditoria,
+)
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
 from maezo.tools.workers.dmn_transport import (
     ERR_DMN_EVALUATION_DETERMINISTIC,
@@ -166,6 +175,16 @@ _ACTION_GATE_REFUSAL_CODE: str = "ERR_ACTION_GATEWAY_NOT_HUMAN"
 #: Teto TOTAL do registro de decisoes K1 de uma tarefa (5c-2): em sombra (fail-open) nao segura a tarefa;
 #: com efeito possivel (DL-0182) estourar o teto faz a tarefa ser re-entregue.
 _RCO_REGISTRO_TIMEOUT_S: float = 5.0
+#: Teto TOTAL do enfileiramento dos avisos de `sinalAuditoria` de uma tarefa (DL-0185). Roda DEPOIS de
+#: completar a tarefa e e fail-open: estourar o teto so perde o aviso no outbox (a auditoria o guarda).
+_RCO_AVISO_TIMEOUT_S: float = 3.0
+
+
+def _avisos_do_pin_de_bordo() -> Mapping[str, AvisoK6]:
+    """`avisos` do K6 do pin de bordo (DL-0185). Import tardio: o harness nao carrega o pin sem aviso."""
+    from maezo.tools.workers.rco_pin import rco_rules_pin
+
+    return rco_rules_pin().avisos
 
 
 def _descartar_resultado(trabalho: asyncio.Future[Any]) -> None:
@@ -1375,6 +1394,8 @@ class WorkerHarness:
         audit_sink: AuditEmitter | None = None,
         app_version: str | None = None,
         rco_decisoes: RegistroDecisoesRco | None = None,
+        rco_avisos: OutboxAvisosRco | None = None,
+        rco_avisos_do_pin: Callable[[], Mapping[str, AvisoK6]] | None = None,
     ) -> None:
         self._transport = transport
         self._worker_id = worker_id
@@ -1396,6 +1417,10 @@ class WorkerHarness:
         # MZO-5c-2 (ADR-0077 §4): registro append-only das decisoes das regras K1 (migracao 0035).
         # `None` = sem registro (testes, daemon sem DATABASE_URL); nunca afeta o desfecho da tarefa.
         self._rco_decisoes = rco_decisoes
+        # DL-0185: outbox dos avisos de `sinalAuditoria` (migracao 0036) e a fonte dos destinos (os `avisos`
+        # do K6 pinado; padrao: o pin de bordo). `None` = sem outbox; nunca afeta o desfecho da tarefa.
+        self._rco_avisos = rco_avisos
+        self._rco_avisos_do_pin = rco_avisos_do_pin or _avisos_do_pin_de_bordo
         self._audit_app_version = _resolve_app_version(app_version)
         self._lock_duration_ms = lock_duration_ms
         self._poll_interval_ms = poll_interval_ms
@@ -1858,6 +1883,162 @@ class WorkerHarness:
                 )
         return falhas
 
+    async def _enfileirar_avisos_rco(
+        self, task: ExternalTask, composicoes: Mapping[str, ComposicaoRegistrada]
+    ) -> None:
+        """Enfileira os avisos de `sinalAuditoria` das composicoes K1 desta tarefa (DL-0185). NUNCA levanta.
+
+        Por que aqui e por que DEPOIS de completar: o aviso nao tem tarefa BPMN propria; e o harness quem
+        conhece a tarefa e o tenant. Rodar depois de `complete` garante que nada no caminho do aviso bloqueia,
+        atrasa ou muda a decisao (variaveis de saida, auditoria); a auditoria, gravada ANTES, ja leva
+        `sinaisAuditoria` na entrada de cada decisao do grupo (`_audit_ctx.registrar_composicao`), e e por
+        ela que um aviso perdido aqui e reconciliado.
+
+        Expansao: `rco_avisos.linhas_de_aviso` com os `avisos` do K6 pinado (`self._rco_avisos_do_pin`), uma
+        linha por (aviso, fila); a re-entrega da tarefa cai na mesma `chave_idempotencia` e nao duplica.
+        Sombra e efeito enfileiram igual; o indicador `efeito_k1_habilitado` nao e lido.
+
+        FAIL-OPEN, no idioma de `_registrar_decisoes_rco`: UM teto total (`_RCO_AVISO_TIMEOUT_S`) com
+        `asyncio.wait` (um store que engole o cancelamento nao segura a tarefa), toda falha vira log
+        estruturado (so tipo e codigo, nunca a mensagem do driver) e `maezo_rco_aviso_total{desfecho}`.
+        """
+        com_sinal = [c for c in composicoes.values() if c.sinais]
+        if not com_sinal:
+            return
+        try:
+            store = self._rco_avisos
+            if store is None:
+                logger.warning("rco_aviso_outbox_nao_configurado", task_id=task.task_id, topic=task.topic)
+                record_rco_aviso("nao_configurado")
+                return
+            trabalho = asyncio.ensure_future(self._gravar_avisos_rco(store, task, com_sinal))
+            try:
+                done, _ = await asyncio.wait({trabalho}, timeout=_RCO_AVISO_TIMEOUT_S)
+            except BaseException:
+                trabalho.cancel()
+                raise
+            if not done:
+                trabalho.cancel()
+                trabalho.add_done_callback(_descartar_resultado)
+                logger.error(
+                    "rco_aviso_enfileirar_falhou",
+                    task_id=task.task_id,
+                    topic=task.topic,
+                    erro="timeout_total",
+                )
+                record_rco_aviso("teto_estourado")
+                return
+            if trabalho.cancelled():
+                logger.error(
+                    "rco_aviso_enfileirar_falhou", task_id=task.task_id, topic=task.topic, erro="cancelado"
+                )
+                record_rco_aviso("falha_enfileirar")
+                return
+            trabalho.result()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # cinto e suspensorio: o caminho do aviso nunca sobe para `_handle`.
+            logger.error(
+                "rco_aviso_enfileirar_falhou", task_id=task.task_id, topic=task.topic, erro=type(exc).__name__
+            )
+            record_rco_aviso("falha_enfileirar")
+
+    def _avisos_rco_nao_enfileirados(
+        self, task: ExternalTask, composicoes: Mapping[str, ComposicaoRegistrada], motivo: str
+    ) -> None:
+        """Log `rco_aviso_nao_enfileirado` por (composicao, sinal) e a metrica com `motivo` (DL-0185).
+
+        Chamado quando `complete` levantou do lado do cliente: a conclusao e incerta, entao nada e
+        enfileirado (a re-entrega enfileira com a mesma chave); a reconciliacao e pela auditoria. NUNCA
+        levanta: a excecao original de `complete` segue o caminho de sempre.
+        """
+        try:
+            pares = [(c.composicao, s) for c in composicoes.values() for s in c.sinais]
+            for composicao, sinal in pares:
+                logger.warning(
+                    "rco_aviso_nao_enfileirado",
+                    task_id=task.task_id,
+                    topic=task.topic,
+                    composicao=composicao,
+                    sinal=sinal,
+                    motivo=motivo,
+                )
+            record_rco_aviso(motivo, len(pares))
+        except Exception:  # pragma: no cover - cinto e suspensorio
+            _stdlib_logger.debug("rco_aviso_nao_enfileirado_log_failed", exc_info=True)
+
+    async def _gravar_avisos_rco(
+        self, store: OutboxAvisosRco, task: ExternalTask, composicoes: Sequence[ComposicaoRegistrada]
+    ) -> None:
+        """Monta e grava as linhas; cada falha ja sai logada e contada (nunca levanta `Exception`)."""
+        try:
+            linhas = linhas_de_aviso(
+                tenant=self._tenant,
+                task_id=task.task_id,
+                composicoes=[(c.composicao, c.sinais) for c in composicoes],
+                avisos_do_pin=self._rco_avisos_do_pin(),
+            )
+        except PROGRAMMING_ERRORS:
+            # Sinal sem destino no K6 (o pin ja o recusa) ou bug: pilha completa, sem dado de caso.
+            logger.error(
+                "rco_aviso_enfileirar_falhou",
+                task_id=task.task_id,
+                topic=task.topic,
+                erro="erro_de_programacao",
+                exc_info=True,
+            )
+            record_rco_aviso("invalido")
+            return
+        except AvisoInvalidoError as exc:
+            logger.error(
+                "rco_aviso_enfileirar_falhou",
+                task_id=task.task_id,
+                topic=task.topic,
+                erro="aviso_invalido",
+                campo=str(exc),
+            )
+            record_rco_aviso("invalido")
+            return
+        except Exception as exc:  # pin ilegivel, etc.: so o tipo
+            logger.error(
+                "rco_aviso_enfileirar_falhou", task_id=task.task_id, topic=task.topic, erro=type(exc).__name__
+            )
+            record_rco_aviso("falha_enfileirar")
+            return
+        try:
+            entraram = await store.enfileirar(linhas)
+        except PROGRAMMING_ERRORS:
+            logger.error(
+                "rco_aviso_enfileirar_falhou",
+                task_id=task.task_id,
+                topic=task.topic,
+                erro="erro_de_programacao",
+                exc_info=True,
+            )
+            record_rco_aviso("falha_enfileirar", len(linhas))
+            return
+        except Exception as exc:
+            # So o TIPO: a mensagem do asyncpg pode trazer "Failing row contains ..." com a linha.
+            logger.error(
+                "rco_aviso_enfileirar_falhou",
+                task_id=task.task_id,
+                topic=task.topic,
+                erro=type(exc).__name__,
+                linhas=len(linhas),
+            )
+            record_rco_aviso("falha_enfileirar", len(linhas))
+            return
+        record_rco_aviso("enfileirado", entraram)
+        record_rco_aviso("repetido", len(linhas) - entraram)
+        logger.info(
+            "rco_aviso_enfileirado",
+            task_id=task.task_id,
+            topic=task.topic,
+            linhas=len(linhas),
+            novas=entraram,
+            modos=sorted({c.modo for c in composicoes}),
+        )
+
     async def _emit_audit(self, record: AuditRecord, task: ExternalTask) -> str:
         """Durably emit `record` exactly-once BEFORE the effect is committed. FAIL-CLOSED.
 
@@ -2029,7 +2210,11 @@ class WorkerHarness:
                 # DMN provenance capture (T-B): a fresh per-task collector is bound for the
                 # handler run; `evaluate_sync` populates it in-thread via the ContextVar bridge
                 # (design §3.2). Reset-per-task in `collect_dmn_versions`'s `finally`.
-                with collect_dmn_versions() as dmn_versions, collect_rco_avaliacoes() as rco_avaliacoes:
+                with (
+                    collect_dmn_versions() as dmn_versions,
+                    collect_rco_avaliacoes() as rco_avaliacoes,
+                    collect_rco_composicoes() as rco_composicoes,
+                ):
                     # MZO-040 (ADR-0037 XRD-09): the per-call chokepoint, evaluated BEFORE the
                     # handler runs — the handler IS where the external effect happens, so a
                     # denial must pre-empt it, not follow it. In SHADOW (today, always)
@@ -2064,14 +2249,23 @@ class WorkerHarness:
                 # is classified transient below -> `complete` NEVER runs -> engine re-delivery.
                 # The forbidden direction (an engine effect with no audit row) is structurally
                 # impossible (design §4.2).
+                # DL-0185: `sinaisAuditoria` de novo nas entradas do grupo (uma reavaliacao depois de
+                # `registrar_composicao` reescreveria a entrada sem a chave: "ultima vence").
+                reaplicar_sinais_auditoria(dmn_versions, rco_composicoes)
                 record = self._build_audit_record(task, out_vars, dict(dmn_versions))
                 audit_record_hash = await self._emit_audit(record, task)
                 await self._registrar_decisoes_rco(task, rco_avaliacoes)
-                await self._transport.complete(
-                    task.task_id,
-                    self._worker_id,
-                    dict(out_vars) if out_vars else {},
-                )
+                try:
+                    await self._transport.complete(
+                        task.task_id,
+                        self._worker_id,
+                        dict(out_vars) if out_vars else {},
+                    )
+                except Exception:
+                    # DL-0185: o motor pode ter gravado a conclusao (resposta perdida, timeout). Nao se
+                    # enfileira aqui (a tarefa pode ser re-entregue); so se torna o aviso observavel.
+                    self._avisos_rco_nao_enfileirados(task, rco_composicoes, "conclusao_incerta")
+                    raise
                 outcome = "completed"
                 logger.info(
                     "worker_task_completed",
@@ -2080,6 +2274,8 @@ class WorkerHarness:
                     business_key=task.business_key,
                     audit_record_hash=audit_record_hash,
                 )
+                # DL-0185: os avisos de `sinalAuditoria` so DEPOIS de completar; fail-open, nunca levanta.
+                await self._enfileirar_avisos_rco(task, rco_composicoes)
             except WorkerBpmnError as exc:
                 error_type = type(exc).__name__
                 # T-E (ADR-0030 F4): a guard/denial bpmnError (ERR_CANCEL_MANTER_NOT_HUMAN,

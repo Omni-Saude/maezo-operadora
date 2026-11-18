@@ -1429,6 +1429,41 @@ def record_agent_turn(
         logger.debug("agent_turn_telemetry_emit_failed", exc_info=True)
 
 
+#: DL-0185: vocabulario FECHADO de `maezo_rco_aviso_total` (= `platform.rco_avisos.DESFECHOS`, paridade
+#: fixada em teste). Valor fora do conjunto vira `outro`.
+RCO_AVISO_DESFECHOS: Final[frozenset[str]] = frozenset(
+    {
+        "enfileirado",
+        "repetido",
+        "falha_enfileirar",
+        "teto_estourado",
+        "nao_configurado",
+        "invalido",
+        "entregue",
+        "falha_publicar",
+        "reprocessado",
+        "conclusao_incerta",
+        "outbox_indisponivel",
+    }
+)
+
+
+def record_rco_aviso(desfecho: str, quantidade: int = 1) -> None:
+    """Count rco K1 audit-signal notices by outcome — `maezo_rco_aviso_total` (DL-0185).
+
+    Sitios de chamada: o harness (enfileirar, depois de completar a tarefa), `_audit_ctx.registrar_composicao`
+    e o relay `platform.rco_avisos_relay`. Rotulo fechado; nunca tenant, tarefa, sinal ou fila. Best-effort:
+    a telemetria nunca muda a decisao nem o estado do outbox.
+    """
+    if quantidade <= 0:
+        return
+    rotulo = desfecho if desfecho in RCO_AVISO_DESFECHOS else "outro"
+    try:
+        _get_metrics_collector().rco_aviso_total.labels(desfecho=rotulo).inc(quantidade)
+    except Exception:  # never let telemetry disturb the caller.
+        logger.debug("rco_aviso_metric_emit_failed", exc_info=True)
+
+
 #: DL-0182: vocabulario FECHADO de `maezo_rco_conferencia_rejeitada_total` (as ativacoes efetivas em que
 #: ha conferencia: `rco_ativacao.filtrar_saida`). Valor fora do conjunto vira `outro`.
 RCO_CONFERENCIA_ATIVACOES: Final[frozenset[str]] = frozenset({"conferida", "conferencia_integral"})

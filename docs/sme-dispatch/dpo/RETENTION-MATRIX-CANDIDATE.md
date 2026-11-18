@@ -377,6 +377,17 @@ escopo_b:
         eliminacao/anonimizacao segue o regime da auditoria. O desfecho humano e' tabela propria
         (append-only) ligada depois. Sem sonda (count_statement: None). Retencao e base legal a ratificar
         pelo DPO, sem prazo escolhido aqui
+    - camada: aviso_auditoria_regras_k1
+      tabelas: [rco_aviso_auditoria]
+      motivo: >-
+        fora do escopo B; 0036 (outbox dos avisos de sinalAuditoria do K1 do rco, DL-0185, unidade 2a)
+        guarda so' tenant, o id da tarefa externa do motor (o mesmo da dedup_key da auditoria), o nome da
+        composicao, o sinal e a fila em token fechado, o nome do parametro do prazo do K6, o estado da
+        entrega com codigo de erro fechado e a chave de idempotencia (sha256 de
+        tenant:task_id:composicao:sinal:fila). Sem chave de negocio, linha da DMN ou texto livre; sem
+        coluna de titular e sem ponte DSR; o vinculo com o caso e' so indireto, por task_id ate' a
+        auditoria. Sem sonda (count_statement: None). Retencao e base legal a ratificar pelo DPO, sem prazo
+        escolhido aqui
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-
