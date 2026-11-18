@@ -274,7 +274,9 @@ e6daecd5488ed8dfe88dbf43ba5dac5bec147857:tests/governance/test_normative_pins_e_
 e6daecd5488ed8dfe88dbf43ba5dac5bec147857:tests/governance/test_normative_pins_e_sf_32.py:generic-api-key:177
 
 # Unidade 2a do rco (PR #1312): falso positivo generic-api-key no literal de business key BPM de teste
-# (`business_key="CONTA-amh-guia-1"`, identificador sintetico de instancia, nao credencial) em
+# (identificador sintetico de instancia CONTA de tenant amh, nao credencial) em
 # tests/unit/tools/workers/test_harness_rco_avisos.py. Reparo duravel no commit seguinte (literal `bk-1`, como
-# os demais testes do harness); esta impressao cobre so o commit imutavel ja publicado (sem force-push).
+# os demais testes do harness); a primeira impressao cobre so o commit imutavel ja publicado (sem force-push).
+# A segunda cobre a primeira versao deste comentario (aeb75d78), que citava o literal entre aspas.
 33096352c6b7f03af2e74365de6fee2c5053efd9:tests/unit/tools/workers/test_harness_rco_avisos.py:generic-api-key:88
+aeb75d78d23ac77822ac6d5d7c5b6abca119810a:.gitleaksignore:generic-api-key:277
