@@ -43,10 +43,14 @@ if not d.get("success"):
     sys.exit("Cloudflare recusou: " + "; ".join(e.get("message", "?") for e in d.get("errors") or []))
 r = d["result"]
 # boto3, nao a CLI: o secret nao vai em argumento de processo (visivel em `ps`).
-boto3.client("secretsmanager", region_name=sys.argv[2]).create_secret(
-    Name=sys.argv[1],
-    SecretString=json.dumps({"client_id": r["client_id"], "client_secret": r["client_secret"]}),
-)
+sm = boto3.client("secretsmanager", region_name=sys.argv[2])
+corpo = json.dumps({"client_id": r["client_id"], "client_secret": r["client_secret"]})
+try:
+    sm.create_secret(Name=sys.argv[1], SecretString=corpo)
+except sm.exceptions.ResourceExistsException:
+    # Renovacao: o segredo ja existe. O Client Secret aparece UMA vez, so na criacao, entao nunca
+    # deixar de grava-lo por causa disso.
+    sm.put_secret_value(SecretId=sys.argv[1], SecretString=corpo)
 print("token_id=" + r["id"])
 print("expira_em=" + str(r.get("expires_at")))
 print("secret gravado em " + sys.argv[1])
