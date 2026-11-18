@@ -74,8 +74,12 @@ class CommercialRecordResolver:
         try:
             admission = read_sales_session_admission(self.sales_record_path, now=self.clock())
             gateway = self.compose_commercial(admission)
+            if not isinstance(gateway, CommercialGateway):
+                return None
+            # O invólucro de legitimidade também fica dentro do fail-closed: uma postura
+            # inválida (fábrica que devolve outra classe) deixa a superfície sem ligação e a
+            # rota responde o 503 de corpo fixo, nunca um erro genérico.
+            wrapped = self.wrap_commercial(gateway)
         except Exception:  # fail-closed: ausência, recusa ou falha deixam a superfície sem ligação
             return None
-        if not isinstance(gateway, CommercialGateway):
-            return None
-        return self.wrap_commercial(gateway)
+        return wrapped if isinstance(wrapped, CommercialGateway) else None

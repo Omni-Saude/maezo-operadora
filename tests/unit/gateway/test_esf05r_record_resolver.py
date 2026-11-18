@@ -19,11 +19,13 @@ import pytest
 from maezo.adapters.amh.commercial import CommercialWire
 from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
 from maezo.gateway.commercial_admission import compose_commercial_gateway, compose_public_catalog_gateway
+from maezo.gateway.commercial_legitimacy_guard import LegitimacyScreenShadow
 from maezo.gateway.commercial_record_resolver import CommercialRecordResolver
 from maezo.portal.api.app import create_app
 from maezo.portal.api.commercial import COMMERCIAL_PATH, PUBLIC_CATALOG_PATH
 from maezo.portal.api.config import PortalSettings
 from maezo.portal.api.store import LocalTestIdentityStore
+from tests.unit.gateway.test_commercial_legitimacy_guard import NOW, _Store
 from tests.unit.test_commercial_admission_a1 import a1_record
 from tests.unit.test_commercial_admission_a2 import a2_record, commercial_kwargs
 from tests.unit.test_commercial_c6 import SYN_PRESENTIAL_FACT, PublicScope, PublicSource, public_body
@@ -214,22 +216,56 @@ def test_legitimacy_flag_without_guard_is_a_boot_refusal_with_a_resolver(schema_
         )
 
 
+def _shadow_factory(inner):
+    return LegitimacyScreenShadow(
+        store=_Store(),
+        tenant="tenant-a",
+        codec=inner.codec,
+        admission=inner.admission,
+        source=inner.source,
+        clock=lambda: NOW,
+        timeout_seconds=inner.timeout_seconds,
+    )
+
+
 @pytest.mark.asyncio
 async def test_resolved_gateway_passes_through_the_legitimacy_posture(schema_bytes, tmp_path) -> None:
+    # Flag ligada com a fábrica da shadow: o gateway resolvido por chamada é EXATAMENTE a shadow,
+    # como o injetado. Sem a aplicação da postura em create_app, sairia a classe base.
     (tmp_path / "A2-ADMISSION-RECORD.json").write_bytes(a2_record())
-    app, _, _, oidc = await resolver_app(schema_bytes, tmp_path)
-    await oidc.aclose()
-    wrapped = app.state.commercial_record_resolver
-    seen: list[object] = []
-    original = wrapped.wrap_commercial
+    app = create_app(
+        settings=settings(collective_legitimacy_screen=True),
+        store=LocalTestIdentityStore("synthetic"),
+        legitimacy_screen_guard_factory=_shadow_factory,
+        commercial_record_resolver=resolver(schema_bytes, tmp_path, [], []),
+    )
+    assert type(app.state.commercial_record_resolver.commercial_gateway()) is LegitimacyScreenShadow
+    # Flag desligada (o estado entregue): o mesmo gateway composto, sem invólucro.
+    plain = create_app(
+        settings=settings(),
+        store=LocalTestIdentityStore("synthetic"),
+        commercial_record_resolver=resolver(schema_bytes, tmp_path, [], []),
+    )
+    assert type(plain.state.commercial_record_resolver.commercial_gateway()) is CommercialGateway
 
-    def spy(gateway):
-        seen.append(gateway)
-        return original(gateway)
 
-    object.__setattr__(wrapped, "wrap_commercial", spy)
-    gateway = wrapped.commercial_gateway()
-    assert isinstance(gateway, CommercialGateway) and seen == [gateway]  # flag desligada: o mesmo objeto
+@pytest.mark.asyncio
+async def test_invalid_posture_keeps_the_resolved_surface_unbound_with_the_fixed_body(
+    schema_bytes, tmp_path
+) -> None:
+    # Fábrica que devolve outra postura: com gateway injetado é recusa de boot; com resolvedor,
+    # a superfície fica sem ligação e a rota responde o 503 de corpo fixo (nunca erro genérico).
+    (tmp_path / "A2-ADMISSION-RECORD.json").write_bytes(a2_record())
+    async with httpx.AsyncClient(transport=httpx.MockTransport(no_identity_io)) as oidc:
+        app = create_app(
+            settings=settings(collective_legitimacy_screen=True),
+            store=LocalTestIdentityStore("synthetic"),
+            oidc_client=oidc,
+            legitimacy_screen_guard_factory=lambda inner: inner,
+            commercial_record_resolver=resolver(schema_bytes, tmp_path, [], []),
+        )
+        posted, _ = await call_both(app)
+    assert posted.status_code == 503 and posted.json() == UNAVAILABLE_COMMERCIAL
 
 
 def test_production_root_builds_no_resolver_and_both_routes_stay_503() -> None:
