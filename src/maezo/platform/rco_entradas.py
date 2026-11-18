@@ -91,10 +91,9 @@ VERSOES_COM_REGIMES: Final[frozenset[str]] = frozenset({"1.4.0", "1.5.0"})
 VERSOES_COM_VALOR_DE_PARAMETRO: Final[frozenset[str]] = frozenset({"1.5.0"})
 CAMPO_FORMULA_REFERENCIA_GUIA: Final[str] = "referencia_por_tipo_guia"
 CAMPOS_REFERENCIA_GUIA: Final[frozenset[str]] = frozenset({"guia", "data", "hora"})
-#: Exatamente um destes num termo `parametro` (1.5.0; `scripts/k1_entradas.py::CAMPOS_PARAMETRO`).
-CAMPOS_VALOR_PARAMETRO: Final[frozenset[str]] = frozenset(
-    {"valor", "referencia", "valor_por_contrato", "lacuna"}
-)
+#: Exatamente um destes num termo `parametro` (1.5.0; `scripts/k1_entradas.py::CAMPOS_PARAMETRO`, na ordem).
+ORDEM_CAMPOS_VALOR_PARAMETRO: Final[tuple[str, ...]] = ("valor", "referencia", "valor_por_contrato", "lacuna")
+CAMPOS_VALOR_PARAMETRO: Final[frozenset[str]] = frozenset(ORDEM_CAMPOS_VALOR_PARAMETRO)
 #: `unidade` (so com `valor`; `scripts/k1_entradas.py::UNIDADES_PARAMETRO`).
 UNIDADES_PARAMETRO: Final[frozenset[str]] = frozenset({"dias", "dias_uteis", "horas", "meses", "unidades"})
 CAMPOS_REGIME: Final[frozenset[str]] = frozenset({"regime", "tipos_guia", "termo_data", "fonte"})
@@ -113,8 +112,34 @@ _FAIXA: Final[re.Pattern[str]] = re.compile(
     r"^faixa (-?[0-9]+(?:\.[0-9]+)?|None)\.\.(-?[0-9]+(?:\.[0-9]+)?|None)$"
 )
 _LISTA: Final[re.Pattern[str]] = re.compile(r"^\{(.*)\}$", re.DOTALL)
-#: `arquivo#chave` (referencia de parametro) e `arquivo.xsd#elemento` (referencia por tipo de guia).
-_REFERENCIA: Final[re.Pattern[str]] = re.compile(r"^[^#\s]+#\S.*$")
+
+
+# --- conferencias COPIADAS do publicador (rco `scripts/k1_entradas.py` @ aed187d4; DL-0184) ---------------
+# O rco nao usa expressao regular nessas conferencias: as funcoes abaixo sao as condicoes de
+# `erros_parametro` e `erros_referencia_guia` daquele arquivo e commit, copiadas sem reescrever, para que o
+# leitor aceite e recuse exatamente o que o publicador aceita e recusa (prova de paridade em
+# `tests/unit/platform/test_rco_entradas_paridade.py`, contra a fonte do rco nesse commit).
+
+
+def presente_no_publicador(valor: object) -> bool:
+    """Campo PRESENTE como o rco o conta: `t.get(k) not in (None, "")` (`erros_parametro`, linha 135).
+
+    Chave com `None` ou `""` e AUSENTE; qualquer outro valor (inclusive `0`, `False` ou lista vazia) conta."""
+    return valor not in (None, "")
+
+
+def referencia_arquivo_chave(ref: object) -> bool:
+    """`arquivo#chave` como o rco confere (`erros_parametro`, linhas 150-152): `arq, _, chave =
+    str(ref).partition("#")` com `arq` e `chave` nao vazios. A existencia do arquivo (linha 153) e conferida
+    so no rco, contra a arvore dele, que o pacote nao leva."""
+    arq, _, chave = str(ref).partition("#")
+    return bool(arq) and bool(chave)
+
+
+def elemento_xsd(valor: object) -> bool:
+    """Elemento do XSD citado com `#` como o rco confere (`erros_referencia_guia`, linhas 180-181):
+    `isinstance(v, str) and "#" in v` (o `None`, aceito pelo rco, e tratado por quem chama)."""
+    return isinstance(valor, str) and "#" in valor
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,39 +335,44 @@ def _ler_regimes(
 def _ler_valor_parametro(
     termo: Mapping[str, Any], rotulo: str, problemas: list[str]
 ) -> dict[str, Any] | None:
-    """Os campos de valor de um termo `parametro` (1.5.0), como `scripts/k1_entradas.py::erros_parametro`:
-    exatamente um de `CAMPOS_VALOR_PARAMETRO`; `valor` numero (nao booleano, finito) com `unidade` do
-    vocabulario; `referencia` texto `arquivo#chave` ou lista nao vazia deles; `valor_por_contrato` e `lacuna`
-    texto nao vazio. `unidade` so com `valor`."""
-    presentes = sorted(CAMPOS_VALOR_PARAMETRO & set(termo))
+    """Os campos de valor de um termo `parametro` (1.5.0), como `scripts/k1_entradas.py::erros_parametro`
+    (rco aed187d4): exatamente um de `CAMPOS_VALOR_PARAMETRO` PRESENTE (`presente_no_publicador`: chave com
+    `None` ou `""` e ausente); `valor` numero (nao booleano) com `unidade` do vocabulario; fora do `valor`,
+    `unidade` so `None`; `referencia` `arquivo#chave` ou lista deles (`referencia_arquivo_chave`, lista vazia
+    aceita como no rco: o termo fica sem valor e o montador o le nulo). Mais estrito que o rco, e so
+    recusando: `valor` finito; `valor_por_contrato` e `lacuna` texto nao vazio sem contar os espacos."""
+    presentes = [c for c in ORDEM_CAMPOS_VALOR_PARAMETRO if presente_no_publicador(termo.get(c))]
     if len(presentes) != 1:
         problemas.append(
-            f"{rotulo}: termo parametro com {presentes} (exatamente um de {sorted(CAMPOS_VALOR_PARAMETRO)})"
+            f"{rotulo}: termo parametro com {presentes} "
+            f"(exatamente um de {list(ORDEM_CAMPOS_VALOR_PARAMETRO)})"
         )
         return None
     (campo,) = presentes
-    if ("unidade" in termo) != (campo == "valor"):
-        problemas.append(f"{rotulo}: `unidade` so (e sempre) com `valor`")
-        return None
+    unidade = termo.get("unidade")
     bruto = termo[campo]
     if campo == "valor":
         if (
             isinstance(bruto, bool)
             or not isinstance(bruto, int | float)
             or not math.isfinite(bruto)
-            or termo["unidade"] not in UNIDADES_PARAMETRO
+            or not isinstance(unidade, str)
+            or unidade not in UNIDADES_PARAMETRO
         ):
             problemas.append(
                 f"{rotulo}: `valor` tem de ser numero com `unidade` em {sorted(UNIDADES_PARAMETRO)}"
             )
             return None
-        return {"valor": bruto, "unidade": termo["unidade"]}
+        return {"valor": bruto, "unidade": unidade}
+    if unidade is not None:
+        problemas.append(f"{rotulo}: `unidade` so com `valor`")
+        return None
     if campo == "referencia":
         lista = bruto if isinstance(bruto, list) else [bruto]
-        if not lista or not all(isinstance(r, str) and _REFERENCIA.fullmatch(r) for r in lista):
-            problemas.append(f"{rotulo}.referencia: tem de ser `arquivo#chave` ou lista nao vazia deles")
+        if not all(referencia_arquivo_chave(r) for r in lista):
+            problemas.append(f"{rotulo}.referencia: tem de ser `arquivo#chave` ou lista deles")
             return None
-        return {"referencia": tuple(lista)}
+        return {"referencia": tuple(str(r) for r in lista)}
     texto = _texto(bruto, f"{rotulo}.{campo}", problemas)
     return None if texto is None else {campo: texto}
 
@@ -350,9 +380,11 @@ def _ler_valor_parametro(
 def _ler_referencias_guia(
     no: object, rotulo: str, problemas: list[str]
 ) -> tuple[ReferenciaGuiaK1, ...] | None:
-    """`formula.referencia_por_tipo_guia` estrito (`scripts/k1_entradas.py::erros_referencia_guia`): lista nao
-    vazia; cada item com exatamente `guia`, `data` e `hora` (mais `lacuna`, opcional, e obrigatoria com data
-    nula); `guia` texto sem repeticao; `data` e `hora` elemento do XSD com `#` ou null."""
+    """`formula.referencia_por_tipo_guia` estrito (`scripts/k1_entradas.py::erros_referencia_guia`, rco
+    aed187d4): lista nao vazia; cada item com exatamente `guia`, `data` e `hora` (mais a chave `lacuna`,
+    opcional); `lacuna` com `None` ou `""` e ausente (`presente_no_publicador`) e e obrigatoria com data nula;
+    `guia` texto sem repeticao; `data` e `hora` elemento do XSD com `#` (`elemento_xsd`) ou null. Mais
+    estrito que o rco, e so recusando: `guia` e `lacuna` presente tem de ser texto nao vazio."""
     if not isinstance(no, list) or not no:
         problemas.append(f"{rotulo}: tem de ser lista nao vazia")
         return None
@@ -364,9 +396,10 @@ def _ler_referencias_guia(
         if obj is None:
             return None
         guia = _texto(obj["guia"], f"{onde}.guia", problemas)
+        com_lacuna = com_lacuna and presente_no_publicador(obj["lacuna"])
         lacuna = _texto(obj["lacuna"], f"{onde}.lacuna", problemas) if com_lacuna else None
         elementos = (obj["data"], obj["hora"])
-        if not all(e is None or (isinstance(e, str) and _REFERENCIA.fullmatch(e)) for e in elementos):
+        if not all(e is None or elemento_xsd(e) for e in elementos):
             problemas.append(f"{onde}: `data` e `hora` tem de ser elemento do XSD com `#` ou null")
             return None
         if guia is None or (com_lacuna and lacuna is None):
@@ -374,7 +407,7 @@ def _ler_referencias_guia(
         if obj["data"] is None and lacuna is None:
             problemas.append(f"{onde}: data nula exige `lacuna`")
             return None
-        if any(r.guia == guia for r in lidos):
+        if any(r.guia.strip() == guia.strip() for r in lidos):  # `str(r["guia"] or "").strip()` (linha 175)
             problemas.append(f"{onde}.guia: {guia!r} repetida")
             return None
         lidos.append(ReferenciaGuiaK1(guia, obj["data"], obj["hora"], lacuna))

@@ -332,9 +332,9 @@ def test_regimes_divergentes_no_dicionario_recusam(dic: DicionarioEntradasK1) ->
     assert mt.conferir_mapeamento(dic, decisao.dominio, decisao.entradas) == []
 
 
-@pytest.mark.parametrize(
-    "nome", ["motivoIsencaoCarencia", "cidIgualDlpDeclarada", "regime", "cidSecundarioInformado"]
-)
+# `regime` e `cidSecundarioInformado` sao calculadas desde o DL-0184 (`test_rco_montador_regras_gerais.py`);
+# estas duas seguem pendentes: o termo de cadastro nao tem fonte no K3.
+@pytest.mark.parametrize("nome", ["motivoIsencaoCarencia", "cidIgualDlpDeclarada"])
 def test_formulas_novas_nao_implementadas_ficam_nulas(dic: DicionarioEntradasK1, nome: str) -> None:
     assert nome in mt.FORMULAS_PENDENTES and nome not in mt.FORMULAS
     decisao = next(
