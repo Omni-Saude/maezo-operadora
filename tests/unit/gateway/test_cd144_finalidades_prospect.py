@@ -319,7 +319,11 @@ def test_sem_importador_em_src_fora_do_portao() -> None:
         if p.resolve() != Path(fa.__file__).resolve()
         and "finalidades_do_aceite" in p.read_text(encoding="utf-8")
     ]
-    assert usos == ["src/maezo/gateway/communications/campanha.py"]
+    # Lista fechada e ordenada (CD-166): o portao de campanha e a guarda da recuperacao (E-SF-16).
+    assert sorted(usos) == [
+        "src/maezo/gateway/communications/campanha.py",
+        "src/maezo/gateway/communications/recovery_dispatch.py",
+    ]
 
 
 def test_nenhum_arquivo_de_src_preenche_o_mapa_de_numero() -> None:

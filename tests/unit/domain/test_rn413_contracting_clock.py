@@ -137,6 +137,9 @@ def test_limiares_num_unico_lugar() -> None:
     assert sorted(outros) == [
         "src/maezo/gateway/commercial_pos_dia_25.py",
         "src/maezo/gateway/commercial_t0_ledger.py",
+        # E-SF-16: consumidores do estado canonico; nao definem limiar.
+        "src/maezo/gateway/communications/recovery_dispatch.py",
+        "src/maezo/gateway/communications/recovery_eligibility.py",
     ]
 
 
