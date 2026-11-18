@@ -248,3 +248,9 @@ Suíte local antes do push: `tests/unit/portal`, `tests/unit/processes`, `tests/
 - Revisão independente: primeira passada FAIL (asserção sempre verdadeira no teste antigo, que saiu com CD-130). Segunda passada FAIL (varredura de textos não percorrida; nomes de função e classe fora). Reparo literal aplicado, mais um teste novo (toda função pública começa pela chave). Reverificação por mutação: função `oferecer_alternativa`, oferta no texto e função pública sem chave, cada uma vermelha.
 - Mutações do CAMINHO: chave ligada, valor calculado, cancelar no segundo nível e troca em autosserviço, cada uma vermelha.
 - Suíte local: `tests/unit/portal` 3222 passed (head atual); `processes` 114 e `sec` 162 passed; `ci` em curso. Push e PR quando o `ci` fechar sem falha nova.
+
+## 2026-11-18 ~10:10Z — PRONTO #1319 (E-SF-RT-04 "Meu plano", variante RT-04r)
+
+- PRONTO: maezo-operadora #1319, head `4e462f5f33fe8556f98c2ea21dfc122cc357238a`, checks verdes (42: 40 success, 2 skipped; integração 1419 testes, 0 falhas, 0 erros). Contém `ee1ac446`; main atual `c06620f0` um merge à frente (#1317), arquivos disjuntos (CD-131). Simulação de merge limpa; nela os testes do módulo e do console passam (76).
+- Estado da fila: todas as linhas executáveis com PR mesclado ou pronto. E-SF-16 e 16r seguem à espera da E-SF-07 (W2-MZO-GP); sem `DONE` (CD-121).
+- Acréscimo ao relatório parcial: linha 11, E-SF-RT-04, #1319 com PRONTO. Revisão em duas passadas, ambas FAIL e reparadas. Portões fechados: superfície desligada e não montada, linha de alternativa não construída, opções recusadas até haver catálogo publicado. Pedidos de linha: fonte dos fatos do plano, custódia de protocolo de atendimento, catálogo publicado, casa definitiva da superfície. Ramo para apagar depois do merge: `sf-w2/mzo-ca/rt04`.
