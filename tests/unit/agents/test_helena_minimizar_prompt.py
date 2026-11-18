@@ -322,3 +322,13 @@ def test_entrada_adversarial_de_100_mil_caracteres_em_menos_de_1s(adversaria: st
     inicio = time.perf_counter()
     ma.minimizar_prompt(adversaria, nomes=["Fictinome Dias"])
     assert time.perf_counter() - inicio < 1.0
+
+
+@pytest.mark.parametrize("deixa", ["me chamo", "meu nome é", "Meu nome completo:"])
+def test_sobrenome_depois_de_nome_conhecido_na_apresentacao_tambem_sai(deixa: str) -> None:
+    primeiro, sobrenome = _nome(9)
+    saida = ma.minimizar_prompt(
+        f"{deixa} {primeiro} {sobrenome}, tenho febre", nomes=[f"{primeiro} Dias Leite"]
+    )
+    assert primeiro not in saida and sobrenome not in saida
+    assert saida == f"{deixa} {ma.DADO_REMOVIDO}, tenho febre"

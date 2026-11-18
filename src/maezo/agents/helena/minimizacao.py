@@ -174,16 +174,16 @@ def minimizar_prompt(prompt: str, *, nomes: Iterable[str] = ()) -> str:
 
     MASCARA, NESTA ORDEM:
     (1) e-mail: qualquer `algo@algo`, com ou sem dominio de topo;
-    (2) cada palavra dos `nomes` conhecidos (os nomes dos dependentes que o grafo ja' leu,
-        `modelo_allowlist.nomes_conhecidos`): palavra inteira de 3+ letras, sem acento, fora particulas; sem
-        caixa, exceto os `SOBRENOMES_COMUNS` (Dias, Leite, Rocha...), so' com inicial maiuscula no texto;
-    (3) o nome depois de uma apresentacao FORTE: "meu nome (completo) e'"/":", "me chamo", "o nome dele/dela
+    (2) o nome depois de uma apresentacao FORTE: "meu nome (completo) e'"/":", "me chamo", "o nome dele/dela
         e'", "o nome do meu filho/da minha mae... e'" (so' parentesco). A primeira palavra em qualquer caixa
         (pode estar na linha seguinte), as seguintes na mesma linha com inicial maiuscula; palavras com
         apostrofo ou hifen inteiras (`D'Ávila`, `Ana-Clara`); um tratamento (Dr./Sra.) fica e o nome depois
         dele sai;
-    (4) o nome depois de uma apresentacao FRACA ("sou o/a", "aqui e' o/a"), so' com inicial maiuscula;
-    (5) "Dr./Dra./Sr./Sra. Nome" em qualquer lugar (tratamento e nome com maiuscula);
+    (3) o nome depois de uma apresentacao FRACA ("sou o/a", "aqui e' o/a"), so' com inicial maiuscula;
+    (4) "Dr./Dra./Sr./Sra. Nome" em qualquer lugar (tratamento e nome com maiuscula);
+    (5) cada palavra dos `nomes` conhecidos (os nomes dos dependentes que o grafo ja' leu,
+        `modelo_allowlist.nomes_conhecidos`): palavra inteira de 3+ letras, sem acento, fora particulas; sem
+        caixa, exceto os `SOBRENOMES_COMUNS` (Dias, Leite, Rocha...), so' com inicial maiuscula no texto;
     (6) identificador curto, por token (corrida de letras, digitos, `_` e `-`): os formatos do repo
         (`XXX-1A2B-3C4D`, `hk1_...`) com qualquer quantidade de digitos; senao 5+ digitos e uma letra antes de
         um digito (`AB12345`, `ÁB12345`, `_AB12345`, `nº12345`), fora medida `NxN` (`140x90`, `2x500mg`) e
@@ -204,12 +204,14 @@ def minimizar_prompt(prompt: str, *, nomes: Iterable[str] = ()) -> str:
     comum com maiuscula que e' sobrenome conhecido ("Dias atras" com um dependente Dias); numero de 5 a 7
     digitos sem unidade."""
     texto = _EMAIL.sub(DADO_REMOVIDO, prompt) if "@" in prompt else prompt
-    padrao = _padrao_de_nomes(nomes)
-    if padrao is not None:
-        texto = padrao.sub(DADO_REMOVIDO, texto)
+    # As apresentacoes ANTES dos nomes conhecidos: um nome conhecido trocado primeiro esconderia da
+    # apresentacao o sobrenome que vem depois dele ("me chamo <conhecido> Ramos").
     texto = _APRESENTACAO_FORTE.sub(_mascarar_nome, texto)
     texto = _APRESENTACAO_FRACA.sub(_mascarar_nome, texto)
     texto = _TRATAMENTO_E_NOME.sub(_mascarar_nome, texto)
+    padrao = _padrao_de_nomes(nomes)
+    if padrao is not None:
+        texto = padrao.sub(DADO_REMOVIDO, texto)
     # O token antes do numero longo: `FICT-0000-0000` sai inteiro, nao como "FICT-" mais a mascara.
     texto = _TOKEN.sub(lambda m: DADO_REMOVIDO if _e_identificador_curto(m.group(0)) else m.group(0), texto)
     texto = _NUMERO_LONGO.sub(DADO_REMOVIDO, texto)
