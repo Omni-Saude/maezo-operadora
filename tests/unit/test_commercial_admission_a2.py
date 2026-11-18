@@ -25,7 +25,7 @@ import hashlib
 import itertools
 import json
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -654,3 +654,57 @@ async def test_commercial_intake_without_retention_class_refused(schema_bytes, m
         'categorias:\n  - {categoria: "SYN", base_legal: "SYN", retencao: "SYN", acao: "SYN"}\n'
     )
     await assert_intake_closed(schema_bytes, name, every_record=True, reason=REASON_LEAD_CATEGORIES_MISSING)
+
+
+# E-SF-05r (b), EP-CORE-02b: a credential the verifier accepts is still refused before one body
+# byte when the verified connection is stale or belongs to another connection. Until now no
+# test exercised these two checks of `AuthenticatedSalesAdmission.transport`; the fakes above
+# always return a fresh, matching connection.
+class _VerifiedButStale(UnitCaller):
+    def __init__(self, *, expired: bool, foreign: bool) -> None:
+        self._expired = expired
+        self._foreign = foreign
+
+    async def authenticate_and_resolve(self, credential, connection_ref):
+        verified = await super().authenticate_and_resolve(credential, connection_ref)
+        return replace(
+            verified,
+            connection_ref="SYN-FOREIGN-CONNECTION" if self._foreign else verified.connection_ref,
+            valid_until=datetime.now(UTC) - timedelta(seconds=1) if self._expired else verified.valid_until,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("expired", "foreign"), [(True, False), (False, True), (True, True)])
+async def test_concrete_verifier_with_stale_connection_refuses_before_body(schema_bytes, expired, foreign):
+    calls = []
+    kwargs = commercial_kwargs(schema_bytes, calls, admitted=True)
+    kwargs["caller"] = _VerifiedButStale(expired=expired, foreign=foreign)
+    gateway = compose_commercial_gateway(**kwargs)
+    reads = []
+
+    async def forbidden():
+        reads.append(True)
+        raise AssertionError("body was read before the verified connection was checked")
+
+    response = await commercial_command(make_request(gateway, receive=forbidden))
+    assert response.status_code == 403
+    assert json.loads(bytes(response.body)) == ADMISSION_REQUIRED_BODY
+    assert reads == [] and calls == []
+
+
+@pytest.mark.asyncio
+async def test_fresh_matching_connection_is_the_control_case(schema_bytes):
+    # Controle: o mesmo caminho com conexão válida e própria lê o corpo (o teste acima não é vácuo).
+    calls = []
+    kwargs = commercial_kwargs(schema_bytes, calls, admitted=True)
+    kwargs["caller"] = _VerifiedButStale(expired=False, foreign=False)
+    gateway = compose_commercial_gateway(**kwargs)
+    reads = []
+
+    async def body():
+        reads.append(True)
+        return {"type": "http.request", "body": json.dumps(wire_command()).encode(), "more_body": False}
+
+    await commercial_command(make_request(gateway, receive=body))
+    assert reads == [True]
