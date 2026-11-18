@@ -78,6 +78,9 @@ def test_recovery_templates_have_only_allowed_classes() -> None:
         "valor_cobranca_reais",
         "data_vencimento_dia_mes",
         "regiao",
+        "nome",
+        "idade",
+        "composicao_familiar",
         "cid",
     ):
         assert not _so_classes_permitidas({"variables": [{"pos": 1, "class": proibida}]})
@@ -107,9 +110,14 @@ async def test_recovery_template_without_content_review_is_refused() -> None:
     assert (await gate.avaliar(_pedido("lead"))).motivo is Motivo.TEMPLATE_NOT_APPROVED
     assert (await gate.avaliar(_pedido("prospect"))).motivo is Motivo.TEMPLATE_PURPOSE_MISMATCH
     # E o esquema nao deixa aprovar sem a referencia da revisao de conteudo.
+    # Isolando a revisao de conteudo: tudo o mais de um modelo aprovado preenchido, so' ela ausente.
     _entrada(doc).update(meta_status="approved", meta_template_ref="ref-sintetica", body="Texto sintetico.")
-    with pytest.raises(RegistroInvalidoError):
+    with pytest.raises(RegistroInvalidoError) as e:
         validar_registro(doc)
+    assert "TEMPLATE_APPROVED_INCOMPLETE" in str(e.value)
+    # Contraprova: com a referencia da revisao, o mesmo documento valida e o modelo fica aprovado.
+    _entrada(doc).update(content_review_ref="revisao-sintetica")
+    assert validar_registro(doc).templates[MODELO].aprovado
 
 
 def test_finalidade_continua_sem_numero() -> None:

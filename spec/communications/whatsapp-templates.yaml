@@ -53,8 +53,8 @@ purposes:
   - id: retencao_onboarding
     ratified: false
     ratification_ref: null
-  # Recuperacao de jornada de contratacao nao concluida (E-SF-16r / GTM-E-53): retomada, finalidade 7 do
-  # aceite unico. Base e conteudo dependem de juridico e encarregado; nao ratificada.
+  # Recuperacao de jornada de contratacao nao concluida (E-SF-16r / GTM-E-53). Base e conteudo dependem de
+  # juridico e encarregado; nao ratificada.
   - id: recuperacao_jornada
     ratified: false
     ratification_ref: null
