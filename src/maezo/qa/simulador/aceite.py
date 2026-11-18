@@ -1328,7 +1328,8 @@ _LINHA_DO_DETALHE = (
 )
 #: O texto do PF que NAO e' o pagador (decisao do dono): o responsavel financeiro e' o titular, sem nome.
 _TEXTO_NAO_PAGADOR = ("responsavel financeiro", "titular")
-#: (a) O dono: beneficiario de plano EMPRESARIAL (CPF 42853296890, s000). Nenhum valor: e' o RH da empresa.
+#: (a) A pessoa da primeira linha do roster (`MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA`, s000):
+#: beneficiario de plano EMPRESARIAL. Nenhum valor: e' o RH da empresa.
 LUCAS_V4: tuple[Segmento, ...] = (
     Segmento(
         "1-empresarial-mensalidade-vai-para-o-rh",

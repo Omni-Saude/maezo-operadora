@@ -133,7 +133,7 @@ O código de barras é **credencial de pagamento**: quem o tem paga — ou desvi
 
   | Roteiro | Quem conversa | O que confere |
   |---|---|---|
-  | `lucas_v4` | o dono (CPF 42853296890, `s000`, plano **empresarial**) | "Quanto está minha mensalidade?", "Qual o código de barras do meu boleto?", "Quando vence…?" → texto da empresa/RH, **sem** valor, vencimento nem código |
+  | `lucas_v4` | a pessoa da primeira linha do roster (`<documento informado na execução>`, `s000`, plano **empresarial**) | "Quanto está minha mensalidade?", "Qual o código de barras do meu boleto?", "Quando vence…?" → texto da empresa/RH, **sem** valor, vencimento nem código |
   | `lucas_v4_pagador` | primeiro titular PF do roster que resolveu na AMH (não o dono) | total **primeiro**; sem o sinal, a 2ª via é o texto atual (canais), sem código; com o sinal, o detalhe por beneficiário e o **código de barras** (passo `pendente_de_contrato` enquanto o sinal estiver desligado) |
   | `lucas_v4_nao_pagador` | idem, com um roster de **não pagadores** | o texto do responsável financeiro em valor, 2ª via, vencimento e "foi paga?", sem valor e sem nome |
 
@@ -144,9 +144,11 @@ O código de barras é **credencial de pagamento**: quem o tem paga — ou desvi
 - **Como escolher o sujeito sem expor PII.** O roteiro usa o **primeiro** do roster que resolveu na AMH e não é o
   dono; o CSV fica só no S3 cifrado e na memória do processo, e o relatório usa rótulos e o mascarador. Para
   `lucas_v4_pagador`: monte um roster só de **titulares PF que são o próprio pagador, com mensalidade em dia**
-  (consulta 1 de `src/maezo/qa/simulador/roster_lucas_v4.sql`); se o passo 1 reprovar com "responsável financeiro",
+  (consulta 1 de `src/maezo/qa/simulador/roster_lucas_v4.sql`, submetida com
+  `QID=$(python -m maezo.qa.simulador.roster submeter src/maezo/qa/simulador/roster_lucas_v4.sql --numero 1 --work-group amh-austa_operadora-analytics-dev)`,
+  como na seção 1 do runbook do simulador); se o passo 1 reprovar com "responsável financeiro",
   o sujeito não é o pagador — troque o roster. Para `lucas_v4_nao_pagador`: roster de **dependentes** (consulta 2 do
-  mesmo arquivo). O roster PF atual (`roster/20261015T221333Z-pf-titulares.csv`) tem titulares PF: serve ao
+  mesmo arquivo, o mesmo `submeter` com `--numero 2`). O roster PF atual (`roster/20261015T221333Z-pf-titulares.csv`) tem titulares PF: serve ao
   pagador **se** o titular for o pagador; para o não pagador é preciso o roster de dependentes (**o SQL não foi
   validado no Athena; confirme os nomes de colunas antes de rodar**, e nada é alterado no lago).
 - **Dev ponta a ponta (WhatsApp real):** com os números de teste do dono (PJ), de um titular PF pagador e de um

@@ -10,11 +10,13 @@ import pytest
 from maezo.qa.simulador import armazenamento as arm
 from maezo.qa.simulador import relatorio as rel
 from maezo.qa.simulador.registro import Achado, Avaliacao, ResultadoChecagem, Sujeito
-from maezo.qa.simulador.roster import CPF_DO_DONO, RosterInvalidoError, ler_roster_csv, preflight
+from maezo.qa.simulador.roster import RosterInvalidoError, ler_roster_csv, preflight
 
-from .apoio_simulador import CPF_SINTETICO
+from .apoio_simulador import CPF_SINTETICO, cpf_sintetico_valido
 
 _OUTRO_CPF = "11144477735"
+#: O documento da primeira linha e' gerado na hora (nunca um CPF valido novo escrito no codigo).
+DOCUMENTO_PRIMEIRA_LINHA = cpf_sintetico_valido(excluir={CPF_SINTETICO, _OUTRO_CPF})
 
 
 def _csv(*linhas: str) -> str:
@@ -25,38 +27,44 @@ def _csv(*linhas: str) -> str:
 def test_roster_le_csv_do_athena_descarta_invalido_e_poe_o_dono_primeiro() -> None:
     texto = _csv(
         f'"{CPF_SINTETICO}","1980-03-14","Joana Silva"',
-        f'"{CPF_DO_DONO}","1990-01-02 00:00:00.000","Dono"',
+        f'"{DOCUMENTO_PRIMEIRA_LINHA}","1990-01-02 00:00:00.000","Primeira"',
         '"12345678900","1980-01-01","CPF invalido"',
         f'"{_OUTRO_CPF}","","Sem nascimento"',
         f'"{CPF_SINTETICO}","1980-03-14","Duplicado"',
         f'"{_OUTRO_CPF}","02/05/1975","  Ana   Souza "',
     )
-    sujeitos = ler_roster_csv(texto)
+    sujeitos = ler_roster_csv(texto, documento_primeira_linha=DOCUMENTO_PRIMEIRA_LINHA)
     assert [s.rotulo for s in sujeitos] == ["s000", "s001", "s002"]
-    assert sujeitos[0].dono and sujeitos[0].cpf == CPF_DO_DONO
-    assert {s.cpf for s in sujeitos} == {CPF_DO_DONO, CPF_SINTETICO, _OUTRO_CPF}
+    assert sujeitos[0].dono and sujeitos[0].cpf == DOCUMENTO_PRIMEIRA_LINHA
+    assert {s.cpf for s in sujeitos} == {DOCUMENTO_PRIMEIRA_LINHA, CPF_SINTETICO, _OUTRO_CPF}
     ana = next(s for s in sujeitos if s.cpf == _OUTRO_CPF)
     assert ana.nome == "Ana Souza" and ana.nascimento.isoformat() == "1975-05-02"
 
 
 def test_repr_do_sujeito_nao_mostra_dado_pessoal() -> None:
-    (s,) = ler_roster_csv(_csv(f'"{CPF_SINTETICO}","1980-03-14","Joana Silva"'))
+    (s,) = ler_roster_csv(
+        _csv(f'"{CPF_SINTETICO}","1980-03-14","Joana Silva"'),
+        documento_primeira_linha=DOCUMENTO_PRIMEIRA_LINHA,
+    )
     assert CPF_SINTETICO not in repr(s) and "Joana" not in repr(s)
 
 
 def test_roster_sem_cabecalho_recusa_sem_ecoar() -> None:
     with pytest.raises(RosterInvalidoError) as erro:
-        ler_roster_csv(f"{CPF_SINTETICO},1980-03-14,Joana\n")
+        ler_roster_csv(
+            f"{CPF_SINTETICO},1980-03-14,Joana\n", documento_primeira_linha=DOCUMENTO_PRIMEIRA_LINHA
+        )
     assert CPF_SINTETICO not in str(erro.value)
 
 
 async def test_preflight_descarta_quem_nao_resolve_e_para_no_limite() -> None:
     sujeitos = ler_roster_csv(
         _csv(
-            f'"{CPF_DO_DONO}","1990-01-02","Dono"',
+            f'"{DOCUMENTO_PRIMEIRA_LINHA}","1990-01-02","Primeira"',
             f'"{CPF_SINTETICO}","1980-03-14","Joana"',
             f'"{_OUTRO_CPF}","1975-05-02","Ana"',
-        )
+        ),
+        documento_primeira_linha=DOCUMENTO_PRIMEIRA_LINHA,
     )
     chamadas: list[str] = []
 
