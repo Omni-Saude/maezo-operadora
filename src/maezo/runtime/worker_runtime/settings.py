@@ -101,20 +101,6 @@ class WorkerRuntimeSettings(BaseSettings):
     # httpx client timeout; MUST exceed the long-poll timeout or the client aborts its own
     # long-poll before the engine responds (design §6/§11 — validated below, fail-closed).
     client_timeout_s: float = Field(default=40.0, alias="WORKER_CLIENT_TIMEOUT_S")
-    # DL-0189: margem que o bloqueio da tarefa reserva para DEPOIS das chamadas ao motor DMN do
-    # portao de criterios do AUTH (`operadora.auth.validate_auto_criteria`). O orcamento total de
-    # motor por tarefa desse worker e DERIVADO: `auth_dmn_budget_s` = `lock_duration_ms` menos esta
-    # margem (20 s com os padroes de 30 s e 10 s). Sem ele, as 2 a 4 avaliacoes sequenciais da tarefa
-    # podiam somar mais que o bloqueio (cada uma limitada so pelo `client_timeout_s` de 40 s): o motor
-    # re-entregava a tarefa a outro worker e o `complete` tardio era recusado (medicao na DL-0189).
-    # O que a margem cobre, depois do motor: o resto de `execute` (local), o append da auditoria
-    # (ADR-0007, antes do `complete`), o registro de decisoes K1 do harness (teto proprio de 5 s,
-    # `harness._RCO_REGISTRO_TIMEOUT_S`) e a ida e volta do `complete`; e, antes, a espera da tarefa
-    # pela thread do executor padrao (o orcamento conta do inicio de `execute`, nao do fetch).
-    # Validada abaixo: a partida RECUSA margem que nao deixe orcamento positivo (o padrao da casa,
-    # como `_validate_long_poll_fits_client_timeout`), em vez de corrigir em silencio um valor que a
-    # implantacao escolheu. Derivar do bloqueio mantem o invariante se o bloqueio mudar.
-    dmn_complete_margin_ms: int = Field(default=10_000, alias="WORKER_DMN_COMPLETE_MARGIN_MS")
     # Bound on graceful-shutdown drain (design §8) — MUST be less than the pod's
     # terminationGracePeriodSeconds (Helm-side contract, not enforced here).
     drain_deadline_s: float = Field(default=20.0, alias="WORKER_DRAIN_DEADLINE_S")
@@ -159,6 +145,21 @@ class WorkerRuntimeSettings(BaseSettings):
     # lock-expiry redelivery of the SAME external task does not publish a second time. DARK by
     # default (ships OFF; flipping is a ROLL data change, never an agent act).
     extask_publish_dedup: bool = Field(default=False, alias="MAEZO_EXTASK_PUBLISH_DEDUP")
+
+    # DL-0189: margem que o bloqueio da tarefa reserva para DEPOIS das chamadas ao motor DMN do
+    # portao de criterios do AUTH (`operadora.auth.validate_auto_criteria`). O orcamento total de
+    # motor por tarefa desse worker e DERIVADO: `auth_dmn_budget_s` = `lock_duration_ms` menos esta
+    # margem (20 s com os padroes de 30 s e 10 s). Sem ele, as 2 a 4 avaliacoes sequenciais da tarefa
+    # podiam somar mais que o bloqueio (cada uma limitada so pelo `client_timeout_s` de 40 s): o motor
+    # re-entregava a tarefa a outro worker e o `complete` tardio era recusado (medicao na DL-0189).
+    # O que a margem cobre, depois do motor: o resto de `execute` (local), o append da auditoria
+    # (ADR-0007, antes do `complete`), o registro de decisoes K1 do harness (teto proprio de 5 s,
+    # `harness._RCO_REGISTRO_TIMEOUT_S`) e a ida e volta do `complete`; e, antes, a espera da tarefa
+    # pela thread do executor padrao (o orcamento conta do inicio de `execute`, nao do fetch).
+    # Validada abaixo: a partida RECUSA margem que nao deixe orcamento positivo (o padrao da casa,
+    # como `_validate_long_poll_fits_client_timeout`), em vez de corrigir em silencio um valor que a
+    # implantacao escolheu. Derivar do bloqueio mantem o invariante se o bloqueio mudar.
+    dmn_complete_margin_ms: int = Field(default=10_000, alias="WORKER_DMN_COMPLETE_MARGIN_MS")
 
     # Forensic audit F-142 (roadmap R-053): when ON, `operadora.pagto.calculate_facts` writes the
     # FACT `dados_pagamento_validos=False` for an absent/invalid `valor_pagamento_cents`, so the
