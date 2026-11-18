@@ -32,7 +32,6 @@ from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
 from maezo.gateway.commercial_acceptance_admission import A3_ADMITTED_COMMANDS, AcceptanceRecordAdmission
 from maezo.gateway.commercial_catalog_admission import CatalogSourceAdmission
 from maezo.gateway.commercial_collective_hold import CollectiveHoldCatalogCodec
-from maezo.gateway.commercial_public_fences import PresentialChannelFact, PublicOfferFenceCodec
 from maezo.gateway.commercial_coverage_admission import CoverageReadAdmission
 from maezo.gateway.commercial_disclosure_checklist import (
     DISCLOSURE_GATED_COMMANDS as DISCLOSURE_GATED_COMMANDS,
@@ -44,6 +43,7 @@ from maezo.gateway.commercial_portability_admission import (
     PortabilityPayloadError,
     refuse_portability_verdict_payload,
 )
+from maezo.gateway.commercial_public_fences import PresentialChannelFact, PublicOfferFenceCodec
 from maezo.gateway.commercial_sales_admission import SalesSessionAdmission
 from maezo.gateway.commercial_support_admission import (
     A5_ADMITTED_COMMANDS,

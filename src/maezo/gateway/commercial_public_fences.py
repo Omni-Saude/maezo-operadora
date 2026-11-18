@@ -9,10 +9,11 @@ nenhum plano na vitrine on-line, fail-closed) e EP-REG-06a (nenhum filtro local 
 
 Três cercas, todas antes da divulgação e todas sobre o wire já validado pelo codec congelado:
 
-1. Produto `usable` com `ansRegistry` ou `operatorAnsRegistry` em `dataState: unknown` nunca é
-   exibido como contratável.
-2. Produto com `price` em `dataState: known` (valor numérico) não é exibido enquanto a segunda
-   perna estiver fechada.
+1. Produto `usable` só é exibido como contratável com `ansRegistry` em `dataState: known` e com
+   `productRegistryCode` e `operatorRegistryCode` preenchidos (o wire de fonte v1, v2 e v3 carrega
+   os dois códigos dentro de `ansRegistry`).
+2. Produto com `price` em `dataState: known` (valor numérico, em qualquer das três versões do
+   wire) não é exibido enquanto a segunda perna estiver fechada.
 3. Sem `PresentialChannelFact` (o padrão), nenhum catálogo é exibido.
 
 Por que o catálogo inteiro é recusado e não filtrado. É o mesmo motivo de
@@ -63,7 +64,7 @@ PUBLIC_FENCE_REFUSAL: Final[tuple[Literal["denied"], Literal["purpose_denied"]]]
 _UNKNOWN: Final = "unknown"
 _KNOWN: Final = "known"
 _USABLE: Final = "usable"
-_REGISTRY_FIELDS: Final = ("ansRegistry", "operatorAnsRegistry")
+_REGISTRY_CODES: Final = ("productRegistryCode", "operatorRegistryCode")
 _ACT_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
 
@@ -91,6 +92,12 @@ def _data_state(value: object) -> str:
     return str(state)
 
 
+def _registry_known(registry: object) -> bool:
+    if _data_state(registry) != _KNOWN or not isinstance(registry, dict):
+        return False
+    return all(isinstance(registry.get(code), str) and registry.get(code) for code in _REGISTRY_CODES)
+
+
 def public_offer_fence_violations(catalog: object) -> tuple[str, ...]:
     """Códigos das cercas violadas por um catálogo já validado pelo wire.
 
@@ -106,9 +113,7 @@ def public_offer_fence_violations(catalog: object) -> tuple[str, ...]:
         offer_state = product.get("offerState")
         if not isinstance(offer_state, str):
             raise ValueError("public_fence_catalog_unreadable")
-        if offer_state == _USABLE and any(
-            _data_state(product.get(field)) == _UNKNOWN for field in _REGISTRY_FIELDS
-        ):
+        if offer_state == _USABLE and not _registry_known(product.get("ansRegistry")):
             found.add("ans_registry_unknown")
         if _data_state(product.get("price")) == _KNOWN:
             found.add("public_price_numeric")
