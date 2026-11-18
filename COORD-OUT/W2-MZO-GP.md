@@ -224,3 +224,13 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 ## 2026-11-18 ~10:10Z — CD-134 lida
 
 - E-SF-07: nenhum trabalho local (nem ramo, nem arquivo). A E-SF-26 da CD-133 virá sobre a main `b2540f9b` quando o commit for liberado pelo dono.
+
+## 2026-11-18 ~12:00Z — #1318 atualizado (CD-133/138/142); CI em curso; CD-149 lida
+
+- Dono liberou commit, merge e push no ramo esf26 (~11:00Z, nesta sessão). Push único: head `ca609e7da24b7cd91ab5e6d7ef15cf0af90e7ff4` (commit `f3e836e8` da CD-133 + merges das mains `b2540f9b` e `7fefa48d`; sem rebase nem force-push). Título e corpo do PR reescritos para o CA_4, com o histórico do PR.
+- `git diff --name-only origin/main...HEAD`: CA_4 novo, `INVENTARIO-CA.generated.json`, `MAPA-ELEMENTOS-V4.md`, `tests/processes/test_esf26_ca4_declaracao_saude.py`, `tests/processes/test_mapa_elementos_v4_sync.py`. Sem CA_1 (sha256 `cd571d6d…8f79`), sem baseline, sem o teste do pino.
+- Gates do próprio diff, sobre o head com `7fefa48d` (CD-138): gate BPMN com `--touched` (só CA_4) corpus-doc `novos=0 baseline=12 obsoletos=0`, sp-op `novos=0 baseline=19 obsoletos=0`; `gerar_inventario_ca --check` confere; `make lint type validate-artifacts` verde; `tests/unit/sec`+`processes`+`agents`+`tests/processes` 8450 passed; `tests/unit/ci` 3403 passed, 28 failed + 141 errors, todos na lista conhecida do ambiente, nome a nome (um da lista antiga agora passa).
+- Baseline=12, não 9 (diferente do que o ROOT esperava; já explicado a ele): com o CA_1 não tocado, as 3 entradas dele voltam a ser isentas.
+- Falha de processo: uma rodada local caiu por disco cheio (19G de `--basetemp` do `tests/unit/ci` + 9,6G de sobra de rodada interrompida). Apaguei só temporários meus; as suítes passaram a rodar em partes, com o `--basetemp` apagado ao fim de cada parte.
+- CD-149: lida. Passivo conferido: os 6 ramos meus já mesclados (esf36-ligacao, mapa-ajustes, gtm-e-66, esf20r, esf21r, esf25) estão na lista do pacote, nada faltando. `git status` limpo. Ramo local `sf-w2/mzo-gp/esf26-parse-ca` (commit `e1822aa2`, nunca enviado): só registrado.
+- Próximo: CI completo do head `ca609e7d`; verde → pronto ao ROOT com os comandos e contagens acima, e depois LIMPEZA no merge.
