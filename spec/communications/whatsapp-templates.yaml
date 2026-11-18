@@ -53,6 +53,11 @@ purposes:
   - id: retencao_onboarding
     ratified: false
     ratification_ref: null
+  # Recuperacao de jornada de contratacao nao concluida (E-SF-16r / GTM-E-53). Base e conteudo dependem de
+  # juridico e encarregado; nao ratificada.
+  - id: recuperacao_jornada
+    ratified: false
+    ratification_ref: null
 
 # Textos de permissao de contato PUBLICADOS (aceite unico OS-05 para prospect; termo E-SF-62 para
 # beneficiario). Nenhum existe como texto adotado (GAP-CONSENT-ADMISSAO; E-SF-62 so' minuta), entao a
@@ -152,3 +157,22 @@ templates:
     body: null
     variables: []
     origem: "ADD-RETENTION RT-09 (ret.checkin_d7.enviado)"
+
+  # E-SF-16r (GTM-E-53): modelo UNICO e NEUTRO da recuperacao, para LEAD (quem comecou a jornada e nao
+  # concluiu e' entrada de lead: gateway/commercial_admission.py LEAD_INTAKE_COMMANDS). Sem corpo escrito:
+  # o texto e' da revisao de conteudo do juridico. Variaveis, quando houver, so' contagem, data de
+  # publicacao da fonte e link opaco da jornada; nunca regiao, nome, idade, composicao ou saude. O gate
+  # recusa: finalidade nao ratificada e modelo nao submetido nem revisado.
+  - id: recuperacao_jornada_v1
+    name: recuperacao_jornada_v1
+    language: pt_BR
+    category: marketing
+    meta_status: not_submitted
+    meta_template_ref: null
+    purpose_ref: recuperacao_jornada
+    subject_kind: lead
+    content_review_ref: null
+    publicity: true
+    body: null
+    variables: []
+    origem: "E-SF-16r (GTM-E-53)"
