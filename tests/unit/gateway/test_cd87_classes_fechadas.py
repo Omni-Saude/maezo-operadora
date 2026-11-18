@@ -96,7 +96,6 @@ def test_mapa_de_validadores_e_somente_leitura_e_sem_texto_livre() -> None:
         "valor_centavos_formatado",
         "protocolo_ref",
         "produto_catalogo",
-        "primeiro_nome",
     }
 
 
@@ -160,21 +159,6 @@ _TABELA: dict[str, tuple[list[str], list[str]]] = {
         ],
     ),
     "produto_catalogo": ([], ["Plano Austa", "", "qualquer coisa"]),
-    "primeiro_nome": (
-        ["Maria", "José", "Ângela", "Li"],
-        [
-            "M",
-            "gestante hipertensa",
-            "Maria1",
-            "Ana-Clara",
-            "Maria ",
-            "\u041caria",
-            "\u039c\u03b1\u03c1\u03af\u03b1",
-            "a" * 31,
-            "J45",
-            "Maria_",
-        ],
-    ),
 }
 
 
@@ -244,7 +228,6 @@ def test_marca_de_teste_do_produtor_passa_na_classe_fechada() -> None:
 
 # ----------------------------------------------------------------------------- gate: a recusa vem da classe
 _CLASSES_SINTETICAS = [
-    {"id": "primeiro_nome", "tipo": "pessoal_contratual"},
     {"id": "protocolo_ref", "tipo": "nao_pessoal"},
     {"id": "data", "tipo": "nao_pessoal"},
 ]
@@ -265,19 +248,18 @@ def _gate_sintetico() -> OutboundGate:
             "subject_kind": "lead",
             "content_review_ref": "TESTE-REV-9",
             "publicity": False,
-            "body": "Ola {{1}}, protocolo {{2}}, {{3}} itens, desde {{4}}.",
+            "body": "Protocolo {{1}}, {{2}} itens, desde {{3}}.",
             "variables": [
-                {"pos": 1, "class": "primeiro_nome"},
-                {"pos": 2, "class": "protocolo_ref"},
-                {"pos": 3, "class": "contagem"},
-                {"pos": 4, "class": "data"},
+                {"pos": 1, "class": "protocolo_ref"},
+                {"pos": 2, "class": "contagem"},
+                {"pos": 3, "class": "data"},
             ],
         }
     )
     return OutboundGate(validar_registro(doc), supressao=SupressaoFixa())
 
 
-_VALIDOS = ("Maria", "2026-10-0001", "3", "01/10/2026")
+_VALIDOS = ("2026-10-0001", "3", "01/10/2026")
 
 
 def _pedido(variaveis: tuple[str, ...]) -> PedidoDeEnvio:
@@ -300,12 +282,12 @@ async def test_gate_sintetico_autoriza_valores_dentro_das_classes() -> None:
 @pytest.mark.parametrize(
     ("pos", "valor"),
     [
-        (0, "gestante hipertensa"),  # primeiro_nome: duas palavras
-        (1, "J 45"),  # protocolo_ref: espaco
-        (2, "J45"),  # contagem: nao e' digito
-        (3, "losartana 50mg"),  # data: nao e' data
-        (1, "losartana"),  # protocolo_ref: letras
-        (1, "E119"),  # protocolo_ref: parece CID
+        (0, "gestante hipertensa"),  # protocolo_ref: termo clinico fora da lista, recusado pela classe
+        (0, "J 45"),  # protocolo_ref: espaco
+        (1, "J45"),  # contagem: nao e' digito
+        (2, "losartana 50mg"),  # data: nao e' data
+        (0, "losartana"),  # protocolo_ref: letras
+        (0, "E119"),  # protocolo_ref: parece CID
     ],
 )
 async def test_recusa_vem_da_classe_e_nao_da_lista(
@@ -426,3 +408,52 @@ def test_detector_continua_deixando_passar_o_texto_do_lembrete() -> None:
     from maezo.platform.lembretes.texto import CORPO_TEMPLATE_META
 
     assert not contem_dado_de_saude(CORPO_TEMPLATE_META)
+
+
+# ------------------------------------------- CD-99 item 2: competencia aceita so os doze meses como palavra
+_DOZE_MESES = frozenset(
+    {
+        "janeiro",
+        "fevereiro",
+        "março",
+        "abril",
+        "maio",
+        "junho",
+        "julho",
+        "agosto",
+        "setembro",
+        "outubro",
+        "novembro",
+        "dezembro",
+    }
+)
+
+
+def test_competencia_aceita_so_o_conjunto_fechado_de_doze_meses(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Detector por lista desligado: a prova e' so' da classe.
+    monkeypatch.setattr(wt, "TERMOS_DE_SAUDE", ())
+    monkeypatch.setattr(wt, "_CID10", re.compile(r"(?!x)x"))
+    monkeypatch.setattr(wt, "_CID10_MAIN", re.compile(r"(?!x)x"))
+    # 1) O conjunto de palavras da classe e' exatamente o de doze meses, e a expressao e' feita so dele.
+    assert len(wt._MESES) == 12 and frozenset(wt._MESES) == _DOZE_MESES
+    alternancia = re.search(r"\(([^?][^)]*)\) de ", wt._RE_COMPETENCIA.pattern)
+    assert alternancia is not None and frozenset(alternancia.group(1).split("|")) == _DOZE_MESES
+    # 2) Na posicao da palavra, so' os doze passam; qualquer outra palavra e' recusada.
+    candidatas = sorted(_DOZE_MESES) + [
+        "marco",
+        "Outubro",
+        "OUTUBRO",
+        "asma",
+        "gripe",
+        "losartana",
+        "gestante",
+        "maria",
+        "mes",
+        "outubrox",
+        "xoutubro",
+        "jan",
+        "outubro de março",
+        "",
+    ]
+    aceitas = {w for w in candidatas if valor_valido_para_classe("competencia_mes_ano", f"{w} de 2026")}
+    assert aceitas == _DOZE_MESES
