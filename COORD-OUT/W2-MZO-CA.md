@@ -156,3 +156,8 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
 
 - PRONTO: maezo-operadora #1313, head `3fd6f2f7cd37c72a53cb4794fbc41cd5cc8b0255`, checks verdes (42: 40 success, 2 skipped; integração 1413 testes, 0 falhas, 0 erros; gitleaks verde). Contém `98e4e37b`; main atual `7360216c` um merge à frente (#1312), arquivos disjuntos (CD-80). Simulação de merge limpa e abortada.
 - E-SF-15 pronta para PR depois do merge (prova de guarda em cópia isolada: `faixa_etaria` admitida, sem parada, sem conferir finalidade, cada uma vermelha).
+
+## 2026-11-18 ~06:05Z — PRONTO #1314 (E-SF-15)
+
+- PRONTO: maezo-operadora #1314, head `648fafef7b4a0162c46574ea57305714927539a8`, checks verdes (42: 40 success, 2 skipped; integração 1416 testes, 0 falhas, 0 erros). Contém a main atual `2a986442`; simulação de merge limpa e abortada.
+- Falha de processo minha: um diretório temporário de suíte interrompida (9,6 GB) esgotou a cota de disco da sessão e truncou três logs de suíte local da E-SF-22r; resultados descartados, diretório apagado, suíte refeita. Nenhum resultado truncado foi usado como verificação.
