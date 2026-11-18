@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
 from maezo.gateway.communications import campanha as cp
+from maezo.gateway.communications import finalidades_do_aceite as fa
 from maezo.gateway.communications.campanha import (
     CRITERIOS_PERMITIDOS,
     CRITERIOS_PROIBIDOS,
@@ -60,6 +62,9 @@ def _pedido(**kw: Any) -> PedidoDeEnvio:
 
 def _registrar(monkeypatch: pytest.MonkeyPatch, *camps: Campanha) -> None:
     monkeypatch.setattr(cp, "REGISTRO_DE_CAMPANHAS", tuple(camps))
+    # CD-152: a finalidade sintetica de recuperacao recebe o numero 7 (retomada) SO' neste teste, para os
+    # pedidos de lead chegarem ao gate; o mapa de producao continua vazio.
+    monkeypatch.setattr(fa, "NUMERO_DA_FINALIDADE", MappingProxyType({FINALIDADE_LEAD: 7}))
 
 
 async def test_recovery_send_refused_without_permission_ref(monkeypatch: pytest.MonkeyPatch) -> None:
