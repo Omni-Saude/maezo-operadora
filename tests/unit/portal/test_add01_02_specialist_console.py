@@ -32,11 +32,11 @@ APP = ROOT / "portal" / "api" / "app.py"
 
 def snapshot() -> dict[str, typing.Any]:
     return {
-        "journey_ref": "j1",
+        "journey_ref": "jrn_0123456789abcdef",
         "revision": 3,
-        "prospect_ref": "p1",
+        "prospect_ref": "pro_fedcba9876543210",
         "account_ref": None,
-        "party_ref": "pt1",
+        "party_ref": "123e4567-e89b-12d3-a456-426614174000",
         "payer_ref": "py1",
         "quote_contexts": [],
         "acceptance": None,
@@ -79,7 +79,7 @@ def test_specialist_console_has_no_acceptance_action() -> None:
 def test_journey_snapshot_view_has_no_clinical_field() -> None:
     visao = projetar_jornada(snapshot())
     assert tuple(visao.__slots__) == CAMPOS_DA_VISAO
-    assert visao.journey_ref == "j1" and visao.revision == 3 and visao.account_ref is None
+    assert visao.journey_ref == "jrn_0123456789abcdef" and visao.revision == 3 and visao.account_ref is None
 
 
 def _com(mut: typing.Callable[[dict[str, typing.Any]], object]) -> dict[str, typing.Any]:
@@ -228,3 +228,52 @@ def test_repr_do_registro_nao_mostra_n() -> None:
         estado="NAO_RATIFICADO",
     )
     assert "30" not in repr(registro)
+
+
+# --------------------------------------------------------------- CD-94 item 2: VALORES em classe fechada
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("journey_ref", "gestante_hipertensa"),  # termo clinico fora da lista, em referencia
+        ("prospect_ref", "losartana"),  # medicamento
+        ("party_ref", "pro_gravidez0001"),  # letras fora do alfabeto hex
+        ("journey_ref", "gravidez_0123456789abcdef"),  # prefixo fora do conjunto fechado
+        ("journey_ref", "j1"),  # curto demais
+        ("account_ref", "0123456789abcdef 1"),  # espaco
+        ("journey_ref", 1234567890123456),  # nao e' texto
+        ("observed_at", "2026-01-01T00:00:00"),  # sem fuso
+        ("observed_at", "ontem"),
+        ("observed_at", "2026-13-01T00:00:00Z"),  # data invalida
+        ("revision", -1),
+        ("revision", True),
+    ],
+)
+def test_valor_fora_da_classe_recusado_sem_depender_da_lista(
+    monkeypatch: pytest.MonkeyPatch, campo: str, valor: typing.Any
+) -> None:
+    monkeypatch.setattr(sc, "contem_dado_de_saude", lambda _t: False)
+    s = snapshot()
+    s[campo] = valor
+    with pytest.raises(SpecialistConsoleError) as e:
+        projetar_jornada(s)
+    assert e.value.code == "console_snapshot_value_class_refused"
+    assert str(valor) not in str(e.value)
+
+
+@pytest.mark.parametrize(
+    "valor",
+    ["0123456789abcdef", "jrn_0123456789abcdef", "123e4567-e89b-12d3-a456-426614174000", None],
+)
+def test_referencia_opaca_valida(valor: typing.Any) -> None:
+    s = snapshot()
+    s["account_ref"] = valor
+    assert projetar_jornada(s).account_ref == valor
+
+
+@pytest.mark.parametrize(
+    "valor", ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00.123+00:00", "2026-11-17T21:00:00-03:00"]
+)
+def test_instante_com_fuso_valido(valor: str) -> None:
+    s = snapshot()
+    s["observed_at"] = valor
+    assert projetar_jornada(s).observed_at == valor

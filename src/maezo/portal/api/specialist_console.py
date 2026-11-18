@@ -11,9 +11,11 @@ politica do compromisso (N) nao esta ratificada: depende de ato do dono.
 
 from __future__ import annotations
 
+import re
 import typing
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Final, Literal
 
 from maezo.gateway.communications.whatsapp_templates import contem_dado_de_saude
@@ -148,31 +150,64 @@ def _tem_saude(node: object, profundidade: int = 0) -> bool:
     raise SpecialistConsoleError("console_snapshot_contract_mismatch")
 
 
+#: Classe fechada dos VALORES da visao (CD-94 item 2): a lista de campos ja' garante por construcao
+#: que nenhum CAMPO clinico sai; estes validadores garantem que o VALOR de cada campo nao carrega texto.
+#: Referencia opaca estrita: UUID canonico ou hexadecimal minusculo de 16 a 64 caracteres, com prefixo
+#: opcional de um conjunto fechado (jrn_, pro_, acc_, pty_). Nesse alfabeto nao se escreve palavra clinica.
+#: GAP: o formato das referencias do contrato comercial nao e' fixado (o tipo e' texto livre); uma
+#: referencia real fora deste formato e' recusada, o que e' o lado seguro com o console nao montado.
+_REF_OPACA: Final[re.Pattern[str]] = re.compile(
+    r"(?:(?:jrn|pro|acc|pty)_)?(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{16,64})"
+)
+#: Instante ISO-8601 com fuso obrigatorio ("Z" ou deslocamento), segundos e fracao opcional.
+_INSTANTE_COM_FUSO: Final[re.Pattern[str]] = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})"
+)
+
+
 def _ref(valor: object) -> str | None:
     if valor is None:
         return None
-    if isinstance(valor, str) and valor:
+    if type(valor) is str and _REF_OPACA.fullmatch(valor) is not None:
         return valor
-    raise SpecialistConsoleError("console_snapshot_contract_mismatch")
+    raise SpecialistConsoleError("console_snapshot_value_class_refused")
+
+
+def _instante(valor: object) -> str:
+    if type(valor) is not str or _INSTANTE_COM_FUSO.fullmatch(valor) is None:
+        raise SpecialistConsoleError("console_snapshot_value_class_refused")
+    try:
+        momento = datetime.fromisoformat(valor.replace("Z", "+00:00"))
+    except ValueError:
+        raise SpecialistConsoleError("console_snapshot_value_class_refused") from None
+    if momento.utcoffset() is None:
+        raise SpecialistConsoleError("console_snapshot_value_class_refused")
+    return valor
 
 
 def projetar_jornada(snapshot: object) -> VisaoDaJornada:
     if not isinstance(snapshot, Mapping) or set(snapshot) != CAMPOS_DO_SNAPSHOT:
         raise SpecialistConsoleError("console_snapshot_contract_mismatch")
-    if _tem_saude(snapshot):
-        raise SpecialistConsoleError("PHI_IN_COMMERCIAL_INPUT")
+    # 1) A GARANTIA: cada valor que sai na visao passa no validador da sua classe fechada.
     revision = snapshot["revision"]
-    observed_at = snapshot["observed_at"]
-    if type(revision) is not int or revision < 0 or not isinstance(observed_at, str):
-        raise SpecialistConsoleError("console_snapshot_contract_mismatch")
-    return VisaoDaJornada(
+    if type(revision) is not int or revision < 0:
+        raise SpecialistConsoleError("console_snapshot_value_class_refused")
+    visao = VisaoDaJornada(
         journey_ref=_ref(snapshot["journey_ref"]),
         revision=revision,
-        observed_at=observed_at,
+        observed_at=_instante(snapshot["observed_at"]),
         prospect_ref=_ref(snapshot["prospect_ref"]),
         account_ref=_ref(snapshot["account_ref"]),
         party_ref=_ref(snapshot["party_ref"]),
     )
+    # 2) Defesa em profundidade: o resto do snapshot (o que nao sai na visao) e' varrido pelo detector
+    # por lista. Os seis valores ja' provados pela classe ficam fora da varredura: o alfabeto deles nao
+    # escreve palavra, e o padrao de CID do detector acusaria hexadecimal legitimo (ex.: "e89b"). A
+    # correcao de falso positivo e' o validador da classe, nunca excecao no detector.
+    resto = {chave: valor for chave, valor in snapshot.items() if chave not in CAMPOS_DA_VISAO}
+    if _tem_saude(resto):
+        raise SpecialistConsoleError("PHI_IN_COMMERCIAL_INPUT")
+    return visao
 
 
 @dataclass(frozen=True, slots=True)
