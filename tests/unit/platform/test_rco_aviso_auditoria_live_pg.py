@@ -44,6 +44,8 @@ _ROOT = Path(__file__).resolve().parents[3]
 
 SINAL = "aviso_urgencia_carencia"
 AVISOS = {SINAL: AvisoK6(SINAL, ("auditoria_medica", "cadastro"), "OMNI-GERAL-CAR-0003:efeito.prazos.2")}
+#: DL-0186: o relay confere o `grupo_principal` da fila no pin antes de publicar; aqui as duas tem grupo.
+GRUPOS = {"auditoria_medica": "medico-auditor", "cadastro": "cadastro-beneficiarios"}
 
 
 async def _postgres_reachable(dsn: str) -> bool:
@@ -136,7 +138,9 @@ async def test_outbox_relay_falha_reprocessar_lease_e_downgrade_ao_vivo() -> Non
         assert await store.contar_por_status() == {"pendente": 2}
 
         # publicacao: a primeira falha -> `falhou` (codigo fechado, tentativas 1); a segunda volta a pendente
-        rel = await rco_avisos_relay.drain_once(store, ProdutorFalso(falhas=1), reivindicada_por="relay-1")
+        rel = await rco_avisos_relay.drain_once(
+            store, ProdutorFalso(falhas=1), reivindicada_por="relay-1", grupos_do_pin=lambda: GRUPOS
+        )
         assert (rel.falhas, rel.liberadas, rel.erro) == (1, 1, "publicacao_falhou")
         rows = await _sql(
             dsn, tenant, "SELECT fila, status, tentativas, ultimo_erro FROM rco_aviso_auditoria ORDER BY id"
@@ -147,7 +151,9 @@ async def test_outbox_relay_falha_reprocessar_lease_e_downgrade_ao_vivo() -> Non
         ]
 
         produtor = ProdutorFalso()
-        await rco_avisos_relay.drain_once(store, produtor, reivindicada_por="relay-1")
+        await rco_avisos_relay.drain_once(
+            store, produtor, reivindicada_por="relay-1", grupos_do_pin=lambda: GRUPOS
+        )
         assert await store.contar_por_status() == {"falhou": 1, "entregue": 1}
         assert await rco_avisos_relay.reprocessar(store) == 1
         rows = await _sql(
@@ -157,7 +163,9 @@ async def test_outbox_relay_falha_reprocessar_lease_e_downgrade_ao_vivo() -> Non
             "auditoria_medica",
         )
         assert [tuple(r) for r in rows] == [("pendente", None)]  # reprocessar limpa o codigo (CHECK aceita)
-        await rco_avisos_relay.drain_once(store, produtor, reivindicada_por="relay-1")
+        await rco_avisos_relay.drain_once(
+            store, produtor, reivindicada_por="relay-1", grupos_do_pin=lambda: GRUPOS
+        )
         rows = await _sql(
             dsn, tenant, "SELECT status, tentativas, entregue_em FROM rco_aviso_auditoria ORDER BY id"
         )

@@ -622,14 +622,16 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     # coluna de titular; registro DARK das decisoes das regras K1, ADR-0077 §4).
     # DL-0185 (0036) adds `rco_aviso_auditoria`, also NOT covered (sem coluna de titular; outbox dos avisos
     # de sinalAuditoria do K1).
+    # DL-0186 (0037) adds `rco_aviso_grupo`, also NOT covered (sem coluna de titular; linha imutavel de grupo
+    # dos avisos rco consumidos).
     assert (
-        len(covered | uncovered) == 49
-    )  # 43 + o ledger (0032) + a coleta (0033) + a razao (0034) + 2 (0035) + o outbox de avisos (0036)
+        len(covered | uncovered) == 50
+    )  # 43 + o ledger (0032) + a coleta (0033) + a razao (0034) + 2 (0035) + o outbox (0036) + o grupo (0037)
     assert (
-        len(uncovered) == 38
-    )  # 32 + o ledger + a coleta + a razao + 2 do registro K1 + o outbox (sem probe)
-    assert len((covered | uncovered) - journal) == 43  # +0032 +0033 +0034 +0035 +0036 (DL-0185)
-    assert len(uncovered - journal) == 32  # +0032 (MPTT P3) +0033 (DL-0162) +0034 (PR-E) +0035 +0036
+        len(uncovered) == 39
+    )  # 32 + o ledger + a coleta + a razao + 2 do registro K1 + o outbox + o grupo (sem probe)
+    assert len((covered | uncovered) - journal) == 44  # +0032 +0033 +0034 +0035 +0036 +0037 (DL-0186)
+    assert len(uncovered - journal) == 33  # +0032 (MPTT P3) +0033 (DL-0162) +0034 (PR-E) +0035 +0036 +0037
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in journal)
     assert {key: by_key[key].resolucao for key in journal} == {

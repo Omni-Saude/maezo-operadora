@@ -62,10 +62,13 @@ PINNED K6 declares for its `fila` (`rco_pin.RcoRulesPin.grupos_principais`) — 
 name written here. One message = one fila = one group = one row; `notice_ref` digests
 `(type, tenant, chave_idempotencia, grupo)`, so a redelivery converges on one row. A fila with no
 `grupo_principal` ends as a closed-code failure (`rco_fila_sem_grupo`, dead-lettered like any deterministic
-refusal), never delivered to another group. Without a sink the type is skipped as before (now counted as
-`nao_configurado`). There is NO Postgres sink yet: `escalation_team_notice` (0015) has no column for the
-notice kind, `sinal`, `fila` or `prazo_parametro`, and writing these rows there would need a schema change
-that this unit does not make (see DL-0186). Counted by `maezo_rco_aviso_consumo_total{desfecho}`.
+refusal), never delivered to another group; the relay already marks such a row `fila_sem_grupo` before
+publishing, so this refusal is the SECOND barrier (a consumer pin that differs from the relay's). Without a
+sink the type is skipped as before (counted as `nao_configurado`). The durable sink is
+`PostgresInboxAvisosRco` over its own immutable table `rco_aviso_grupo` (migration 0037; NOT
+`escalation_team_notice`, which has no column for the notice kind, `sinal`, `fila` or `prazo_parametro`),
+wired by `main()` with the same DSN and tenant as the escalation inbox. Counted by
+`maezo_rco_aviso_consumo_total{desfecho}`.
 
 **HONEST EXTERNAL-VALIDATION BOUNDARY** (same convention as `notifications_bridge`'s own
 docstring). Unit-provable here: parsing, fail-closed refusal, the receipt/ordering contract, the
@@ -478,7 +481,7 @@ class InboxAvisosRco(Protocol):
 
     Mesmo contrato de `EscalationTeamNoticeInbox.record`: devolve o recibo SO depois de a linha estar
     commitada (`RECORDED`) ou de achar a mesma linha ja gravada (`DUPLICATE`); qualquer falha levanta e o
-    offset nao avanca. Ainda SEM implementacao Postgres neste repositorio (ver o docstring do modulo).
+    offset nao avanca. Implementacao Postgres: `PostgresInboxAvisosRco` (tabela `rco_aviso_grupo`, 0037).
     """
 
     async def registrar(self, aviso: AvisoRcoGrupo) -> TeamNoticeReceipt: ...
@@ -585,8 +588,8 @@ _SELECT_RECORDED_AT_SQL: Final[str] = (
 )
 
 
-class PostgresEscalationTeamNoticeInbox:
-    """The real durable inbox over Postgres (satisfies `EscalationTeamNoticeInbox`).
+class _PostgresTenantInbox:
+    """O pool por tenant dos inboxes Postgres deste modulo (escalonamento e, DL-0186, avisos rco).
 
     Lazy asyncpg pool with `search_path` pinned to the tenant's schema on EVERY acquire via
     `setup=` — NOT `init=`: asyncpg resets session state on release, so an `init`-only search_path
@@ -621,6 +624,14 @@ class PostgresEscalationTeamNoticeInbox:
     async def _set_search_path(self, conn: asyncpg.Connection) -> None:
         # `self._schema` was validated by `schema_for_tenant()` in `__init__` (anti-injection).
         await conn.execute(f'SET search_path TO "{self._schema}"')
+
+
+class PostgresEscalationTeamNoticeInbox(_PostgresTenantInbox):
+    """The real durable inbox over Postgres (satisfies `EscalationTeamNoticeInbox`).
+
+    The pool (lazy, `search_path` pinned on EVERY acquire via `setup=`, tenant validated by
+    `schema_for_tenant`) is `_PostgresTenantInbox`'s, shared with `PostgresInboxAvisosRco` (DL-0186).
+    """
 
     async def record(self, notice: TeamNotice) -> TeamNoticeReceipt:
         """Idempotently commit the notice's row and return the receipt that licenses an ack.
@@ -675,6 +686,76 @@ class PostgresEscalationTeamNoticeInbox:
             notice_ref=notice_ref,
             outcome=NoticeRecordOutcome.DUPLICATE,
             recorded_at=existing["recorded_at"],
+        )
+
+
+_INSERT_AVISO_RCO_SQL: Final[str] = (
+    "INSERT INTO rco_aviso_grupo "
+    "(tenant, notice_ref, chave_idempotencia, task_id, composicao, sinal, fila, prazo_parametro, grupo, "
+    "audience) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
+    "ON CONFLICT (tenant, notice_ref) DO NOTHING "
+    "RETURNING registrado_em"
+)
+
+_SELECT_AVISO_RCO_SQL: Final[str] = (
+    "SELECT registrado_em FROM rco_aviso_grupo WHERE tenant = $1 AND notice_ref = $2"
+)
+
+
+class PostgresInboxAvisosRco(_PostgresTenantInbox):
+    """O destino duravel dos avisos `rco.aviso_auditoria` sobre a tabela imutavel `rco_aviso_grupo` (0037).
+
+    Satisfaz `InboxAvisosRco` (e so ela: nao tem `record`). O pool e' o mesmo de
+    `PostgresEscalationTeamNoticeInbox` (`_PostgresTenantInbox`: lazy, `search_path` fixado no schema do
+    tenant a CADA acquire por `setup=`, tenant validado por `schema_for_tenant`). Mesma semantica de recibo
+    de `record`: `ON CONFLICT DO NOTHING` + releitura distingue `RECORDED` (esta chamada inseriu) de
+    `DUPLICATE` (a mesma linha ja estava commitada; o recibo leva o `registrado_em` ORIGINAL); releitura
+    vazia so' com um removedor de fora (o trigger recusa `DELETE`) e levanta. Aviso de outro tenant e'
+    recusado: gravaria no schema errado.
+    """
+
+    async def registrar(self, aviso: AvisoRcoGrupo) -> TeamNoticeReceipt:
+        if aviso.tenant_id != self._tenant:
+            raise ValueError(
+                f"PostgresInboxAvisosRco is bound to tenant {self._tenant!r} and was handed a notice for "
+                f"{aviso.tenant_id!r} — refusing to write it into the wrong tenant schema"
+            )
+        linha = aviso.linha
+        notice_ref = aviso.notice_ref
+        pool = await self._ensure_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            inserted = await conn.fetchrow(
+                _INSERT_AVISO_RCO_SQL,
+                linha.tenant,
+                notice_ref,
+                linha.chave_idempotencia,
+                linha.task_id,
+                linha.composicao,
+                linha.sinal,
+                linha.fila,
+                linha.prazo_parametro,
+                aviso.grupo,
+                aviso.audience,
+            )
+            if inserted is not None:
+                return TeamNoticeReceipt(
+                    notice_ref=notice_ref,
+                    outcome=NoticeRecordOutcome.RECORDED,
+                    recorded_at=inserted["registrado_em"],
+                )
+            existing = await conn.fetchrow(_SELECT_AVISO_RCO_SQL, linha.tenant, notice_ref)
+        if existing is None:
+            raise RuntimeError(
+                "rco_aviso_grupo: the insert conflicted but the conflicting row could not be read back "
+                f"(tenant={self._tenant!r}, notice_ref={notice_ref!r}) — the table refuses DELETE by "
+                "trigger, so this means an outside writer removed it; refusing to report a delivery this "
+                "process cannot evidence"
+            )
+        return TeamNoticeReceipt(
+            notice_ref=notice_ref,
+            outcome=NoticeRecordOutcome.DUPLICATE,
+            recorded_at=existing["registrado_em"],
         )
 
 
@@ -806,10 +887,24 @@ def build_inbox(settings: NotificationsInboxSettings) -> PostgresEscalationTeamN
     return PostgresEscalationTeamNoticeInbox(dsn=settings.database_url, tenant=settings.tenant_id)
 
 
-async def main() -> None:  # pragma: no cover - composition root, exercised by its parts
+def build_avisos_rco(settings: NotificationsInboxSettings) -> PostgresInboxAvisosRco:
+    """Raiz de composicao do destino dos avisos `rco.aviso_auditoria` (DL-0186): mesmo DSN e tenant do inbox.
+
+    Fail-closed como `build_inbox`: sem `DATABASE_URL` nao ha linha duravel que licencie o commit.
+    """
+    if not settings.database_url:
+        raise RuntimeError(
+            "notifications_inbox: DATABASE_URL is required — a rco.aviso_auditoria notice is delivered only "
+            "by a durable rco_aviso_grupo row"
+        )
+    return PostgresInboxAvisosRco(dsn=settings.database_url, tenant=settings.tenant_id)
+
+
+async def main() -> None:
     """Run the consume loop until SIGTERM/SIGINT. Mirrors `notifications_bridge.main()`."""
     settings = NotificationsInboxSettings()
     inbox = build_inbox(settings)
+    avisos_rco = build_avisos_rco(settings)
     consumer: BridgeKafkaConsumer = AioKafkaBridgeConsumer(
         bootstrap_servers=settings.kafka_bootstrap_servers,
         topic=settings.kafka_topic,
@@ -827,7 +922,7 @@ async def main() -> None:  # pragma: no cover - composition root, exercised by i
         tenant_id=settings.tenant_id,
     )
     try:
-        await run_inbox_loop(consumer, inbox, stop_event=stop_event)
+        await run_inbox_loop(consumer, inbox, stop_event=stop_event, avisos_rco=avisos_rco)
     finally:
         await consumer.stop()
         logger.info("notifications_inbox.stopped")

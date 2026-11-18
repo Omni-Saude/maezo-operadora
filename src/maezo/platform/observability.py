@@ -1444,6 +1444,8 @@ RCO_AVISO_DESFECHOS: Final[frozenset[str]] = frozenset(
         "reprocessado",
         "conclusao_incerta",
         "outbox_indisponivel",
+        "fila_sem_grupo",
+        "pin_indisponivel",
     }
 )
 

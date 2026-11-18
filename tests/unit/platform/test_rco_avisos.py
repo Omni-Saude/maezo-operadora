@@ -37,6 +37,17 @@ def avisos_do_recorte() -> Mapping[str, k1.AvisoK6]:
     return k1.carregar_avisos_k6(rec.manifesto(), rec.vocabulario(), k1_dir=rec.RECORTE)
 
 
+def grupos_do_recorte() -> Mapping[str, str]:
+    """`grupo_principal` das filas do K6 do recorte REAL (DL-0186): `auditoria_medica`, `cadastro`, ..."""
+    return k1.carregar_grupos_k6(rec.manifesto(), k1_dir=rec.RECORTE)
+
+
+@pytest.fixture(autouse=True)
+def _relay_le_os_grupos_do_recorte(monkeypatch: pytest.MonkeyPatch) -> None:
+    """O relay le os grupos do pin de bordo por padrao (DL-0186); aqui o pin e' o recorte real."""
+    monkeypatch.setattr(rco_avisos_relay, "_grupos_do_pin_de_bordo", grupos_do_recorte)
+
+
 # --- fan-out puro -----------------------------------------------------------------------------------
 
 
@@ -214,9 +225,11 @@ class OutboxEmMemoria:
 
     async def marcar_falhou(self, ids: Sequence[int], *, reivindicada_por: str, erro: str) -> int:
         assert erro in rco_avisos.ERROS
+        # `fila_sem_grupo` (DL-0186) e' marcado antes de publicar: nao conta tentativa.
+        soma = 0 if erro == rco_avisos.ERRO_FILA_SEM_GRUPO else 1
         rs = self._meus(ids, reivindicada_por)
         for r in rs:
-            r.update(status="falhou", por=None, ultimo_erro=erro, tentativas=r["tentativas"] + 1)
+            r.update(status="falhou", por=None, ultimo_erro=erro, tentativas=r["tentativas"] + soma)
         return len(rs)
 
     async def liberar(self, ids: Sequence[int], *, reivindicada_por: str) -> int:
@@ -444,3 +457,91 @@ async def test_modo_continuo_sobrevive_ao_banco_fora_e_continua(monkeypatch: pyt
     assert [r.erro for r in relatorios] == ["outbox_indisponivel", "outbox_indisponivel", None]
     assert outbox.status() == ["entregue", "entregue"]
     assert contados.count("outbox_indisponivel") == 2
+
+
+# --- DL-0186: fila sem `grupo_principal` no pin -> `falhou`/`fila_sem_grupo` ANTES de publicar ------------
+
+
+async def test_fila_sem_grupo_e_marcada_antes_de_publicar_e_o_resto_sai() -> None:
+    contados: list[tuple[str, int]] = []
+    outbox = OutboxEmMemoria()
+    await outbox.enfileirar(_linhas())  # auditoria_medica (id 1) e cadastro (id 2)
+    produtor = ProdutorFalso()
+    so_auditoria = {"auditoria_medica": grupos_do_recorte()["auditoria_medica"]}
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(rco_avisos_relay, "record_rco_aviso", lambda d, q=1: contados.append((d, q)))
+        rel = await rco_avisos_relay.drain_once(
+            outbox, produtor, reivindicada_por="r", grupos_do_pin=lambda: so_auditoria
+        )
+    assert (rel.reivindicadas, rel.entregues, rel.sem_grupo, rel.falhas, rel.erro) == (2, 1, 1, 0, None)
+    assert outbox.status() == ["entregue", "falhou"]
+    sem = outbox.linhas[2]
+    assert (sem["ultimo_erro"], sem["tentativas"]) == ("fila_sem_grupo", 0)  # nada publicado: sem tentativa
+    assert [p[1]["fila"] for p in produtor.publicadas] == ["auditoria_medica"]  # cadastro nunca saiu
+    assert ("fila_sem_grupo", 1) in contados and ("entregue", 1) in contados
+    # `falhou` espera o operador: a proxima varredura nao a toca; `--reprocessar` com o grupo a entrega
+    assert (await rco_avisos_relay.drain_once(outbox, produtor, reivindicada_por="r")).reivindicadas == 0
+    assert await rco_avisos_relay.reprocessar(outbox) == 1
+    await rco_avisos_relay.drain_once(outbox, produtor, reivindicada_por="r")
+    assert outbox.status() == ["entregue", "entregue"]
+    assert outbox.linhas[2]["tentativas"] == 1
+
+
+async def test_fila_sem_grupo_no_meio_de_uma_falha_de_publicacao() -> None:
+    outbox = OutboxEmMemoria()
+    await outbox.enfileirar(_linhas())
+    rel = await rco_avisos_relay.drain_once(
+        outbox, ProdutorFalso(falhas=1), reivindicada_por="r", grupos_do_pin=lambda: {"auditoria_medica": "g"}
+    )
+    assert (rel.sem_grupo, rel.falhas, rel.liberadas, rel.erro) == (1, 1, 0, "publicacao_falhou")
+    assert [outbox.linhas[i]["ultimo_erro"] for i in (1, 2)] == ["publicacao_falhou", "fila_sem_grupo"]
+
+
+async def test_once_com_fila_sem_grupo_sai_um() -> None:
+    outbox = OutboxEmMemoria()
+    await outbox.enfileirar(_linhas())
+    codigo = await rco_avisos_relay.drenar(
+        outbox, ProdutorFalso(), reivindicada_por="r", grupos_do_pin=lambda: {}
+    )
+    assert codigo == rco_avisos_relay.SAIDA_FALHA_PUBLICACAO
+    assert outbox.status() == ["falhou", "falhou"]
+
+
+async def test_pin_ilegivel_nao_reivindica_nem_publica(monkeypatch: pytest.MonkeyPatch) -> None:
+    contados: list[str] = []
+    monkeypatch.setattr(rco_avisos_relay, "record_rco_aviso", lambda d, q=1: contados.append(d))
+
+    def ilegivel() -> Mapping[str, str]:
+        raise k1.ManifestoK1InvalidoError(["k6-filas.json invalido"])
+
+    outbox = OutboxEmMemoria()
+    await outbox.enfileirar(_linhas())
+    produtor = ProdutorFalso()
+    rel = await rco_avisos_relay.drain_once(outbox, produtor, reivindicada_por="r", grupos_do_pin=ilegivel)
+    assert rel.erro == rco_avisos_relay.ERRO_PIN_INDISPONIVEL and rel.reivindicadas == 0
+    assert outbox.status() == ["pendente", "pendente"] and produtor.publicadas == []
+    assert contados == ["pin_indisponivel"]
+    codigo = await rco_avisos_relay.executar(
+        _args("--once"), outbox, produtor, reivindicada_por="r", grupos_do_pin=ilegivel
+    )
+    assert codigo == rco_avisos_relay.SAIDA_PIN_INDISPONIVEL == 3
+
+
+async def test_relay_padrao_le_o_pin_de_bordo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sem `grupos_do_pin`, o relay le `rco_pin.rco_rules_pin().grupos_principais` (nenhum nome no codigo)."""
+    from maezo.tools.workers import rco_pin
+
+    monkeypatch.undo()  # tira o autouse: o padrao real
+    pin = rco_pin.RcoRulesPin(
+        estado="fixado", tables={}, grupos_principais=MappingProxyType({"auditoria_medica": "g-bordo"})
+    )
+    monkeypatch.setattr(rco_pin, "rco_rules_pin", lambda: pin)
+    outbox = OutboxEmMemoria()
+    await outbox.enfileirar(_linhas())
+    rel = await rco_avisos_relay.drain_once(outbox, ProdutorFalso(), reivindicada_por="r")
+    assert (rel.entregues, rel.sem_grupo) == (1, 1)
+
+
+def test_erro_fila_sem_grupo_no_vocabulario_fechado() -> None:
+    assert {"publicacao_falhou", "fila_sem_grupo"} == rco_avisos.ERROS
+    assert {"fila_sem_grupo", "pin_indisponivel"} <= rco_avisos.DESFECHOS

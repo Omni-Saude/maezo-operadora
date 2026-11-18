@@ -3,8 +3,9 @@ linhas no outbox -> relay publica (produtor falso) -> o inbox grava UMA linha po
 
 Sem engine, Postgres nem broker. O pin e o sintetico 2.3.0 (`rco_k1_sintetico`) com `grupo_principal`
 declarado no K6; o grupo vem do pin de bordo (monkeypatch de `rco_pin.rco_rules_pin`), nunca do teste. Prova
-tambem a idempotencia: re-entrega da tarefa e re-publicacao do relay convergem em uma linha por fila, e uma
-fila sem grupo termina na fila morta com codigo fechado, sem linha em grupo nenhum.
+tambem a idempotencia: re-entrega da tarefa e re-publicacao do relay convergem em uma linha por fila; uma
+fila sem grupo para no relay (`fila_sem_grupo`, antes de publicar) e, se o pin do consumidor diferir, termina
+na fila morta com codigo fechado, sem linha em grupo nenhum.
 """
 
 from __future__ import annotations
@@ -84,21 +85,50 @@ async def test_ponta_a_ponta_ate_a_linha_do_grupo_com_reentrega(
     assert sink.emitted[0][0].dmn_versions["rco_sint_d"]["sinaisAuditoria"] == [sint.SINAL]
 
 
-async def test_ponta_a_ponta_fila_sem_grupo_termina_na_fila_morta(
+async def test_ponta_a_ponta_fila_sem_grupo_para_no_relay_antes_de_publicar(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """DL-0186: o relay le o MESMO pin de bordo e marca `fila_sem_grupo` antes de publicar; nada da fila sem
+    grupo chega ao inbox nem a fila morta."""
     pin = _pin_com_grupos(tmp_path, monkeypatch, auditoria_medica="grupo-sint-a")  # `cadastro` sem grupo
     outbox = OutboxEmMemoria()
     harness, transport, _ = _montar(pin, outbox=outbox)
     await harness._handle(_task())
     assert len(transport.completed) == 1  # a decisao nao depende do grupo
     produtor = ProdutorFalso()
-    await rco_avisos_relay.drain_once(outbox, produtor, reivindicada_por="relay-1")
+    rel = await rco_avisos_relay.drain_once(outbox, produtor, reivindicada_por="relay-1")
+    assert (rel.entregues, rel.sem_grupo) == (1, 1)
+    estados = sorted((r["linha"].fila, r["status"], r["ultimo_erro"]) for r in outbox.linhas.values())
+    assert estados == [("auditoria_medica", "entregue", None), ("cadastro", "falhou", "fila_sem_grupo")]
 
     inbox = InboxRcoEmMemoria()
     dlq = BridgeDlqShunt(publisher=_Pub(), audit_sink=FakeStartAuditSink(), tenant_id="amh")  # type: ignore[arg-type]
     consumer = FakeBridgeKafkaConsumer(_mensagens(produtor))
     await run_inbox_loop(consumer, _SpyInbox(), dlq=dlq, avisos_rco=inbox)
+    assert [(a.linha.fila, a.grupo) for a in inbox.linhas.values()] == [("auditoria_medica", "grupo-sint-a")]
+    assert dlq.shunted == []
+    assert consumer.commits == 1
+
+
+async def test_ponta_a_ponta_pin_do_consumidor_sem_grupo_termina_na_fila_morta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Segunda barreira: o relay publicou com um pin que tinha os dois grupos, o consumidor le um pin em que
+    `cadastro` nao tem grupo -> fila morta com codigo fechado, sem linha em grupo nenhum."""
+    pin = _pin_com_grupos(tmp_path, monkeypatch, auditoria_medica="grupo-sint-a")
+    outbox = OutboxEmMemoria()
+    harness, _, _ = _montar(pin, outbox=outbox)
+    await harness._handle(_task())
+    produtor = ProdutorFalso()
+    relay_grupos = {"auditoria_medica": "grupo-sint-a", "cadastro": "grupo-sint-b"}
+    await rco_avisos_relay.drain_once(
+        outbox, produtor, reivindicada_por="relay-1", grupos_do_pin=lambda: relay_grupos
+    )
+
+    inbox = InboxRcoEmMemoria()
+    dlq = BridgeDlqShunt(publisher=_Pub(), audit_sink=FakeStartAuditSink(), tenant_id="amh")  # type: ignore[arg-type]
+    consumer = FakeBridgeKafkaConsumer(_mensagens(produtor))
+    await run_inbox_loop(consumer, _SpyInbox(), dlq=dlq, avisos_rco=inbox)  # grupos: pin de bordo
     assert [(a.linha.fila, a.grupo) for a in inbox.linhas.values()] == [("auditoria_medica", "grupo-sint-a")]
     assert dlq.shunted == [(f"{TOPICO_NOTIFICACOES}.dlq", REASON_RCO_FILA_SEM_GRUPO)]
     assert consumer.commits == 2

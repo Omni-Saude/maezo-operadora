@@ -298,3 +298,165 @@ def test_metrica_com_rotulo_fechado() -> None:
     assert contador.labels(desfecho="outro")._value.get() == antes + 1
     rotulos = {s.labels.get("desfecho") for m in contador.collect() for s in m.samples}
     assert rotulos <= RCO_AVISO_CONSUMO | {"outro", None}
+
+
+# --- o destino Postgres (`rco_aviso_grupo`, 0037) e a composicao do daemon ------------------------------
+
+
+class _ConnFalsa:
+    """Uma conexao asyncpg falsa: guarda as linhas por (tenant, notice_ref) como o PK da 0037."""
+
+    def __init__(self, linhas: dict[tuple[str, str], dict[str, Any]], *, sumir: bool = False) -> None:
+        self.linhas = linhas
+        self.sumir = sumir
+        self.sql: list[tuple[str, tuple[Any, ...]]] = []
+
+    def transaction(self) -> Any:
+        conn = self
+
+        class _Tx:
+            async def __aenter__(self) -> _ConnFalsa:
+                return conn
+
+            async def __aexit__(self, *exc: object) -> None:
+                return None
+
+        return _Tx()
+
+    async def fetchrow(self, sql: str, *args: Any) -> dict[str, Any] | None:
+        self.sql.append((sql, args))
+        if sql.startswith("INSERT"):
+            chave = (args[0], args[1])
+            if chave in self.linhas:
+                return None
+            self.linhas[chave] = {"args": args, "registrado_em": _AGORA}
+            return {"registrado_em": _AGORA}
+        if self.sumir:
+            return None
+        linha = self.linhas.get((args[0], args[1]))
+        return None if linha is None else {"registrado_em": linha["registrado_em"]}
+
+
+class _PoolFalso:
+    def __init__(self, conn: _ConnFalsa) -> None:
+        self.conn = conn
+
+    def acquire(self) -> Any:
+        conn = self.conn
+
+        class _Acq:
+            async def __aenter__(self) -> _ConnFalsa:
+                return conn
+
+            async def __aexit__(self, *exc: object) -> None:
+                return None
+
+        return _Acq()
+
+
+def _aviso(destino: str = "auditoria_medica") -> AvisoRcoGrupo:
+    linha = next(x for x in _linhas() if x.fila == destino)
+    return resolver_grupo(linha, grupos_do_recorte())
+
+
+async def test_o_destino_postgres_grava_uma_linha_e_a_reentrega_e_duplicate() -> None:
+    conn = _ConnFalsa({})
+    sink = inbox_mod.PostgresInboxAvisosRco(
+        dsn="postgresql://x@h/db",
+        tenant="amh",
+        pool=_PoolFalso(conn),  # type: ignore[arg-type]
+    )
+    assert isinstance(sink, InboxAvisosRco)
+    assert not hasattr(sink, "record")  # nao e' um inbox de escalonamento
+    aviso = _aviso()
+    primeiro = await sink.registrar(aviso)
+    assert (primeiro.outcome, primeiro.notice_ref, primeiro.recorded_at) == (
+        NoticeRecordOutcome.RECORDED,
+        aviso.notice_ref,
+        _AGORA,
+    )
+    segundo = await sink.registrar(aviso)
+    assert (segundo.outcome, segundo.recorded_at) == (NoticeRecordOutcome.DUPLICATE, _AGORA)
+    assert len(conn.linhas) == 1
+    sql, args = conn.sql[0]
+    assert "INSERT INTO rco_aviso_grupo" in sql and "ON CONFLICT (tenant, notice_ref) DO NOTHING" in sql
+    linha = aviso.linha
+    assert args == (
+        "amh",
+        aviso.notice_ref,
+        linha.chave_idempotencia,
+        linha.task_id,
+        linha.composicao,
+        linha.sinal,
+        linha.fila,
+        linha.prazo_parametro,
+        "medico-auditor",
+        "staff",
+    )
+
+
+async def test_o_destino_postgres_recusa_outro_tenant_e_releitura_vazia() -> None:
+    conn = _ConnFalsa({})
+    sink = inbox_mod.PostgresInboxAvisosRco(
+        dsn="postgresql://x@h/db",
+        tenant="outro",
+        pool=_PoolFalso(conn),  # type: ignore[arg-type]
+    )
+    with pytest.raises(ValueError, match="wrong tenant schema"):
+        await sink.registrar(_aviso())
+    assert conn.sql == []
+
+    sumiu = _ConnFalsa({}, sumir=True)
+    sink2 = inbox_mod.PostgresInboxAvisosRco(
+        dsn="postgresql://x@h/db",
+        tenant="amh",
+        pool=_PoolFalso(sumiu),  # type: ignore[arg-type]
+    )
+    await sink2.registrar(_aviso())
+    with pytest.raises(RuntimeError, match="could not be read back"):
+        await sink2.registrar(_aviso())
+
+
+def test_o_destino_postgres_recusa_tenant_que_nao_e_schema() -> None:
+    with pytest.raises(Exception, match="(?i)tenant|schema"):
+        inbox_mod.PostgresInboxAvisosRco(dsn="postgresql://x@h/db", tenant='amh"; DROP SCHEMA public; --')
+
+
+def test_o_destino_postgres_sem_database_url_recusa_subir() -> None:
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        inbox_mod.build_avisos_rco(inbox_mod.NotificationsInboxSettings(DATABASE_URL=None))
+    sink = inbox_mod.build_avisos_rco(
+        inbox_mod.NotificationsInboxSettings(DATABASE_URL="postgresql://x@h/db", TENANT_ID="amh")
+    )
+    assert isinstance(sink, inbox_mod.PostgresInboxAvisosRco)
+
+
+async def test_o_daemon_liga_os_avisos_rco_no_laco(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`main()` compoe o inbox de escalonamento E o destino dos avisos rco (mesmo DSN/tenant) e os passa ao
+    laco; sem o destino ligado, `rco.aviso_auditoria` seria so `nao_configurado`."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://x@h/db")
+    monkeypatch.setenv("TENANT_ID", "amh")
+    chamadas: list[dict[str, Any]] = []
+
+    class _Consumidor:
+        def __init__(self, **kw: Any) -> None:
+            self.kw = kw
+
+        async def start(self) -> None:
+            return None
+
+        async def stop(self) -> None:
+            return None
+
+    async def _laco(consumer: Any, inbox: Any, **kw: Any) -> None:
+        chamadas.append({"consumer": consumer, "inbox": inbox, **kw})
+
+    monkeypatch.setattr(inbox_mod, "AioKafkaBridgeConsumer", _Consumidor)
+    monkeypatch.setattr(inbox_mod, "run_inbox_loop", _laco)
+    await inbox_mod.main()
+    assert len(chamadas) == 1
+    chamada = chamadas[0]
+    assert isinstance(chamada["inbox"], inbox_mod.PostgresEscalationTeamNoticeInbox)
+    rco = chamada["avisos_rco"]
+    assert isinstance(rco, inbox_mod.PostgresInboxAvisosRco) and isinstance(rco, InboxAvisosRco)
+    assert rco._tenant == chamada["inbox"]._tenant == "amh"

@@ -7,10 +7,11 @@ depois de completar a tarefa; este relay as publica, at-least-once, como `type="
     python -m maezo.platform.rco_avisos_relay --reprocessar   # as `falhou` voltam a `pendente`; drena e sai
     python -m maezo.platform.rco_avisos_relay                 # varre ate SIGTERM/SIGINT
 
-SAIDA DO PROCESSO (`--once`/`--reprocessar`): 0 = drenou sem falha; 1 = alguma publicacao falhou
-(`publicacao_falhou`) ou o limite de lotes (`MAX_LOTES_ONCE`) foi atingido com linhas restantes; 2 = outbox
-indisponivel. No modo continuo, outbox indisponivel vira log, metrica (`outbox_indisponivel`) e espera do
-intervalo, e a varredura continua.
+SAIDA DO PROCESSO (`--once`/`--reprocessar`): 0 = drenou sem falha; 1 = alguma linha terminou `falhou`
+(`publicacao_falhou` ou `fila_sem_grupo`) ou o limite de lotes (`MAX_LOTES_ONCE`) foi atingido com linhas
+restantes; 2 = outbox indisponivel; 3 = pin ilegivel (`pin_indisponivel`, nada publicado). No modo
+continuo, outbox indisponivel vira log, metrica (`outbox_indisponivel`) e espera do intervalo, e a varredura
+continua.
 
 INVOCADO EXPLICITAMENTE, nunca iniciado pelos daemons (mesmo motivo de `maezo.a2a.outbox_relay`): ligar
 trafego real num topico e decisao de implantacao, e o consumidor das mensagens (`notifications_inbox`,
@@ -23,6 +24,14 @@ na mensagem). Publicacao que falha (`best_effort=False`: a falha do broker sobe 
 `falhou` com o codigo fechado `publicacao_falhou` e `tentativas + 1`, para a varredura e devolve o resto do
 lote a `pendente` sem contar tentativa. `falhou` so volta por `--reprocessar` (ato de operador): um broker
 fora do ar nao vira laco de republicacao.
+
+FILA SEM GRUPO (DL-0186): antes de publicar, cada linha reivindicada e' conferida contra o `grupo_principal`
+das filas do K6 PINADO (`rco_pin.RcoRulesPin.grupos_principais`, dado do pin; nenhum nome de grupo aqui). A
+linha cuja fila nao tem grupo NAO e' publicada: vira `falhou` com o codigo fechado `fila_sem_grupo`, sem
+contar tentativa (nada saiu), e o resto do lote segue. So volta por `--reprocessar` (com um pin que declare o
+grupo, sai; senao, e' marcada de novo). O consumidor (`notifications_inbox`) mantem a recusa
+`rco_fila_sem_grupo` para a fila morta como SEGUNDA barreira (pin do consumidor diferente do pin do relay).
+Pin ilegivel na varredura: nada e' reivindicado nem publicado (`pin_indisponivel`); no `--once` a saida e' 3.
 
 A MENSAGEM leva so `rco_avisos.montar_payload` (ids, sinal, fila, `prazo_parametro`); a chave de particao e
 `{tenant}|{task_id}`. Nenhum log leva a mensagem: so o id da linha, as tentativas e o codigo.
@@ -39,6 +48,7 @@ import os
 import signal
 import socket
 import sys
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
@@ -50,6 +60,7 @@ from maezo.platform.observability import record_rco_aviso
 from maezo.platform.rco_avisos import (
     DEFAULT_LEASE_S,
     DEFAULT_LOTE,
+    ERRO_FILA_SEM_GRUPO,
     ERRO_PUBLICACAO,
     TOPICO,
     AvisoReivindicado,
@@ -66,9 +77,22 @@ DEFAULT_INTERVALO_S: Final[float] = 2.0
 MAX_LOTES_ONCE: Final[int] = 1000
 #: Codigo do relatorio quando o outbox nao respondeu no modo continuo (nunca gravado na linha).
 ERRO_OUTBOX_INDISPONIVEL: Final[str] = "outbox_indisponivel"
+#: Codigo do relatorio quando o pin nao foi lido (DL-0186; nunca gravado na linha: nada foi reivindicado).
+ERRO_PIN_INDISPONIVEL: Final[str] = "pin_indisponivel"
 SAIDA_OK: Final[int] = 0
 SAIDA_FALHA_PUBLICACAO: Final[int] = 1
 SAIDA_OUTBOX_INDISPONIVEL: Final[int] = 2
+SAIDA_PIN_INDISPONIVEL: Final[int] = 3
+
+#: O `grupo_principal` por fila do K6 pinado (DL-0186); o padrao e' o pin de bordo.
+GruposDoPin = Callable[[], Mapping[str, str]]
+
+
+def _grupos_do_pin_de_bordo() -> Mapping[str, str]:
+    """`grupo_principal` por fila do pin de bordo (import tardio: o relay nao carrega o pin ao importar)."""
+    from maezo.tools.workers import rco_pin
+
+    return rco_pin.rco_rules_pin().grupos_principais
 
 
 class OutboxAvisos(Protocol):
@@ -99,6 +123,8 @@ class RelatorioVarredura:
     entregues: int = 0
     falhas: int = 0
     liberadas: int = 0
+    #: DL-0186: linhas marcadas `fila_sem_grupo` antes de publicar (nao param a varredura).
+    sem_grupo: int = 0
     erro: str | None = None
 
 
@@ -114,13 +140,31 @@ async def drain_once(
     reivindicada_por: str,
     lote: int = DEFAULT_LOTE,
     lease_s: float = DEFAULT_LEASE_S,
+    grupos_do_pin: GruposDoPin | None = None,
 ) -> RelatorioVarredura:
-    """Reivindica, publica e marca, uma vez (ordem e falha na docstring do modulo)."""
+    """Le o pin, reivindica, marca as sem grupo, publica e marca, uma vez (ordem na docstring do modulo)."""
+    try:
+        grupos = (grupos_do_pin or _grupos_do_pin_de_bordo)()
+    except Exception as exc:
+        # Sem o pin nao ha como conferir o grupo: nada e' reivindicado nem publicado (as linhas ficam).
+        logger.error("rco_aviso_relay_pin_indisponivel", erro=type(exc).__name__)
+        record_rco_aviso("pin_indisponivel")
+        return RelatorioVarredura(erro=ERRO_PIN_INDISPONIVEL)
     avisos = await outbox.reivindicar(reivindicada_por=reivindicada_por, lote=lote, lease_s=lease_s)
     if not avisos:
         return RelatorioVarredura()
+    sem_grupo_ids = [a.id for a in avisos if not grupos.get(a.linha.fila)]
+    sem_grupo = 0
+    if sem_grupo_ids:
+        # ANTES de publicar: a linha sem grupo nunca sai para o topico (DL-0186).
+        sem_grupo = await outbox.marcar_falhou(
+            sem_grupo_ids, reivindicada_por=reivindicada_por, erro=ERRO_FILA_SEM_GRUPO
+        )
+        record_rco_aviso("fila_sem_grupo", sem_grupo)
+        logger.warning("rco_aviso_relay_fila_sem_grupo", linha_ids=sem_grupo_ids, erro=ERRO_FILA_SEM_GRUPO)
+    publicaveis = [a for a in avisos if grupos.get(a.linha.fila)]
     entregues: list[int] = []
-    for indice, aviso in enumerate(avisos):
+    for indice, aviso in enumerate(publicaveis):
         try:
             publicado = await publicador.publish(
                 TOPICO,
@@ -142,7 +186,7 @@ async def drain_once(
                 [aviso.id], reivindicada_por=reivindicada_por, erro=ERRO_PUBLICACAO
             )
             liberadas = await outbox.liberar(
-                [a.id for a in avisos[indice + 1 :]], reivindicada_por=reivindicada_por
+                [a.id for a in publicaveis[indice + 1 :]], reivindicada_por=reivindicada_por
             )
             record_rco_aviso("entregue", selados)
             record_rco_aviso("falha_publicar", falhas)
@@ -151,14 +195,17 @@ async def drain_once(
                 entregues=selados,
                 falhas=falhas,
                 liberadas=liberadas,
+                sem_grupo=sem_grupo,
                 erro=ERRO_PUBLICACAO,
             )
         entregues.append(aviso.id)
     # Janela de queda: tudo acima ja saiu; morrer aqui custa uma republicacao, nunca um aviso.
     selados = await outbox.marcar_entregue(entregues, reivindicada_por=reivindicada_por)
     record_rco_aviso("entregue", selados)
-    logger.info("rco_aviso_relay_varredura", reivindicadas=len(avisos), entregues=selados)
-    return RelatorioVarredura(reivindicadas=len(avisos), entregues=selados)
+    logger.info(
+        "rco_aviso_relay_varredura", reivindicadas=len(avisos), entregues=selados, sem_grupo=sem_grupo
+    )
+    return RelatorioVarredura(reivindicadas=len(avisos), entregues=selados, sem_grupo=sem_grupo)
 
 
 async def reprocessar(outbox: OutboxAvisos) -> int:
@@ -179,13 +226,19 @@ async def run_relay_loop(
     intervalo_s: float = DEFAULT_INTERVALO_S,
     parar: asyncio.Event | None = None,
     max_varreduras: int | None = None,
+    grupos_do_pin: GruposDoPin | None = None,
 ) -> list[RelatorioVarredura]:
     """Varre ate `parar` (ou `max_varreduras`). Dorme so quando a varredura nao achou nada ou falhou."""
     relatorios: list[RelatorioVarredura] = []
     while parar is None or not parar.is_set():
         try:
             relatorio = await drain_once(
-                outbox, publicador, reivindicada_por=reivindicada_por, lote=lote, lease_s=lease_s
+                outbox,
+                publicador,
+                reivindicada_por=reivindicada_por,
+                lote=lote,
+                lease_s=lease_s,
+                grupos_do_pin=grupos_do_pin,
             )
         except OutboxAvisosIndisponivelError as exc:
             # Banco fora: o processo continua e tenta de novo depois do intervalo (nada se perde).
@@ -212,18 +265,28 @@ async def drenar(
     lote: int = DEFAULT_LOTE,
     lease_s: float = DEFAULT_LEASE_S,
     max_lotes: int = MAX_LOTES_ONCE,
+    grupos_do_pin: GruposDoPin | None = None,
 ) -> int:
     """`--once`: varre ate nao sobrar linha reivindicavel, no maximo `max_lotes` lotes; devolve o codigo de
     saida (docstring do modulo). `OutboxAvisosIndisponivelError` vira 2, nunca pilha."""
+    houve_sem_grupo = False
     try:
         for _ in range(max_lotes):
             relatorio = await drain_once(
-                outbox, publicador, reivindicada_por=reivindicada_por, lote=lote, lease_s=lease_s
+                outbox,
+                publicador,
+                reivindicada_por=reivindicada_por,
+                lote=lote,
+                lease_s=lease_s,
+                grupos_do_pin=grupos_do_pin,
             )
+            houve_sem_grupo = houve_sem_grupo or relatorio.sem_grupo > 0
+            if relatorio.erro == ERRO_PIN_INDISPONIVEL:
+                return SAIDA_PIN_INDISPONIVEL
             if relatorio.erro is not None:
                 return SAIDA_FALHA_PUBLICACAO
             if relatorio.reivindicadas == 0:
-                return SAIDA_OK
+                return SAIDA_FALHA_PUBLICACAO if houve_sem_grupo else SAIDA_OK
         logger.error("rco_aviso_relay_limite_de_lotes", max_lotes=max_lotes)
         return SAIDA_FALHA_PUBLICACAO
     except OutboxAvisosIndisponivelError as exc:
@@ -242,6 +305,7 @@ async def executar(
     lease_s: float = DEFAULT_LEASE_S,
     intervalo_s: float = DEFAULT_INTERVALO_S,
     parar: asyncio.Event | None = None,
+    grupos_do_pin: GruposDoPin | None = None,
 ) -> int:
     """O que a CLI faz depois de compor o relay; devolve o codigo de saida do processo."""
     if args.reprocessar:
@@ -252,7 +316,14 @@ async def executar(
             record_rco_aviso("outbox_indisponivel")
             return SAIDA_OUTBOX_INDISPONIVEL
     if args.once or args.reprocessar:
-        return await drenar(outbox, publicador, reivindicada_por=reivindicada_por, lote=lote, lease_s=lease_s)
+        return await drenar(
+            outbox,
+            publicador,
+            reivindicada_por=reivindicada_por,
+            lote=lote,
+            lease_s=lease_s,
+            grupos_do_pin=grupos_do_pin,
+        )
     await run_relay_loop(
         outbox,
         publicador,
@@ -261,6 +332,7 @@ async def executar(
         lease_s=lease_s,
         intervalo_s=intervalo_s,
         parar=parar,
+        grupos_do_pin=grupos_do_pin,
     )
     return SAIDA_OK
 
@@ -345,6 +417,8 @@ if __name__ == "__main__":  # pragma: no cover - entrada do processo
 
 
 __all__ = [
+    "ERRO_PIN_INDISPONIVEL",
+    "GruposDoPin",
     "OutboxAvisos",
     "Publicador",
     "RelatorioVarredura",

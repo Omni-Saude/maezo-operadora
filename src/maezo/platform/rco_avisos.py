@@ -44,9 +44,12 @@ TABELA: Final[str] = "rco_aviso_auditoria"
 
 #: Estados da linha (CHECK da 0036).
 STATUS: Final[frozenset[str]] = frozenset({"pendente", "reivindicada", "entregue", "falhou"})
-#: Codigos fechados de `ultimo_erro` (CHECK da 0036).
+#: Codigos fechados de `ultimo_erro` (CHECK da 0036, alargado pela 0037 com `fila_sem_grupo`, DL-0186).
 ERRO_PUBLICACAO: Final[str] = "publicacao_falhou"
-ERROS: Final[frozenset[str]] = frozenset({ERRO_PUBLICACAO})
+#: DL-0186: o K6 pinado nao declara `grupo_principal` para a fila da linha; o relay a marca ANTES de publicar
+#: (nada sai para o topico) e nao conta tentativa (nada foi publicado).
+ERRO_FILA_SEM_GRUPO: Final[str] = "fila_sem_grupo"
+ERROS: Final[frozenset[str]] = frozenset({ERRO_PUBLICACAO, ERRO_FILA_SEM_GRUPO})
 #: Desfechos de `maezo_rco_aviso_total` (= `observability.RCO_AVISO_DESFECHOS`, paridade em teste).
 DESFECHOS: Final[frozenset[str]] = frozenset(
     {
@@ -61,6 +64,8 @@ DESFECHOS: Final[frozenset[str]] = frozenset(
         "reprocessado",
         "conclusao_incerta",
         "outbox_indisponivel",
+        "fila_sem_grupo",
+        "pin_indisponivel",
     }
 )
 
@@ -301,6 +306,13 @@ _MARCAR_FALHOU_SQL: Final[str] = (
     "reivindicada_por = NULL, reivindicacao_expira_em = NULL, atualizado_em = clock_timestamp() "
     "WHERE id = ANY($1::bigint[]) AND status = 'reivindicada' AND reivindicada_por = $2 RETURNING id"
 )
+#: DL-0186: `fila_sem_grupo` e' marcado ANTES de publicar, entao nao conta tentativa (`tentativas` conta as
+#: publicacoes tentadas).
+_MARCAR_SEM_GRUPO_SQL: Final[str] = (
+    f"UPDATE {TABELA} SET status = 'falhou', ultimo_erro = $3, "
+    "reivindicada_por = NULL, reivindicacao_expira_em = NULL, atualizado_em = clock_timestamp() "
+    "WHERE id = ANY($1::bigint[]) AND status = 'reivindicada' AND reivindicada_por = $2 RETURNING id"
+)
 #: Devolve a `pendente` o resto de um lote interrompido (nao conta tentativa: nada foi publicado).
 _LIBERAR_SQL: Final[str] = (
     f"UPDATE {TABELA} SET status = 'pendente', reivindicada_por = NULL, reivindicacao_expira_em = NULL, "
@@ -425,9 +437,11 @@ class PostgresAvisosRco:
         return await self._marcar(_MARCAR_ENTREGUE_SQL, ids, reivindicada_por)
 
     async def marcar_falhou(self, ids: Sequence[int], *, reivindicada_por: str, erro: str) -> int:
+        """`falhou` com o codigo fechado; `fila_sem_grupo` (DL-0186) nao conta tentativa (nada publicado)."""
         if erro not in ERROS:
             raise ValueError("erro fora do vocabulario fechado")
-        return await self._marcar(_MARCAR_FALHOU_SQL, ids, reivindicada_por, erro)
+        sql = _MARCAR_SEM_GRUPO_SQL if erro == ERRO_FILA_SEM_GRUPO else _MARCAR_FALHOU_SQL
+        return await self._marcar(sql, ids, reivindicada_por, erro)
 
     async def liberar(self, ids: Sequence[int], *, reivindicada_por: str) -> int:
         return await self._marcar(_LIBERAR_SQL, ids, reivindicada_por)
@@ -450,6 +464,7 @@ __all__ = [
     "COLUNAS",
     "DESFECHOS",
     "ERROS",
+    "ERRO_FILA_SEM_GRUPO",
     "ERRO_PUBLICACAO",
     "STATUS",
     "TABELA",
