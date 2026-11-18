@@ -159,3 +159,17 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 - flip-path-review-gate vermelho; caminhos que o disparam: `.github/CODEOWNERS` (linha de `/spec/health/` + contagem 35→36) e `Makefile` (token `spec/health` em `validate-artifacts`). (CD-106)
 - A main andou para `fd352899` (#1310 e #1311, nenhum arquivo em comum): simulação de merge sobre ela limpa, 7 arquivos. Não dei terceiro push; faço se a coordenação pedir o ramo com `fd352899`.
 - Pronto enviado. Próxima depois do merge: E-SF-26 + parse dos BPMN CA (toca MAPA/INVENTARIO/baseline: CAMINHO antes de abrir, CD-80).
+
+## 2026-11-18 ~04:20Z — #1308 incorporado; CAMINHO de E-SF-26 + parse dos BPMN CA (CD-80)
+
+- #1308 (E-SF-25) mesclado; main `98e4e37b`.
+- **CAMINHO — E-SF-26 + parse CA** (uma fatia, em série; ramo `sf-w2/mzo-gp/esf26-parse-ca`), arquivos:
+  1. `docs/processes/New_BPMN/Adapted_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn`, `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn`, `CA_3_SUPORTE_v4_adaptado.bpmn`;
+  2. `scripts/bpmn-gates/baseline.json`: saem as 11 entradas `G2-IMPL` (3 CA_0, 2 CA_1, 6 CA_3) quando o deploy passar;
+  3. `docs/processes/New_BPMN/Adapted_BPMN/INVENTARIO-CA.generated.json` (regenerado por `scripts/docs/gerar_inventario_ca.py`) e `MAPA-ELEMENTOS-V4.md` (linhas dos elementos novos do CA_1, contagens de §4/§7 e Changelog);
+  4. testes: novo `tests/processes/test_esf26_ca1_declaracao_saude.py` (`test_ca1_cpt_decision_is_human_task`, `test_ds_node_fail_closed_until_vw0_d16`) e, se a contagem mudar, `tests/processes/test_mapa_elementos_v4_sync.py`. `tests/integration/processes/test_bpmn_engine_parse_deploy.py` não muda (lê a baseline).
+  - Nada em CODEOWNERS, `PLANS.md`, decisions-log, ledger, `spec/processes/` (o corpus CA é só documento e parse), migração ou DMN.
+- **Decisões que peço (desenho), padrão proposto entre parênteses:**
+  a. Binding das 11 serviceTasks "Escalar…" sem implementação: (`camunda:type="external"` + `camunda:topic="corpus.ca.<id do elemento>"`, sem worker; só para o parse passar, a documentation da tarefa continua dizendo "binding de implementação não fornecido"). Alternativa: virar `userTask` — mudaria o tipo do elemento no mapa, por isso não proponho.
+  b. E-SF-26 no CA_1 (que hoje é a compra de cuidado e não tem Carta nem DS): subprocesso novo "Declaração de Saúde e CPT" = Carta → nó DS → `userTask` de decisão de CPT SEM implementação automática; o nó DS é fail-closed: gateway exclusivo cujo único caminho sem ratificação vai a um fim de erro tipado (`DS_NAO_RATIFICADO`), sem efeito; sem Agravo. (Os elementos novos entram no mapa como LACUNA.) "Oferta com CPT nunca chega ao Express": não há Express no CA_1 — registro como GAP, não invento o nó.
+  - Sem a CD, não abro. Começo a montar em ramo com o padrão proposto.
