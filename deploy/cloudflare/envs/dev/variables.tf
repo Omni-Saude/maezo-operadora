@@ -118,3 +118,19 @@ variable "destino_webhook" {
   type        = string
   default     = "http://webhook-receiver.maezo-operadora-dev.internal:8080"
 }
+
+variable "ceia_service_token_id" {
+  description = <<-EOT
+    ID (UUID, NAO e' segredo) do service token do Cloudflare Access do time do CEIA.
+    O token e' criado FORA do Terraform (`deploy/cloudflare/criar-service-token-ceia.sh`):
+    o Client Secret so' existe na criacao e, se o Terraform criasse o token, iria para o
+    state. Vazio (padrao) = a aplicacao do `/engine-rest` por token NAO existe.
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.ceia_service_token_id == "" || can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.ceia_service_token_id))
+    error_message = "ceia_service_token_id deve ser um UUID (ou vazio)."
+  }
+}

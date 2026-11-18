@@ -213,3 +213,56 @@ resource "cloudflare_dns_record" "webhook" {
 
   comment = "maezo-operadora dev - webhook WhatsApp (Meta), so /webhook, borda por tunel (Terraform)"
 }
+
+# ---------------------------------------------------------------------------
+# Time do CEIA — acesso programatico ao /engine-rest por service token
+# ---------------------------------------------------------------------------
+# Pedido: um service token (Client ID/Secret) para o CEIA chamar o motor. Em vez de
+# liberar o token na aplicacao do Cockpit (hostname inteiro: Cockpit, Tasklist e REST),
+# criamos uma aplicacao so' do caminho `/engine-rest`. O Access escolhe a aplicacao de
+# caminho mais especifico, entao o Cockpit visual continua so' por e-mail e a politica
+# dele nao muda.
+#
+# A politica por e-mail tambem entra nesta aplicacao (precedence 2): se alguma tela
+# humana chamar `/engine-rest`, ela continua funcionando como antes. O token e' o
+# acrescimo, nao uma troca.
+#
+# LIMITE QUE O ACCESS NAO RESOLVE: ele nao separa GET de POST/DELETE. O token abre o
+# `/engine-rest` inteiro que o motor expoe — e o runbook (renovar-material-staff-dev.md
+# §9) registra o REST sem credencial propria dentro da VPC. Por isso o token tem
+# validade curta e dono nomeado (ver o script), e o escopo e' decisao do DPO.
+resource "cloudflare_zero_trust_access_policy" "servico_ceia" {
+  count = var.ceia_service_token_id == "" ? 0 : 1
+
+  account_id = var.account_id
+  name       = "Service token do CEIA (dev, /engine-rest)"
+  decision   = "non_identity"
+
+  include = [{ service_token = { token_id = var.ceia_service_token_id } }]
+}
+
+resource "cloudflare_zero_trust_access_application" "engine_rest_ceia" {
+  count = var.ceia_service_token_id == "" ? 0 : 1
+
+  account_id = var.account_id
+  name       = "MAEZO Operadora — engine-rest por service token (dev)"
+  domain     = "${var.hostname}/engine-rest"
+  type       = "self_hosted"
+
+  session_duration = var.sessao_duracao
+
+  # Mesma regra do Cockpit: `lax`, nunca `strict` (loop de redirects no login).
+  http_only_cookie_attribute = true
+  same_site_cookie_attribute = "lax"
+
+  policies = [
+    {
+      id         = cloudflare_zero_trust_access_policy.servico_ceia[0].id
+      precedence = 1
+    },
+    {
+      id         = cloudflare_zero_trust_access_policy.por_email.id
+      precedence = 2
+    },
+  ]
+}
