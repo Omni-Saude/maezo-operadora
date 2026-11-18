@@ -21,6 +21,7 @@ importado por `platform/webhooks/whatsapp/dispatch.py`, pelo despachante nem por
 
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -29,7 +30,6 @@ from typing import Final
 
 from maezo.domain.rn413_contracting_clock import exigir_relogio_canonico
 
-from ..commercial_t0_ledger import digest_do_proponente
 from .finalidades_do_aceite import aceite_autoriza, validar_aceite
 from .outbound_gate import FonteDeSupressao
 from .recovery_eligibility import Elegivel, avaliar_elegibilidade
@@ -101,6 +101,14 @@ def ler_chave_da_recuperacao(valor: object) -> bool:
     raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SWITCH_OFF)
 
 
+def _digest_do_titular(ref: str) -> str:
+    """SHA-256 da referencia, a mesma regra do registro de eventos da E-SF-07 (teste de igualdade).
+
+    Calculado aqui porque nenhum arquivo de producao importa aquele registro (guarda da E-SF-07).
+    """
+    return hashlib.sha256(ref.encode("utf-8")).hexdigest()
+
+
 def _normalizar(valor: str) -> str:
     """Compatibilidade Unicode, sem caractere invisivel, de controle ou espaco, em caixa unica."""
     sem_invisiveis = "".join(
@@ -143,7 +151,7 @@ async def guardar_envio_de_recuperacao(
             raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.DOCUMENT_REQUEST_FORBIDDEN)
         raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_MESSAGE_KIND_NOT_ALLOWED)
     # O relogio tem de ser o DESTE titular: relogio de outra pessoa nunca libera.
-    if exigir_relogio_canonico(relogio).proponente_digest != digest_do_proponente(ref):
+    if exigir_relogio_canonico(relogio).proponente_digest != _digest_do_titular(ref):
         raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_CLOCK_NOT_OF_SUBJECT)
     elegivel = avaliar_elegibilidade(
         tipo_titular=pedido.tipo_titular,

@@ -268,6 +268,11 @@ async def test_com_cadencia_maior_que_zero_so_o_caso_valido_passa(monkeypatch: p
         )
 
 
+@pytest.mark.parametrize("ref", ["titular-sintetico-1", "a", "x" * 128, "lead_9-z"])
+def test_digest_do_titular_igual_ao_do_registro_da_esf07(ref: str) -> None:
+    assert rc._digest_do_titular(ref) == digest_do_proponente(ref)
+
+
 # --- fronteira -----------------------------------------------------------------------------------------
 
 
