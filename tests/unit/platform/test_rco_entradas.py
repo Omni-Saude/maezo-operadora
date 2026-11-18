@@ -231,3 +231,115 @@ def test_carregar_recusa_anexo_adulterado(tmp_path: Path) -> None:
     (tmp_path / "entradas.json").write_bytes(raw + b" ")
     with pytest.raises(ManifestoK1InvalidoError, match="sha256 diverge"):
         ent.carregar_dicionario_entradas(manifesto, k1_dir=tmp_path)
+
+
+# --- dicionario 1.5.0 (rco aed187d4): valor do parametro e referencia por tipo de guia ---------------
+
+RECORTE_2_3 = Path(__file__).resolve().parents[2] / "fixtures" / "rco" / "k1-2.3.0-recorte"
+URGENCIA = "urgenciaAposVinteQuatroHorasCobertura"
+
+
+def _dados_15() -> dict[str, Any]:
+    dados: dict[str, Any] = json.loads((RECORTE_2_3 / "entradas-recorte.json").read_text(encoding="utf-8"))
+    assert dados["versao"] == "1.5.0"
+    return dados
+
+
+def _formula(dados: dict[str, Any], nome: str) -> dict[str, Any]:
+    formula: dict[str, Any] = dados["entradas"][_indice(dados, nome)]["formula"]
+    return formula
+
+
+def _termo(dados: dict[str, Any], nome: str, termo: str) -> dict[str, Any]:
+    return next(t for t in _formula(dados, nome)["termos"] if t["nome"] == termo)
+
+
+def test_dicionario_15_le_o_valor_de_cada_parametro_e_a_referencia_da_guia() -> None:
+    dic = _ler(_dados_15())
+    termos = {t.nome: t for e in dic.entradas.values() if e.formula is not None for t in e.formula.termos}
+    assert (termos["horasMinimasUrgencia"].valor, termos["horasMinimasUrgencia"].unidade) == (24, "horas")
+    assert (termos["janelaDias"].valor, termos["janelaDias"].unidade) == (30, "dias")
+    assert termos["procedimentoCirurgico"].referencia == ("fontes/derivados/tuss-22-202609.csv#codigo",)
+    assert len(termos["tabelaClassificacao"].referencia) == 2
+    assert termos["diariaLeitoAltaTecnologia"].lacuna == "L-prog-rco-04"
+    assert all(t.valor is None and not t.referencia for t in termos.values() if t.origem != "parametro")
+    formula = dic.entradas[URGENCIA].formula
+    assert formula is not None and len(formula.referencia_por_tipo_guia) == 6
+    sem_data = [r for r in formula.referencia_por_tipo_guia if r.data is None]
+    assert len(sem_data) == 1 and sem_data[0].lacuna
+
+
+def test_dicionario_14_recusa_os_campos_da_15() -> None:
+    dados = _dados_15()
+    dados["versao"] = "1.4.0"
+    with pytest.raises(ManifestoK1InvalidoError, match="desconhecidos"):
+        _ler(dados)
+
+
+def _mudar_termo(termo: str, **campos: Any) -> Any:
+    def aplicar(dados: dict[str, Any]) -> None:
+        nome = "reinternacaoMesmaCausa" if termo == "janelaDias" else URGENCIA
+        alvo = _termo(dados, nome, termo)
+        for chave, valor in campos.items():
+            if valor is _FORA:
+                alvo.pop(chave, None)
+            else:
+                alvo[chave] = valor
+
+    return aplicar
+
+
+def _mudar_referencia(indice: int, **campos: Any) -> Any:
+    def aplicar(dados: dict[str, Any]) -> None:
+        alvo = _formula(dados, URGENCIA)["referencia_por_tipo_guia"][indice]
+        for chave, valor in campos.items():
+            if valor is _FORA:
+                alvo.pop(chave, None)
+            else:
+                alvo[chave] = valor
+
+    return aplicar
+
+
+_FORA = object()
+
+
+@pytest.mark.parametrize(
+    ("mutar", "trecho"),
+    [
+        (_mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade=_FORA), "exatamente um de"),
+        (_mudar_termo("horasMinimasUrgencia", lacuna="L-x"), "exatamente um de"),
+        (_mudar_termo("horasMinimasUrgencia", unidade=_FORA), "`unidade` so"),
+        (_mudar_termo("janelaDias", valor=_FORA, lacuna="L-x"), "`unidade` so"),
+        (_mudar_termo("horasMinimasUrgencia", valor=True), "tem de ser numero"),
+        (_mudar_termo("horasMinimasUrgencia", valor="24"), "tem de ser numero"),
+        (_mudar_termo("horasMinimasUrgencia", unidade="semanas"), "tem de ser numero"),
+        (
+            _mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade=_FORA, referencia="sem-chave"),
+            "referencia",
+        ),
+        (_mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade=_FORA, referencia=[]), "referencia"),
+        (_mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade=_FORA, valor_por_contrato=""), "texto"),
+        (_mudar_termo("horasMinimasUrgencia", extra=1), "desconhecidos"),
+        (_mudar_termo("dataInicioCobertura", valor=1, unidade="dias"), "desconhecidos"),
+        (_mudar_referencia(0, extra=1), "desconhecidos"),
+        (_mudar_referencia(0, hora=_FORA), "faltam ['hora']"),
+        (_mudar_referencia(0, data="dataSolicitacao"), "elemento do XSD"),
+        (_mudar_referencia(5, lacuna=_FORA), "data nula exige"),
+        (_mudar_referencia(1, guia="solicitação de SP/SADT"), "repetida"),
+        (_mudar_referencia(1, guia=""), "texto nao vazio"),
+    ],
+)
+def test_forma_invalida_da_15_reprova(mutar: Any, trecho: str) -> None:
+    dados = _dados_15()
+    mutar(dados)
+    with pytest.raises(ManifestoK1InvalidoError) as erro:
+        _ler(dados)
+    assert any(trecho in p for p in erro.value.problemas), erro.value.problemas
+
+
+def test_referencia_por_tipo_guia_vazia_reprova() -> None:
+    dados = _dados_15()
+    _formula(dados, URGENCIA)["referencia_por_tipo_guia"] = []
+    with pytest.raises(ManifestoK1InvalidoError, match="lista nao vazia"):
+        _ler(dados)

@@ -208,6 +208,11 @@ k1:
   vazio:
     valor: vazio
     textos_de_saida: ['""', "null", ""]
+  # Saida OPCIONAL `sinalAuditoria` (K1 formato 2.3.0, contrato-k1.md §6; DL-0183): so nas tabelas que a
+  # declaram, fora de saidas_obrigatorias. Vocabulario fechado (o mesmo de `vocabulario.json`
+  # `sinalAuditoria` do pacote); o vazio (celula vazia, `null` ou `""`) e "sem aviso". Valor fora daqui
+  # reprova o lint; o pin confere tambem contra o `vocabulario.json` pinado.
+  sinalAuditoria: ["", aviso_urgencia_carencia]
   regras:
     # Decisao adversa sem classe e sem fila nao tem dono humano (ADR-0075 (d):114-117, :132).
     exigem_classe_e_fila: [negar, glosar, recomendar_negativa]
