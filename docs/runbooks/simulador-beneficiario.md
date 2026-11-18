@@ -80,7 +80,7 @@ export AWS_PROFILE=amh-data-dev AWS_REGION=sa-east-1 PYTHONPATH=src
 read -rs MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA && export MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA
 BUCKET=maezo-operadora-dev-qa-simulador-203312548462
 SQL=src/maezo/qa/simulador/roster.sql
-QID=$(python -m maezo.qa.simulador.roster submeter $SQL --work-group amh-austa_operadora-analytics-dev)
+QID=$(python -m maezo.qa.simulador.roster submeter $SQL --work-group amh-austa_operadora-analytics-dev --regiao sa-east-1)
 aws athena get-query-execution --query-execution-id "$QID" --query QueryExecution.Status.State --output text
 # quando SUCCEEDED:
 SAIDA=$(aws athena get-query-execution --query-execution-id "$QID" \

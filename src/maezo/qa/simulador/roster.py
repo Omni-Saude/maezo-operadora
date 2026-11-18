@@ -33,7 +33,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import structlog
 
@@ -205,8 +205,10 @@ def submeter_consulta(sql: str, documento: str, *, work_group: str, cliente: Any
     return str(resposta["QueryExecutionId"])
 
 
-def _regiao() -> str:
-    return os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "sa-east-1"
+#: Regiao do Athena do lago do dev (a mesma do runbook). Opcao `--regiao` em vez de ler `AWS_REGION`
+#: do ambiente: a guarda de reconciliacao do chart (`test_check_chart_env_reconciliation`) trata
+#: `AWS_REGION` como variavel da infraestrutura, que o codigo de `src/` nao le.
+REGIAO_PADRAO: Final[str] = "sa-east-1"
 
 
 def _principal(
@@ -227,6 +229,7 @@ def _principal(
         sub.add_argument("--numero", type=int, default=1)
         if modo == "submeter":
             sub.add_argument("--work-group", required=True)
+            sub.add_argument("--regiao", default=REGIAO_PADRAO)
     args = p.parse_args(argv)
     # A saida vai para `$(...)`: qualquer log do processo (os imports da plataforma registram metricas em
     # stdout) e' desviado para o stderr; no stdout so' a consulta ou o id da execucao.
@@ -239,7 +242,7 @@ def _principal(
                 resultado, _ = montar_consulta(sql, documento, numero=args.numero)
             else:
                 montar_consulta(sql, documento, numero=args.numero)  # recusa antes de criar o cliente
-                cliente = (fabrica_cliente or _cliente_athena_boto3)(_regiao())
+                cliente = (fabrica_cliente or _cliente_athena_boto3)(args.regiao)
                 resultado = submeter_consulta(
                     sql, documento, work_group=args.work_group, cliente=cliente, numero=args.numero
                 )

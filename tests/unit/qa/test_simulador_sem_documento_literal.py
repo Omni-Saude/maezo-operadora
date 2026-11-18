@@ -357,7 +357,6 @@ def test_submeter_manda_o_documento_so_em_execution_parameters(
 ) -> None:
     documento = cpf_sintetico_valido()
     monkeypatch.setenv(roster.VARIAVEL_DO_DOCUMENTO, documento)
-    monkeypatch.setenv("AWS_REGION", "sa-east-1")
     athena = _AthenaFalso()
     argv = ["submeter", str(_SIMULADOR / arquivo), "--numero", str(numero), "--work-group", "wg-teste"]
     with capture_logs() as logs, caplog.at_level(logging.DEBUG):
