@@ -198,3 +198,10 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
   (iii) separar: um PR anterior só de saneamento do CA_1 por (ii), e E-SF-26 depois.
   Padrão proposto: (i). Não envio pronto nem dou push até a CD. Sigo acompanhando o resto do CI.
 - ACHADO (relatório final): o critério "arquivo tocado" faz qualquer edição do corpus CA herdar as pendências antigas do arquivo; nem o CAMINHO nem as CDs anteriores o anteciparam.
+
+## 2026-11-18 ~09:25Z — #1318: segundo vermelho (pino do CA_1 de outra linha), corrigível dentro do escopo
+
+- `unit (restante)`: 1 failed, 26490 passed. `tests/unit/agents/test_esf17_ledger_compras.py::test_ca1_bpmn_inalterado_por_gtm01` fixa o sha256 do CA_1 (guarda de E-SF-17: GTM-01 não edita BPMN). O próprio comentário do pino diz que mudança legítima vinda de outro épico atualiza o pino. A integração foi pulada por causa desse job (não rodou; não é falha de shard).
+- Conserto: só o pino passa a `6ad4983d…` (sha do CA_1 deste PR), com uma linha de comentário. A guarda continua: qualquer outra edição do CA_1 a deixa vermelha. O hash de custódia em `CORRECOES_BPMN_2026-10.md` é registro histórico e não muda.
+- Este conserto vale em qualquer resposta à Q-W2-MZO-GP-03, por isso dou o push dele (CI completo de novo). O `bpmn-gates` continua vermelho até a CD.
+- Falha de processo (relatório final): minha rodada local antes do push não incluía `tests/unit/agents`. Passa a incluir quando o diff toca o corpus CA.
