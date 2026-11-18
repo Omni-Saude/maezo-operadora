@@ -294,3 +294,14 @@ Subperguntas sem item na cédula, com o padrão conservador proposto:
 - S6. Fila e grupo: o item vai para o grupo responsável da fila comercial, só pelo nome de papel; sem grupo, recusa. Não toca `SP-OP-ESCALATION-001`: rotear o item ao processo é linha de quem ligar o relógio.
 
 Suíte local antes do push: `tests/unit/gateway`, `tests/unit/tools`, `tests/unit/commercial`, `tests/unit/processes`, `tests/unit/sec`, `tests/unit/ci`, com `--basetemp` próprio apagado a cada rodada. Revisão independente e mutações antes do push.
+
+## 2026-11-18 ~11:25Z — E-SF-07: CAMINHO para um arquivo a mais (efeito da CD-137); sem push
+
+- Com o relógio em `src/maezo/domain/` (CD-137), a guarda `tests/unit/domain/integration/test_identity.py::test_domain_modules_discovered` reprova localmente. Ela fixa o conjunto EXATO de módulos de `maezo.domain` (`_EXPECTED_MODULES`) e a contagem (`len(modules) == 21`). É arquivo de contagem fora da lista aceita na CD-135.
+- CAMINHO pedido, só para esta edição em `tests/unit/domain/integration/test_identity.py`: acrescentar a `_EXPECTED_MODULES` a entrada `"rn413_contracting_clock.py"`, com uma linha de comentário no molde das demais (relógio-sombra da contratação, função pura, stdlib-only, sem importar outra camada), e mudar a contagem de 21 para 22. Nenhuma outra linha.
+- As outras cercas do mesmo arquivo passam com o módulo novo, porque ele só importa a biblioteca padrão.
+- Estado da E-SF-07: implementação, mudança de pasta (CD-137) e reparos da revisão independente (cinco achados, inclusive selo do estado copiável por `replace`) commitados localmente em `sf-w2/mzo-ca/esf07`. Mutações todas vermelhas.
+- Suíte local: `domain` 527 passed e 1 falha NOVA (esta guarda); `gateway` 6346 passed (1 falha conhecida); `tools` 6087, `commercial` 22, `processes` 114 e `sec` 162 passed; `ci` em curso.
+- Gates da CD-138 rodados: `check_fronteira_agentes` PASS (769 arquivos, nenhuma dependência nova); `check_qa_isolada` PASS; `check_start_process_fence` PASS (785); `check_plans_counts` PASS (4 contagens); testes que varrem `gateway/commercial_*` e as allowlists de SQL: 135 passed.
+- Main nova `7fefa48d` (CD-142): incorporo por merge antes do push.
+- Sem push até o CAMINHO.
