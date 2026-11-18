@@ -37,7 +37,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import agent_def, bpmn, crossref, dmn, perspective, policy, question_banks, signoff, vocabulario_saida
+from . import agent_def, bpmn, crossref, dmn, perspective, policy, signoff, vocabulario_saida
+from .question_banks import validate_dir as validate_question_banks
 from .result import Report
 
 
@@ -207,7 +208,7 @@ def validate_artifacts(paths: Sequence[str]) -> int:
             _validate_agents_root(resolved, report)
         if _is_health_root(resolved):
             matched = True
-            question_banks.validate_dir(resolved / "question-banks", report)
+            validate_question_banks(resolved / "question-banks", report)
         if not matched:
             report.error(
                 p,
