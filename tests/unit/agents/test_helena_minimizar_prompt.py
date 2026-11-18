@@ -1,4 +1,4 @@
-"""DL-0192: a mascara da rota global (`modelo_allowlist.minimizar_prompt`) por classe de dado.
+"""DL-0192: a mascara da rota global (`minimizacao.minimizar_prompt`, reexportada em `modelo_allowlist`).
 
 Todo valor e' SINTETICO e gerado aqui (prefixo `FICT`/`Ficti`); nenhum CPF valido, nenhum dado real. Para
 cada classe: o SENTINELA posto no texto nao sobrevive a mascara, e o texto de saude ao redor fica.
@@ -6,6 +6,7 @@ cada classe: o SENTINELA posto no texto nao sobrevive a mascara, e o texto de sa
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 from typing import Any
 
@@ -14,6 +15,7 @@ import pytest
 from maezo.agents.helena import modelo_allowlist as ma
 from maezo.agents.helena.consultas_plano import NomesDoTurno
 from maezo.agents.helena.habilidades.saude_original import fluxo
+from maezo.agents.helena.minimizacao import SOBRENOMES_COMUNS
 from maezo.runtime.inference.experimento_global import (
     MODELO_HAIKU_GLOBAL,
     ROTA_DE_RESIDENCIA,
@@ -202,3 +204,121 @@ async def test_leitura_da_porta_unica_mascara_o_nome_conhecido_e_o_email() -> No
 def test_nomes_do_turno_continuam_redigidos_no_repr() -> None:
     nomes = NomesDoTurno({1: "Fictinome Exemplonio"})
     assert "Fictinome" not in repr(nomes) and nomes.para_mascarar() == ("Fictinome Exemplonio",)
+
+
+# --- Rodada 2 (revisao): nomes ----------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("texto", "nomes_na_saida"),
+    [
+        ("meu nome é Fict D'Ávila Exemplonio e tenho febre", ("D'Ávila", "Ávila", "Exemplonio", "Fict")),
+        ("me chamo O'Fictneil, tenho febre", ("Neil", "O'")),
+        ("meu nome é Ana-Fictclara Exemplonio, tenho febre", ("Ana", "clara", "Exemplonio")),
+        ("meu nome é\nFictjoao Exemplonio, tenho febre", ("Fictjoao", "Exemplonio")),
+        ("sou a Fictcia Exemplonia, tenho febre", ("Fictcia", "Exemplonia")),
+        ("aqui é o Fictor Exemplonio, tenho febre", ("Fictor", "Exemplonio")),
+        ("meu nome é Dr. Fictulano Exemplonio, tenho febre", ("Fictulano", "Exemplonio")),
+        ("consultei a Dra. Fictana Exemplonia e tenho febre", ("Fictana", "Exemplonia")),
+        ("o nome da minha mãe é Fictania Exemplonia, tenho febre", ("Fictania", "Exemplonia")),
+    ],
+)
+def test_nomes_com_apostrofo_hifen_quebra_de_linha_deixa_fraca_e_tratamento(
+    texto: str, nomes_na_saida: tuple[str, ...]
+) -> None:
+    saida = ma.minimizar_prompt(texto)
+    assert all(n not in saida for n in nomes_na_saida), saida
+    assert saida.endswith("tenho febre") and ma.DADO_REMOVIDO in saida
+
+
+def test_tratamento_fica_e_so_o_nome_sai() -> None:
+    assert ma.minimizar_prompt("falei com o Dr. Fictulano") == f"falei com o Dr. {ma.DADO_REMOVIDO}"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "sou a mãe dela e ela tem febre",  # deixa fraca sem maiuscula
+        "aqui é o pai, ele tem febre",
+        "o nome do remédio é Dipirona",  # "o nome do <X>" so' com parentesco
+        "o nome do exame é Hemograma",
+    ],
+)
+def test_deixa_fraca_sem_maiuscula_e_nome_de_coisa_ficam(texto: str) -> None:
+    assert ma.minimizar_prompt(texto) == texto
+
+
+@pytest.mark.parametrize("comum", sorted(SOBRENOMES_COMUNS))
+def test_sobrenome_que_e_palavra_comum_so_sai_com_maiuscula(comum: str) -> None:
+    primeiro, _ = _nome(8)
+    conhecido = f"{primeiro} {comum.capitalize()}"
+    minusculo = f"tem 3 {comum} e febre"
+    assert ma.minimizar_prompt(minusculo, nomes=[conhecido]) == minusculo
+    maiusculo = f"o {comum.capitalize()} tem febre"
+    assert ma.minimizar_prompt(maiusculo, nomes=[conhecido]) == f"o {ma.DADO_REMOVIDO} tem febre"
+
+
+def test_sobrenome_comum_e_exatamente_a_lista_combinada() -> None:
+    assert (
+        len(SOBRENOMES_COMUNS) == 27
+        and {"dias", "leite", "rocha", "moura", "paz", "luz"} <= SOBRENOMES_COMUNS
+    )
+
+
+# --- Rodada 2: saude nao vira identificador ---------------------------------------------------------------
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "PA 140x90 mmHg",
+        "PA 120x80",
+        "pressao 140x90mmHg",
+        "dose 2x500mg",
+        "CA125 alto e CA19-9 normal",
+        "tomo AAS100 e Glifage XR500",
+        "25000 unidades de heparina",
+        "15000 celulas por campo",
+        "15000 células",
+        "10000 passos por dia",
+        "glicemia 120 mg/dl e 50000 UI de vitamina D",
+        "frequencia 110 bpm",
+    ],
+)
+def test_medida_marcador_e_remedio_com_dose_ficam(texto: str) -> None:
+    assert ma.minimizar_prompt(texto) == texto
+
+
+# --- Rodada 2: identificador curto e e-mail ----------------------------------------------------------------
+@pytest.mark.parametrize("sentinela", ["ÁB12345", "_AB12345", "nº12345", "FICT-0000-0000", "hk1_" + "f" * 64])
+def test_identificador_com_letra_nao_ascii_sublinhado_ou_formato_do_repo(sentinela: str) -> None:
+    saida = ma.minimizar_prompt(f"o codigo e {sentinela}, estou com tosse")
+    assert sentinela not in saida and saida == f"o codigo e {ma.DADO_REMOVIDO}, estou com tosse"
+
+
+@pytest.mark.parametrize("email", ["fict@exemplo", "fict.pessoa@localhost", "(fict@exemplo.invalid)"])
+def test_email_sem_dominio_de_topo_e_entre_parenteses(email: str) -> None:
+    saida = ma.minimizar_prompt(f"escreve para {email} hoje")
+    assert "fict" not in saida and "@" not in saida
+
+
+# --- Rodada 2: tempo linear -------------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "adversaria",
+    [
+        "a" * 100_000,
+        "111" + "a" * 100_000,
+        "a." * 50_000,
+        "a-" * 50_000,
+        "1." * 50_000,
+        "1 " * 50_000,
+        "a" * 100_000 + "@",
+        "(" * 100_000 + "@x",
+        "x@" + "." * 100_000,
+        "a@" * 50_000,
+        "meu nome é " + "A" * 100_000,
+        "Dr. " + "Aa " * 33_000,
+        "_" * 100_000 + "1",
+    ],
+    ids=lambda t: f"{t[:6]!r}x{len(t)}",
+)
+def test_entrada_adversarial_de_100_mil_caracteres_em_menos_de_1s(adversaria: str) -> None:
+    inicio = time.perf_counter()
+    ma.minimizar_prompt(adversaria, nomes=["Fictinome Dias"])
+    assert time.perf_counter() - inicio < 1.0

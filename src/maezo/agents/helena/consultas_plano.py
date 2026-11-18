@@ -853,7 +853,7 @@ class NomesDoTurno:
         return saida
 
     def para_mascarar(self) -> tuple[str, ...]:
-        """Os nomes completos, SO' para a mascara da rota global (`modelo_allowlist.minimizar_prompt`): o nome
+        """Os nomes completos, SO' para a mascara da rota global (`minimizacao.minimizar_prompt`): o nome
         sai daqui para ser APAGADO do texto, nunca para ser enviado."""
         return tuple(self._nomes.values())
 

@@ -17,10 +17,10 @@ rota, e o `phi=True` de quem chama nao a impede (o adaptador `ProvedorHaikuGloba
 
 O QUE VAI NA CHAMADA. O prompt de sistema fixo de quem chama e o texto que ele montou: instrucoes, a
 mensagem da pessoa e, conforme o chamador, o historico curto da conversa. Este modulo NAO minimiza nada; os
-dois chamadores de hoje passam o texto por `modelo_allowlist.minimizar_prompt`, uma mascara por padrao
-(e-mail, nomes conhecidos e de apresentacao, numeros longos, identificadores curtos) que NAO tira todo dado
-pessoal nem o conteudo de saude, que e' justamente o que vai. Nada de conteudo vai para log: so' rota, modelo,
-latencia, tokens e o codigo da falha.
+dois chamadores de hoje passam o texto por `agents/helena/minimizacao.py::minimizar_prompt`, uma mascara
+por padrao (e-mail, nomes conhecidos, de apresentacao e com tratamento, numeros longos, identificadores
+curtos) que NAO tira todo dado pessoal nem o conteudo de saude, que e' justamente o que vai.
+Nada de conteudo vai para log: so' rota, modelo, latencia, tokens e o codigo da falha.
 
 COMO DESLIGAR. Lista vazia e `helena_rota_global_todas = false` (tfvars do dev) + apply direcionado: sem
 lista e sem a chave, a composicao nem constroi este transporte. Runbook: `docs/runbooks/helena-base-saude.md`.

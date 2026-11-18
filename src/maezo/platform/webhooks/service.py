@@ -167,25 +167,33 @@ def _helena_model_tiers() -> dict[str, str]:
 ENV_AUTORIZACAO_ROTA_GLOBAL = "MAEZO_ROTA_GLOBAL_AUTORIZACAO"
 _AUTORIZACAO_NAO_PRODUCAO = "nao_producao"
 _AUTORIZACAO_EXPLICITA = "rotulo_da_rota"
-_AUTORIZACAO_EXCECAO_DEV = "excecao_regional_dev"
+#: PONTE PROVISORIA (DL-0192), com o motivo em `PONTE_PROVISORIA_MOTIVO` (a mesma frase da DL-0192).
+#: Sai no PR logo depois do deploy que definir `MAEZO_ROTA_GLOBAL_AUTORIZACAO`; ate' la', fica na lista de
+#: pendencias do dono. Toda montagem por ela emite `rota_global_autorizada_por_ponte` (contavel). Quando o DPO
+#: desfizer a excecao regional, o dev perde a rota global sem aviso alem do log de recusa (falha fechada).
+_PONTE_PROVISORIA_EXCECAO_REGIONAL = "ponte_provisoria_excecao_regional"
+PONTE_PROVISORIA_MOTIVO = (
+    "a exceção regional de 21/10 não nomeia a rota global; a ponte existe só para não mudar o comportamento "
+    "do dev antes de o dono definir `MAEZO_ROTA_GLOBAL_AUTORIZACAO` no deploy."
+)
 
 
 def _autorizacao_da_rota_global() -> str | None:
     """A autorizacao REGISTRADA que deixa montar a rota global em modo de producao, ou `None`.
 
     Duas, lidas do ambiente do processo agora: (1) `MAEZO_ROTA_GLOBAL_AUTORIZACAO` igual ao rotulo literal
-    da rota; (2) a excecao regional do DPO de 21/10/2026 ativa (`excecao_regional.excecao_ativa`: o rotulo
-    literal em `MAEZO_PHI_EXCECAO_REGIONAL`). A (2) e' a que o receptor do dev carrega hoje (o dev roda com
-    `RUNTIME_MODE=production`); ela e' so' do dev por construcao (o terraform de prod recusa qualquer valor
-    nao vazio). E' uma ponte: ela autoriza a zona PHI em us-east-1, nao nomeia a rota global; trocar pela (1)
-    no deploy do dev e' pendencia do dono/DPO. Qualquer outro valor = sem autorizacao."""
+    da rota; (2) a PONTE PROVISORIA `_PONTE_PROVISORIA_EXCECAO_REGIONAL`: a excecao regional do DPO de
+    21/10/2026 ativa (`excecao_regional.excecao_ativa`, o rotulo literal em `MAEZO_PHI_EXCECAO_REGIONAL`). A
+    ponte e' o que o receptor do dev carrega hoje (o dev roda com `RUNTIME_MODE=production`) e nunca autoriza
+    em prod: o terraform de prod (`deploy/aws-ecs/envs/prod-sa-east-1/excecao-regional-phi.tf`) recusa valor
+    nao vazio. Qualquer outro valor = sem autorizacao."""
     from maezo.runtime.inference.excecao_regional import excecao_ativa
     from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA
 
     if os.environ.get(ENV_AUTORIZACAO_ROTA_GLOBAL, "").strip() == ROTA_DE_RESIDENCIA:
         return _AUTORIZACAO_EXPLICITA
     if excecao_ativa():
-        return _AUTORIZACAO_EXCECAO_DEV
+        return _PONTE_PROVISORIA_EXCECAO_REGIONAL
     return None
 
 
@@ -200,11 +208,19 @@ def _rota_global(settings: WhatsAppWebhookSettings) -> Any:
     TODAS as conversas keyed, sem lista (o roteador ativo e a porta unica seguem a mesma rota).
 
     GUARDA "NAO PRODUCAO" (DL-0192), FALHA FECHADA: em modo de producao (`runtime_mode` diferente de `local`,
-    o mesmo discriminador do pseudonimizador e do checkpointer; ausente = producao) a rota so' e' montada com
-    uma AUTORIZACAO REGISTRADA (`_autorizacao_da_rota_global`). Sem ela, nada da rota global existe no
-    processo (`None`, como com a lista vazia): a porta unica e o roteador ativo nao assumem, o `classify` e o
-    roteador ficam no provedor da zona PHI de sempre, e o log `helena_rota_global_recusada_sem_autorizacao`
-    diz so' a rota e as contagens (nunca conteudo). Fora de producao, como antes."""
+    o mesmo discriminador do pseudonimizador e do checkpointer; atributo ausente no objeto = producao) a rota
+    so' e' montada com uma AUTORIZACAO REGISTRADA (`_autorizacao_da_rota_global`). Sem ela, nada da rota
+    global existe no processo (`None`, como com a lista vazia): a porta unica e o roteador ativo nao assumem,
+    o `classify` e o roteador ficam no provedor da zona PHI de sempre, e o log
+    `helena_rota_global_recusada_sem_autorizacao` diz so' a rota e as contagens (nunca conteudo). Fora de
+    producao, como antes.
+
+    LIMITE: a env `RUNTIME_MODE` NAO definida resolve para `local` (`WhatsAppWebhookSettings.runtime_mode`,
+    padrao em `platform/webhooks/whatsapp/settings.py`), e entao a guarda NAO se aplica. Os deploys a definem:
+    ECS de prod e dev com `var.agent_runtime_mode`
+    (`deploy/aws-ecs/envs/prod-sa-east-1/service-webhook-receiver.tf`, padrao `production` em `variables.tf`,
+    que tambem aceita `local`) e o Helm com `kubernetes`
+    (`deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml`)."""
     from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
     from maezo.runtime.inference.rota_global import RotaGlobal, conversas_autorizadas
 
@@ -223,6 +239,13 @@ def _rota_global(settings: WhatsAppWebhookSettings) -> Any:
             env_da_autorizacao=ENV_AUTORIZACAO_ROTA_GLOBAL,
         )
         return None
+    if autorizacao == _PONTE_PROVISORIA_EXCECAO_REGIONAL:
+        logger.warning(
+            "rota_global_autorizada_por_ponte",
+            rota=ROTA_DE_RESIDENCIA,
+            ponte=_PONTE_PROVISORIA_EXCECAO_REGIONAL,
+            env_da_autorizacao=ENV_AUTORIZACAO_ROTA_GLOBAL,
+        )
     logger.warning(
         "helena_rota_global_ligada",
         rota=ROTA_DE_RESIDENCIA,
