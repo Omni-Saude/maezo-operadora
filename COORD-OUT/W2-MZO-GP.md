@@ -187,3 +187,14 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 - Revisão independente PASS com ressalvas; corrigidas: condição de CPT tolerante à variável ausente; nó da declaração fechado por constante `${false}` (antes, a tarefa da Carta poderia gravar a variável e abrir o caminho); nota de pareamento. Pendente declarado no PR: no processo pai, o fim "declaração indisponível" cai no padrão "sem decisão" e publica venda perdida — desfecho próprio exige elemento novo fora do caminho aceito.
 - Mutação: 4 violações, todas vermelhas. Suítes: `tests/unit/ci`, `sec`, `processes` e `tests/processes` sobre o head (só falhas de ambiente). Falha de processo: uma rodada local caiu por disco cheio (pastas temporárias de pytest acumuladas); limpei só temporários meus e a rodada refeita usa `--basetemp` apagado ao fim.
 - ACHADO (CD-127 item 5, para o relatório final): o gate 2 e o teste de engine identificam a pendência pelo número da linha.
+
+## 2026-11-18 ~09:10Z — #1318: bpmn-gates vermelho pelo critério "arquivo tocado"; Q-W2-MZO-GP-03
+
+- CI do #1318 (head `0d886c7b`): `bpmn-gates (1-5 + engine pinada)` falhou no passo "Gates 1-5 — perfil corpus-doc". O deploy só-para-parse na engine pinada PASSOU (94 passed, CA_1 incluído). Demais checks concluídos verdes; unit e integração ainda em curso.
+- Causa: o workflow passa `--touched` (critério 2 do PROC-04, "0 findings nos arquivos tocados"). Arquivo `.bpmn` tocado pelo PR perde a isenção da baseline, então os 3 achados PRÉ-EXISTENTES do CA_1 contam como NOVO: `G2-IMPL C3_T_EscalarParecer` (linha 1049), `G2-IMPL C3_T_EscalarRenegociar` (linha 1077) e `G3-CORR C4_B_SemSlot` (erro `SEM_SLOT_EQUIVALENTE` capturado sem emissor). Nenhum achado vem dos elementos novos do C2. Nenhum PR tocou o CA_1 desde que o gate existe, por isso a regra não tinha aparecido.
+- **Q-W2-MZO-GP-03 (bloqueia o pronto do #1318):** ficar verde exige zerar achados do CA_1 fora do escopo de E-SF-26. Opções:
+  (i) exceção da coordenação para o `bpmn-gates` do #1318, como no `flip-path-review-gate`: os 3 achados são pré-existentes, a baseline segue com as mesmas 31 entradas e a engine parseia o CA_1;
+  (ii) zerar os 3 no CA_1: binding nas duas serviceTasks (recusado em CD-116 a) ou virá-las `userTask` (muda o tipo no mapa), e um emissor de `SEM_SLOT_EQUIVALENTE` no C4 (elemento novo fora do caminho aceito);
+  (iii) separar: um PR anterior só de saneamento do CA_1 por (ii), e E-SF-26 depois.
+  Padrão proposto: (i). Não envio pronto nem dou push até a CD. Sigo acompanhando o resto do CI.
+- ACHADO (relatório final): o critério "arquivo tocado" faz qualquer edição do corpus CA herdar as pendências antigas do arquivo; nem o CAMINHO nem as CDs anteriores o anteciparam.
