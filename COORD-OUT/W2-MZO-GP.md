@@ -246,3 +246,16 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 - Gates do diff e suítes: ver a entrada das ~12:00Z.
 - 1 merge atrás: #1322 (`211db979`, E-SF-07), disjunto, não trazido (CD-155/156). Simulação de merge sobre ele limpa, mesmos 5 arquivos.
 - Depois do merge: LIMPEZA #1318 (CD-149), depois E-SF-05r (CAMINHO antes).
+
+## 2026-11-18 ~12:55Z — #1318 mesclado (main `bef44a63`); LIMPEZA #1318 (CD-149)
+
+- #1318 mesclado: main `bef44a63`, que contém o head `ca609e7da24b7cd91ab5e6d7ef15cf0af90e7ff4`.
+- **LIMPEZA #1318**
+  - Ramos para apagar (o dono apaga; não tento):
+    - `sf-w2/mzo-gp/esf26` @ `ca609e7da24b7cd91ab5e6d7ef15cf0af90e7ff4` (remoto e local).
+    - Já mesclados antes e já na lista do pacote: `esf36-ligacao`, `mapa-ajustes`, `gtm-e-66`, `esf20r`, `esf21r`, `esf25`.
+  - Ramos locais nunca enviados: `sf-w2/mzo-gp/esf26-parse-ca` @ `e1822aa2` (só no meu disco, descartado; só registro, CD-149 item 6).
+  - PR órfão ou substituído: nenhum. Nenhum PR meu aberto no maezo.
+  - Título e corpo do #1318 descrevem o que entrou (CA_4 novo; CA_1 intocado; histórico da primeira versão).
+  - Disco: apaguei os temporários meus das linhas encerradas (scratchpad com 8K). Removi sem `--force` a worktree do `gtm-e-66`, já mesclado; ela só tinha a `.venv` que criei. Restam a worktree do canal e o clone principal. `git status` limpo.
+- Próxima da fila: E-SF-05r (CD-114 item 3). Antes de abrir PR, CAMINHO com os arquivos.
