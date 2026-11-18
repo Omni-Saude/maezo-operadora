@@ -395,3 +395,10 @@ Verificação:
   3. variável mal nomeada no teste de aceite → renomeada.
 - Informativos sem mudança: a ordem das mensagens quando A2 e A1 estão ambas fora do contrato; `test_never_issued_to_active` sobrepõe um teste existente (fica como a guarda nomeada).
 - Push a seguir.
+
+## 2026-11-18 ~16:20Z — PR E-SF-05r (b) aberto (CD-178)
+
+- PR maezo-operadora #1333, ramo `sf-w2/mzo-gp/esf05r-b`, head `1c46c31605f2bb49e22006ea3a73941f10596a7d`, base `ab35f086`. CI em curso.
+- Arquivos: `src/maezo/gateway/commercial_admission.py`, `tests/unit/test_commercial_admission_a2.py`, `tests/unit/test_commercial_admission_a4.py`, `tests/unit/gateway/test_esf05r_acceptance.py` (novo).
+- O corpo lista as quatro dimensões da checagem de sha sem A2, cada uma com o teste, e o teste antigo vácuo do a4 entre os alterados. Também traz a revisão independente (PASS) e o `tests/unit` inteiro contra a main limpa.
+- 2 merges atrás (#1328, #1330), disjuntos, não trazidos. O pronto vai direto à coordenação do programa, com os nomes novos dos checks (CD-176/178).
