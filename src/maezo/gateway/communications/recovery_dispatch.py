@@ -5,9 +5,12 @@ publicada, supressao, idempotencia). Nada envia: a chave nasce desligada, o leit
 cadencia e' um parametro proposto, sem base, igual a zero toques.
 
 Ordem (a primeira recusa encerra):
-  1. oposicao registrada: consulta a fonte de supressao ANTES DE TUDO; fonte que nao responde recusa;
+  0. referencia do titular em forma canonica (sem ela nao ha' como consultar a oposicao);
+  1. oposicao registrada: consulta a fonte de supressao ANTES DE TUDO; fonte que nao responde ou devolve
+     algo fora do formato recusa; grafia diferente na fonte conta como a mesma pessoa;
   2. tipo de mensagem: so' "lembrete". Pedido de documentacao nunca e' recuperacao (sem efeito no relogio);
-  3. elegibilidade re-checada no envio (`recovery_eligibility`), com o relogio-sombra canonico;
+  3. o relogio-sombra canonico tem de ser o do proprio titular; elegibilidade re-checada no envio
+     (`recovery_eligibility`);
   4. permissao: aceite valido do proprio titular, que liste a finalidade 7 (retomada); nada herdado;
   5. cadencia: toques ja' enviados >= toques permitidos (zero) recusa.
 
@@ -18,10 +21,14 @@ importado por `platform/webhooks/whatsapp/dispatch.py`, pelo despachante nem por
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
+from maezo.domain.rn413_contracting_clock import exigir_relogio_canonico
+
+from ..commercial_t0_ledger import digest_do_proponente
 from .finalidades_do_aceite import aceite_autoriza, validar_aceite
 from .outbound_gate import FonteDeSupressao
 from .recovery_eligibility import Elegivel, avaliar_elegibilidade
@@ -47,12 +54,16 @@ FINALIDADE_RETOMADA: Final[int] = 7
 TIPOS_DE_MENSAGEM: Final[frozenset[str]] = frozenset({"lembrete"})
 #: Cadencia: parametro PROPOSTO, SEM BASE (nao ha' decisao de cadencia). Zero toques: nada sai.
 TOQUES_PERMITIDOS_PROPOSTO_SEM_BASE: Final[int] = 0
+#: Referencia opaca do titular em forma canonica (minusculas, digitos, "_" e "-"). Outra forma recusa.
+_REF_CANONICA: Final[re.Pattern[str]] = re.compile(r"[a-z0-9][a-z0-9_-]{0,127}")
 #: Chave do envio de recuperacao. Desligada.
 RECUPERACAO_LIGADA: Final[bool] = False
 
 
 class MotivoDespachoRecuperacao(StrEnum):
     RECOVERY_SWITCH_OFF = "RECOVERY_SWITCH_OFF"
+    RECOVERY_SUBJECT_REF_INVALID = "RECOVERY_SUBJECT_REF_INVALID"
+    RECOVERY_CLOCK_NOT_OF_SUBJECT = "RECOVERY_CLOCK_NOT_OF_SUBJECT"
     RECOVERY_OPPOSITION_REGISTERED = "RECOVERY_OPPOSITION_REGISTERED"
     RECOVERY_SUPPRESSION_UNAVAILABLE = "RECOVERY_SUPPRESSION_UNAVAILABLE"
     DOCUMENT_REQUEST_FORBIDDEN = "DOCUMENT_REQUEST_FORBIDDEN"
@@ -98,17 +109,28 @@ async def guardar_envio_de_recuperacao(
     pedido: PedidoDeRecuperacao, *, relogio: object, supressao: FonteDeSupressao
 ) -> Elegivel:
     """Aplica a ordem do modulo. Devolve `Elegivel` (nao e' autorizacao) ou levanta a recusa tipada."""
+    ref = pedido.titular_ref
+    if type(ref) is not str or not _REF_CANONICA.fullmatch(ref):
+        raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SUBJECT_REF_INVALID)
     try:
         vigentes = await supressao.vigentes()
     except Exception as exc:  # noqa: BLE001 - fonte que nao responde nunca vira "sem oposicao"
         raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SUPPRESSION_UNAVAILABLE) from exc
-    if (pedido.titular_ref, CANAL) in vigentes:
+    if not isinstance(vigentes, (frozenset, set)) or not all(
+        type(v) is tuple and len(v) == 2 and all(type(x) is str for x in v) for v in vigentes
+    ):
+        raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SUPPRESSION_UNAVAILABLE)
+    # Grafia diferente na fonte (maiusculas, espacos) ainda conta como a mesma pessoa: na duvida, recusa.
+    if any(r.strip().casefold() == ref and c.strip().casefold() == CANAL for r, c in vigentes):
         raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_OPPOSITION_REGISTERED)
     tipo = pedido.tipo_mensagem
     if type(tipo) is not str or tipo not in TIPOS_DE_MENSAGEM:
         if type(tipo) is str and _parece_documentacao(tipo):
             raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.DOCUMENT_REQUEST_FORBIDDEN)
         raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_MESSAGE_KIND_NOT_ALLOWED)
+    # O relogio tem de ser o DESTE titular: relogio de outra pessoa nunca libera.
+    if exigir_relogio_canonico(relogio).proponente_digest != digest_do_proponente(ref):
+        raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_CLOCK_NOT_OF_SUBJECT)
     elegivel = avaliar_elegibilidade(
         tipo_titular=pedido.tipo_titular,
         etapa=pedido.etapa,

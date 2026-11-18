@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from maezo.domain.rn413_contracting_clock import EstadoDoRelogio, EventoCandidato, estado_do_relogio
+from maezo.gateway.commercial_t0_ledger import digest_do_proponente
 from maezo.gateway.communications import recovery_dispatch as rc
 from maezo.gateway.communications.finalidades_do_aceite import AceiteDeFinalidades
 from maezo.gateway.communications.recovery_dispatch import (
@@ -24,7 +25,8 @@ from maezo.gateway.communications.recovery_dispatch import (
 )
 from maezo.gateway.communications.recovery_eligibility import MotivoRecuperacao, RecuperacaoRecusada
 
-D = "6" * 64
+REF = "titular-sintetico-1"
+D = digest_do_proponente(REF)
 INICIO = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 _RAIZ = Path(rc.__file__).resolve().parents[4]
 
@@ -42,10 +44,10 @@ class _Supressao:
         return self._vigentes
 
 
-def _relogio(dia: int = 3) -> EstadoDoRelogio:
+def _relogio(dia: int = 3, *, digest: str = D) -> EstadoDoRelogio:
     return estado_do_relogio(
-        [EventoCandidato(D, "prospect_save_com_valores", INICIO)],
-        proponente_digest=D,
+        [EventoCandidato(digest, "prospect_save_com_valores", INICIO)],
+        proponente_digest=digest,
         agora=INICIO + timedelta(days=dia),
     )
 
@@ -65,10 +67,18 @@ def _pedido(**kw: object) -> PedidoDeRecuperacao:
 
 
 async def _motivo(
-    pedido: PedidoDeRecuperacao, *, supressao: _Supressao | None = None, dia: int = 3
+    pedido: PedidoDeRecuperacao,
+    *,
+    supressao: object | None = None,
+    dia: int = 3,
+    relogio: EstadoDoRelogio | None = None,
 ) -> object:
     try:
-        await guardar_envio_de_recuperacao(pedido, relogio=_relogio(dia), supressao=supressao or _Supressao())
+        await guardar_envio_de_recuperacao(
+            pedido,
+            relogio=relogio if relogio is not None else _relogio(dia),
+            supressao=supressao or _Supressao(),  # type: ignore[arg-type]
+        )
     except (RecuperacaoDespachoRecusado, RecuperacaoRecusada) as e:
         assert str(e) == e.motivo.value
         return e.motivo
@@ -124,6 +134,57 @@ async def test_fonte_de_supressao_fora_recusa() -> None:
 async def test_oposicao_em_outro_canal_nao_bloqueia_este_mas_segue_recusando_pela_cadencia() -> None:
     sup = _Supressao(frozenset({("titular-sintetico-1", "email")}))
     assert await _motivo(_pedido(), supressao=sup) is MotivoDespachoRecuperacao.RECOVERY_CADENCE_EXHAUSTED
+
+
+class _SupressaoQueDevolve:
+    def __init__(self, valor: object) -> None:
+        self._valor = valor
+
+    async def vigentes(self) -> object:
+        return self._valor
+
+
+@pytest.mark.parametrize("valor", [None, [("titular-sintetico-1", "whatsapp")], {"x"}, {("a", 1)}, "titular"])
+async def test_fonte_de_supressao_fora_do_formato_recusa(valor: object) -> None:
+    assert await _motivo(_pedido(), supressao=_SupressaoQueDevolve(valor)) is (
+        MotivoDespachoRecuperacao.RECOVERY_SUPPRESSION_UNAVAILABLE
+    )
+
+
+@pytest.mark.parametrize(
+    "vigente", [("TITULAR-SINTETICO-1", "whatsapp"), (" titular-sintetico-1 ", "WhatsApp")]
+)
+async def test_oposicao_com_outra_grafia_na_fonte_ainda_recusa(vigente: tuple[str, str]) -> None:
+    sup = _Supressao(frozenset({vigente}))
+    assert await _motivo(_pedido(), supressao=sup) is MotivoDespachoRecuperacao.RECOVERY_OPPOSITION_REGISTERED
+
+
+@pytest.mark.parametrize("ref", [None, "", "Titular-1", " titular-1", "titular 1", "x" * 129, 1, "-titular"])
+async def test_referencia_do_titular_fora_da_forma_canonica_recusa(ref: object) -> None:
+    sup = _Supressao()
+    assert await _motivo(_pedido(titular_ref=ref), supressao=sup) is (
+        MotivoDespachoRecuperacao.RECOVERY_SUBJECT_REF_INVALID
+    )
+    assert sup.chamadas == 0
+
+
+async def test_relogio_de_outra_pessoa_nunca_libera(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rc, "TOQUES_PERMITIDOS_PROPOSTO_SEM_BASE", 1)
+    outro = _relogio(3, digest=digest_do_proponente("outra-pessoa"))
+    assert await _motivo(_pedido(), relogio=outro) is MotivoDespachoRecuperacao.RECOVERY_CLOCK_NOT_OF_SUBJECT
+    # O titular esta' em D+30 (o proprio relogio bloqueia); o relogio D+3 de outra pessoa nao o libera.
+    assert await _motivo(_pedido(), dia=30) is MotivoRecuperacao.RECOVERY_CLOCK_BLOCKED
+    assert await _motivo(_pedido(), relogio=outro) is MotivoDespachoRecuperacao.RECOVERY_CLOCK_NOT_OF_SUBJECT
+
+
+async def test_tipo_de_mensagem_vem_antes_da_elegibilidade() -> None:
+    # Pedido inelegivel (D+30) e de documentacao: a recusa e' a do tipo de mensagem.
+    assert await _motivo(_pedido(tipo_mensagem="pedido_de_documentacao"), dia=30) is (
+        MotivoDespachoRecuperacao.DOCUMENT_REQUEST_FORBIDDEN
+    )
+    assert await _motivo(_pedido(tipo_mensagem="oferta", tipo_titular="beneficiario")) is (
+        MotivoDespachoRecuperacao.RECOVERY_MESSAGE_KIND_NOT_ALLOWED
+    )
 
 
 # --- tipo de mensagem -----------------------------------------------------------------------------------
