@@ -256,6 +256,10 @@ async def test_recusas_anteriores_vem_antes(monkeypatch: pytest.MonkeyPatch) -> 
     gate.avaliar.assert_not_called()
 
 
+class _StrQueCasa(str):
+    """Subclasse comum: casa com "prospect" por igualdade; so' o tipo exato a recusa."""
+
+
 class _StrQueNaoCasa(str):
     __hash__ = str.__hash__
 
@@ -267,7 +271,19 @@ class _StrQueNaoCasa(str):
 
 
 @pytest.mark.parametrize(
-    "tipo", ["Prospect", "prospect ", "LEAD", "", "outro", None, 1, _StrQueNaoCasa("prospect")]
+    "tipo",
+    [
+        "Prospect",
+        "prospect ",
+        "LEAD",
+        "",
+        "outro",
+        None,
+        1,
+        _StrQueNaoCasa("prospect"),
+        _StrQueCasa("prospect"),
+        _StrQueCasa("lead"),
+    ],
 )
 async def test_tipo_de_titular_fora_dos_tres_recusa_no_portao(
     monkeypatch: pytest.MonkeyPatch, tipo: object
