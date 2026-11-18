@@ -6,8 +6,8 @@ O pin e montado do recorte REAL do K1 2.3.0 (`tests/unit/platform/rco_k1_2_3_rec
 `FakeDmnTransport` (ou um transporte que levanta/dorme). Prova:
 
 - `composicao_carencia_cpt` compoe com o PIOR caso (carencia `negar` com sinal, cpt `recomendar_negativa`),
-  devolve `None`, nao muda os fatos, nao registra a composicao (nenhum aviso enfileirado) e audita cada
-  membro com a auditoria do montador DELE;
+  devolve `None`, nao muda os fatos, registra a composicao so com `modo=sombra` (DL-0187: o harness nao
+  enfileira aviso de sombra) e audita cada membro com a auditoria do montador DELE e `composicaoK1`;
 - uniao de entradas em conflito, composicao ausente, pin sem pacote ou ilegivel, prazo repartido e
   esgotado, erro de programacao dentro de `compor` e no avaliador: codigos fechados, nada sobe;
 - a guarda: membro de grupo pedido sozinho nao e avaliado; a decisao de prazos de conta (`contas.py`) nao e
@@ -174,9 +174,14 @@ def test_compoe_o_pior_caso_sem_efeito(
         return resultado
 
     monkeypatch.setattr(cmp, "compor", espiao)
-    monkeypatch.setattr(
-        _audit_ctx, "registrar_composicao", lambda *a, **k: pytest.fail("a sombra registrou a composicao")
-    )
+    registros: list[tuple[cmp.ResultadoComposicao, str]] = []
+    registrar = _audit_ctx.registrar_composicao
+
+    def espiao_registro(resultado: cmp.ResultadoComposicao, *, modo: str) -> None:
+        registros.append((resultado, modo))
+        registrar(resultado, modo=modo)
+
+    monkeypatch.setattr(_audit_ctx, "registrar_composicao", espiao_registro)
     fatos = _Fatos()
     dmn = _dmn_pior_caso()
     with (
@@ -205,9 +210,20 @@ def test_compoe_o_pior_caso_sem_efeito(
         assert entrada["modo"] == "sombra"
         assert entrada["origemAvaliacao"] == rco_sombra.ORIGEM_SOMBRA
         assert set(entrada["entradasNulas"]) <= set(manifesto.decisoes[membro].entradas)
-        assert "sinaisAuditoria" not in entrada  # nada de `registrar_composicao`
+        # DL-0187: a composicao e registrada em `modo=sombra`: o sinal e o resumo vao a auditoria
+        assert entrada["sinaisAuditoria"] == [SINAL]
+        assert entrada["composicaoK1"] == {
+            "nome": GRUPO,
+            "modo": "sombra",
+            "desfecho": cmp.DESFECHO_ESCOLHIDO,
+            "decisaoVencedora": CARENCIA,
+            "motivo": None,
+            "peloPadrao": False,
+        }
         assert avaliacoes[membro].sombra is True and avaliacoes[membro].tem_ordinal is False
-    assert composicoes == {}  # nenhum aviso a enfileirar
+    # registrada UMA vez, sempre `modo=sombra` (o harness nao enfileira aviso de sombra; DL-0187)
+    assert registros == [(resultado, "sombra")]
+    assert {n: c.modo for n, c in composicoes.items()} == {GRUPO: "sombra"}
     # os fatos entregues nao mudaram (a uniao e copia; `compor` copia de novo)
     [entregue] = fatos.entregues
     assert entregue == _Fatos()((1, 15))

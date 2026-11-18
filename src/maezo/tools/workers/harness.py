@@ -68,8 +68,10 @@ import logging
 import os
 import random
 import re
+import threading
 import time
 from collections.abc import Callable, Coroutine, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple, Protocol, runtime_checkable
 
@@ -79,14 +81,17 @@ import structlog
 from maezo.gateway.action_execution import Decision as ActionDecision
 from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
-from maezo.platform.observability import record_rco_aviso
+from maezo.platform.observability import record_rco_aviso, record_rco_sombra_pos_conclusao
 from maezo.platform.rco_avisos import AvisoInvalidoError, OutboxAvisosRco, linhas_de_aviso
 from maezo.platform.rco_manifesto import AvisoK6
 from maezo.platform.rco_registro import AvaliacaoRegra, RegistroDecisoesRco, contexto_da_tarefa
 from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
 from maezo.tools.workers._audit_ctx import (
+    MODO_EFEITO,
+    MODO_SOMBRA,
     ComposicaoRegistrada,
     collect_dmn_versions,
+    collect_pos_conclusao,
     collect_rco_avaliacoes,
     collect_rco_composicoes,
     reaplicar_sinais_auditoria,
@@ -153,6 +158,11 @@ AUDIT_DECISION_COMPLETE: str = "COMPLETE"
 #: an "efeito no mundo" — ADR-0030 §4). Honestly labeled as a refusal, not a fabricated PEP DENY.
 AUDIT_DECISION_REFUSED: str = "REFUSED"
 
+#: DL-0187: `AuditRecord.decision` do FATO de sombra gravado DEPOIS de completar a tarefa (trabalho adiado por
+#: `_audit_ctx.adiar_pos_conclusao`), com chave de dedup propria `{tenant}:sombra:{task_id}`. Nao e efeito
+#: nem recusa: e a auditoria de uma avaliacao que nao muda o caso, numa linha separada da conclusao.
+AUDIT_DECISION_SOMBRA: str = "SHADOW"
+
 #: ADR-0030 §4 denial-block codes hard-gated on T-E that do NOT carry the `_NOT_HUMAN` suffix. The
 #: `*_NOT_HUMAN` guard family is matched by suffix (see `is_guard_refusal_code`), so a NEW guard code
 #: is recognized automatically; this set carries only the non-suffixed denial-block(s). Mirrors
@@ -175,6 +185,27 @@ _ACTION_GATE_REFUSAL_CODE: str = "ERR_ACTION_GATEWAY_NOT_HUMAN"
 #: Teto TOTAL do registro de decisoes K1 de uma tarefa (5c-2): em sombra (fail-open) nao segura a tarefa;
 #: com efeito possivel (DL-0182) estourar o teto faz a tarefa ser re-entregue.
 _RCO_REGISTRO_TIMEOUT_S: float = 5.0
+#: DL-0187: teto da ESPERA pelo trabalho de sombra adiado (roda depois de `complete`, fora do bloqueio). O
+#: trabalho limita o proprio motor (orcamento de `rco_sombra`, 5 s por tarefa no AUTH); este teto so impede
+#: que o harness espere alem disso (mais a parte local: pin, dicionario e montador em cache). Estourado, o
+#: harness segue; a thread termina sozinha dentro do orcamento do motor e o resultado e descartado.
+_POS_CONCLUSAO_TIMEOUT_S: float = 6.0
+#: DL-0187: desfechos de `maezo_rco_sombra_pos_conclusao_total`
+#: (= `observability.RCO_SOMBRA_POS_CONCLUSAO_DESFECHOS`, paridade em teste).
+SOMBRA_POS_CONCLUSAO_DESFECHOS: frozenset[str] = frozenset(
+    {
+        "executada",
+        "descartada_ocupado",
+        "prazo_vencido_antes_de_iniciar",
+        "teto_estourado",
+        "erro_de_programacao",
+        "auditoria_falhou",
+        "auditoria_teto_estourado",
+        "auditoria_nao_configurada",
+    }
+)
+#: DL-0187: teto do append do fato de sombra na cadeia (o mesmo do enfileiramento dos avisos).
+_RCO_SOMBRA_AUDITORIA_TIMEOUT_S: float = 3.0
 #: Teto TOTAL do enfileiramento dos avisos de `sinalAuditoria` de uma tarefa (DL-0185). Roda DEPOIS de
 #: completar a tarefa e e fail-open: estourar o teto so perde o aviso no outbox (a auditoria o guarda).
 _RCO_AVISO_TIMEOUT_S: float = 3.0
@@ -185,6 +216,55 @@ def _avisos_do_pin_de_bordo() -> Mapping[str, AvisoK6]:
     from maezo.tools.workers.rco_pin import rco_rules_pin
 
     return rco_rules_pin().avisos
+
+
+def _rodar_adiados(
+    adiados: Sequence[Callable[[], None]], limite: float
+) -> tuple[dict[str, Any], dict[str, AvaliacaoRegra], dict[str, ComposicaoRegistrada], list[str], bool]:
+    """Roda o trabalho adiado (DL-0187) na thread do executor de sombra, com coletores proprios; devolve o
+    que eles colheram, o TIPO de cada `Exception` que escapou e se o instante-limite (`time.monotonic`, do
+    harness) venceu ANTES de algum chamavel comecar (esse nao roda: nenhuma chamada ao motor)."""
+    erros: list[str] = []
+    vencido = False
+    with (
+        collect_dmn_versions() as dmn_versions,
+        collect_rco_avaliacoes() as avaliacoes,
+        collect_rco_composicoes() as composicoes,
+    ):
+        for adiado in adiados:
+            if time.monotonic() >= limite:
+                vencido = True
+                break
+            try:
+                adiado()
+            except Exception as exc:
+                erros.append(type(exc).__name__)
+        reaplicar_sinais_auditoria(dmn_versions, composicoes)
+        return dict(dmn_versions), dict(avaliacoes), dict(composicoes), erros, vencido
+
+
+#: DL-0187: o executor PROPRIO do trabalho de sombra depois de completar (uma thread, criado sob demanda) e a
+#: vaga de admissao (um trabalho por processo, sem fila). Nunca o executor padrao, que roda os workers.
+_EXECUTOR_POS_CONCLUSAO: ThreadPoolExecutor | None = None
+_EXECUTOR_POS_CONCLUSAO_LOCK = threading.Lock()
+_VAGA_POS_CONCLUSAO = threading.BoundedSemaphore(1)
+
+
+def _executor_pos_conclusao() -> ThreadPoolExecutor:
+    global _EXECUTOR_POS_CONCLUSAO
+    with _EXECUTOR_POS_CONCLUSAO_LOCK:
+        if _EXECUTOR_POS_CONCLUSAO is None:
+            _EXECUTOR_POS_CONCLUSAO = ThreadPoolExecutor(max_workers=1, thread_name_prefix="maezo-sombra-pos")
+        return _EXECUTOR_POS_CONCLUSAO
+
+
+def encerrar_executor_pos_conclusao() -> None:
+    """Encerra o executor de sombra sem esperar (chamado por `WorkerHarness.drain`); recriado sob demanda."""
+    global _EXECUTOR_POS_CONCLUSAO
+    with _EXECUTOR_POS_CONCLUSAO_LOCK:
+        executor, _EXECUTOR_POS_CONCLUSAO = _EXECUTOR_POS_CONCLUSAO, None
+    if executor is not None:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _descartar_resultado(trabalho: asyncio.Future[Any]) -> None:
@@ -1613,6 +1693,9 @@ class WorkerHarness:
         re-deliver it to a surviving replica immediately (rather than waiting out
         `lock_duration_ms`, v1's only mechanism).
         """
+        # DL-0187: o executor de sombra nao aceita mais trabalho; o que estiver rodando termina dentro do
+        # orcamento do motor dele (a thread nao segura o processo: `shutdown(wait=False)`).
+        encerrar_executor_pos_conclusao()
         pending = [fut for fut, _task in self._inflight.values()]
         if not pending:
             return
@@ -1896,15 +1979,19 @@ class WorkerHarness:
 
         Expansao: `rco_avisos.linhas_de_aviso` com os `avisos` do K6 pinado (`self._rco_avisos_do_pin`), uma
         linha por (aviso, fila); a re-entrega da tarefa cai na mesma `chave_idempotencia` e nao duplica.
-        Sombra e efeito enfileiram igual; o indicador `efeito_k1_habilitado` nao e lido. A composicao
-        generica em sombra (`rco_sombra.avaliar_composicao_em_sombra`) nao chega aqui: ela de proposito nao
-        chama `registrar_composicao` (a regra "sombra nao enfileira" vem com a emenda ao DL-0185).
+        DL-0187 (emenda ao DL-0185): SO a composicao registrada com `modo=efeito` enfileira. A de
+        `modo=sombra` (ex.: `rco_sombra.avaliar_composicao`, ligada ao AUTH) ja deixou `sinaisAuditoria` e
+        `composicaoK1` na auditoria; aqui cada (composicao, sinal) dela vira o log
+        `rco_aviso_suprimido_sombra` e `maezo_rco_aviso_total{desfecho="suprimido_sombra"}`, e nada vai ao
+        outbox. O modo vem do registro
+        (`ComposicaoRegistrada.modo`); o indicador `efeito_k1_habilitado` nao e lido.
 
         FAIL-OPEN, no idioma de `_registrar_decisoes_rco`: UM teto total (`_RCO_AVISO_TIMEOUT_S`) com
         `asyncio.wait` (um store que engole o cancelamento nao segura a tarefa), toda falha vira log
         estruturado (so tipo e codigo, nunca a mensagem do driver) e `maezo_rco_aviso_total{desfecho}`.
         """
-        com_sinal = [c for c in composicoes.values() if c.sinais]
+        com_sinal = [c for c in composicoes.values() if c.sinais and c.modo == MODO_EFEITO]
+        self._avisos_rco_suprimidos_sombra(task, composicoes)
         if not com_sinal:
             return
         try:
@@ -1945,17 +2032,200 @@ class WorkerHarness:
             )
             record_rco_aviso("falha_enfileirar")
 
+    async def _executar_pos_conclusao(
+        self, task: ExternalTask, adiados: Sequence[Callable[[], None]]
+    ) -> None:
+        """Roda o trabalho de SOMBRA adiado pelo worker, DEPOIS de completar a tarefa (DL-0187). NUNCA levanta
+        (salvo cancelamento).
+
+        Por que depois de `complete`: a sombra nao pode custar nada ao caso real; aqui ela nao segura o
+        bloqueio da tarefa nem atrasa a conclusao. O trabalho e sincrono (motor via `evaluate_sync`) e roda
+        num executor PROPRIO de UMA thread (`_executor_pos_conclusao`), nunca no executor padrao que roda os
+        workers (`register_worker` -> `asyncio.to_thread`): uma sombra lenta nao atrasa nenhuma outra tarefa.
+
+        Admissao sem fila: so UM trabalho de sombra por processo de cada vez (`_VAGA_POS_CONCLUSAO`,
+        `acquire(blocking=False)`); ocupado, este e descartado (`descartada_ocupado`), nunca enfileirado.
+        Prazo: o harness calcula o instante-limite (`time.monotonic`, AQUI: o montador e `rco_sombra` nao
+        leem relogio) e o trabalho que comecar depois dele volta sem chamar o motor
+        (`prazo_vencido_antes_de_iniciar`); o mesmo vale entre um chamavel adiado e o seguinte. Depois:
+
+        1. o que ele auditou vai a um FATO separado na mesma cadeia (`AUDIT_DECISION_SOMBRA`, dedup
+           `{tenant}:sombra:{task_id}`), com teto proprio (`_RCO_SOMBRA_AUDITORIA_TIMEOUT_S`);
+        2. SO com o fato gravado, as avaliacoes K1 (so `modo=sombra`) vao ao registro de decisoes
+           (`_registrar_decisoes_rco`, teto `_RCO_REGISTRO_TIMEOUT_S`): o registro nunca existe sem a linha
+           de auditoria;
+        3. as composicoes (so de sombra) contam `suprimido_sombra`; nada vai ao outbox.
+
+        UM desfecho por execucao em `maezo_rco_sombra_pos_conclusao_total{desfecho}` (`executada` so se nada
+        mais aconteceu); toda falha vira log so com tipo/codigo.
+        """
+        if not adiados:
+            return
+        desfecho = "executada"
+        try:
+            desfecho = await self._executar_pos_conclusao_desfecho(task, tuple(adiados))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # cinto e suspensorio: a tarefa ja completou; nada sobe para `_handle`.
+            logger.error(
+                "rco_sombra_pos_conclusao_falhou",
+                task_id=task.task_id,
+                topic=task.topic,
+                erro=type(exc).__name__,
+            )
+            desfecho = "erro_de_programacao"
+        record_rco_sombra_pos_conclusao(desfecho)
+
+    async def _executar_pos_conclusao_desfecho(
+        self, task: ExternalTask, adiados: tuple[Callable[[], None], ...]
+    ) -> str:
+        if not _VAGA_POS_CONCLUSAO.acquire(blocking=False):
+            logger.warning(
+                "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro="ocupado"
+            )
+            return "descartada_ocupado"
+        limite = time.monotonic() + _POS_CONCLUSAO_TIMEOUT_S
+        try:
+            futuro = _executor_pos_conclusao().submit(_rodar_adiados, adiados, limite)
+        except BaseException:
+            _VAGA_POS_CONCLUSAO.release()
+            raise
+        # A vaga so volta quando a THREAD termina (ou o futuro e cancelado antes de comecar), nunca quando o
+        # harness desiste de esperar: e isso que impede trabalho acumulado atras de um trabalho preso.
+        futuro.add_done_callback(lambda _f: _VAGA_POS_CONCLUSAO.release())
+        trabalho = asyncio.wrap_future(futuro)
+        try:
+            done, _ = await asyncio.wait({trabalho}, timeout=_POS_CONCLUSAO_TIMEOUT_S)
+        except BaseException:
+            trabalho.cancel()
+            raise
+        if not done:
+            trabalho.add_done_callback(_descartar_resultado)
+            logger.error(
+                "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro="teto"
+            )
+            return "teto_estourado"
+        dmn_versions, avaliacoes, composicoes, erros, vencido = trabalho.result()
+        desfecho = "executada"
+        for erro in erros:
+            logger.error("rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro=erro)
+            desfecho = "erro_de_programacao"
+        if vencido and desfecho == "executada":
+            desfecho = "prazo_vencido_antes_de_iniciar"
+        sombra = {k: a for k, a in avaliacoes.items() if a.modo == MODO_SOMBRA}
+        if len(sombra) != len(avaliacoes):
+            logger.error(
+                "rco_sombra_pos_conclusao_falhou",
+                task_id=task.task_id,
+                topic=task.topic,
+                erro="modo_nao_sombra",
+            )
+            desfecho = "erro_de_programacao"
+        gravado = True
+        if dmn_versions:
+            falha = await self._emitir_fato_sombra(task, dmn_versions)
+            if falha is not None:
+                gravado = False
+                if desfecho == "executada":
+                    desfecho = falha
+        if gravado:
+            await self._registrar_decisoes_rco(task, sombra)
+        self._avisos_rco_suprimidos_sombra(
+            task, {n: c for n, c in composicoes.items() if c.modo == MODO_SOMBRA}
+        )
+        return desfecho
+
+    def _audit_sombra_dedup_key(self, task: ExternalTask) -> str:
+        """DL-0187: `{tenant}:sombra:{task_id}`, namespace proprio (como `refuse:`): o fato de sombra nunca
+        colide com a conclusao da mesma tarefa, e a re-entrega converge na mesma linha."""
+        return f"{self._tenant}:sombra:{task.task_id}"
+
+    async def _emitir_fato_sombra(self, task: ExternalTask, dmn_versions: dict[str, Any]) -> str | None:
+        """Grava o fato de sombra (DL-0187) com teto proprio. Devolve `None` se gravou, senao o desfecho
+        fechado (`auditoria_nao_configurada`, `auditoria_teto_estourado`, `auditoria_falhou`). Fail-open: a
+        tarefa ja completou. Custo real: e um SEGUNDO append na cadeia do tenant (com o advisory lock dela)
+        por tarefa do AUTH, so quando o pin do rco nao esta em `sem_pacote`."""
+        if self._audit_sink is None:
+            logger.error(
+                "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro="sem_sink"
+            )
+            return "auditoria_nao_configurada"
+        record = AuditRecord(
+            agent_id=AUDIT_AGENT_ID,
+            tenant_id=self._tenant,
+            agent_version=self._audit_app_version,
+            action=task.topic,
+            decision=AUDIT_DECISION_SOMBRA,
+            details=build_decision_basis(task.variables, out_vars=None),
+            dmn_versions=dmn_versions,
+            model_id=None,
+            prompt_version=None,
+        )
+        trabalho = asyncio.ensure_future(
+            self._audit_sink.emit_once(record, dedup_key=self._audit_sombra_dedup_key(task))
+        )
+        try:
+            done, _ = await asyncio.wait({trabalho}, timeout=_RCO_SOMBRA_AUDITORIA_TIMEOUT_S)
+        except BaseException:
+            trabalho.cancel()
+            raise
+        if not done:
+            trabalho.cancel()
+            trabalho.add_done_callback(_descartar_resultado)
+            logger.error(
+                "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro="teto"
+            )
+            return "auditoria_teto_estourado"
+        if trabalho.cancelled():
+            return "auditoria_falhou"
+        exc = trabalho.exception()
+        if exc is None:
+            return None
+        if isinstance(exc, PROGRAMMING_ERRORS):
+            raise exc
+        # so o tipo: a mensagem do driver pode trazer a linha
+        logger.error(
+            "rco_sombra_pos_conclusao_falhou", task_id=task.task_id, topic=task.topic, erro=type(exc).__name__
+        )
+        return "auditoria_falhou"
+
+    def _avisos_rco_suprimidos_sombra(
+        self, task: ExternalTask, composicoes: Mapping[str, ComposicaoRegistrada]
+    ) -> None:
+        """DL-0187: log `rco_aviso_suprimido_sombra` por (composicao, sinal) das composicoes em `modo=sombra`
+        e a metrica `suprimido_sombra`. So codigos (composicao e sinal do pin) e o id da tarefa. NUNCA
+        levanta.
+        """
+        try:
+            pares = [
+                (c.composicao, s) for c in composicoes.values() if c.modo != MODO_EFEITO for s in c.sinais
+            ]
+            for composicao, sinal in pares:
+                logger.info(
+                    "rco_aviso_suprimido_sombra",
+                    task_id=task.task_id,
+                    topic=task.topic,
+                    composicao=composicao,
+                    sinal=sinal,
+                )
+            record_rco_aviso("suprimido_sombra", len(pares))
+        except Exception:  # pragma: no cover - cinto e suspensorio
+            _stdlib_logger.debug("rco_aviso_suprimido_sombra_log_failed", exc_info=True)
+
     def _avisos_rco_nao_enfileirados(
         self, task: ExternalTask, composicoes: Mapping[str, ComposicaoRegistrada], motivo: str
     ) -> None:
         """Log `rco_aviso_nao_enfileirado` por (composicao, sinal) e a metrica com `motivo` (DL-0185).
 
         Chamado quando `complete` levantou do lado do cliente: a conclusao e incerta, entao nada e
-        enfileirado (a re-entrega enfileira com a mesma chave); a reconciliacao e pela auditoria. NUNCA
+        enfileirado (a re-entrega enfileira com a mesma chave); a reconciliacao e pela auditoria. So as
+        composicoes de `modo=efeito` contam (DL-0187: as de sombra nunca seriam enfileiradas). NUNCA
         levanta: a excecao original de `complete` segue o caminho de sempre.
         """
         try:
-            pares = [(c.composicao, s) for c in composicoes.values() for s in c.sinais]
+            pares = [
+                (c.composicao, s) for c in composicoes.values() if c.modo == MODO_EFEITO for s in c.sinais
+            ]
             for composicao, sinal in pares:
                 logger.warning(
                     "rco_aviso_nao_enfileirado",
@@ -2216,6 +2486,7 @@ class WorkerHarness:
                     collect_dmn_versions() as dmn_versions,
                     collect_rco_avaliacoes() as rco_avaliacoes,
                     collect_rco_composicoes() as rco_composicoes,
+                    collect_pos_conclusao() as pos_conclusao,
                 ):
                     # MZO-040 (ADR-0037 XRD-09): the per-call chokepoint, evaluated BEFORE the
                     # handler runs — the handler IS where the external effect happens, so a
@@ -2251,8 +2522,8 @@ class WorkerHarness:
                 # is classified transient below -> `complete` NEVER runs -> engine re-delivery.
                 # The forbidden direction (an engine effect with no audit row) is structurally
                 # impossible (design §4.2).
-                # DL-0185: `sinaisAuditoria` de novo nas entradas do grupo (uma reavaliacao depois de
-                # `registrar_composicao` reescreveria a entrada sem a chave: "ultima vence").
+                # DL-0185/DL-0187: `sinaisAuditoria` e `composicaoK1` de novo nas entradas do grupo (uma
+                # reavaliacao depois de `registrar_composicao` reescreveria a entrada sem as chaves).
                 reaplicar_sinais_auditoria(dmn_versions, rco_composicoes)
                 record = self._build_audit_record(task, out_vars, dict(dmn_versions))
                 audit_record_hash = await self._emit_audit(record, task)
@@ -2267,6 +2538,8 @@ class WorkerHarness:
                     # DL-0185: o motor pode ter gravado a conclusao (resposta perdida, timeout). Nao se
                     # enfileira aqui (a tarefa pode ser re-entregue); so se torna o aviso observavel.
                     self._avisos_rco_nao_enfileirados(task, rco_composicoes, "conclusao_incerta")
+                    # DL-0187: as de sombra nunca seriam enfileiradas; contadas como na conclusao certa.
+                    self._avisos_rco_suprimidos_sombra(task, rco_composicoes)
                     raise
                 outcome = "completed"
                 logger.info(
@@ -2278,6 +2551,9 @@ class WorkerHarness:
                 )
                 # DL-0185: os avisos de `sinalAuditoria` so DEPOIS de completar; fail-open, nunca levanta.
                 await self._enfileirar_avisos_rco(task, rco_composicoes)
+                # DL-0187: o trabalho de sombra adiado roda SO agora, depois de completar: fora do bloqueio,
+                # sem custo para o caso; fail-open, nunca levanta.
+                await self._executar_pos_conclusao(task, pos_conclusao)
             except WorkerBpmnError as exc:
                 error_type = type(exc).__name__
                 # T-E (ADR-0030 F4): a guard/denial bpmnError (ERR_CANCEL_MANTER_NOT_HUMAN,

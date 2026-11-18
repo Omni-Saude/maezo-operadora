@@ -66,6 +66,8 @@ DESFECHOS: Final[frozenset[str]] = frozenset(
         "outbox_indisponivel",
         "fila_sem_grupo",
         "pin_indisponivel",
+        # DL-0187: composicao registrada em `modo=sombra` com sinal: auditada, NUNCA enfileirada.
+        "suprimido_sombra",
     }
 )
 

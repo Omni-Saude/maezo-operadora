@@ -74,7 +74,107 @@ def test_tudo_no_outbox_nao_diverge() -> None:
         "encontrados_por_status": {"entregue": 1, "pendente": 1},
         "divergencias_por_codigo": {},
         "divergencias": [],
+        "suprimidos_sombra": 0,
     }
+
+
+def _com_modo(modo: object) -> rr.RegistroAuditado:
+    """O registro de `_registro()` com `composicaoK1` (DL-0187) nas entradas do grupo."""
+    registro = _registro()
+    versoes = {k: dict(v) for k, v in registro.dmn_versions.items()}
+    for membro in rec.ORDEM:
+        versoes[membro]["composicaoK1"] = {
+            "nome": rec.COMPOSICAO,
+            "modo": modo,
+            "desfecho": "escolhido",
+            "decisaoVencedora": rec.ORDEM[0],
+            "motivo": None,
+            "peloPadrao": False,
+        }
+    return rr.RegistroAuditado(registro.dedup_key, versoes)
+
+
+def test_paridade_do_modo_com_o_registro() -> None:
+    assert rr.CHAVE_COMPOSICAO == _audit_ctx.CHAVE_COMPOSICAO_K1
+    assert rr.MODOS == _audit_ctx.MODOS_COMPOSICAO
+    assert (rr.MODO_SOMBRA, rr.MODO_EFEITO) == (_audit_ctx.MODO_SOMBRA, _audit_ctx.MODO_EFEITO)
+
+
+def test_sombra_nao_espera_linha_no_outbox() -> None:
+    """DL-0187: o modo vem do registro DURAVEL (`composicaoK1.modo`); sombra nao espera nada e nao diverge."""
+    rel = rr.reconciliar([_com_modo("sombra")], tenant="amh", status_no_outbox={}, **_pacote())
+    assert rel.ok
+    assert (rel.esperados, rel.suprimidos_sombra) == (0, 1)
+    assert rel.como_dict()["suprimidos_sombra"] == 1
+
+
+def test_efeito_espera_linha_como_antes() -> None:
+    rel = rr.reconciliar([_com_modo("efeito")], tenant="amh", status_no_outbox={}, **_pacote())
+    assert {d.codigo for d in rel.divergencias} == {rr.AUSENTE_NO_OUTBOX}
+    assert (rel.esperados, rel.suprimidos_sombra) == (2, 0)
+
+
+def test_auditoria_sem_composicao_k1_segue_esperada() -> None:
+    """Registro anterior ao DL-0187 (os dois modos enfileiravam): sem a chave, a linha e esperada."""
+    rel = rr.reconciliar([_registro()], tenant="amh", status_no_outbox={}, **_pacote())
+    assert rel.esperados == 2 and rel.suprimidos_sombra == 0
+
+
+def test_sombra_depois_de_rodar_o_pin_nao_vira_composicao_desconhecida() -> None:
+    """DL-0187 (L1): o modo e o nome vem do registro duravel ANTES do pin; com um pin novo sem o grupo, a
+    entrada de sombra segue suprimida, nunca `composicao_desconhecida`."""
+    pacote = _pacote() | {"composicoes": ()}
+    rel = rr.reconciliar([_com_modo("sombra")], tenant="amh", status_no_outbox={}, **pacote)
+    assert rel.ok and rel.divergencias == ()
+    assert (rel.esperados, rel.suprimidos_sombra) == (0, 1)
+    # controle: efeito (e auditoria antiga) com o mesmo pin rodado continua `composicao_desconhecida`
+    for registro in (_com_modo("efeito"), _registro()):
+        rel = rr.reconciliar([registro], tenant="amh", status_no_outbox={}, **pacote)
+        assert {d.codigo for d in rel.divergencias} == {rr.COMPOSICAO_DESCONHECIDA}
+
+
+def test_fato_de_sombra_pos_conclusao_e_lido_pelo_namespace_proprio() -> None:
+    """DL-0187: o fato `SHADOW` (dedup `{tenant}:sombra:{task_id}`) e da MESMA tarefa; suprimido."""
+    registro = _com_modo("sombra")
+    fato = rr.RegistroAuditado("amh:sombra:task-1", registro.dmn_versions)
+    rel = rr.reconciliar([fato], tenant="amh", status_no_outbox={}, **_pacote())
+    assert rel.ok and (rel.esperados, rel.suprimidos_sombra) == (0, 1)
+    assert rr.DECISAO_SOMBRA == harness.AUDIT_DECISION_SOMBRA
+    rel = rr.reconciliar(
+        [rr.RegistroAuditado("amh:sombra:", registro.dmn_versions)],
+        tenant="amh",
+        status_no_outbox={},
+        **_pacote(),
+    )
+    assert {d.codigo for d in rel.divergencias} == {rr.CHAVE_AUDITORIA_FORA_DA_FORMA}
+
+
+def test_fato_shadow_e_sempre_sombra_mesmo_com_modo_efeito_gravado() -> None:
+    """DL-0187 (item 4): uma entrada rotulada `efeito` DENTRO de um fato `SHADOW` (ou no namespace `sombra:`)
+    nunca espera linha no outbox."""
+    efeito = _com_modo("efeito")
+    for registro in (
+        rr.RegistroAuditado("amh:sombra:task-1", efeito.dmn_versions),
+        rr.RegistroAuditado("amh:task-1", efeito.dmn_versions, rr.DECISAO_SOMBRA),
+        rr.RegistroAuditado("amh:sombra:task-1", _registro().dmn_versions, rr.DECISAO_SOMBRA),
+    ):
+        rel = rr.reconciliar([registro], tenant="amh", status_no_outbox={}, **_pacote())
+        assert rel.ok and (rel.esperados, rel.suprimidos_sombra) == (0, 1)
+
+
+@pytest.mark.parametrize("modo", ["ativa", None, 1, ""])
+def test_modo_fora_do_vocabulario_e_codigo_fechado(modo: object) -> None:
+    rel = rr.reconciliar([_com_modo(modo)], tenant="amh", status_no_outbox={}, **_pacote())
+    assert rel.esperados == 0
+    assert [d.como_dict() for d in rel.divergencias] == [
+        {
+            "codigo": rr.MODO_FORA_DO_VOCABULARIO,
+            "task_id": "task-1",
+            "composicao": rec.COMPOSICAO,
+            "decisao": rec.ORDEM[0],
+        }
+    ]
+    assert rr.MODO_FORA_DO_VOCABULARIO in rr.CODIGOS
 
 
 @pytest.mark.parametrize(
