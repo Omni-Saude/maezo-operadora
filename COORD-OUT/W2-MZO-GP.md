@@ -424,3 +424,20 @@ Verificação:
   - Título e corpo do #1333 descrevem o que entrou.
   - Disco: worktrees de mutação, comparação e simulação removidas sem `--force`; scratchpad sem temporários; `git status` limpo. Worktrees: só o clone principal (em `main` `587a759b`) e o canal.
 - Próxima: 05r-c sobre `587a759b`. `production.py` não muda (CD-163; ROOT reforçou que mudança nele passa por ele).
+
+## 2026-11-18 ~17:50Z — 05r-c: revisão independente FAIL → corrigido → PASS
+
+- Ramo local `sf-w2/mzo-gp/esf05r-c` (base `587a759b`), SEM push. Arquivos: `src/maezo/gateway/commercial_record_resolver.py` (novo), `src/maezo/portal/api/app.py`, `src/maezo/portal/api/commercial.py` (CAMINHO da CD-162), `tests/unit/gateway/test_esf05r_record_resolver.py` (novo), `tests/unit/test_commercial_admission_a1.py` (o teste nomeado). `production.py` intocado.
+- 1ª revisão (`7dfe6cac`): **FAIL**. Bloqueante: `test_resolved_gateway_passes_through_the_legitimacy_posture` era VÁCUO; rodava com a flag desligada e passou mesmo sem a aplicação da postura em `app.py` (mutação do revisor). Não bloqueantes: postura inválida dava 503 com corpo genérico, não o fixo; leitura do registro bloqueava o loop.
+- Correção (`a33abda2`):
+  - o teste liga a flag com a fábrica da shadow e afirma `type(...) is LegitimacyScreenShadow`, e `CommercialGateway` com a flag desligada;
+  - o invólucro foi para dentro do fail-closed do resolvedor, com teste de postura inválida → 503 de corpo fixo;
+  - as rotas leem o registro via `asyncio.to_thread`.
+  - Mutações: sem a postura em `app.py` → 2 vermelhos; invólucro fora do `try` → 1 vermelho.
+- 2ª revisão (`a33abda2`): **PASS**. Bloqueio fechado; nenhum caminho menos restritivo; `asyncio.to_thread` seguro (estado lido no loop, resolvedor imutável, exceções contidas). Achados não bloqueantes:
+  1. as funções de composição agora rodam numa thread → registro como contrato na docstring (feito depois da bateria);
+  2. a checagem de tipo pós-invólucro é redundante (fica como defesa);
+  3. a leitura fora do loop não tem teste (propriedade de desempenho);
+  4. acoplamento de import entre módulos de teste.
+- Lição: o mesmo padrão de teste vácuo da parte b (afirmar algo que o caminho padrão também satisfaz). Passo a mutar cada teste novo de postura ou invólucro antes da revisão.
+- `make lint type validate-artifacts` verde; `tests/unit` × main limpa em curso (parte 1 idêntica, 160 linhas).
