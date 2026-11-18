@@ -416,7 +416,7 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
 _LINHA_TETO_DO_MOTOR: Final[str] = "  APURADO PELO MOTOR  valor dentro do teto de aprovacao automatica"
 
 
-#: DL-0192 (ADR-0079, unidade U1): as UNICAS chaves de `fatos` que chegam ao prompt do LLM.
+#: DL-0190 (ADR-0079, unidade U1): as UNICAS chaves de `fatos` que chegam ao prompt do LLM.
 #:
 #: Lista FECHADA, e nao lista de exclusao: um campo novo em `fatos` fica fora do prompt ate'
 #: alguem o acrescentar aqui de proposito. Ficam de fora `numero_guia_tiss` (identificador
@@ -446,7 +446,7 @@ _CHAVES_FATOS_PROMPT: Final[tuple[str, ...]] = (
 
 
 def fatos_para_prompt(facts: dict[str, Any]) -> dict[str, Any]:
-    """Recorta `fatos` pela lista fechada `_CHAVES_FATOS_PROMPT` (DL-0192).
+    """Recorta `fatos` pela lista fechada `_CHAVES_FATOS_PROMPT` (DL-0190).
 
     So' leitura: o dicionario do dossie nao muda. Chave da lista ausente em `facts` nao entra.
     """
@@ -840,7 +840,7 @@ class RafaelGraph:
         }
         # `render_fatos_para_prompt` no lugar de `fatos={facts}`: ver `_FATOS_BOOLEANOS`.
         # O dicionario `facts` segue intacto no dossie devolvido logo abaixo; o prompt recebe so'
-        # o recorte da lista fechada `_CHAVES_FATOS_PROMPT` (DL-0192: sem guia nem CID-10).
+        # o recorte da lista fechada `_CHAVES_FATOS_PROMPT` (DL-0190: sem guia nem CID-10).
         prompt = (
             f"{dossier_prompt()}\n\nroute={route} motivo_auditor={motivo_auditor}\n"
             f"{render_fatos_para_prompt(fatos_para_prompt(facts))}"

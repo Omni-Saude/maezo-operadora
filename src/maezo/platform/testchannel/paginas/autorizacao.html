@@ -1,7 +1,7 @@
 <!-- Pagina servida pelo Canal de Teste em /p/autorizacao.html
      Mesma origem do motor (/engine) e do agente (/agente) — sem credencial, sem CORS.
      Os casos abaixo sao SINTETICOS, gerados para o Canal de Teste (padrao fechado FICT-AUT-NNNN,
-     FICT-PRE-NN, FICT-BNF-NNNN). Nenhum vem de dado de beneficiario; DL-0192.
+     FICT-PRE-NN, FICT-BNF-NNNN). Nenhum vem de dado de beneficiario; DL-0190.
 
      ================================================================================
      QUATRO AJUSTES DO TIME, 19/08/2026 — para a pagina falar com o que existe na AWS
@@ -41,11 +41,11 @@
      4. MOJIBAKE nos nomes de procedimento (`DiÃ¡ria`, `FacoemulsificaÃ§Ã£o`) — UTF-8 lido
         como latin-1 na extracao. Corrigido no JSON embutido; nada mais foi tocado.
 
-     ZONA DA NARRATIVA (os casos aqui sao sinteticos, DL-0192). Enquanto a
+     ZONA DA NARRATIVA (os casos aqui sao sinteticos, DL-0190). Enquanto a
      narrativa do dossie nao for ratificada (DPO + medico auditor, em
      `spec/policies/phi/dossier-narrative-zone.yaml`), a chamada da narrativa vai ao provedor
      configurado como zona PHI. Em dev esse provedor pode ser um modelo real fora do Brasil,
-     sob a excecao regional do DPO: NAO ha garantia de zero egresso. Desde o DL-0192 o prompt
+     sob a excecao regional do DPO: NAO ha garantia de zero egresso. Desde o DL-0190 o prompt
      nao leva numero da guia nem CID-10, mas leva os demais fatos do caso.
 -->
 <meta charset="utf-8">

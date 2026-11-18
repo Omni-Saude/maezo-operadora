@@ -18,8 +18,8 @@ operador para as jornadas com User Task é o **Cockpit do CIB Seven**.
   Access, qualquer um alcança o proxy de `/engine/*` e o ingresso do Rafael em
   `/agente/v1/autorizacoes`.
 - **Uso pretendido: demonstração e teste manual**, não operação de produção. `autorizacao.html`
-  (535 linhas) monta uma página de dossiê/decisão real para `SP-OP-AUTH-001` com casos sintéticos
-  (DL-0192) — materialmente útil para VER o que uma User Task carrega — mas sem o controle de
+  (539 linhas) monta uma página de dossiê/decisão real para `SP-OP-AUTH-001` com casos sintéticos
+  (DL-0190) — materialmente útil para VER o que uma User Task carrega — mas sem o controle de
   acesso por papel, trilha de auditoria de decisão vinculada a um usuário nomeado, ou qualquer dos
   outros requisitos que uma superfície de operador ratificada exigiria.
 - **Ver também:** `paginas/README.md` (por que as páginas são servidas aqui, mesma-origem, em vez

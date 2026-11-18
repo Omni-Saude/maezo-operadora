@@ -340,7 +340,7 @@ a{color:var(--accent)}
     <label>valor_estimado_brl<input id="ag_valor" placeholder="ex.: 480"></label>
   </div>
   <p class="hint">Só caso fictício: o número da guia precisa começar com <code>FICT-</code>.
-  O CID-10 não é pedido nem enviado ao agente (DL-0192).</p>
+  O CID-10 não é pedido nem enviado ao agente (DL-0190).</p>
   <div style="margin:.7rem 0;display:flex;gap:.5rem;flex-wrap:wrap">
     <button class="ghost" onclick="exemploFicticio()">preencher exemplo fictício</button>
     <button class="primary" onclick="pedirAoRafael()">Enviar ao Rafael</button>
@@ -388,7 +388,7 @@ function exemploFicticio(){
   $("ag_carater").value="eletivo"; $("ag_valor").value="480";
 }
 
-// DL-0192: marcador FECHADO de caso ficticio. Guia sem ele nao sai daqui.
+// DL-0190: marcador FECHADO de caso ficticio. Guia sem ele nao sai daqui.
 const GUIA_FICTICIA="FICT-";
 
 function agCampo(id){const v=$(id).value.trim();return v===""?null:v}
@@ -400,7 +400,7 @@ async function pedirAoRafael(){
     out.innerHTML=`<div class="errmsg">recusado: o número da guia precisa começar com ${GUIA_FICTICIA} (só caso fictício neste canal)</div>`;
     return;
   }
-  // DL-0192: sem `cid10` no corpo. O CID e' dado sensivel de saude e este canal nao o envia.
+  // DL-0190: sem `cid10` no corpo. O CID e' dado sensivel de saude e este canal nao o envia.
   const corpo={tenant_id:agCampo("ag_tenant"),numero_guia_tiss:guia,
     codigo_procedimento_tuss:agCampo("ag_tuss"),categoria_procedimento:agCampo("ag_categoria"),
     prestador_id:agCampo("ag_prestador"),beneficiario_pseudo_id:agCampo("ag_benef"),
@@ -569,6 +569,39 @@ def _caminho_normalizado(caminho: str) -> str:
     return re.sub(r"/+", "/", posixpath.normpath("/" + so_caminho))
 
 
+#: DL-0190: marcador FECHADO de caso ficticio. O ingresso do agente so' recebe, por este canal,
+#: guia que o carregue — o canal nao tem como saber se um caso e' real, entao exige que quem
+#: preenche o declare. A mesma constante vive no JavaScript do formulario (`GUIA_FICTICIA`).
+GUIA_FICTICIA = "FICT-"
+
+#: Rota do ingresso que recebe pedido de autorizacao, ja' sem o prefixo `/agente`.
+ROTA_AUTORIZACOES = "/v1/autorizacoes"
+
+
+def _recusa_do_pedido_ao_agente(caminho: str, bruto: bytes) -> str | None:
+    """Motivo de recusa (texto curto, SEM o valor recebido) ou `None` para repassar.
+
+    Vale para a rota de autorizacoes (comparada no caminho NORMALIZADO, como a cerca do motor)
+    e para qualquer corpo que traga `numero_guia_tiss` ou `cid10` — mudar a grafia do caminho
+    nao contorna a regra. `cid10` e' recusado em vez de removido: quem o mandou fica sabendo.
+    """
+    rota = _caminho_normalizado(caminho) == ROTA_AUTORIZACOES
+    try:
+        corpo = json.loads(bruto.decode("utf-8")) if bruto else None
+    except (UnicodeDecodeError, ValueError):
+        corpo = None
+    if not isinstance(corpo, dict):
+        return "corpo do pedido nao e' um objeto JSON" if rota else None
+    if not rota and "numero_guia_tiss" not in corpo and "cid10" not in corpo:
+        return None
+    if "cid10" in corpo:
+        return "cid10 nao e' aceito neste canal de teste"
+    guia = corpo.get("numero_guia_tiss")
+    if not isinstance(guia, str) or not guia.startswith(GUIA_FICTICIA):
+        return f"numero_guia_tiss precisa comecar com {GUIA_FICTICIA} (so' caso ficticio neste canal)"
+    return None
+
+
 def _processo_da_tarefa(tarefa_id: str) -> str | None:
     """A CHAVE do processo da tarefa, lida no motor; `None` se a leitura falhar ou vier torta."""
     if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", tarefa_id):
@@ -645,7 +678,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._proxy(ENGINE, "/engine")
 
-    def _proxy(self, base: str, prefixo: str, timeout: int = 30) -> None:
+    def _proxy(self, base: str, prefixo: str, timeout: int = 30, corpo: bytes | None = None) -> None:
         """Repassa a requisicao para `base`, tirando `prefixo` do caminho.
 
         `timeout` e' parametro porque as duas pontas tem ordens de grandeza diferentes: o
@@ -653,8 +686,8 @@ class Handler(BaseHTTPRequestHandler):
         de segundos. Um timeout de 30s no agente cortaria justamente o caso que se quer ver.
         """
         path = self.path[len(prefixo) :]
-        body = None
-        if self.command == "POST":
+        body = corpo
+        if body is None and self.command == "POST":
             body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         req = urllib.request.Request(
             base + path,
@@ -763,9 +796,14 @@ class Handler(BaseHTTPRequestHandler):
             if not AGENTE:
                 self._responder_json(503, {"erro": "AGENT_INGRESS_URL nao configurada neste canal"})
                 return
+            bruto = self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
+            recusa = _recusa_do_pedido_ao_agente(self.path[len("/agente") :], bruto)
+            if recusa is not None:
+                self._responder_json(422, {"erro": recusa})
+                return
             # 180s: um turno com modelo real pode levar dezenas de segundos, e o que se quer
             # ver e' exatamente esse caso.
-            self._proxy(AGENTE, "/agente", timeout=180)
+            self._proxy(AGENTE, "/agente", timeout=180, corpo=bruto)
             return
         self.send_response(404)
         self.end_headers()

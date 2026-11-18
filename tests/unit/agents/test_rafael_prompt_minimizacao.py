@@ -1,4 +1,4 @@
-"""DL-0192 (ADR-0079, unidade U1): o prompt da narrativa do dossie leva so' a lista fechada.
+"""DL-0190 (ADR-0079, unidade U1): o prompt da narrativa do dossie leva so' a lista fechada.
 
 O que estes testes travam:
 

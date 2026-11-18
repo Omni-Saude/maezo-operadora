@@ -34,17 +34,17 @@ async function verMotor(){
 }
 
 async function pedirAoAgente(){
-  // Caso FICTICIO: numero de guia fora de qualquer faixa real, pseudonimo explicito.
+  // Caso FICTICIO: guia com o marcador FICT- (DL-0190; o canal recusa sem ele), pseudonimo explicito.
   const n = 90000000 + Math.floor(Math.random()*99999);
   out.textContent = "executando um turno do agente… (modelo real leva dezenas de segundos)";
   const t0 = performance.now();
   try{
     const r = await fetch("/agente/v1/autorizacoes", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({tenant_id:"amh", numero_guia_tiss:String(n),
+      body: JSON.stringify({tenant_id:"amh", numero_guia_tiss:"FICT-"+String(n),
         codigo_procedimento_tuss:"40901114", categoria_procedimento:"exame",
         prestador_id:"PREST-FICTICIO-EXT", beneficiario_pseudo_id:"pseudo-ficticio-"+n,
-        carater_atendimento:"eletivo", cid10:"M545", valor_estimado_brl:480,
+        carater_atendimento:"eletivo", valor_estimado_brl:480,
         canal:"portal_tiss"})});
     const j = await r.json();
     const ms = Math.round(performance.now()-t0);
