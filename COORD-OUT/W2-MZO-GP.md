@@ -385,3 +385,13 @@ Verificação:
 - Falta antes do push: `make lint type validate-artifacts` e o `ruff`/noqa da CD-170 (rodo agora).
 
 **Pedido:** liberação do push da 05r-b (toca `commercial_admission.py` e `test_commercial_admission_a2/_a4`, como a 05r-a).
+
+## 2026-11-18 ~16:10Z — Revisão independente da 05r-b: PASS (CD-178)
+
+- Revisor separado, só com o diff e o objetivo, sem minhas conclusões. **VEREDITO: PASS**, sem bloqueio. Rodou a1–a10, c5, c6, `test_commercial_http.py` e `tests/unit/gateway`; 5 mutações, todas vermelhas. Confirmou que nenhum caminho passou a recusar menos e que o teste antigo do a4 agora testa o gate.
+- Achados baixos, tratados antes do push (commit novo, só testes):
+  1. a recusa da cobertura `unknown` sem motivo não tinha teste no caminho de recuperação `operation.get` → `test_recovered_unknown_without_reason_is_refused`; o mutante que restringe a regra ao `journey.get` ficou vermelho;
+  2. eu tinha escrito "5 usos" do helper vácuo; na base eram 2, os outros 3 eram dos meus testes novos → corrigido na descrição;
+  3. variável mal nomeada no teste de aceite → renomeada.
+- Informativos sem mudança: a ordem das mensagens quando A2 e A1 estão ambas fora do contrato; `test_never_issued_to_active` sobrepõe um teste existente (fica como a guarda nomeada).
+- Push a seguir.
