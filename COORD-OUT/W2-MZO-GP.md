@@ -365,3 +365,23 @@ Nada de DMN, migração, DL, `PLANS.md`, CODEOWNERS, workflows ou contrato. Arqu
 - As contagens de linhas batem com os totais de cada parte (a comparação viu todas as falhas).
 - `tests/unit/adapters/amh/test_no_foreign_exception_escapes.py::…::test_corpus_is_not_vacuous` falha só com `-n 4` e passa sozinho (153 passed). Falha igual na main nas duas rodadas.
 - Com as rodadas anteriores (comerciais, gateway, sec, processes, portal, ci), a 05r-a passou por `tests/unit` inteiro. Nenhuma falha é dela.
+
+## 2026-11-18 ~15:40Z — 05r-b pronta no ramo local; tests/unit inteiro × main limpa; pedido de push
+
+Ramo local `sf-w2/mzo-gp/esf05r-b` (base `ab35f086`), commit `182d7b33`, SEM push. Arquivos:
+- `src/maezo/gateway/commercial_admission.py`:
+  - `CoverageGatedCodec`: sem A4, cobertura `unknown` sem `unknownReason` é recusada como fato vindo da fonte (lacuna 3);
+  - `compose_commercial_gateway`: as checagens de sha de A1, A3, A4 e A5 sobem para antes do retorno antecipado e recusam também sem A2 (lacuna 2). O CAMINHO falava só da A4; A1, A3 e A5 tinham o mesmo defeito e entram, só recusando mais.
+- `tests/unit/test_commercial_admission_a2.py`: `test_concrete_verifier_with_stale_connection_refuses_before_body` (vencido, alheio e os dois) e um caso de controle.
+- `tests/unit/test_commercial_admission_a4.py`: `test_never_issued_to_active`, `test_unknown_without_reason_is_refused`, `test_admitted_a4_passes_the_source_rendering_unchanged` e `test_off_contract_admission_is_refused_even_without_a2` (quatro dimensões).
+- `tests/unit/gateway/test_esf05r_acceptance.py` (novo): `test_declarations_never_in_acceptance_payload` (accept e decline, seis chaves, no payload e no envelope), controle e a ausência de slot de declaração e de assinatura no payload congelado.
+
+ACHADO e teste invertido: `test_commercial_admission_a4.py::test_source_asserted_coverage_stays_gated_even_with_issued_contract` era VÁCUO. O helper `issued_journey_result` embrulhava o snapshot duas vezes, o wire ficava inválido e a resposta era 202 até com A4 admitida (provado por sonda). Troquei os 5 usos por `journey_with_coverage(..., issued=True)` e removi o helper. O teste antigo agora recusa pelo gate, e o mesmo snapshot com A4 dá 200.
+
+Verificação:
+- `tests/unit` inteiro em 6 partes, ramo × main limpa `ab35f086` (worktree destacada, já removida), linhas de resumo com mensagem comparadas: partes 1–6 com 160, 107, 15, 19, 18 e 169 linhas, **0 só no ramo e 0 só na main** em todas. A parte 5 tem 25 testes a mais no ramo (os novos).
+- Mutação em worktree isolada (removida): sem a regra do `unknownReason` → 1 vermelho; checagens de sha devolvidas para depois do retorno → 5 vermelhos; sem `valid_until` → 1; sem `connection_ref` → 1. Duas tentativas não aplicaram (o texto aparece duas vezes no arquivo); refeitas mirando a linha exata, sem contar o "passou" vazio.
+- 2 merges atrás: #1328 (`b558963c`) e #1330 (`ff86fb4f`). Nenhum arquivo em comum, nenhum uso dos símbolos tocados; `merge-tree` limpo. O teste novo segue no shard `gateway-platform`; o pronto vai contar os 4 shards de integração da CD-176.
+- Falta antes do push: `make lint type validate-artifacts` e o `ruff`/noqa da CD-170 (rodo agora).
+
+**Pedido:** liberação do push da 05r-b (toca `commercial_admission.py` e `test_commercial_admission_a2/_a4`, como a 05r-a).
