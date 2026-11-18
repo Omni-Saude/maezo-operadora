@@ -1,0 +1,132 @@
+"""Guarda de despacho da recuperacao de abandono (E-SF-16 / TB-E-18-a, TB-E-09-d), variante FECHADA.
+
+Fica ANTES do `OutboundGate` e so' acrescenta recusas; o gate continua decidindo depois (modelo, permissao
+publicada, supressao, idempotencia). Nada envia: a chave nasce desligada, o leitor recusa liga-la e a
+cadencia e' um parametro proposto, sem base, igual a zero toques.
+
+Ordem (a primeira recusa encerra):
+  1. oposicao registrada: consulta a fonte de supressao ANTES DE TUDO; fonte que nao responde recusa;
+  2. tipo de mensagem: so' "lembrete". Pedido de documentacao nunca e' recuperacao (sem efeito no relogio);
+  3. elegibilidade re-checada no envio (`recovery_eligibility`), com o relogio-sombra canonico;
+  4. permissao: aceite valido do proprio titular, que liste a finalidade 7 (retomada); nada herdado;
+  5. cadencia: toques ja' enviados >= toques permitidos (zero) recusa.
+
+Nao importado por `dispatch.py`, pelo despachante nem por raiz de composicao (teste).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Final
+
+from maezo.gateway.communications.finalidades_do_aceite import aceite_autoriza, validar_aceite
+from maezo.gateway.communications.outbound_gate import FonteDeSupressao
+from maezo.gateway.communications.recovery_eligibility import Elegivel, avaliar_elegibilidade
+
+__all__ = [
+    "CANAL",
+    "FINALIDADE_RETOMADA",
+    "RECUPERACAO_LIGADA",
+    "TIPOS_DE_MENSAGEM",
+    "TOQUES_PERMITIDOS_PROPOSTO_SEM_BASE",
+    "MotivoDespachoRecuperacao",
+    "PedidoDeRecuperacao",
+    "RecuperacaoDespachoRecusado",
+    "despachar_recuperacao",
+    "guardar_envio_de_recuperacao",
+    "ler_chave_da_recuperacao",
+]
+
+CANAL: Final[str] = "whatsapp"
+#: Finalidade 7 do aceite unico: retomada de contratacao nao concluida.
+FINALIDADE_RETOMADA: Final[int] = 7
+#: Classe fechada do que uma mensagem de recuperacao pode ser.
+TIPOS_DE_MENSAGEM: Final[frozenset[str]] = frozenset({"lembrete"})
+#: Cadencia: parametro PROPOSTO, SEM BASE (nao ha' decisao de cadencia). Zero toques: nada sai.
+TOQUES_PERMITIDOS_PROPOSTO_SEM_BASE: Final[int] = 0
+#: Chave do envio de recuperacao. Desligada.
+RECUPERACAO_LIGADA: Final[bool] = False
+
+
+class MotivoDespachoRecuperacao(StrEnum):
+    RECOVERY_SWITCH_OFF = "RECOVERY_SWITCH_OFF"
+    RECOVERY_OPPOSITION_REGISTERED = "RECOVERY_OPPOSITION_REGISTERED"
+    RECOVERY_SUPPRESSION_UNAVAILABLE = "RECOVERY_SUPPRESSION_UNAVAILABLE"
+    DOCUMENT_REQUEST_FORBIDDEN = "DOCUMENT_REQUEST_FORBIDDEN"
+    RECOVERY_MESSAGE_KIND_NOT_ALLOWED = "RECOVERY_MESSAGE_KIND_NOT_ALLOWED"
+    RECONTACT_PERMISSION_UNQUALIFIED = "recontact_permission_unqualified"
+    RECOVERY_CADENCE_EXHAUSTED = "RECOVERY_CADENCE_EXHAUSTED"
+
+
+class RecuperacaoDespachoRecusado(PermissionError):  # noqa: N818
+    """Recusa tipada; a mensagem e' so' o codigo, nunca o valor recebido."""
+
+    def __init__(self, motivo: MotivoDespachoRecuperacao) -> None:
+        self.motivo = motivo
+        super().__init__(motivo.value)
+
+
+@dataclass(frozen=True, slots=True)
+class PedidoDeRecuperacao:
+    """Um lembrete candidato. So' referencias; nenhum telefone, nome, idade, plano, valor ou dado de saude."""
+
+    tipo_titular: str
+    titular_ref: str
+    etapa: str
+    tipo_mensagem: str
+    aceite: object
+    aceite_registrado: bool
+    toques_ja_enviados: int
+
+
+def ler_chave_da_recuperacao(valor: object) -> bool:
+    """O leitor da chave. Qualquer valor diferente de "desligado" recusa: ligar nao e' desta variante."""
+    if valor is None or valor is False or valor == "desligado":
+        return False
+    raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SWITCH_OFF)
+
+
+def _parece_documentacao(tipo: str) -> bool:
+    baixo = tipo.lower()
+    return "document" in baixo or "pericia" in baixo or "entrevista" in baixo
+
+
+async def guardar_envio_de_recuperacao(
+    pedido: PedidoDeRecuperacao, *, relogio: object, supressao: FonteDeSupressao
+) -> Elegivel:
+    """Aplica a ordem do modulo. Devolve `Elegivel` (nao e' autorizacao) ou levanta a recusa tipada."""
+    try:
+        vigentes = await supressao.vigentes()
+    except Exception as exc:  # noqa: BLE001 - fonte que nao responde nunca vira "sem oposicao"
+        raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SUPPRESSION_UNAVAILABLE) from exc
+    if (pedido.titular_ref, CANAL) in vigentes:
+        raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_OPPOSITION_REGISTERED)
+    tipo = pedido.tipo_mensagem
+    if type(tipo) is not str or tipo not in TIPOS_DE_MENSAGEM:
+        if type(tipo) is str and _parece_documentacao(tipo):
+            raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.DOCUMENT_REQUEST_FORBIDDEN)
+        raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_MESSAGE_KIND_NOT_ALLOWED)
+    elegivel = avaliar_elegibilidade(
+        tipo_titular=pedido.tipo_titular,
+        etapa=pedido.etapa,
+        aceite_registrado=pedido.aceite_registrado,
+        relogio=relogio,
+    )
+    if not aceite_autoriza(pedido.aceite, FINALIDADE_RETOMADA) or (
+        validar_aceite(pedido.aceite).tipo_titular != pedido.tipo_titular
+    ):
+        raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECONTACT_PERMISSION_UNQUALIFIED)
+    toques = pedido.toques_ja_enviados
+    if type(toques) is not int or toques < 0 or toques >= TOQUES_PERMITIDOS_PROPOSTO_SEM_BASE:
+        raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_CADENCE_EXHAUSTED)
+    return elegivel
+
+
+async def despachar_recuperacao(
+    pedido: PedidoDeRecuperacao, *, relogio: object, supressao: FonteDeSupressao
+) -> Elegivel:
+    """Ponto de entrada do despacho. Com a chave desligada, recusa antes de qualquer consulta."""
+    if not RECUPERACAO_LIGADA:
+        raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SWITCH_OFF)
+    return await guardar_envio_de_recuperacao(pedido, relogio=relogio, supressao=supressao)
