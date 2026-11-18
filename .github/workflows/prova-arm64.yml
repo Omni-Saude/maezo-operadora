@@ -1,0 +1,2700 @@
+name: CI arm64 (prova)
+
+# PROVA TEMPORARIA arm64 (custo de Actions, 18/11/2026) — NAO INCORPORAR. Copia do ci.yml da main
+# ff86fb4f com: runner `ubuntu-24.04-arm` em todos os jobs, nomes prefixados `arm64 / ` (nenhum contexto
+# com nome de check obrigatorio), gatilho so' no PR que traz este arquivo, e a lane de integracao forcada
+# a rodar (o filtro de caminho a pularia, porque este PR so' toca .github/**). Objetivo: comparar tempo e
+# resultado com as runs x64 do mesmo commit. Aprovado pela ROOT; o PR e' fechado sem merge.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/prova-arm64.yml"
+
+permissions:
+  contents: read
+
+# Cancel in-progress runs for the same branch/PR on new pushes.
+# O noturno (`schedule`) tem GRUPO PROPRIO. Antes, `push` e `schedule` em `main` dividiam
+# `CI-refs/heads/main` com cancel-in-progress: um merge perto das 06:00 UTC cancelava o canario
+# noturno no meio (medido 17/10-16/11/2026: 7 de 30 noturnos cancelados, ~1,2 mil job-min pagos
+# sem veredito) e o `red-main-alarm.yml` ficava sem o canario que ele le. PR e push seguem
+# cancelando a run anterior do MESMO ref, como antes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'noturno' || github.ref }}
+  cancel-in-progress: true
+
+env:
+  MAEZO_CI_PYTHON_VERSION: "3.12"
+  MAEZO_CI_UV_VERSION: "0.11.26"
+
+jobs:
+  # ---------------------------------------------------------------------------------------
+  # A SUITE UNITARIA EM SHARDS PARALELOS (22/09/2026). Medido no run 35670623321: o job
+  # `lint / type / unit` levava 54 min, dos quais 51m42s eram UM passo, o pytest em processo
+  # unico; checkout, dependencias, lint e mypy somavam 2,5 min. Nao adiantava mexer em mais nada.
+  #
+  # Dentro da suite (23.619 testes, 50,6 min somados) o tempo esta concentrado: os 20 arquivos
+  # mais lentos sao 39 dos 50 minutos, e quase todos geram subprocesso (pytest dentro de pytest,
+  # `uv lock`, `git`). Dois eixos, independentes:
+  #   1. funcoes quentes em Python puro trocadas por regex/cache, com equivalencia provada
+  #      (`profile.py`, `controller_contracts.py`, `check_canal_simular.py`);
+  #   2. PARALELISMO: `pytest-xdist -n auto --dist loadfile` dentro de cada shard, e a suite
+  #      partida em shards por diretorio, balanceados pelo tempo medido no JUnit do CI
+  #      (tests/unit/ci 23,8 min · gateway 11,1 · dev 8,0 · platform 5,5 · o resto 2,0).
+  #
+  # `--dist loadfile` de proposito: a suite nunca rodou em paralelo; manter cada ARQUIVO num so'
+  # worker preserva fixtures de modulo e estado em `tmp_path` por arquivo. Medido em serie x
+  # `-n 4` sobre ci+gateway/human: 1037s -> 501s com o MESMO conjunto de falhas (uma unica
+  # diferenca, `test_actual_bad_relations_never_launch`, que e' intermitente tambem em serie).
+  #
+  # A conta do Actions e' por minuto de RELOGIO de cada job: paralelizar dentro do job corta o
+  # tempo E a fatura; fatiar em shards soma o setup de cada um (~2,5 min x 5) mas o total ainda
+  # fica abaixo dos 54 min de hoje. O portao de cobertura (>=85%) NAO enfraquece: cada shard
+  # grava `.coverage.<shard>` e o job agregador combina tudo antes de medir — medir por shard
+  # reprovaria cada um sozinho, entao a unica leitura honesta e' a combinada.
+  #
+  # Os shards sao uma PARTICAO de `tests/` (completa e disjunta), e ha' um teste que prova isso
+  # contra a colecao em serie: `tests/unit/ci/test_global_integration_ci.py`.
+  # ---------------------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # TRILHAS (ADR-0067 fase 4): o PR que so' toca um AGENTE nao passa pela suite do Maezo.
+  # `scripts/ci/trilha.py` classifica o diff: conteudo (`spec/agents/<id>/pacote/**`), logica
+  # (`src/maezo/agents/<id>/**` + os testes do agente) ou PLATAFORMA (todo o resto, inclusive
+  # `maezo.contratos`, o framework de agentes e o proprio CI). Na duvida, plataforma.
+  #   * plataforma -> a suite inteira, como sempre (`unit` -> `quality` -> integracao...);
+  #   * agente     -> `agentes (trilha)`: lint/tipo do agente, os testes que o importam e as cercas;
+  #   * conteudo   -> so' o pacote (`agentes-pacote.yml`).
+  # O check obrigatorio `lint / type / unit` e' o `portao`, que roda SEMPRE e reprova se a
+  # classificacao falhou ou se a trilha escolhida nao terminou verde: uma trilha quebrada nunca vira
+  # "tudo pulado = verde".
+  # ---------------------------------------------------------------------------
+  trilha:
+    name: arm64 / trilha (plataforma x agente)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    # `actions: read` + `pull-requests: read`: so' para a decisao da arvore verificada (abaixo) — ler a run do
+    # PR e o artefato dela. Nada aqui escreve.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      plataforma: ${{ steps.classificar.outputs.plataforma }}
+      agentes: ${{ steps.classificar.outputs.agentes }}
+      # 'true' SO' no push em main cuja arvore e' identica a testada pela run verde do PR (L1a). Em qualquer
+      # outro evento, ou em qualquer duvida, fica 'false' e o workflow roda inteiro.
+      verificado: ${{ github.event_name == 'push' && steps.arvore.outputs.verificado == 'true' && 'true' || 'false' }}
+      run_verificadora: ${{ steps.arvore.outputs.run_verificadora }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      # ARVORE VERIFICADA (L1a, custo de Actions, 18/11/2026). No PR, grava a arvore do merge de teste que esta
+      # run verifica; no push em main, `scripts/ci/arvore_verificada.py` compara a arvore do merge com a da
+      # ULTIMA run em pull_request do head final do PR, que precisa estar `success`. Iguais = os mesmos bytes ja
+      # verdes: as lanes pesadas (shards de unit e o que depende delas, portal-web, terraform, java, helm) nao
+      # repetem e o `portao` aponta a run verificadora. Qualquer duvida = roda tudo. Medido em 11-18/11: 41%
+      # dos merges, ~100 min de runner cada.
+      - name: Grava a arvore testada (pull_request)
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/ci/arvore_verificada.py --gravar "$RUNNER_TEMP/arvore-testada"
+      - name: Publica a arvore testada (pull_request)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: arvore-testada-ci
+          path: ${{ runner.temp }}/arvore-testada/arvore.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Arvore ja verificada pelo PR? (push em main)
+        id: arvore
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/arvore_verificada.py --decidir --workflow ci.yml --artefato arvore-testada-ci
+      - name: Classifica o diff
+        id: classificar
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          case "${EVENT_NAME}" in
+            pull_request) git diff --name-only "origin/${BASE_REF}...HEAD" > "$RUNNER_TEMP/diff.txt" ;;
+            push) git diff --name-only HEAD~1 HEAD > "$RUNNER_TEMP/diff.txt" ;;
+            *) : > "$RUNNER_TEMP/diff.txt" ;;  # schedule/dispatch: diff vazio = plataforma
+          esac
+          python3 scripts/ci/trilha.py < "$RUNNER_TEMP/diff.txt" > "$RUNNER_TEMP/trilha.json"
+          cat "$RUNNER_TEMP/trilha.json"
+          python3 - "$RUNNER_TEMP/trilha.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          t = json.load(open(sys.argv[1]))
+          print("plataforma=" + ("true" if t["plataforma"] else "false"))
+          print("agentes=" + json.dumps(t["agentes"]))
+          PY
+          {
+            echo "## trilha"
+            echo ""
+            echo '```json'
+            cat "$RUNNER_TEMP/trilha.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  agentes:
+    name: arm64 / agentes (trilha) (${{ matrix.agente }})
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'false' && needs.trilha.outputs.agentes != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        agente: ${{ fromJSON(needs.trilha.outputs.agentes) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Qualify canonical uv storage for immutable historical tools
+        run: |
+          echo "MAEZO_CI_UV_CACHE_DIR=$HOME/.cache/uv" >> "$GITHUB_ENV"
+          echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ env.MAEZO_CI_UV_CACHE_DIR }}
+          cache-suffix: offline-fixture-${{ hashFiles('.github/workflows/ci.yml', 'scripts/ci/prepare_offline_fixture_cache.py', 'scripts/dev/run_engine_integration.py') }}
+          cache-dependency-glob: "uv.lock"
+
+      - name: Verify uv defaults and populate the qualified interpreter
+        run: |
+          test "$(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR uv cache dir)" = "$MAEZO_CI_UV_CACHE_DIR"
+          test "$(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR uv python dir)" = "$MAEZO_CI_UV_PYTHON_INSTALL_DIR"
+          uv python install "$MAEZO_CI_PYTHON_VERSION"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev --cache-dir "$RUNNER_TEMP/maezo-project-build-cache"
+
+      - name: Prepare default offline fixture cache
+        run: |
+          set -e
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I \
+            scripts/ci/prepare_offline_fixture_cache.py --root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/offline-fixture-cache-proof"
+
+      - name: Lint e tipo do agente
+        env:
+          AGENTE: ${{ matrix.agente }}
+        run: |
+          set -e
+          .venv/bin/python -m ruff check "src/maezo/agents/${AGENTE}" tests/unit/agents
+          .venv/bin/python -m ruff format --check "src/maezo/agents/${AGENTE}"
+          .venv/bin/python -m mypy "src/maezo/agents/${AGENTE}"
+
+      - name: Cercas da fronteira (o agente continua so' no SDK e atras da porta)
+        run: |
+          set -e
+          .venv/bin/python scripts/ci/check_fronteira_agentes.py
+          make check-qa-isolada effect-chokepoint-fence
+          .venv/bin/python scripts/ci/check_roteador_lucas.py
+
+      - name: Testes que importam o agente (unit + contrato)
+        env:
+          AGENTE: ${{ matrix.agente }}
+        run: |
+          set -e
+          .venv/bin/python scripts/ci/trilha.py --testes-do-agente "${AGENTE}" > "$RUNNER_TEMP/testes.txt"
+          echo "$(wc -l < "$RUNNER_TEMP/testes.txt") arquivos de teste do agente ${AGENTE}"
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest \
+            $(cat "$RUNNER_TEMP/testes.txt") -q -m "not integration" -n auto -p no:cacheprovider
+
+  portao:
+    name: arm64 / lint / type / unit
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    needs: [trilha, quality, agentes]
+    if: always()
+    steps:
+      - name: A trilha escolhida terminou verde?
+        env:
+          TRILHA: ${{ needs.trilha.result }}
+          PLATAFORMA: ${{ needs.trilha.outputs.plataforma }}
+          QUALIDADE: ${{ needs.quality.result }}
+          AGENTES: ${{ needs.agentes.result }}
+          EVENTO: ${{ github.event_name }}
+          VERIFICADO: ${{ needs.trilha.outputs.verificado }}
+          RUN_VERIFICADORA: ${{ needs.trilha.outputs.run_verificadora }}
+        run: |
+          set -e
+          echo "trilha=${TRILHA} plataforma=${PLATAFORMA} quality=${QUALIDADE} agentes=${AGENTES} evento=${EVENTO} verificado=${VERIFICADO}"
+          if [ "${TRILHA}" != "success" ]; then
+            echo "::error::a classificacao da trilha falhou (${TRILHA}) — sem ela nada e' verde"; exit 1
+          fi
+          # L1a: so' no PUSH, e so' quando a trilha provou que a arvore e' identica a de uma run verde do PR.
+          # A suite pesada pulada e' esperada; qualquer outro resultado dela (falha, cancelamento) segue vermelho.
+          if [ "${EVENTO}" = "push" ] && [ "${VERIFICADO}" = "true" ] && [ "${PLATAFORMA}" = "true" ]; then
+            [ "${QUALIDADE}" = "skipped" ] || { echo "::error::arvore verificada, mas a suite da plataforma terminou ${QUALIDADE}"; exit 1; }
+            [ -n "${RUN_VERIFICADORA}" ] || { echo "::error::arvore verificada sem run verificadora"; exit 1; }
+            echo "## lint / type / unit: arvore identica a verificada pela run ${RUN_VERIFICADORA} (verde) — suite nao repetida" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "${PLATAFORMA}" = "true" ]; then
+            [ "${QUALIDADE}" = "success" ] || { echo "::error::trilha PLATAFORMA: lint / type / unit (plataforma) = ${QUALIDADE}"; exit 1; }
+          else
+            [ "${QUALIDADE}" = "skipped" ] || { echo "::error::trilha de agente com a suite da plataforma em ${QUALIDADE}"; exit 1; }
+            case "${AGENTES}" in
+              success|skipped) ;;  # skipped = PR so' de conteudo (pacote), validado por agentes-pacote.yml
+              *) echo "::error::trilha de AGENTE: agentes (trilha) = ${AGENTES}"; exit 1 ;;
+            esac
+          fi
+          echo "## lint / type / unit: trilha $([ "${PLATAFORMA}" = "true" ] && echo plataforma || echo agente) verde" >> "$GITHUB_STEP_SUMMARY"
+
+  unit:
+    name: arm64 / unit (${{ matrix.shard }})
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `alvo` e' a lista de argumentos de colecao do pytest, expandida pelo shell do passo.
+          # `xdist` e' o paralelismo DENTRO do shard. `tests/unit/dev` roda em SERIE (`-n 0`),
+          # e nao e' preferencia: a ferramenta de captura historica que aquela suite exercita
+          # RECUSA rodar com qualquer `PYTEST_*` no ambiente, e o xdist injeta
+          # `PYTEST_XDIST_WORKER`/`_TESTRUNUID` nos workers — 111 erros de
+          # `CaptureRefusedError: ambient Python/pytest/uv configuration present` (run
+          # 35694139974). Por isso `dev` e' partido em dois shards seriais em vez de um paralelo:
+          # `test_engine_integration_runner.py` sozinho (5,2 min medidos, com o teste de 124s que
+          # e' o piso de qualquer paralelismo) e o resto (~2,8 min).
+          # O ledger e' a MESMA historia do `dev`: `ledger_original_producer` recusa `PYTEST_XDIST_*`
+          # (114 x `CaptureRefusedError`, run 35694139974), entao roda em serie — e como e' o maior
+          # cluster da suite (test_ledger_current_consumer 6,7 min · current_execution 3,4 · os
+          # outros seis ~2,5), vai em DOIS shards seriais: o consumer sozinho e o resto.
+          # L3 (custo de Actions, 18/11/2026): `ledger-execution` voltou para o `ledger-resto`. Medido
+          # em 11-18/11: execution 5,8 e resto 4,3 min de job, dos quais ~1,4 de reclaim de disco e
+          # ~0,5 de preparo por shard, mais o arredondamento por job — juntos, ~8,5 min de parede (abaixo
+          # do consumer e longe do caminho critico, `integration (restante)`, ~33 min) e ~2 min a menos
+          # por run. A particao continua completa e disjunta (`test_global_integration_ci.py`).
+          - shard: ledger-consumer
+            alvo: tests/unit/ci/test_ledger_current_consumer.py
+            xdist: -n 0
+          - shard: ledger-resto
+            # Lista EXPLICITA, e nao glob + `--ignore`: o pytest nao aplica `--ignore` a arquivo passado
+            # como argumento — o glob expandia os oito e o shard repetia consumer+execution (56 funcoes
+            # duplicadas, pegas pela cerca de particao antes de chegar ao CI).
+            alvo: tests/unit/ci/test_ledger_current_execution.py tests/unit/ci/test_ledger_current_relations.py tests/unit/ci/test_ledger_d7_async_consumer.py tests/unit/ci/test_ledger_execution_admission.py tests/unit/ci/test_ledger_invalid_declaration_boundaries.py tests/unit/ci/test_ledger_invalid_declarations.py tests/unit/ci/test_ledger_operational_history.py
+            xdist: -n 0
+          # `ci` em DOIS shards paralelos, por medicao (JUnit do run 35729333978): um so' somava
+          # 32,7 min de teste em 4 workers e levava 13 min de parede — os testes desta pasta geram
+          # `pytest` em subprocesso e disputam os 4 vCPU, entao a soma NAO se divide por 4. Os sete
+          # arquivos mais pesados (~21 min somados) vao num shard; o resto (~12 min) no outro. Lista
+          # explicita para os pesados; `--ignore` para o resto funciona porque o alvo e' um DIRETORIO
+          # (o pytest ignora `--ignore` em arquivo passado como argumento — licao do ledger-resto).
+          - shard: ci-pesado
+            alvo: tests/unit/ci/test_pytest_collection_privacy.py tests/unit/ci/test_check_doc_symbol_citations.py tests/unit/ci/test_check_chart_env_reconciliation.py tests/unit/ci/test_generate_release_floor.py tests/unit/ci/test_pytest_publication_context.py tests/unit/ci/test_global_integration_ci.py tests/unit/ci/test_check_evidence_ledger_supersession.py
+            xdist: -n auto --dist loadfile
+          - shard: ci
+            alvo: tests/unit/ci --ignore-glob=tests/unit/ci/test_ledger_*.py --ignore=tests/unit/ci/test_pytest_collection_privacy.py --ignore=tests/unit/ci/test_check_doc_symbol_citations.py --ignore=tests/unit/ci/test_check_chart_env_reconciliation.py --ignore=tests/unit/ci/test_generate_release_floor.py --ignore=tests/unit/ci/test_pytest_publication_context.py --ignore=tests/unit/ci/test_global_integration_ci.py --ignore=tests/unit/ci/test_check_evidence_ledger_supersession.py
+            xdist: -n auto --dist loadfile
+          - shard: gateway-platform
+            alvo: tests/unit/gateway tests/unit/platform
+            xdist: -n auto --dist loadfile
+          # `test_relay_boundary_diagnostics.py` entra AQUI, em serie, e sai do `restante`: seus testes
+          # pausam o tracer do pytest-cov pelo controller para instalar o proprio `sys.settrace`; num
+          # worker do xdist o hook pertence a OUTRA instancia do coverage (a que o pytest-cov liga no
+          # boot do worker) e o `pause()` nao o remove — 8 erros "refuses to replace another Python
+          # trace hook" (run 35694139974). Em serie o controller e' o dono do hook e o fixture funciona.
+          # L3 (18/11/2026): `dev-runner` voltou para o `dev` — os dois sao seriais; medidos 6,3 + 5,8 min
+          # de job em 11-18/11, juntos ~10 min de parede e ~2 min a menos por run (reclaim + preparo +
+          # arredondamento de um job inteiro).
+          - shard: dev
+            alvo: tests/unit/dev tests/unit/portal/test_relay_boundary_diagnostics.py
+            xdist: -n 0
+          - shard: restante
+            alvo: tests --ignore=tests/unit/ci --ignore=tests/unit/gateway --ignore=tests/unit/platform --ignore=tests/unit/dev --ignore=tests/unit/portal/test_relay_boundary_diagnostics.py
+            xdist: -n auto --dist loadfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Collected historical-tool tests verify immutable Git ancestry.
+          fetch-depth: 0
+
+      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
+        # O flip PUBLIC->PRIVATE (12:51Z) sujeitou o repo a cota de cache de Actions do
+        # repo privado e as 20 caches foram evictadas; toda run desde entao reconstruiu
+        # caches frios e esgotou o disco do runner NO MEIO da suite (provado:
+        # "Free space left: 61 MB" as 13:39:48Z e "0 MB" as 21:05:01Z -> ~3,5k falhas
+        # + ~3,3k erros de escrita e jobs morrendo com logs nao finalizados). A imagem
+        # ubuntu-24.04 embarca SDKs que NENHUM passo deste job usa (Android/.NET/GHC
+        # pertencem a outros jobs/flows, em outros runners); remove-los devolve a
+        # margem que a suite media pre-flip. df antes/depois audita a reclamacao; a
+        # limpeza nao toca em nenhum caminho usado por este job.
+        run: |
+          set -e
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          df -h / | tail -1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Qualify canonical uv storage for immutable historical tools
+        # Frozen tools intentionally discard UV_*; provision their real default paths.
+        run: |
+          echo "MAEZO_CI_UV_CACHE_DIR=$HOME/.cache/uv" >> "$GITHUB_ENV"
+          echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ env.MAEZO_CI_UV_CACHE_DIR }}
+          # Exact-key restores only: do not reuse earlier unconstrained fixture metadata.
+          cache-suffix: offline-fixture-${{ hashFiles('.github/workflows/ci.yml', 'scripts/ci/prepare_offline_fixture_cache.py', 'scripts/dev/run_engine_integration.py') }}
+          cache-dependency-glob: "uv.lock"
+
+      - name: Verify uv defaults and populate the qualified interpreter
+        run: |
+          test "$(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR uv cache dir)" = "$MAEZO_CI_UV_CACHE_DIR"
+          test "$(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR uv python dir)" = "$MAEZO_CI_UV_PYTHON_INSTALL_DIR"
+          uv python install "$MAEZO_CI_PYTHON_VERSION"
+
+      - name: Install dependencies
+        # Editable-build metadata (e.g. hatchling's packaging) is not fixture metadata.
+        # Keep this task-owned cache separate from the canonical HOME fixture cache.
+        run: uv sync --locked --extra dev --cache-dir "$RUNNER_TEMP/maezo-project-build-cache"
+
+      - name: Prepare default offline fixture cache
+        run: |
+          set -e
+          python -I - <<'PYGUARD'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["HOME"] + "/.cache/uv",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["HOME"] + "/.local/share/uv/python"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PYGUARD
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I \
+            scripts/ci/prepare_offline_fixture_cache.py --root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/offline-fixture-cache-proof"
+
+      # A prova da preparacao sobe AQUI, colada no passo que a produz, e nao no fim do
+      # job como no release-floor. Motivo medido: quando este passo falhou (run
+      # 35373462749, tentativa 2) a unica evidencia da causa estava neste diretorio, e
+      # o unico artefato deste job so subia depois de um passo de unit tests que leva
+      # ~56 min e que o `concurrency: cancel-in-progress` cancela a cada push -- run
+      # cancelado nao deixava prova nenhuma. Nao toca no cache: e so upload.
+      - name: Upload offline fixture preparation evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: quality-offline-fixture-preparation
+          path: |
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.json
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stdout
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stderr
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.txt
+            ${{ runner.temp }}/offline-fixture-cache-proof/tiny-*/uv.lock
+          retention-days: 7
+
+      - name: Disk headroom checkpoint before the unit suite
+        run: df -h / | tail -1; nproc; free -m
+
+      # O nome deste passo e' lido por dois meta-testes (`test_global_integration_ci.py`,
+      # `test_offline_fixture_cache_preparation.py`): renomear aqui e' renomear la'.
+      - name: Unit tests (shard) + coverage data
+        env:
+          # Um arquivo de dados por shard, para o agregador combinar sem colisao.
+          COVERAGE_FILE: .coverage.${{ matrix.shard }}
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["HOME"] + "/.cache/uv",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["HOME"] + "/.local/share/uv/python"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          # `alvo` e' uma LISTA de argumentos e o glob do ledger tem de expandir: sem aspas, de proposito.
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest ${{ matrix.alvo }} -q -m "not integration" -ra \
+            ${{ matrix.xdist }} \
+            --junitxml="unit-junit-${{ matrix.shard }}.xml" \
+            --cov="$GITHUB_WORKSPACE/src/maezo" --cov-report=
+
+      # Medicao (L3/L6, custo de Actions, 18/11/2026): disco, memoria e vCPU DEPOIS da suite, em toda
+      # run (`always()`), para dimensionar o reclaim de disco e ver o efeito do runner de 2 vCPU / 8 GB do
+      # repositorio privado. Nao altera resultado: so' imprime.
+      - name: Disk, memory and vCPU after the suite (medicao)
+        if: always()
+        run: df -h / | tail -1; nproc; free -m
+      - name: Upload shard results (coverage data + junit)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: unit-shard-${{ matrix.shard }}
+          path: |
+            .coverage.${{ matrix.shard }}
+            unit-junit-${{ matrix.shard }}.xml
+          # `.coverage.*` comeca com ponto: sem isto o upload o descarta em silencio.
+          include-hidden-files: true
+          if-no-files-found: error
+
+  # O check OBRIGATORIO da branch protection continua sendo este nome. Ele so' fica verde depois
+  # de TODOS os shards, e e' aqui que lint, mypy e o portao de cobertura combinado acontecem.
+  quality:
+    # O check obrigatorio `lint / type / unit` e' o `portao` (acima); este e' o da trilha plataforma.
+    name: arm64 / lint / type / unit (plataforma)
+    runs-on: ubuntu-24.04-arm
+    needs: [unit]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Collected historical-tool tests verify immutable Git ancestry.
+          fetch-depth: 0
+
+      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
+        # O flip PUBLIC->PRIVATE (12:51Z) sujeitou o repo a cota de cache de Actions do
+        # repo privado e as 20 caches foram evictadas; toda run desde entao reconstruiu
+        # caches frios e esgotou o disco do runner NO MEIO da suite (provado:
+        # "Free space left: 61 MB" as 13:39:48Z e "0 MB" as 21:05:01Z -> ~3,5k falhas
+        # + ~3,3k erros de escrita e jobs morrendo com logs nao finalizados). A imagem
+        # ubuntu-24.04 embarca SDKs que NENHUM passo deste job usa (Android/.NET/GHC
+        # pertencem a outros jobs/flows, em outros runners); remove-los devolve a
+        # margem que a suite media pre-flip. df antes/depois audita a reclamacao; a
+        # limpeza nao toca em nenhum caminho usado por este job.
+        run: |
+          set -e
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          df -h / | tail -1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Qualify canonical uv storage for immutable historical tools
+        # Frozen tools intentionally discard UV_*; provision their real default paths.
+        run: |
+          echo "MAEZO_CI_UV_CACHE_DIR=$HOME/.cache/uv" >> "$GITHUB_ENV"
+          echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ env.MAEZO_CI_UV_CACHE_DIR }}
+          # Exact-key restores only: do not reuse earlier unconstrained fixture metadata.
+          cache-suffix: offline-fixture-${{ hashFiles('.github/workflows/ci.yml', 'scripts/ci/prepare_offline_fixture_cache.py', 'scripts/dev/run_engine_integration.py') }}
+          cache-dependency-glob: "uv.lock"
+
+      - name: Verify uv defaults and populate the qualified interpreter
+        run: |
+          test "$(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR uv cache dir)" = "$MAEZO_CI_UV_CACHE_DIR"
+          test "$(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR uv python dir)" = "$MAEZO_CI_UV_PYTHON_INSTALL_DIR"
+          uv python install "$MAEZO_CI_PYTHON_VERSION"
+
+      - name: Install dependencies
+        # Editable-build metadata (e.g. hatchling's packaging) is not fixture metadata.
+        # Keep this task-owned cache separate from the canonical HOME fixture cache.
+        run: uv sync --locked --extra dev --cache-dir "$RUNNER_TEMP/maezo-project-build-cache"
+
+      - name: Prepare default offline fixture cache
+        run: |
+          set -e
+          python -I - <<'PYGUARD'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["HOME"] + "/.cache/uv",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["HOME"] + "/.local/share/uv/python"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PYGUARD
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I \
+            scripts/ci/prepare_offline_fixture_cache.py --root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/offline-fixture-cache-proof"
+
+      # A prova da preparacao sobe AQUI, colada no passo que a produz, e nao no fim do
+      # job como no release-floor. Motivo medido: quando este passo falhou (run
+      # 35373462749, tentativa 2) a unica evidencia da causa estava neste diretorio, e
+      # o unico artefato deste job so subia depois de um passo de unit tests que leva
+      # ~56 min e que o `concurrency: cancel-in-progress` cancela a cada push -- run
+      # cancelado nao deixava prova nenhuma. Nao toca no cache: e so upload.
+      - name: Upload offline fixture preparation evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: quality-offline-fixture-preparation
+          path: |
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.json
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stdout
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stderr
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.txt
+            ${{ runner.temp }}/offline-fixture-cache-proof/tiny-*/uv.lock
+          retention-days: 7
+
+      - name: Lint
+        run: make lint
+
+      - name: Type check
+        run: make type
+
+      - name: Disk headroom checkpoint before the unit suite
+        # Post-mortem 2026-09-20: registra no log o espaco livre no momento exato em
+        # que a suite comeca — se o esgotamento de disco voltar, o checkpoint nomeia o
+        # consumidor entre "fim do setup" e "durante o pytest".
+        run: df -h / | tail -1; nproc; free -m
+
+      # T2.3 (B9 CI surgery): folded the coverage gate into the unit-test step itself
+      # instead of a second pytest invocation, so the suite runs exactly once.
+      # Measured 2026-07-16: 87.09% on src/maezo (588 tests) — >=85%, so the floor is
+      # enforced at the real 85% target (not weakened, not fabricated). If a future PR
+      # drops coverage below 85% this step fails the job — no more silent erosion.
+      # This also finally makes the "Upload unit test results" step below honest: it has
+      # always claimed to upload htmlcov/, but `make test` (plain `pytest tests/ -q`)
+      # never generated an htmlcov/ directory, so that half of the artifact was
+      # cargo-cult (silently empty every run, upload-artifact just warns and moves on).
+      # --cov-report=html here makes htmlcov/ real.
+      # pytest-cov passes this source to subprocesses. Keep it absolute so a
+      # shallow-clone test cannot add a second unexecuted tree to the denominator.
+      - name: Download shard results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: unit-shard-*
+          merge-multiple: true
+
+      - name: Unit tests + coverage gate (>=85%)
+        # Os testes ja' rodaram nos shards (`needs: [unit]` — se um shard reprovou, este job nem
+        # comeca). O que resta e' a UNICA leitura honesta da cobertura: a combinada.
+        run: |
+          set -e
+          ls -la .coverage.* unit-junit-*.xml
+          .venv/bin/python -m coverage combine --keep .coverage.*
+          .venv/bin/python -m coverage report --fail-under=85
+          .venv/bin/python -m coverage html
+
+      # Medicao (L3/L6, custo de Actions, 18/11/2026): disco, memoria e vCPU DEPOIS da suite, em toda
+      # run (`always()`), para dimensionar o reclaim de disco e ver o efeito do runner de 2 vCPU / 8 GB do
+      # repositorio privado. Nao altera resultado: so' imprime.
+      - name: Disk, memory and vCPU after the suite (medicao)
+        if: always()
+        run: df -h / | tail -1; nproc; free -m
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: unit-test-results
+          path: |
+            htmlcov/
+            unit-junit-*.xml
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.json
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stdout
+
+  portal-web:
+    name: arm64 / portal-web
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
+    defaults:
+      run:
+        working-directory: src/maezo/portal/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        working-directory: .
+        run: uv sync --locked --all-groups --all-extras
+
+      - name: npm ci
+        run: npm ci
+
+      - name: npm run verify
+        run: |
+          PATH="$GITHUB_WORKSPACE/.venv/bin:$PATH" npm run verify
+
+  # WP-J1-10: prova sintetica de browser da fatia do portal (J1-DESIGN §3 passo 5).
+  # REAL: bundle construido do portal-web + BFF FastAPI (rotas de producao de login/callback/
+  # sessao). SINTETICO: apenas a fonte de identidade (stub OIDC local-test, jamais construivel
+  # sob create_production_app) — nenhum IdP, nenhuma rede de terceiros (qualquer origem
+  # estranha e abortada e reprovada). Assertions: ADR-0049 D3 (nada em localStorage/
+  # sessionStorage/IndexedDB/service-worker, document.cookie ilegivel, URL sem query) e D10
+  # (varredura axe WCAG 2.2 AA + teclado + foco visivel). NAO e' provado aqui: o trecho com
+  # efeito no engine (intake -> claim -> APROVAR -> outcome no fixture seguro), que exige os
+  # materiais de custodia da ROOT (postura `root_fixture`), e o passo humano de VoiceOver.
+  portal-e2e:
+    name: arm64 / portal-e2e
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    needs: [portal-web]
+    # ── PUSH NA MAIN NAO DISPARA (22/09/2026, dedup de faturamento). O bundle que este job
+    # prova e' o do PR que acabou de mergea-lo byte-a-byte; o push re-provava o mesmo produto
+    # (~12 min de Playwright + install por merge). O canary noturno do `schedule` continua
+    # rodando este job na main; `portal-web` (verify estatico, ~6 min) segue em todo evento.
+    if: github.event_name != 'push'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        working-directory: .
+        run: uv sync --locked --all-groups --all-extras
+
+      - name: npm ci
+        working-directory: src/maezo/portal/web
+        run: npm ci
+
+      - name: Install the Playwright browser
+        working-directory: src/maezo/portal/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the portal browser journey
+        env:
+          MAEZO_PORTAL_E2E_ARTIFACTS: ${{ runner.temp }}/portal-journey
+        run: |
+          set -e
+          cd src/maezo/portal/web
+          PATH="$GITHUB_WORKSPACE/.venv/bin:$PATH" npm run build
+          cd - >/dev/null
+          env -u VIRTUAL_ENV .venv/bin/python scripts/dev/run_portal_journey.py \
+            --artifacts "$MAEZO_PORTAL_E2E_ARTIFACTS" --web-dist src/maezo/portal/web/dist
+
+      - name: Retain journey evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: portal-journey-evidence
+          path: ${{ runner.temp }}/portal-journey
+          if-no-files-found: error
+
+  # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
+  # (construído em M2/M9). Os artefatos BPMN/DMN/policy em spec/ são validados.
+  # ✅ Passa em CI (make validate-artifacts exit 0).
+  artifact-validation:
+    name: arm64 / validate-artifacts
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      # fetch-depth: 0 (F2, r5/tooling-fences REVISE round): the two ledger range-scoped gates
+      # below (check-ledger-hashes, check-ledger-row-cell-count) resolve their `<base>..HEAD` range
+      # via `git merge-base origin/main HEAD` by default — that needs an `origin/main`
+      # remote-tracking ref AND the merge-base commit's history actually present locally, neither
+      # of which a shallow (fetch-depth: 1, the actions/checkout default) checkout provides. This
+      # is the only job running these ledger gates. Quality, release-floor and integration
+      # also need full history now because globally collected historical-tool tests validate
+      # immutable tool-source ancestry. Keep that validation rather than weakening its guard.
+      # fetch-depth: 0 makes the complete origin/main ancestry available here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # `make check-lifecycle-expected-fail-expiry` (below) RENDERS the chart to prove the R-040
+      # marker actually reaches every lifecycle CronJob — the one-sided-fence defect D4 of
+      # VERIFY-A1-OBS §Delta. The gate FAILS (never skips) when helm is absent, so the binary has
+      # to be here. Same pinned action/version as the `validate-helm` job below.
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e  # v5.1.0
+        with:
+          version: "3.15.0"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Validate BPMN / DMN / policies / agent definitions
+        run: make validate-artifacts
+
+      # Incidente 17/10/2026 (SP-OP-ESCALATION-001 v3, casos P1 fora de todas as filas do portal): o
+      # deploy-processes implanta os bytes do BPMN como estao, e o portal so le tarefas da versao que a
+      # admissao Q2 viva nomeia. Reprova o BPMN de processo com fila no portal cujos bytes nao estao no
+      # espelho `deploy/aws-ecs/envs/dev-sa-east-1/portal-admissao.json` (admitidos ou declarados em
+      # `aguardando_admissao`, com o motivo). Ver scripts/ci/check_portal_admissao.py.
+      - name: BPMN com fila no portal x admissao Q2 viva (portal-admissao.json)
+        run: uv run python scripts/ci/check_portal_admissao.py
+
+      # ADR-0030 §2 boundary-proof gate: every WorkerBpmnError a worker raises must be a
+      # consumption-covered spec-declared boundary code on its external task (b1/b2); an
+      # uncatalogued/unproven raise fails the build. Dead-model (clause c) is warn-only during the
+      # Tier-0..2 migration window (F5). Belt-and-suspenders with the arch-test in tests/unit/ci/.
+      - name: Boundary-proof BPMN-error allowlist gate (ADR-0030)
+        run: make check-bpmn-error-allowlist
+
+      # AF-06: PLANS.md's ADR-count claims (the "fonte de verdade" header paragraph + the §0.3
+      # milestone-reconciliation table) are hand-written prose that went stale twice (32→39→48)
+      # with nothing ever recomputing them against docs/adr/. Reconciliation-only — never touches
+      # the preserved historical prose in §3, deliberately out of scope (see the gate's own
+      # docstring "Scope").
+      - name: PLANS.md ADR-count reconciliation gate (AF-06)
+        run: make check-plans-counts
+
+      # R-089 (gap ADR-0026-0028-STALE-ANSCRON, OWNER-DECISIONS-REGISTER, 2026-09-06): docs/adr/*.md
+      # `path::symbol`, quoted ImportFrom and `path:line` citations bind to the tracked tree.
+      # Qualified paths/modules keep their namespace; Python bindings respect lexical scope;
+      # BPMN/DMN names are parsed XML IDs; anchors never suppress file existence. Abbreviated
+      # ellipses and intentionally local ignored docs are reported separately, and empty/unchecked
+      # scans fail. The exact 7 self-audited disclosures remain 1 tool-wiring + 4 inbound +
+      # 2 cross-repo. No Git history is required (covered by the shallow-clone focal test).
+      - name: ADR doc-symbol-citation gate (R-089)
+        run: make check-doc-symbol-citations
+
+      # GOV-0.8 (D-31a, dono 2026-10-23): docs/compliance/ e a casa dos espelhos rastreados —
+      # toda citacao de caminho em *.md ali tem que resolver na arvore. O defeito que motivou:
+      # docs/Tarefas_Pendentes.md citava docs/audits/.../GAP-REGISTER.yaml (arvore gitignored
+      # ausente do checkout — "citacao pendente"); a fonte so sobreviveu no tar de custodia e o
+      # espelho rastreado docs/compliance/GAP-REGISTER.yaml e a copia fiel declarada por D-31a.
+      # A cerca re-verifica o espelho contra a custodia: recuo do bloco registro_custodiado
+      # revertido, sha256 recomputado contra fonte_sha256 e o mapa por linha (gap id -> linhas
+      # da fonte) reextraido do bloco. Stdlib-only, sem git history, sem engine — o custo e'
+      # milissegundos de proposito (orcamento Actions). Escopo estreito e deliberado (precedente
+      # R-089): NAO varre outras arvores de docs; alargar e decisao separada do dono.
+      - name: Compliance doc-citation + espelho GAP-REGISTER gate (GOV-0.8/D-31a)
+        run: make check-compliance-doc-citations
+
+      # F2 (r5/tooling-fences REVISE round): neither ledger range-scoped gate was wired into ANY CI
+      # job before this — both existed only as local `make` targets a human or agent had to
+      # remember to type. Wired here (not into `evidence-ledger.yml`'s `evidence-ledger-check` job,
+      # which runs `check_evidence_ledger.py` — a DIFFERENT, stdlib-only, no-git-needed script the
+      # workflow's own header comment deliberately keeps free of `uv sync`/dependency install so it
+      # never conflicts with concurrent CI-surgery PRs touching ci.yml; these two gates shell out to
+      # `pytest` per declared row, so they need the SAME `uv sync --extra dev` this job already
+      # pays for). Quality has full history for collected tool tests, but does not run these gates.
+      # `check-ledger-hashes` recomputes the Test-hash of every NEW machine-verifiable ledger row;
+      # `check-ledger-row-cell-count` (this task's own new gate) catches an unescaped `|` growing a
+      # row's cell count past the header's 8. Both are genuinely range-scoped (`<base>..HEAD` only,
+      # `resolve_effective_base`/`get_ledger_diff_added_lines`) — neither retroactively fails on the
+      # legacy rows already declared/malformed on `main`; a `run:` step with no `continue-on-error`
+      # fails the job on any non-zero exit, so both are fail-closed like every other gate in this
+      # job. TOOLING §Δ D1: this step runs `check-ledger-hashes` WITHOUT `--allow-live`, so a NEW
+      # row declaring a `tests/integration/**` path would fail here PERMANENTLY (no engine/PG/Kafka
+      # stack, no mutex) — the escape hatch is to OMIT the parenthesised path on that row, which
+      # falls back to LEGACY for this gate (see docs/evidence-ledger.md's convention paragraph).
+      - name: Evidence-ledger Test-hash recompute gate (LEDGER-HASH-RECOMPUTE-CHECK)
+        shell: bash
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          set -euo pipefail
+          umask 077
+          proof_output="$RUNNER_TEMP/ledger-operational-proofs"
+          mkdir -m 700 "$proof_output"
+          checker=(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/check_evidence_ledger_hashes.py --ledger-path docs/evidence-ledger.md --proof-output "$proof_output")
+          printf '%q ' "${checker[@]}" > "$proof_output/invocation.txt"
+          printf '\n' >> "$proof_output/invocation.txt"
+          set +e
+          "${checker[@]}" > "$proof_output/checker.stdout" 2> "$proof_output/checker.stderr"
+          proof_rc=$?
+          set -e
+          printf '%s\n' "$proof_rc" > "$proof_output/checker.rc"
+          cat "$proof_output/checker.stdout"
+          cat "$proof_output/checker.stderr" >&2
+          exit "$proof_rc"
+
+      - name: Retain operational ledger proofs and refusal diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: ledger-operational-proofs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ledger-operational-proofs/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Evidence-ledger row cell-count gate (LEDGER-ROW-CELL-COUNT)
+        run: make check-ledger-row-cell-count
+
+      # R-009 / D7-01: strict build validation before canonical runtime policy resolution.
+      # Missing/malformed manifests and partial promotion fail; only well-formed DRAFT
+      # is accepted as inert. Deliberate fully ratified OFF remains valid.
+      # Effective scrub_only/pseudo_keys requires both tracked prerequisites to be true,
+      # a valid nonsecret receipt reference, and a strictly positive timezone-aware
+      # drain interval in UTC. Reference syntax does not verify actual provisioning,
+      # receipt contents/coverage, or completed drain. No ratification field is written.
+      # Fenced by tests/unit/ci/test_check_phi_scrub_prereqs.py and
+      # tests/unit/ci/test_phi_scrub_prereqs_contract.py.
+      - name: PHI scrub_only/pseudo_keys prerequisite gate (R-009 / D7-01)
+        run: make check-phi-scrub-prereqs
+
+      # T3.4 F1: repo-wide AST gate — a direct `transport.start_process_instance(...)` call (or a
+      # hand-rolled raw REST start-path literal) anywhere outside the pinned 2-file transport
+      # allowlist bypasses the `start_process_idempotent` fence (ADR-0007/T-C2 emit-before-effect
+      # + business-key idempotency). Belt-and-suspenders with the arch-test in tests/unit/ci/.
+      - name: Start-process fence gate (ADR-0007/T-C2)
+        run: make check-start-process-fence
+
+      # Onda 1 design §8: repo-wide AST gate — a raw construction of any of the 15 named effect
+      # classes outside `maezo.gateway.tool_registry`/`gateway/seams/*.py`, a hand-rolled `httpx`
+      # transport or duplicated effect REST-path literal outside the five sanctioned transport
+      # modules, a policy-plane import/env-read outside `maezo/gateway/`, or a test double
+      # reachable from a production composition root, fails the build — plus completeness proofs
+      # (registry constructs every fenced class, every declared agent tool id resolves in the
+      # closed catalogue, catalogue<->manifest round-trip, all 15 classes carry a declared denial
+      # shape covered by a passing test). Separate from and does not replace the start-process
+      # fence above — different invariant, same AST-fence lineage.
+      - name: Effect chokepoint fence gate (Onda 1 design §8)
+        run: make effect-chokepoint-fence
+
+      # Simulador de beneficiario (maezo.qa): o QA compoe o receptor real e troca as bordas de
+      # saida (Meta -> captura, SP-OP-ESCALATION-001 -> interceptado). Nenhum codigo de producao
+      # pode importar maezo.qa; so' o sentido inverso existe.
+      - name: QA isolada (nenhum import de maezo.qa na producao)
+        run: make check-qa-isolada
+
+      # ADR-0067: a plataforma fala com o agente so' pelo contrato (maezo.contratos) e um agente nao
+      # importa outro. Catraca: a divida inventariada em scripts/ci/fronteira_agentes_baseline.txt
+      # so' encolhe; dependencia nova para dentro de um agente reprova.
+      - name: Fronteira plataforma x agentes (catraca ADR-0067)
+        run: make check-fronteira-agentes
+
+      # MZO-010 / XRG-3: the AMH contract is AMH-owned; this repo holds only the immutable pin
+      # (config/integrations/amh/contracts.lock.json) plus the AMH-published, digest-gated fixture
+      # bytes. ADR-0037 XRD-04 requires a divergent digest, an absent schema, a wrong topic or a
+      # downgraded version to fail closed BEFORE merge. stdlib-only, no network — it verifies bytes
+      # already in the tree. Belt-and-suspenders with the consumer tests in tests/contract/amh/.
+      - name: AMH contract pin gate (ADR-0037 XRD-04)
+        run: make verify-amh-contract-pin
+
+      # ADR-0075 (b) / MZO-1d: rco rules package K1 pin (config/integrations/rco/rules.lock.json).
+      # Same shape as the AMH gate: recomputes every spec/processes/dmn/rco/*.dmn sha256 and refuses
+      # any file the pin does not list. stdlib-only, no network.
+      - name: rco rules pin gate (ADR-0075)
+        run: make verify-rco-rules-pin
+
+      # D12-01-b / R-007 (owner-ratified 2026-09-04): every shipped `alert:` rule in
+      # deploy/observability/alert-rules.yml must carry `annotations.runbook_url` pointing at a
+      # SPECIFIC, resolvable docs/runbooks/ file (never a generic index) — an alert without one
+      # trains the on-call to ignore it. Fails on a missing annotation, a dangling path, or a bad
+      # `#anchor`. Belt-and-suspenders with tests/unit/ci/test_check_alert_runbook_urls.py.
+      - name: Alert runbook-URL gate (D12-01-b / R-007)
+        run: make check-alert-runbook-urls
+
+      # Frente 8.3 ("Registrar a cadencia, NAO confiar na memoria de ninguem"): a regua de extracao
+      # e as 34 regras clinicas tem data de revisao em spec/revisao-das-reguas.yaml, e esta etapa
+      # fica vermelha no dia em que uma delas passa. Uma cadencia que vive so num documento e' uma
+      # cadencia que ninguem honra — este projeto ja tem quatro cascas vazias nomeadas.
+      - name: Cadencia de revisao das reguas (Frente 8.3)
+        run: make check-revisao-das-reguas
+
+      # DL-0148 (pendencia 27 do diretor: "o sistema publica regra em rascunho sem conferir"): todo
+      # .bpmn/.dmn que o deploy publica tem de estar em spec/aprovacoes-de-regras.yaml — aprovado
+      # (quem, papel, data, hash dos bytes) ou pendente explicito. Pendente passa e aparece no log.
+      - name: Registro de aprovacoes das regras publicaveis (DL-0148)
+        run: make check-aprovacao-de-regras
+
+      # PLANS.md Hardening §0.8 Onda 0 (finding W5): the strict-xfail census under
+      # tests/integration/processes/ is now a GENERATED artifact, not a hand-recounted number —
+      # this re-derives it from the AST and fails on drift vs docs/xfail-census.json OR the
+      # generator-managed region of PLANS.md §0.5.3. Belt-and-suspenders with the real-tree
+      # regression fence in tests/unit/ci/test_generate_xfail_census.py.
+      - name: Strict-xfail census drift gate (Hardening §0.8 Onda 0)
+        run: make xfail-census-check
+
+      # PLANS.md §0.8 (2ª leva, Q-2/Q-10): the two ratified `shadow` deviations carry a named
+      # owner and a hard date in the manifest itself, and this turns EVERY PR red the day one of
+      # them expires while its value is still shadow — plus red on a missing/malformed block, and
+      # a loud ::warning:: for the 14 days before. There is no silent renewal: the way out is
+      # either flipping the value to `enforcing` or the owner re-ratifying a NEW dated deviation
+      # in a CODEOWNERS-reviewed data PR (Q-1), whose own CI is green because its tree already
+      # carries the new date. Belt-and-suspenders with tests/unit/ci/test_check_deviation_expiry.py.
+      - name: Ratified shadow-deviation expiry gate (PLANS §0.8 Q-2/Q-10)
+        run: make deviation-expiry-check
+
+      # R-040/SC-07 (owner-ratified 2026-09-04): the 3 by-design-failing lifecycle CronJobs
+      # (deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml) carry a dated
+      # `maezo.io/expected-fail-until` marker that `MaezoLifecycleJobFailed` excludes on while it
+      # is present — an exclusion that never expires would be the same alarm-normalisation D12-01-b
+      # already names. Same no-silent-renewal discipline as the shadow-deviation gate above,
+      # scoped to this one marker. It RENDERS the chart (`helm template`, every shipped overlay)
+      # as its third check, so deleting the annotation from the template — which leaves the date,
+      # the alert `unless` clause and `helm lint --strict` all green — goes red here (D4,
+      # VERIFY-A1-OBS §Delta). Belt-and-suspenders with
+      # tests/unit/ci/test_check_lifecycle_expected_fail_expiry.py.
+      - name: Lifecycle expected-fail marker expiry gate (R-040/SC-07)
+        run: make check-lifecycle-expected-fail-expiry
+
+      # Owner override of V6-Q6's advice (2026-09-12): the D7 catalogue (D7unit802 in
+      # scripts/ci/ledger_history_proofs.py::D7_CATALOG) is KEPT, not excluded. Its two durable-red
+      # consequences are declared dated xfail(strict=True) markers instead of deleted tests. Same
+      # no-silent-renewal discipline as the two gates above, scoped to these two markers: this gate
+      # reads each tracked test's xfail via AST (never re-parsing prose) and reprovas the build the
+      # day after 2027-02-09 passes, or if the marker loses strict=True or its reason drifts from
+      # the tracked deadline. RENOVACAO — DECISAO DO DONO 2026-09-20: 2026-11-11 -> 2027-02-09; a
+      # obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438
+      # Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10,
+      # ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres
+      # fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B); checkpoint de revisao
+      # sugerido: 2026-12-15. Belt-and-suspenders with tests/unit/ci/test_check_d7_xfail_expiry.py.
+      - name: D7 catalogue expected-fail expiry gate (owner override, 2026-09-12)
+        run: make check-d7-xfail-expiry
+
+      # W5 CLNT 5.1 (criterio de aceitacao "flags provadamente OFF"): as 6 flags dark do
+      # portal do Programa de Completude — `PortalSettings.lgpd_dsr_channel` (#955),
+      # `staff_documents_panel` (#960), `staff_operations_panel` (#963),
+      # `staff_admin_panel` (#985, D-40), `staff_commission_policies` (#987, D-36) e
+      # `collective_legitimacy_screen` (#1028, OP21/REG-1.1) — mais as
+      # duas pontes de erasure (#965) seguem com default literal `False` no codigo (sob o
+      # `env_prefix="MAEZO_PORTAL_"` e com as constantes de env das pontes valendo os nomes
+      # pinados) e ZERO mencao a qualquer um dos 8 nomes de env em `deploy/**`, que e' a
+      # sentenca shipped de cada docstring ("nenhum `deploy/**` pode liga-la neste
+      # programa"). Fail-closed: arquivo ilegivel FORA de `__pycache__` (artefato de sessao
+      # pytest, excluido por path.parts — classe F-1 do #985), deploy ausente/vazio e
+      # constante renomeada sao REPROVACAO, nao silencio. Flipar e ato da onda ROLL — a cerca
+      # nao decide quando.
+      # Belt-and-suspenders com tests/unit/ci/test_check_program_dark_flags.py.
+      - name: Program dark-flags provably OFF gate (W5 CLNT 5.1)
+        run: make check-program-dark-flags
+
+      - name: Upload strict-xfail census
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: xfail-census
+          path: docs/xfail-census.json
+          retention-days: 30
+
+  # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
+  # (construído em M2/M9). make validate-signoff funciona.
+  # ✅ Passa em CI (greenfield stub, exit 0).
+  # Gate de assinatura de IA — INFORMATIVO desde a DL-0166 (decisao do dono, 14/11/2026, Programa
+  # Circuito Fechado: assinatura de IA em commit e' permitida neste repositorio). Historico: nasceu em
+  # 18/09/2026 (#426) como reprovacao, pela antiga regra do CLAUDE.md global que proibia o trailer
+  # `Co-Authored-By: Claude`. O job CONTINUA rodando e reportando (aviso no log e no job summary) os
+  # commits do PR (nao so' o HEAD) e, em push na main, o proprio commit, mas sai 0. O NOME do job tem
+  # de continuar existindo: `ai-attribution-gate` e' contexto obrigatorio do ruleset (ADR-0069,
+  # decisao 2); retira-lo do ruleset e' outra decisao do dono, nao desta mudanca.
+  ai-attribution-gate:
+    name: arm64 / ai-attribution-gate
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Relatorio de commits assinados por IA (informativo, DL-0166)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BASE_REF}" ]; then
+            range="origin/${BASE_REF}..HEAD"
+          else
+            range="HEAD~1..HEAD"
+          fi
+          echo "verificando ${range}"
+          # Ancorado no INICIO da linha: trailer git e' sempre coluna 0. Sem a ancora, o commit que
+          # introduziu esta guarda foi pego por CITAR o trailer no corpo da mensagem (#426, 1a rodada).
+          # Informativo nao pode mentir: se o git log falhar (range ruim, base ausente), avisa e sai 0,
+          # em vez de reportar "nenhum trailer" sobre um intervalo que nao foi lido.
+          if ! log="$(git log --format='%H%x09%B%n' "${range}" 2>&1)"; then
+            echo "::warning::ai-attribution-gate nao conseguiu ler ${range}: ${log}"
+            echo "ai-attribution-gate (informativo, DL-0166): intervalo \`${range}\` ilegivel; nada verificado." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          hits="$(printf '%s\n' "${log}" | grep -inE '^co-authored-by:.*(claude|anthropic)' || true)"
+          if [ -n "${hits}" ]; then
+            n="$(printf '%s\n' "${hits}" | wc -l | tr -d ' ')"
+            # Aviso, nao erro: assinatura de IA em commit e' permitida (DL-0166). O job sai 0.
+            echo "::warning::${n} trailer(s) Co-Authored-By de IA (claude|anthropic) em ${range}. Informativo: permitido pela DL-0166; o gate nao reprova."
+            printf '%s\n' "${hits}"
+            {
+              echo "### ai-attribution-gate (informativo, DL-0166)"
+              echo ""
+              echo "${n} trailer(s) \`Co-Authored-By\` de IA em \`${range}\`. Permitido; nao reprova."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "ok: nenhum trailer de IA em ${range}"
+            echo "ai-attribution-gate (informativo, DL-0166): nenhum trailer de IA em \`${range}\`." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+  content-signoff-gate:
+    name: arm64 / content-signoff-gate
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Content sign-off gate (promotable artifacts require human sign-off)
+        run: make validate-signoff
+
+  # ---------------------------------------------------------------------------
+  # Release-capability floor (audit §5, Wave-D fillers): a candidate must never fall BELOW the
+  # PREVIOUS APPROVED BASELINE (docs/release-capability-floor.json) on any of: the strict-xfail
+  # census total, its P0/P1/P2 automatable subset (checked independently of the total — this is
+  # what stops an override from hiding a P0 regression behind an unrelated total improvement,
+  # audit §5's named hole), the passing unit-test count, or the set of already-wired AST/contract
+  # fences (check-bpmn-error-allowlist / check-start-process-fence / effect-chokepoint-fence /
+  # verify-amh-contract-pin / xfail-census-check) staying enabled. Self-contained and purely
+  # additive: independently installs deps and re-measures the same generated truths already gated
+  # elsewhere in this workflow (belt-and-suspenders, same posture as artifact-validation's own
+  # AST fences), no `needs:` on any other job. See scripts/ci/generate_release_floor.py for the
+  # full fail-closed contract and the non-vacuity self-check it runs before trusting any
+  # measurement.
+  release-floor:
+    name: arm64 / release-capability-floor (audit §5)
+    runs-on: ubuntu-24.04-arm
+    # O JOB DEIXOU DE MEDIR A SUITE POR CONTA PROPRIA (22/09/2026). O gate so precisava de UM
+    # numero da suite unitaria — quantos testes passam — e rodava `pytest tests/ -q` inteiro, em
+    # SERIE, para obte-lo: ~50 min de runner por push (22 min ja queimados quando a run
+    # 35727033897 foi cancelada), medindo pela segunda vez exatamente a mesma suite que o job
+    # `unit` acabara de medir em 8 shards com xdist. Agora ele le o `unit-junit-<shard>.xml` que
+    # aqueles shards JA publicam, da MESMA run (`needs: [unit]`), como o job `quality` ja faz para
+    # a cobertura. Nao se mede menos; para-se de medir duas vezes. Fail-closed: artefato ausente,
+    # ilegivel ou com zero casos REPROVA — nunca vira "0 passed" em silencio.
+    needs: [unit]
+    # 45, nao 150: medido 17/10-16/11/2026, max 3,0 min em 25 amostras; o pior caso registrado
+    # (disco esgotado no flip privado de 2026-09-20) foi 28 min. 150 so' deixava um job travado
+    # queimar 2,5 h de runner antes de ficar vermelho.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Collected historical-tool tests verify immutable Git ancestry.
+          fetch-depth: 0
+
+      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
+        # Mesma causa e mesma prova do passo igual no job `quality`: cache evictado no
+        # flip privado -> reconstrucao fria -> disco esgotado no meio da suite (floor
+        # mediu 3.4-3.5k falhas + 3.0-3.4k erros em 28 min com 0-61 MB livres). Remove
+        # apenas SDKs da imagem que este job nao usa; df antes/depois audita.
+        run: |
+          set -e
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          df -h / | tail -1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Qualify canonical uv storage for immutable historical tools
+        # Frozen tools intentionally discard UV_*; provision their real default paths.
+        run: |
+          echo "MAEZO_CI_UV_CACHE_DIR=$HOME/.cache/uv" >> "$GITHUB_ENV"
+          echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ env.MAEZO_CI_UV_CACHE_DIR }}
+          # Exact-key restores only: do not reuse earlier unconstrained fixture metadata.
+          cache-suffix: offline-fixture-${{ hashFiles('.github/workflows/ci.yml', 'scripts/ci/prepare_offline_fixture_cache.py', 'scripts/dev/run_engine_integration.py') }}
+          cache-dependency-glob: "uv.lock"
+
+      - name: Verify uv defaults and populate the qualified interpreter
+        run: |
+          test "$(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR uv cache dir)" = "$MAEZO_CI_UV_CACHE_DIR"
+          test "$(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR uv python dir)" = "$MAEZO_CI_UV_PYTHON_INSTALL_DIR"
+          uv python install "$MAEZO_CI_PYTHON_VERSION"
+
+      - name: Install dependencies
+        # Editable-build metadata (e.g. hatchling's packaging) is not fixture metadata.
+        # Keep this task-owned cache separate from the canonical HOME fixture cache.
+        run: uv sync --locked --extra dev --cache-dir "$RUNNER_TEMP/maezo-project-build-cache"
+
+      - name: Prepare default offline fixture cache
+        run: |
+          set -e
+          python -I - <<'PYGUARD'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["HOME"] + "/.cache/uv",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["HOME"] + "/.local/share/uv/python"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PYGUARD
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I \
+            scripts/ci/prepare_offline_fixture_cache.py --root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/offline-fixture-cache-proof"
+
+      - name: Disk headroom checkpoint before the floor gate
+        # Post-mortem 2026-09-20: espaco livre registrado no momento em que o gate
+        # comeca (fences + suite de medicao) — mesmo proposito do checkpoint do job
+        # `quality`.
+        run: df -h / | tail -1; nproc; free -m
+
+      # Os mesmos artefatos que o job `quality` baixa para a cobertura, no mesmo pin: cada
+      # `unit-shard-*` traz `unit-junit-<shard>.xml`, e `merge-multiple: true` achata todos na raiz
+      # do workspace — de onde o glob abaixo os le.
+      - name: Download shard results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: unit-shard-*
+          merge-multiple: true
+
+      - name: Release-capability floor gate (audit §5 — no override hides a P0 regression)
+        env:
+          MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR: ${{ runner.temp }}/release-floor-unit-evidence
+          # Fonte do `unit_tests_passed`: o JUnit dos shards desta run, nao um segundo pytest aqui.
+          MAEZO_RELEASE_FLOOR_UNIT_JUNIT: unit-junit-*.xml
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["HOME"] + "/.cache/uv",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["HOME"] + "/.local/share/uv/python"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make release-floor-check
+
+      # Medicao (L3/L6, custo de Actions, 18/11/2026): disco, memoria e vCPU DEPOIS da suite, em toda
+      # run (`always()`), para dimensionar o reclaim de disco e ver o efeito do runner de 2 vCPU / 8 GB do
+      # repositorio privado. Nao altera resultado: so' imprime.
+      - name: Disk, memory and vCPU after the suite (medicao)
+        if: always()
+        run: df -h / | tail -1; nproc; free -m
+      - name: Upload release-floor unit diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: release-floor-unit-diagnostics
+          path: ${{ runner.temp }}/release-floor-unit-evidence/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload offline fixture preparation evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: release-floor-offline-fixture-preparation
+          path: |
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.json
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stdout
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stderr
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.txt
+            ${{ runner.temp }}/offline-fixture-cache-proof/tiny-*/uv.lock
+          retention-days: 7
+
+  validate-terraform:
+    name: arm64 / terraform validate
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+        with:
+          # 1.10.x: exigido pelo stack ECS vivo (deploy/aws-ecs/envs/*/versions.tf
+          # `>= 1.10`); os modulos/envs legados pedem `>= 1.6`, entao um unico
+          # toolchain serve os dois.
+          terraform_version: "1.10.5"
+
+      - name: Terraform validate — modules
+        run: |
+          for dir in deploy/terraform/modules/*/; do
+            echo "Validating $dir"
+            cd "$dir"
+            terraform init -backend=false -input=false
+            terraform validate
+            cd - > /dev/null
+          done
+        working-directory: ${{ github.workspace }}
+
+      - name: Terraform validate — envs
+        run: |
+          for dir in deploy/terraform/envs/*/; do
+            echo "Validating $dir"
+            cd "$dir"
+            terraform init -backend=false -input=false
+            terraform validate
+            cd - > /dev/null
+          done
+        working-directory: ${{ github.workspace }}
+
+      # O stack ECS/Fargate VIVO (aplicado na conta de dados, PR #247) mora fora do
+      # glob legado acima — sem este passo, o check verde validava apenas a config
+      # EKS morta e NUNCA o que esta rodando (falsa garantia).
+      - name: Terraform validate — aws-ecs envs (o stack vivo)
+        run: |
+          for dir in deploy/aws-ecs/envs/*/; do
+            echo "Validating $dir"
+            cd "$dir"
+            terraform init -backend=false -input=false
+            terraform validate
+            # `validate` nao executa `run` blocks: sem `terraform test` o servico do portal
+            # (composicao dark, desired_count=0) passaria verde sem nenhuma assercao sobre ele.
+            if [ "$dir" = "deploy/aws-ecs/envs/dev-sa-east-1/" ]; then
+              terraform test -filter=tests/portal.tftest.hcl -filter=tests/cluster.tftest.hcl
+            fi
+            cd - > /dev/null
+          done
+        working-directory: ${{ github.workspace }}
+
+      # Identity Center e' uma raiz separada: ECS verde nao valida esta politica.
+      - name: Terraform validate — aws-identity-center
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+        working-directory: deploy/aws-identity-center
+
+  # Ate aqui nenhum job de "CI" compilava ou testava o plugin humano em Java: um PR podia ficar
+  # verde com o plugin quebrado. Surefire exclui `**/*EngineIT.java` (pom.xml:19) e nao ha
+  # failsafe, entao este job cobre compilacao + os testes finitos; os `*EngineIT` rodam
+  # explicitamente no runner do motor, com a receita de fixture em
+  # src/maezo/portal/engine/java/ENGINE-IT.md.
+  #
+  # O provedor Q2 (T1.7a, src/maezo/portal/engine/read-provider/) e' um modulo Maven a parte que
+  # depende do JAR do engine como `provided`: por isso o engine faz `install` (= verify + copia
+  # para o ~/.m2 do runner) antes. Os `*JarIT` do provedor rodam DEPOIS do `package`, contra o
+  # JAR construido (a admissao pina o SHA-256 do JAR carregado), e precisam de um PostgreSQL real
+  # (pin de OID/dono/privilegios da tabela de admissao): sem as tres variaveis eles falham, nunca
+  # pulam.
+  java-plugin:
+    name: arm64 / plugin humano Java (mvn verify)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
+    services:
+      postgres:
+        # postgres:17 (indice multi-arch resolvido em 23/09/2026 no Docker Hub).
+        image: postgres:17@sha256:f4c66b820c6f974249089d3d16d86a3698eae11e8746eb6644b2271031e91232
+        env:
+          POSTGRES_PASSWORD: read_provider_it
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          # 17: `maven.compiler.release` do pom (src/maezo/portal/engine/java/pom.xml).
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: mvn install (verify + JAR do engine para o provedor)
+        run: mvn -B -f src/maezo/portal/engine/java/pom.xml install
+
+      # Direct goal: keep candidate bytecode, resolve only the deployed provided
+      # libraries, and exercise the packaged JAR (never recompile against the old API).
+      - name: Qualificar JAR candidato com CIB 2.1 e pool JDBC 10.1.47
+        env:
+          MAEZO_HUMAN_IT_JDBC_URL: jdbc:postgresql://localhost:5432/postgres
+          MAEZO_HUMAN_IT_DB_USER: postgres
+          MAEZO_HUMAN_IT_DB_PASSWORD: read_provider_it
+          MAEZO_PORTAL_READ_IT_REPO: ${{ github.workspace }}
+          MAEZO_NATIVE_PIN_JDBC_URL: jdbc:postgresql://localhost:5432/
+          MAEZO_NATIVE_PIN_DB_USER: postgres
+          MAEZO_NATIVE_PIN_DB_PASSWORD: read_provider_it
+        run: |
+          sha256sum src/maezo/portal/engine/java/target/human-command-engine-1.0.0*.jar > /tmp/candidate-jars.sha256
+          mvn -B -f src/maezo/portal/engine/java/pom.xml -Pdeployed-runtime-compatibility surefire:test
+          mvn -B -f src/maezo/portal/engine/java/pom.xml -Pdeployed-runtime-compatibility surefire:test \
+            -Dmaezo.repo.root="$GITHUB_WORKSPACE" -DfailIfNoSpecifiedTests=true \
+            -Dtest=AtomicEngineIT,EnlistmentEngineIT,FreshnessEngineIT,ReviewerEngineIT,WorkloadEngineIT,PortalReadEngineIT,PortalReadPublisherEngineIT,StaffCaseReadEngineIT
+          sha256sum -c /tmp/candidate-jars.sha256
+
+      - name: mvn verify - provedor Q2 (read-provider)
+        env:
+          MAEZO_READ_PROVIDER_IT_JDBC_URL: jdbc:postgresql://localhost:5432/postgres
+          MAEZO_READ_PROVIDER_IT_DB_USER: postgres
+          MAEZO_READ_PROVIDER_IT_DB_PASSWORD: read_provider_it
+        run: mvn -B -f src/maezo/portal/engine/read-provider/pom.xml verify
+
+  validate-helm:
+    name: arm64 / helm lint + egress NetworkPolicy CI
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e  # v5.1.0
+        with:
+          version: "3.15.0"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Helm lint — maezo-tenant
+        run: |
+          helm lint deploy/helm/maezo-tenant/ --strict
+          helm lint deploy/helm/maezo-tenant/ --strict \
+            -f deploy/helm/maezo-tenant/values-amh.yaml
+
+      - name: Helm template smoke test
+        run: |
+          helm template maezo-amh deploy/helm/maezo-tenant/ \
+            -f deploy/helm/maezo-tenant/values-amh.yaml \
+            --debug > /dev/null
+
+      - name: Helm entrypoint fence (AF-01 / R-001 — no phantom `python -m maezo.*` module)
+        # Renders the chart for real and resolves every python -m maezo.<module> command it finds
+        # as a real import (importlib.util.find_spec against src/) — catches a Deployment whose
+        # command targets a module that does not exist (guaranteed CrashLoopBackOff) before merge.
+        # See scripts/ci/check_helm_entrypoints.py.
+        run: .venv/bin/python scripts/ci/check_helm_entrypoints.py
+
+      - name: Chart/Terraform env-name reconciliation (DU-02 / R-002)
+        # Every MAEZO_/WHATSAPP_/CIBSEVEN_/KAFKA_-prefixed env name declared in deploy/helm/**
+        # (rendered) and deploy/**/*.tf must be read somewhere in src/, and every REQUIRED
+        # (no-default) env name a src/ BaseSettings class declares must be declared somewhere in
+        # the chart/TF — catches a rename drift like job-migrations.yaml's MAEZO_TENANT vs
+        # env.py's MAEZO_TENANT_ID before merge. See scripts/ci/check_chart_env_reconciliation.py.
+        run: .venv/bin/python scripts/ci/check_chart_env_reconciliation.py
+
+      - name: Cerca da rota /receptor/simular (canal de teste — assinatura sintetica)
+        # A rota do Canal de Teste que assina um envelope de WhatsApp produz assinatura
+        # INDISTINGUIVEL da da Meta: quem alcanca o canal fabrica mensagem de beneficiario.
+        # Isso e' aceitavel em dev-sa-east-1 (atras do Access, telefone restrito a faixa de
+        # teste) e em nenhum outro lugar. A cerca reprova (1) a rota ligada em qualquer outro
+        # ambiente, (2) o app_secret entregue ao container do canal fora de dev, e (3) a
+        # remocao de qualquer uma das cercas do proprio server.py.
+        # Ver scripts/ci/check_canal_simular.py.
+        run: uv run python scripts/ci/check_canal_simular.py
+
+      - name: Cerca da conclusao direta do portal e do CORS (DL-0049 — atalho interino)
+        # A conclusao direta do portal chama POST {engine}/task/{id}/complete sem envelope
+        # assinado, receipt, outbox nem cerca otimista no motor — contorna os comandos
+        # atomicos da ADR-0049 D5/D6/D7 e esta registrada como interina em
+        # docs/decisions-log.md DL-0049. O CORS com credenciais existe para a pagina de
+        # teste, que e' demonstracao declarada sem autenticacao propria. As duas coisas
+        # sao aceitaveis em dev-sa-east-1 enquanto o rele' D6 (#427) nao existe, e em
+        # nenhum outro lugar. A cerca reprova (1) qualquer dos quatro portoes ligado fora
+        # de dev, (2) valor por segredo ou nao resolvivel em qualquer ambiente, (3) o
+        # portao declarado fora do Terraform analisado, e (4) as tres cercas de codigo:
+        # default literal desligado, CORSMiddleware so' dentro de `if` e sem curinga, e a
+        # recusa do portao antes do primeiro `await`.
+        # Ver scripts/ci/check_portal_direct_completion.py.
+        run: uv run python scripts/ci/check_portal_direct_completion.py
+
+      - name: Cerca do roteador Helena -> Lucas so' em dev (ADR-0062)
+        # MAEZO_ROTEADOR_LUCAS liga o roteamento por conversa do numero unico: a conversa pode
+        # sair da Helena para o Lucas, que atende cobranca com fatos SIMULADOS. A cerca reprova
+        # (1) o roteador ligado ou a fonte de cobranca presente fora de dev-sa-east-1, (2) valor
+        # por segredo ou nao resolvivel, (3) declaracao fora do Terraform analisado, (4) default
+        # do settings diferente de False literal e (5) construcao de ConversaRouter/LucasTurno
+        # fora de um `if settings.roteador_lucas_enabled`.
+        # Ver scripts/ci/check_roteador_lucas.py.
+        run: uv run python scripts/ci/check_roteador_lucas.py
+
+      - name: Cerca do engine-rest aberto so' em dev (decisao N5 — T1.9)
+        # O engine de dev expoe o engine-rest sem autenticacao na 8080 (divida D7), e o plano de
+        # autoridade nativa mantem isso na Onda 4. O dono aceitou SO' em dev (N5, 23/09/2026).
+        # Pelo digest nao da' para saber se a imagem e' aberta ou secured*, entao a cerca e'
+        # declarativa: todo ambiente fora de dev que sobe um engine (deploy/**/envs/*, e o
+        # engine in-cluster do Helm) tem de declarar engine_rest_authentication =
+        # "client-certificate", sem indirecao nao resolvivel e sem a imagem oficial aberta.
+        # Ver scripts/ci/check_engine_rest_auth.py.
+        run: uv run python scripts/ci/check_engine_rest_auth.py
+
+      # ── DESABILITADO: tests/unit/platform/test_provision_tenant.py ainda não
+      # existe. NetworkPolicy egress tests serão implementados quando o módulo
+      # de provisionamento de tenant for construído (post-M13).
+      # Reativar removendo o if: false após a implementação.
+      - name: NetworkPolicy egress fail-closed tests (ADR-0006 / ADR-0017, gap #13)
+        if: false
+        # Runs the @requires_helm tests in test_provision_tenant.py that prove:
+        #   (1) PHI egress = concrete BR CIDRs only, NEVER 0.0.0.0/0 (FIX 1)
+        #   (2) intra-namespace egress is scoped to gateway only, not all pods (FIX 2)
+        #   (3) zone mismatch between values and effectiveDefinition aborts render (FIX 3)
+        #   (4) bare-default render fails closed (no concrete CIDRs = abort)
+        #   (5) default-deny-egress NetworkPolicy is present in the committed render
+        #   (6) PHI with zero brResidentEndpoints gets egress: null/[] (total deny)
+        #   (7) generalZone.enabled=false leaves per-agent egress list empty
+        # helm CLI is on PATH here so @requires_helm marks do NOT skip.
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/unit/platform/test_provision_tenant.py -v \
+            --tb=short -q
+
+  # ── T2.3 + CI-LIVE-PG-JOB-MISSING: the integration contract is marker-based, globally.
+  # The quality job excludes `integration`; this job runs every normal integration-marked case
+  # anywhere under tests/, while the dedicated chaos job runs the disjoint `chaos` subset.
+  # A guard step checks the same global selector the execution step uses:
+  #   - tests exist and collect  -> run them for real against the real engine, fail on
+  #     failure (no mock, ADR-0011).
+  #   - nothing to collect yet   -> emit a LOUD ::notice:: + step-summary marker and
+  #     exit 0 (visible skip, not silent, not expected-red).
+  # New integration-marked modules are therefore covered regardless of their directory; no
+  # workflow path list or per-module allowlist needs maintenance.
+  #
+  # ── CI-minutes hygiene (2026-09-03): this lane is ~80% of every CI minute the repo bills
+  # (~93 min/run, flat since at least 2026-08-07; every other job in this workflow is <10 min).
+  # Three CI-only changes below, none of which alters what any test asserts: a fail-closed
+  # docs-only gate (`paths` + `gate` steps), the never-used hapi-fhir JVM no longer started,
+  # and a hard `timeout-minutes` cap. The per-test cost itself (~11 s/test on average; the
+  # 3 s idle tail that every `drain_topics()` call pays — tests/integration/processes/
+  # conftest.py — is the dominant term) is test infrastructure, not workflow, and is left for
+  # a change proven on a local engine first; `--durations=40` below is the evidence for it.
+  #
+  # ── ESTA LANE EM SHARDS PARALELOS (22/09/2026). Medicao, nao palpite: run 35581780054 (ultima
+  # run COMPLETA e verde da `main`; a run 35668498355 e as seguintes morrem em 3 s no bloqueio de
+  # cobranca do Actions e nao medem nada). Job 106297527604, passo a passo:
+  #
+  #     set up job + checkout + setup-python + uv + `uv sync`   14 s
+  #     "Check for collectable integration tests" (colecao)      44 s
+  #     "Start core stack" (compose up postgres/kafka/cibseven)  50 s
+  #     "Wait for stack to be healthy"                           43 s
+  #     "Integration tests"                          5 932 s = 98,9 min
+  #     upload + teardown + post-steps                            4 s
+  #     ------------------------------------------------------------
+  #     total do job                                 6 090 s = 101,5 min
+  #
+  # 97,5% do relogio e' UM passo. Subir o motor custa 1 min 33 s no total, entao cache de camada
+  # do Docker (candidato (b)) disputa 1,5% do tempo: descartado por medicao, nao por gosto.
+  # Cortar setup duplicado com `chaos`/`fhir-sync`/`evals` (candidato (d)) tambem nao existe —
+  # essas tres lanes somam 1,5 min de relogio nessa mesma run.
+  #
+  # Dentro do passo, pelo JUnit do artefato `integration-test-results-<sha>` (717 casos,
+  # 5 916,9 s somados, que batem com os 98,9 min do passo): `tests/integration/processes/` e'
+  # 5 555 s = 93,9%. Todo o resto do conjunto — agents, platform, dmn, gateway e os modulos
+  # marcados `integration` que moram sob `tests/unit/` — soma 362 s = 6 min.
+  #
+  # Por isso a lane e' fatiada POR ARQUIVO, cada shard com o SEU proprio motor. Nada roda em
+  # paralelo dentro de um shard: a ordem e o isolamento de cada teste ficam byte-a-byte como
+  # hoje, e o unico eixo novo e' quantos motores sobem ao mesmo tempo (cada shard e' um runner
+  # isolado, com o seu `docker compose`). Balanceamento LPT sobre o tempo medido por arquivo:
+  #
+  #     reembolso+lgpd_dsr                         1 180 s = 19,7 min
+  #     recurso+nip+programa+t33+lgpd_refusal      1 153 s = 19,2 min
+  #     cancel+contas+inadimplencia+escalation     1 219 s = 20,3 min
+  #     cred+ans_submit+pagto+ans_cron             1 161 s = 19,4 min
+  #     restante (fraude+auth+adequacao+os 6 min)  1 203 s = 20,1 min
+  #
+  # Relogio estimado: 20,3 min de teste + ~2,3 min de setup ≈ 23 min, contra 101,5 min hoje.
+  # O PISO e' um so' teste: `test_nenhum_caminho_automatizado_nega_reembolso` sozinho leva
+  # 931,8 s = 15,5 min. Nenhum sharding por arquivo desce disso; baixar mais exige mexer no
+  # `drain_topics()` (long-poll de 1 s x 30 rondas), que e' infraestrutura de TESTE e sai daqui.
+  # Minutos faturados sobem ~101 -> ~115 (5 runners x ~23 min): e' a mesma troca ja aceita nos
+  # shards unitarios — relogio de quem espera o PR vale mais que o minuto marginal.
+  #
+  # xdist DENTRO da lane (candidato (c)) esta DESCARTADO por um motivo estrutural, nao por medo
+  # de estado compartilhado: `scripts/ci/run_live_pytest.py` roda `pytest.main(..., plugins=[
+  # EvidencePlugin(...)])` EM PROCESSO, e o `EvidencePlugin.pytest_runtest_call`
+  # (scripts/ci/pytest_execution_evidence.py) prova "entrada no corpo" com `sys.setprofile` no
+  # processo que executa o teste. Sob `-n`, os corpos rodam nos workers do execnet, onde esse
+  # plugin nao existe: `body_entered` sairia falso para TODOS os casos e a validacao falharia
+  # fechada. Nao ha' como ligar xdist aqui sem reescrever a cadeia de evidencia.
+  #
+  # Os shards sao uma PARTICAO de `-m "integration and not chaos"` (completa e disjunta) e ha'
+  # teste que prova isso contra a colecao em serie, e contra a lane `chaos`:
+  # `tests/unit/ci/test_global_integration_ci.py`.
+  integration:
+    name: arm64 / integration (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `alvo` e' a lista de argumentos de colecao do pytest, expandida pelo shell do passo.
+          # O shard `restante` e' o COMPLEMENTO (`tests` menos os arquivos acima): arquivo novo
+          # marcado `integration` cai nele sozinho, sem editar esta matriz e sem buraco na
+          # particao.
+          # L3 (18/11/2026): `reembolso` (~6 min de job, dos quais ~1,5 de subir a pilha) entrou no
+          # `recurso-nip` (~18): juntos ~25 min, abaixo do `restante` (~33, o caminho critico).
+          - shard: recurso-nip
+            alvo: tests/integration/processes/test_sp_op_reembolso_001.py tests/integration/processes/test_sp_op_lgpd_dsr_001.py tests/integration/processes/test_sp_op_recurso_001.py tests/integration/processes/test_sp_op_nip_001.py tests/integration/processes/test_sp_op_programa_001.py tests/integration/processes/test_t33_a2_agent_start_idempotency_matrix.py tests/integration/processes/test_t33_a1_cancel_handoff_redelivery_idempotency.py tests/integration/processes/test_lgpd_execution_refusal.py
+          - shard: cancel-contas
+            alvo: tests/integration/processes/test_sp_op_cancel_001.py tests/integration/processes/test_sp_op_contas_001.py tests/integration/processes/test_sp_op_inadimplencia_001.py tests/integration/processes/test_sp_op_escalation_001.py
+          - shard: cred-ans
+            alvo: tests/integration/processes/test_sp_op_cred_001.py tests/integration/processes/test_sp_op_ans_submit_001.py tests/integration/processes/test_sp_op_pagto_001.py tests/integration/processes/test_sp_op_ans_cron_001.py
+          - shard: restante
+            # `publica_artefatos` liga SO' neste shard o passo "Deploy canonical artifacts": e' o
+            # unico que coleta modulos `integration` sob tests/unit/, que nao tem fixture de
+            # deploy por arquivo (os 4 shards de tests/integration/processes/ deployam cada um
+            # as suas). Entrada sem a chave => `matrix.publica_artefatos` vazio => passo pulado.
+            publica_artefatos: true
+            alvo: tests --ignore=tests/integration/processes/test_sp_op_reembolso_001.py --ignore=tests/integration/processes/test_sp_op_lgpd_dsr_001.py --ignore=tests/integration/processes/test_sp_op_recurso_001.py --ignore=tests/integration/processes/test_sp_op_nip_001.py --ignore=tests/integration/processes/test_sp_op_programa_001.py --ignore=tests/integration/processes/test_t33_a2_agent_start_idempotency_matrix.py --ignore=tests/integration/processes/test_t33_a1_cancel_handoff_redelivery_idempotency.py --ignore=tests/integration/processes/test_lgpd_execution_refusal.py --ignore=tests/integration/processes/test_sp_op_cancel_001.py --ignore=tests/integration/processes/test_sp_op_contas_001.py --ignore=tests/integration/processes/test_sp_op_inadimplencia_001.py --ignore=tests/integration/processes/test_sp_op_escalation_001.py --ignore=tests/integration/processes/test_sp_op_cred_001.py --ignore=tests/integration/processes/test_sp_op_ans_submit_001.py --ignore=tests/integration/processes/test_sp_op_pagto_001.py --ignore=tests/integration/processes/test_sp_op_ans_cron_001.py
+    runs-on: ubuntu-24.04-arm
+    # `needs: [quality]` RESTAURADO (18/09/2026): sumiu no squash de #378 sem justificativa, e o
+    # paragrafo de CI-minutes acima so' e' verdadeiro com ele — sem o needs, um PR reprovado no
+    # ruff/mypy disparava os ~93 min desta lane em paralelo, em vez de ser barrado antes.
+    needs: [quality]
+    # Hard cap (CI-minutes hygiene). O cap de 150 min valia para a lane INTEIRA num job so'
+    # (steady state medido 92,4-95,9 min de 2026-08-07 a 2026-09-03; 101,5 min na run
+    # 35581780054). Agora o job e' um SHARD: o mais pesado da matriz mede 20,3 min de teste +
+    # ~2,3 min de setup. 60 min deixa ~37 min de folga sobre o pior shard medido — mesma regra
+    # de sempre: um timeout aqui e' anomalia REAL que merece vermelho, nunca flake a ser
+    # abafado subindo o numero.
+    timeout-minutes: 60
+    # Sem "test coverage illusion": testes de integracao rodam contra engine REAL.
+    # ── PUSH NA MAIN DEIXA DE DISPARAR OS SHARDS (22/09/2026, dedup de faturamento). O merge
+    # byte-checked deste repo acabou de passar esta MESMA lane no `pull_request` do PR que o
+    # mergeou; o push re-cobrava ~115 min faturados por merge pelos mesmos 5 shards. Evidencia
+    # de faturamento (billing diario, /organizations/Omni-Saude/settings/billing/usage): a
+    # maratona de merges de 09-20/09-21 no repo privado cobrou 3 725 + 7 308 min em dois dias,
+    # boa parte dela o mesmo arquivo passando duas vezes (PR e push do mesmo SHA). O canary da
+    # main NAO some: `schedule` continua disparando a lane COMPLETA (o filtro de paths abaixo
+    # nunca se aplica a `schedule`), e o agregador `integration-gate` trata o `skipped` de push
+    # como verde COM aviso visivel — nunca silencioso. Em `pull_request` e `schedule`,
+    # `skipped` continua VERMELHO (regra do PR #465, intocada).
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
+    # `pull-requests: read` is for dorny/paths-filter's listFiles fallback — same reason and
+    # same minimum as the `evals` job below; `contents: read` restates the workflow default.
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      # Pin the compose postgres host port explicitly (docker-compose.yml defaults to 5433 for
+      # local dev — see that file — to avoid colliding with other Postgres instances on a dev's
+      # machine). CI has no such collision and tests/integration/**/conftest.py fall back to a
+      # hardcoded localhost:5432 DSN when MAEZO_TEST_DATABASE_URL is unset (which it is here), so
+      # pinning to 5432 keeps this job's behavior byte-for-byte unchanged.
+      MAEZO_PG_HOST_PORT: "5432"
+      # Some integration-marked modules under tests/unit predate MAEZO_PG_HOST_PORT and resolve
+      # only this explicit DSN. Pin both conventions to the same compose Postgres so none of the
+      # 12 PG-only modules can green-by-skip on its old localhost:5433 fallback.
+      MAEZO_TEST_DATABASE_URL: "postgresql://maezo:maezo@localhost:5432/maezo"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Collected historical-tool tests verify immutable Git ancestry.
+          fetch-depth: 0
+
+      # ── Lane-irrelevance gate (CI-minutes hygiene; docs-only ate 22/09/2026, ampliado na mesma
+      # data com evidencia por caminho). Uma PR que so' toca um caminho que o conjunto global de
+      # marcados `integration` nao le nao pode mudar o veredito desta lane. O filtro e' FAIL-CLOSED
+      # por construcao — `code` e' 'true' quando QUALQUER arquivo mudado cai fora dos padroes
+      # ignoraveis, entao um caminho nao listado (um diretorio novo no topo, um lockfile, spec/,
+      # config/, deploy/, ...) SEMPRE RODA a lane; so' o veredito exato 'false' pula, e uma saida
+      # ausente/erroada roda (passo decide abaixo). `schedule` nunca e' filtrado — o noturno na
+      # main continua sendo o canary de lane completa. Mesma action, mesmo pin de SHA e mesmo
+      # minimo `pull-requests: read` do job `evals`.
+      #
+      # Exclusoes e a evidencia de cada uma (toda adicao futura PRECISA citar a verificacao):
+      #   docs/** e **/*.md  — herdado: nenhum teste marcado le markdown (verificado 2026-09-03).
+      #   src/maezo/portal/web/** — grep 22/09/2026: ZERO referencias a portal/web (ou import de
+      #       portal.web) em qualquer arquivo sob tests/; o frontend tem as SUAS lanes
+      #       (`portal-web`, `portal-e2e`), que continuam rodando em todo PR.
+      #   .github/** — nenhum teste MARCADO `integration` le workflows; os meta-testes que leem
+      #       ci.yml (test_global_integration_ci.py — cerca de particao dos shards,
+      #       test_integration_stack_wait_covers_started_services.py) sao da lane UNITARIA
+      #       (rodam em `-m "not integration"` em todo PR) e continuam cercando exatamente os
+      #       riscos de um edit de workflow: particao da matriz e cobertura de espera do stack.
+      #       Ganho medido: as 5 PRs de bump de acoes (#447-#451, 21-22/09) pagaram ~115 min
+      #       faturados cada numa lane que nada nelas mudava.
+      #   REJEITADO — deploy/**: tests/integration/test_portal_engine_d7_package.py e' marcado
+      #       `integration` e referencia deploy/cibseven/secured (ACCEPTANCE.md/fixture); sem
+      #       prova de nao-leitura, o default fail-closed manda RODAR.
+      - name: Classify changed paths (lane-irrelevant paths cannot affect this lane)
+        id: paths
+        if: github.event_name != 'schedule'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
+        with:
+          # POST-MORTEM (medido ao vivo no PR #470, job 107012533183): SEM este input, o default
+          # `some` faz o pattern positivo `**` casar com QUALQUER arquivo e os `!`-padroes NAO
+          # SUBTRAIEM NADA — a exclusao "docs-only" deste filtro era INERTE desde 2026-09-03 (toda
+          # PR docs-only pagou a lane cheia; o passo decide fail-closed so' garantia que rodasse,
+          # nunca que pulasse). `some-with-excludes`: arquivo conta se casa com >=1 pattern
+          # positivo E com nenhum negado; exclusao e' final, ordem irrelevante. O job `evals`
+          # abaixo nao precisa disto: o filtro dele nao tem `!`-padroes.
+          predicate-quantifier: some-with-excludes
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!src/maezo/portal/web/**'
+              - '!.github/**'
+
+      - name: Decide whether the lane runs (fail-closed)
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CODE_CHANGED: "true"  # prova arm64: forca a lane de integracao
+        run: |
+          # Only the exact verdict "no code path changed" skips. Anything else — including an
+          # empty/missing output from a skipped or failed filter step — runs the lane.
+          if [ "${EVENT_NAME}" != "schedule" ] && [ "${CODE_CHANGED}" = "false" ]; then
+            echo "lane-irrelevant change (every changed file is under docs/**, *.md, src/maezo/portal/web/** or .github/**) — lane not applicable"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code changed (or unfiltered event '${EVENT_NAME}') — running the lane"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: INTEGRATION LANE NOT APPLICABLE — lane-irrelevant change (visible)
+        if: steps.gate.outputs.run == 'false'
+        run: |
+          echo "::notice::INTEGRATION LANE NOT APPLICABLE — every changed file is under docs/**, *.md, src/maezo/portal/web/** or .github/**; nothing this lane executes reads those paths (verification per path in the workflow comment). The nightly schedule still runs the full lane on main."
+          {
+            echo "## integration (${{ matrix.shard }}): NOT APPLICABLE (lane-irrelevant change)"
+            echo ""
+            echo "Every changed file matches \`docs/**\`, \`**/*.md\`, \`src/maezo/portal/web/**\`"
+            echo "or \`.github/**\`; no test in the global integration-marker set reads those"
+            echo "paths (frontend has its own \`portal-web\`/\`portal-e2e\` lanes; workflow edits"
+            echo "stay fenced by the unit-lane meta-tests). The real-engine lane (~23 min de"
+            echo "relogio em 4 shards, ~93 min faturados) was not started. The nightly schedule"
+            echo "still runs the full lane on main."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        if: steps.gate.outputs.run == 'true'
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        if: steps.gate.outputs.run == 'true'
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: uv sync --locked --extra dev
+
+      # Three-bucket guard (verification cycle 1 caught a fail-open two-bucket version
+      # that routed EVERY nonzero collect exit to the visible skip — a planted
+      # import error, pytest exit 2, read as "no tests yet" and the job went GREEN):
+      #   exit 0        -> tests collected: run the real lane
+      #   exit 4 or 5   -> dir missing / nothing collected: visible skip (greenfield)
+      #   anything else -> COLLECTION BROKEN (e.g. 2 = import/collection error):
+      #                    FAIL the job. Broken tests must never masquerade as absent.
+      - name: Check for collectable integration tests
+        id: guard
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          set +e
+          # `alvo` e' uma LISTA de argumentos (raizes + `--ignore`): sem aspas, de proposito.
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/run_live_pytest.py collect \
+            --output integration-collection.json -- \
+            ${{ matrix.alvo }} -q -m "integration and not chaos"
+          code=$?
+          set -e
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: tests collected — running the real lane"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no tests yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — the global integration marker set cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no tests yet' — failing the job."
+              exit 1
+              ;;
+          esac
+
+      - name: INTEGRATION LANE SKIPPED (visible)
+        if: steps.guard.outputs.run == 'false'
+        run: |
+          echo "::notice::INTEGRATION LANE SKIPPED — no tests yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.1 (V2-COMPLETION-PLAN)"
+          {
+            echo "## integration (${{ matrix.shard }}): SKIPPED"
+            echo ""
+            echo "No collectable tests in the global \`-m integration\` set (pytest --collect-only exit"
+            echo "${{ steps.guard.outputs.collect_code }}). This lane auto-activates when any"
+            echo "module under \`tests/\` declares the integration marker — no path-list edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # hapi-fhir is a `core`-profile service that only the `app` profile's daemons consume;
+      # NOTHING under tests/integration/ talks to it (grep 8081 / /fhir / hapi: one docstring
+      # mention, zero calls), yet it was a third JVM competing with cibseven and kafka for the
+      # runner's CPU/RAM for the whole ~93-min lane, and its `/fhir/metadata` health probe dumped
+      # ~23,800 lines of CapabilityStatement JSON into every job log. Naming the services is what
+      # keeps compose from starting it (`--profile core` is still required to resolve profiled
+      # services at all; cibseven's `depends_on: postgres` is honoured). `down -v` is unchanged.
+      - name: Start core stack (postgres + cibseven + kafka; hapi-fhir deliberately not started)
+        if: steps.guard.outputs.run == 'true'
+        run: docker compose --profile core up -d postgres kafka cibseven
+
+      - name: Wait for stack to be healthy
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          echo "Waiting for postgres..."
+          timeout 60 bash -c 'until docker compose exec -T postgres pg_isready -U maezo -d maezo; do sleep 3; done'
+          echo "Waiting for cibseven..."
+          timeout 300 bash -c 'until curl -sf http://localhost:8080/engine-rest/version; do sleep 5; done'
+          # R-074 / CI-KAFKA-HEALTH-WAIT — o passo acima sobe `kafka` junto do stack mas nunca
+          # esperava por ele, e o advisory deixou de ser teorico: a run 33740368677 morreu com um
+          # `TimeoutError` em `test_notifications_bridge_live_kafka.py` contra um broker frio,
+          # mitigado so' do lado do teste. Copia literal do padrao ja usado no job do simulador
+          # Tasy (passo "Start Kafka and wait for readiness" deste mesmo arquivo): a prontidao e
+          # medida pelo PROPRIO broker (`kafka-broker-api-versions` responde), que e a mesma
+          # pergunta que os testes fazem, e nao pelo healthcheck do compose — usar a sonda do
+          # broker mantem as duas lanes com a MESMA definicao de "pronto", em vez de duas.
+          # (Uma versao anterior deste comentario afirmava que o healthcheck do compose "ja se
+          # provou falso-negativo sob pressao de memoria com tres JVMs": a contagem estava errada
+          # — este job sobe DUAS JVMs, `cibseven` e `kafka`, mais o Postgres — e a observacao nao
+          # tem registro neste repositorio. O unico incidente registrado, a run 33740368677, e
+          # atribuido em `docs/review-queue.md` e `docs/evidence-ledger.md` a criacao automatica de
+          # topico correndo com `group.initial.rebalance.delay.ms`, nao a um falso-negativo de
+          # healthcheck. Afirmacao retirada em 2026-09-04; a razao acima e' a que se sustenta.)
+          # Listener INTERNO (`kafka:29092`) porque o comando roda DENTRO do container, onde o
+          # hostname resolve por DNS do Docker.
+          echo "Waiting for kafka (INTERNAL listener kafka:29092)..."
+          timeout 90 bash -c 'until docker compose exec -T kafka kafka-broker-api-versions --bootstrap-server kafka:29092 > /dev/null 2>&1; do sleep 5; done' \
+            || { echo "ERROR: Kafka did not become ready within 90s"; exit 1; }
+          echo "All services healthy."
+
+      # ── IMPL-8 (02/10/2026): este job NUNCA publicou o tree canonico no engine dele. Quem
+      # deploya hoje e' a fixture de CADA arquivo de tests/integration/processes/ (ex.
+      # `test_sp_op_auth_001.py::deploy_artifacts`, 1 BPMN + 3 DMN, por arquivo) — e os modulos
+      # marcados `integration` que moram sob tests/unit/ (so' o shard `restante` os coleta)
+      # assumem o tree INTEIRO ja' deployado: o docstring de
+      # `tests/unit/a2a/test_a2a_edge_live_pg.py` ("The runner already deploys and byte-verifies
+      # all canonical artifacts before pytest") descreve o runner LOCAL
+      # (`scripts/dev/run_engine_integration.py::_deploy_and_verify`), nunca esta lane. Prova do
+      # buraco pela lista de passos AUTORITATIVA do job 110733621135 (`integration (restante)`,
+      # noturno 02/10, vermelho no passo "Integration tests"): Set up job → checkout → paths →
+      # gate → setup-python → uv → Install dependencies → colecao → Start core stack → Wait for
+      # stack to be healthy → Integration tests → upload — NENHUM passo publica artefato. Enquanto
+      # nada publica a copia SHARED, o setup desses modulos dependia de outra suite ter deployado
+      # antes no MESMO shard (a de auth, 18 casos, coleta antes de tests/unit/); sem essa sorte de
+      # ordem, `latest_definition_xml("SP-OP-AUTH-001")` esbarra no 404 que
+      # `tests/integration/processes/engine_rest.py:537` traduz para `EngineRestError:
+      # process-definition-key ... nao esta deployada` — o modo de falha que o docstring falso
+      # produz.
+      # O entrypoint e' o MESMO do operador local: `make deploy-artifacts` (Makefile) →
+      # `python -m maezo.platform.deploy --tenant amh --shared all` — UM POST multipart de
+      # spec/processes/{bpmn,dmn} com `enable-duplicate-filtering`, idempotente (medido no engine
+      # local 02/10: 79 artefatos = 16 BPMN + 63 DMN; 2a chamada seguida: 79/79 skipped como
+      # duplicata) e fail-closed (qualquer rejeicao do engine sai non-zero com o corpo verbatim).
+      # Custo honesto: 0,65 s de relogio medidos no engine local ja' povoado; no runner e' o POST
+      # frio dos mesmos 79 arquivos, ordem de grandeza segundos contra os 20,1 min do menor shard.
+      # O QUE ISTO NAO CONSERTA (e o vermelho ATUAL desses 3 testes): eles iniciam SP-OP-AUTH-001
+      # pelo transporte COM tenant (8c7ee8e3, "Inicia processos no tenant da conversa"), e o
+      # tenant deles e' o SCHEMA aleatorio da propria sessao (`a2aw3<hex>`) — definicao nenhuma
+      # deste workflow pode pre-existir ali, e o motor devolve 404 "No matching process definition
+      # with key ... and tenant-id ..." (JUnit do job 110733621135 e reproducao local 02/10, ambos
+      # `StartProcessFailedError: ... o turno NAO foi concluido`). Esse deploy e' da SUITE
+      # (`deploy_for_tenant` no fixture `live_engine_url`), o mesmo mecanismo de
+      # tests/support/engine_tenant_deploy.py que as suites irma' ja' usam.
+      - name: Deploy canonical artifacts (spec/processes) to the shard engine
+        if: steps.guard.outputs.run == 'true' && matrix.publica_artefatos == true
+        run: make deploy-artifacts
+
+      # O wrapper usa pytest.main diretamente em vez de `make test-integration`: a coleção global é
+      # load-bearing: integration-marked live-PG/DMN modules also live under tests/unit/, where
+      # the unit lane now excludes them. `-m "integration and not chaos"` keeps
+      # tests/integration/chaos/ (marked BOTH
+      # `integration` and `chaos` and already runs, PG-only, in the dedicated `chaos` job below —
+      # running it here again was duplicate coverage on the same SHA); `--durations=40` (per-test
+      # wall-clock of the slowest 40 — the evidence the next optimization round needs; this lane
+      # averages ~11 s/test with zero per-test visibility today); `-rs` (prints every skip's
+      # reason, so a self-skipping live suite — no KAFKA_BOOTSTRAP_SERVERS / MAEZO_TEST_DATABASE_URL
+      # in this job's env — shows up in the log as text, not as a silent `s`). O manifesto da
+      # coleta é a autoridade: identidade JUnit, hash da fonte, fases e entrada no corpo precisam
+      # coincidir na execução. Um xfail sem call, XPASS ou skip rotulado livremente falha fechado.
+      - name: Integration tests
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/run_live_pytest.py run \
+            --expected integration-collection.json \
+            --evidence integration-execution.json \
+            --junit integration-junit.xml \
+            --validation integration-validation.json -- \
+            ${{ matrix.alvo }} -q -m "integration and not chaos" --durations=40 -ra
+
+      # Medicao (L3/L6, custo de Actions, 18/11/2026): disco, memoria e vCPU DEPOIS da suite, em toda
+      # run (`always()`), para dimensionar o reclaim de disco e ver o efeito do runner de 2 vCPU / 8 GB do
+      # repositorio privado. Nao altera resultado: so' imprime.
+      - name: Disk, memory and vCPU after the suite (medicao)
+        if: always()
+        run: df -h / | tail -1; nproc; free -m
+      - name: Upload integration test results
+        if: always() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          # Um artefato POR SHARD: com a matriz, um nome unico por `github.sha` colidiria e o
+          # upload perderia o JUnit dos outros shards — que e' exatamente a evidencia que
+          # responde quando a lane fica vermelha (o `run_live_pytest` esconde a saida do pytest).
+          name: integration-test-results-${{ github.sha }}-${{ matrix.shard }}
+          path: |
+            .pytest_cache/
+            integration-collection.json
+            integration-execution.json
+            integration-junit.xml
+            integration-validation.json
+          retention-days: 7
+
+      - name: Collect stack logs on failure
+        if: failure() && steps.guard.outputs.run == 'true'
+        run: docker compose --profile core logs --no-color > docker-compose-failure.log
+
+      - name: Upload failure logs
+        if: failure() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: docker-compose-failure-logs-${{ github.sha }}-${{ matrix.shard }}
+          path: docker-compose-failure.log
+          retention-days: 3
+
+      - name: Tear down stack
+        if: always() && steps.guard.outputs.run == 'true'
+        run: docker compose --profile core down -v
+
+  # O contexto `integration tests (real engine)` e' o nome que a ADR-0023 (§ union-green na main
+  # protegida) cita como ancora da lane de motor real. Fatiar o job em matriz trocaria esse nome
+  # por cinco contextos novos e a ADR ficaria apontando para nada; entao o nome continua existindo
+  # AQUI, como agregador — exatamente o padrao que `quality` ja' cumpre para os shards unitarios,
+  # onde o contexto exigido `lint / type / unit` fica verde so' depois de todos os shards.
+  # Custo: um runner por ~5 s, sem checkout e sem dependencia.
+  #
+  # `if: always()` de proposito: sem ele, `quality` vermelho deixaria este contexto SKIPPED, e um
+  # required check que nunca reporta trava merge para sempre (a armadilha ja' documentada em
+  # branch-protection-check.yml). `skipped` conta como nao-falha; so' `failure`/`cancelled`
+  # pintam vermelho.
+  integration-gate:
+    name: arm64 / integration tests (real engine)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    needs: [trilha, integration]
+    if: always()
+    steps:
+      - name: Union-green dos shards da lane de motor real
+        env:
+          RESULTADO: ${{ needs.integration.result }}
+          PLATAFORMA: ${{ needs.trilha.outputs.plataforma }}
+          TRILHA: ${{ needs.trilha.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -e
+          echo "resultado agregado dos shards: ${RESULTADO} (evento ${EVENT_NAME})"
+          case "${RESULTADO}" in
+            success)
+              echo "## integration tests (real engine): ${RESULTADO}" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            skipped)
+              if [ "${TRILHA}" = "success" ] && [ "${PLATAFORMA}" = "false" ]; then
+                echo "::notice::trilha de AGENTE (ADR-0067): a lane de motor real e' da plataforma; o portao confere a do agente."
+                echo "## integration tests (real engine): NOT APPLICABLE (trilha de agente)" >> "$GITHUB_STEP_SUMMARY"
+              elif [ "${EVENT_NAME}" = "push" ]; then
+                # 22/09/2026 (dedup de faturamento): os shards nao sao disparados por `push` na
+                # main — a lane acabou de rodar no `pull_request` do PR que mergeou (merge
+                # byte-checked) e o canary da main vive no `schedule` noturno, que roda a lane
+                # COMPLETA sem filtro. Verde COM aviso visivel, nunca silencioso. A regra do
+                # PR #465 fica INTACTA nos eventos que importam para merge e canary: `skipped`
+                # em `pull_request` (contexto que nao rodou) ou em `schedule` (canary noturno
+                # que deveria ter rodado) continua VERMELHO.
+                echo "::notice::integration shards nao rodam em push na main (dedup de faturamento, 22/09/2026) — o canary noturno do schedule continua completo."
+                {
+                  echo "## integration tests (real engine): NOT APPLICABLE (push na main)"
+                  echo ""
+                  echo "Os shards nao sao disparados por \`push\` na main desde 22/09/2026: o merge"
+                  echo "byte-checked acabou de passa-los no \`pull_request\` do PR que mergeou este"
+                  echo "arquivo. O canary da main continua no \`schedule\` noturno, que roda a lane"
+                  echo "COMPLETA sem filtro de paths."
+                } >> "$GITHUB_STEP_SUMMARY"
+              else
+                # NAO e' verde. `skipped` aqui significa que os shards nem chegaram a rodar — o
+                # `quality` a montante falhou (medido no PR #465, run 35742237775: um shard unitario
+                # caiu num passo de cache, os 5 shards de integracao foram pulados e este job pintou
+                # verde em 2 s). Um portao que fica verde sem ter olhado e' o pior defeito que um
+                # portao pode ter; a lane so' e' verde quando os shards rodaram e passaram.
+                echo "::error::os shards da lane de motor real NAO RODARAM (resultado '${RESULTADO}', evento '${EVENT_NAME}') — o job a montante falhou; isto nao e' um verde."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::pelo menos um shard da lane de motor real terminou em '${RESULTADO}' — veja os jobs 'integration (<shard>)' e o artefato integration-test-results-<sha>-<shard>."
+              exit 1
+              ;;
+          esac
+
+  # ---------------------------------------------------------------------------
+  # T3.3 W0/W1 — chaos / cross-process resilience: seam-level fault-injection suites
+  # (docs/design/T3.3-chaos-resilience.md, orchestrator-ratified 2026-07-25). These suites
+  # (B1a/B1b/C1-down under tests/integration/chaos/, marked `chaos`) inject faults at the PYTHON
+  # SEAM — monkeypatched `PostgresAuditSink` methods / `CibSevenTransport` call sites against a
+  # `FakeCibSevenTransport` — never a real container kill, never a real CIB Seven engine. This job
+  # therefore brings up ONLY the `postgres` service from the `core` compose profile: a separate,
+  # lean, fast lane that cannot contend with (or be contended by) the `integration` job's full
+  # engine stack — each GitHub Actions job already runs on its own isolated runner, and this job
+  # additionally never touches cibseven/hapi-fhir/kafka at all.
+  #
+  # W2 (container-control chaos — real worker pod-kill / worker-daemon restart / engine restart;
+  # docs/design/T3.3-chaos-resilience.md §4 Wave W2, tests still to be written:
+  # test_pod_kill_handoff.py / test_daemon_restart_readiness.py / test_engine_restart.py) is
+  # DELIBERATELY NOT wired into this job — the ratified §5 policy is that destructive
+  # container-control chaos lands as a SEPARATE, SERIALIZED, NIGHTLY job (mirroring
+  # `evals-nightly`'s `if: github.event_name == 'schedule'` gating below) once W2 is actually
+  # built, so it can never corrupt this job's (or `integration`'s) shared stack state mid-run.
+  # This is a documented placeholder, not a stub job — add a `chaos-nightly` job here (schedule-
+  # gated, its own `docker compose -p chaos` or testcontainers-controlled stack, `-m chaos and
+  # destructive` or a distinct marker) when W2 lands.
+  #
+  # Guard-step pattern mirrors `integration`/`evals` (three-bucket: 0 = run; 4|5 = visible skip;
+  # else = COLLECTION BROKEN fails the job — never masquerade a broken collection as "no tests").
+  chaos:
+    name: arm64 / chaos (seam-level fault injection, PG-only)
+    runs-on: ubuntu-24.04-arm
+    # Hard cap (CI-minutes hygiene): measured 0.7-1.0 min per run; same rationale as the
+    # `integration` job's cap — a hung PG-only lane must never bill GitHub's 360-min default.
+    timeout-minutes: 20
+    needs: [quality]
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    env:
+      # Same convention as the `integration` job — CI has no local-port collision to avoid.
+      MAEZO_PG_HOST_PORT: "5432"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Check for collectable chaos tests
+        id: guard
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          set +e
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/run_live_pytest.py collect \
+            --output chaos-collection.json -- \
+            tests/integration/chaos -q -m chaos
+          code=$?
+          set -e
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: chaos tests collected — running the real lane"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no chaos tests yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — tests/integration/chaos exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no tests yet' — failing the job."
+              exit 1
+              ;;
+          esac
+
+      - name: CHAOS LANE SKIPPED (visible)
+        if: steps.guard.outputs.run == 'false'
+        run: |
+          echo "::notice::CHAOS LANE SKIPPED — no chaos-marked tests yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }})"
+          {
+            echo "## chaos (seam-level fault injection): SKIPPED"
+            echo ""
+            echo "No collectable \`-m chaos\` tests under \`tests/integration/chaos/\` yet (pytest"
+            echo "--collect-only exit ${{ steps.guard.outputs.collect_code }})."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start Postgres only (no cibseven — chaos seam suites are PG-only)
+        if: steps.guard.outputs.run == 'true'
+        run: docker compose --profile core up -d postgres
+
+      - name: Wait for Postgres to be healthy
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          echo "Waiting for postgres..."
+          timeout 60 bash -c 'until docker compose exec -T postgres pg_isready -U maezo -d maezo; do sleep 3; done'
+          echo "Postgres healthy."
+
+      - name: Chaos tests (seam-level fault injection)
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/run_live_pytest.py run \
+            --expected chaos-collection.json \
+            --evidence chaos-execution.json \
+            --junit chaos-junit.xml \
+            --validation chaos-validation.json -- \
+            tests/integration/chaos -q -m chaos -ra
+
+      - name: Upload chaos test results
+        if: always() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: chaos-test-results-${{ github.sha }}
+          path: |
+            .pytest_cache/
+            chaos-collection.json
+            chaos-execution.json
+            chaos-junit.xml
+            chaos-validation.json
+          retention-days: 7
+
+      - name: Collect Postgres logs on failure
+        if: failure() && steps.guard.outputs.run == 'true'
+        run: docker compose --profile core logs postgres --no-color > chaos-postgres-failure.log
+
+      - name: Upload failure logs
+        if: failure() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: chaos-postgres-failure-logs-${{ github.sha }}
+          path: chaos-postgres-failure.log
+          retention-days: 3
+
+      - name: Tear down stack
+        if: always() && steps.guard.outputs.run == 'true'
+        run: docker compose --profile core down -v
+
+  # ---------------------------------------------------------------------------
+  # Tasy simulator smoke test (ADR-0013 gap #33):
+  # Validates that the simulator profile starts and produces CDC events without
+  # error. Runs after the core integration job to reuse the already-built images.
+  # The simulator is a permanent CI deliverable (not a dev-only hack) — see ADR-0013.
+  # ---------------------------------------------------------------------------
+  # ── T2.3 (B9 CI surgery, guard-step pattern): the 'simulator' compose profile
+  # (tasy-simulator service) was REMOVED in T0.4 (defect B14) — it built from
+  # deploy/tasy_simulator.Dockerfile, which never existed in this repo, and there is
+  # no simulator source under src/ (confirmed via `git log --all`: zero history for
+  # that Dockerfile path). This job must NOT attempt `--profile simulator` blindly —
+  # that profile is gone from docker-compose.yml and the command would fail.
+  # Real double blocker: (1) tasy-simulator removed T0.4, (2) reintroduction tracked
+  # in T2.6 / ADR-0013 (which documents the simulator as a planned *permanent* CI
+  # deliverable, not a temporary hack — just not built yet).
+  # Guard step detects the profile's reintroduction via `docker compose config
+  # --profiles` (pure YAML parse, no daemon dependency) so this lane auto-activates
+  # the moment T2.6 lands the profile — no workflow edit needed.
+  fhir-sync-simulator:
+    name: arm64 / fhir-sync simulator smoke (ADR-0013 gap #33)
+    runs-on: ubuntu-24.04-arm
+    # Hard safety net: job CANNOT hang longer than 12 minutes regardless of step timeouts.
+    # Root cause of CI run 27511267203 hang: KAFKA_ADVERTISED_LISTENERS was localhost:9092 only,
+    # so the broker told tasy-simulator to connect to 127.0.0.1:9092 (its own loopback) —
+    # AIOKafkaProducer.start() retried indefinitely. Fixed in docker-compose.yml (dual listener).
+    timeout-minutes: 12
+    needs: [quality]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # Two-phase guard (verification cycle 1 caught a fail-open version that piped
+      # `docker compose config` straight into grep with stderr discarded — a BROKEN
+      # docker-compose.yml exited nonzero, produced no profile list, and read as
+      # "profile absent" -> false visible skip). Phase 1: `docker compose config`
+      # must itself succeed, else the job FAILS loudly. Phase 2: only then is the
+      # profile list inspected for 'simulator'.
+      - name: Check for reintroduced 'simulator' compose profile
+        id: guard
+        run: |
+          set +e
+          profiles="$(docker compose config --profiles 2>compose-config.stderr)"
+          code=$?
+          set -e
+          if [ "${code}" -ne 0 ]; then
+            echo "::error::docker compose config failed (exit ${code}) — docker-compose.yml is broken. Refusing to read a parse failure as 'simulator profile absent' — failing the job."
+            echo "--- docker compose config stderr ---"
+            cat compose-config.stderr
+            exit 1
+          fi
+          echo "compose profiles found:"
+          printf '%s\n' "${profiles}"
+          if printf '%s\n' "${profiles}" | grep -qx simulator; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: FHIR-SYNC-SIMULATOR LANE SKIPPED (visible)
+        if: steps.guard.outputs.run == 'false'
+        run: |
+          echo "::notice::FHIR-SYNC-SIMULATOR LANE SKIPPED — tasy-simulator service/profile removed in T0.4 (defect B14: dangling Dockerfile that never existed); reintroduction tracked in T2.6/ADR-0013"
+          {
+            echo "## fhir-sync-simulator: SKIPPED"
+            echo ""
+            echo "The \`simulator\` docker-compose profile (tasy-simulator service) was removed in"
+            echo "T0.4 (defect B14) — it built from a Dockerfile that never existed in this repo"
+            echo "and there was no simulator source under \`src/\`."
+            echo ""
+            echo "ADR-0013 documents the simulator as a planned *permanent* CI deliverable."
+            echo "Reintroduction is tracked in T2.6. This lane auto-activates the moment the"
+            echo "\`simulator\` profile is reintroduced to docker-compose.yml — no workflow edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build Tasy simulator image
+        if: steps.guard.outputs.run == 'true'
+        # Bounded build step — prevents stalled layer pulls from eating the whole job budget.
+        run: |
+          timeout 300 docker compose --profile core --profile simulator build tasy-simulator
+          echo "Simulator image built."
+
+      - name: Start Kafka and wait for readiness
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          docker compose --profile core --profile simulator up -d kafka
+          echo "Waiting for Kafka to be ready (INTERNAL listener kafka:29092)..."
+          # Use the INTERNAL listener (kafka:29092) — the healthcheck runs inside the kafka
+          # container where the hostname resolves via Docker DNS.
+          timeout 90 bash -c 'until docker compose exec -T kafka kafka-broker-api-versions --bootstrap-server kafka:29092 > /dev/null 2>&1; do sleep 5; done' \
+            || { echo "ERROR: Kafka did not become ready within 90s"; exit 1; }
+          echo "Kafka ready."
+
+      - name: Run Tasy simulator (one-shot)
+        if: steps.guard.outputs.run == 'true'
+        # TASY_SIM_LOOP=0 → exits after emitting all scenarios (deterministic one-shot).
+        # KAFKA_BOOTSTRAP_SERVERS=kafka:29092 → uses the cross-container INTERNAL listener.
+        # timeout 120 ensures a hung AIOKafkaProducer.start() never blocks past this step.
+        run: |
+          timeout 120 docker compose --profile core --profile simulator run --rm \
+            -e TASY_SIM_LOOP=0 \
+            -e KAFKA_BOOTSTRAP_SERVERS=kafka:29092 \
+            tasy-simulator
+          echo "Tasy simulator exited successfully (one-shot complete)."
+
+      - name: Collect simulator logs on failure
+        if: failure() && steps.guard.outputs.run == 'true'
+        run: docker compose --profile core --profile simulator logs --no-color > simulator-failure.log
+
+      - name: Upload simulator failure logs
+        if: failure() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: simulator-failure-logs-${{ github.sha }}
+          path: simulator-failure.log
+          retention-days: 3
+
+      - name: Tear down stack
+        if: always() && steps.guard.outputs.run == 'true'
+        run: docker compose --profile core --profile simulator down -v
+
+  # ── T2.3 (B9 CI surgery, guard-step pattern): no golden datasets exist yet under
+  # tests/evals/ (no agent code has landed that needs eval gating). Previously this
+  # whole job was permanently disabled via `if: false`, an invisible skip with no
+  # runtime signal. Now: the existing dorny/paths-filter gate (only run when
+  # agent-touching paths change) is preserved as-is, and a second guard step checks
+  # for real, collectable eval-marked tests. If agent paths changed but there is
+  # nothing to collect yet, a LOUD visible skip fires instead of silently no-op'ing.
+  # Unblock condition: T3.2 (V2-COMPLETION-PLAN) lands golden datasets under
+  # tests/evals/. The moment that happens this lane auto-activates — no workflow
+  # edit needed.
+  evals:
+    name: arm64 / evals (agent-touching paths)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    needs: [quality]
+    # dorny/paths-filter cai no fallback da API listFiles (pulls/{n}/files) em alguns PRs; sem
+    # `pull-requests: read` o GITHUB_TOKEN (default read-only deste repo) recebe "Resource not
+    # accessible by integration" e o gate falha (falso-negativo). Concede a permissão mínima.
+    permissions:
+      contents: read
+      pull-requests: read
+    # Gate: run when agent-touching files change (ADR-0009 golden datasets).
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Check if agent-touching files changed
+        id: agent_changes
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
+        with:
+          filters: |
+            agents:
+              - 'src/maezo/agents/**'
+              - 'src/maezo/runtime/**'
+              - 'src/maezo/gateway/**'
+              - 'tests/evals/**'
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        if: steps.agent_changes.outputs.agents == 'true'
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        if: steps.agent_changes.outputs.agents == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        if: steps.agent_changes.outputs.agents == 'true'
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        if: steps.agent_changes.outputs.agents == 'true'
+        run: uv sync --locked --extra dev
+
+      # Three-bucket guard (see the `integration` job for the verification-cycle-1
+      # fail-open this replaces): 0 -> run; 4/5 -> visible skip; else -> job FAILS
+      # (broken collection must never masquerade as "no golden datasets yet").
+      - name: Check for collectable eval golden datasets
+        id: guard
+        if: steps.agent_changes.outputs.agents == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          set +e
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/evals --collect-only -q -m eval
+          code=$?
+          set -e
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: eval tests collected — running the real gate"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no golden datasets yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — tests/evals exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no golden datasets yet' — failing the job."
+              exit 1
+              ;;
+          esac
+
+      - name: EVALS LANE SKIPPED (visible)
+        if: steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'false'
+        run: |
+          echo "::notice::EVALS LANE SKIPPED — no golden datasets yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.2 (V2-COMPLETION-PLAN)"
+          {
+            echo "## evals (agent-touching paths): SKIPPED"
+            echo ""
+            echo "Agent-touching paths changed, but no collectable eval-marked tests exist under"
+            echo "\`tests/evals/\` yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }})."
+            echo "This lane auto-activates the moment T3.2 (V2-COMPLETION-PLAN) lands golden"
+            echo "datasets there — no workflow edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run eval gate
+        if: steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make evals
+        env:
+          LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
+
+      - name: Upload eval results
+        if: always() && steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: eval-results-${{ github.sha }}
+          path: .pytest_cache/
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Nightly eval job — full eval suite against HEAD of main.
+  # Runs at 03:00 BRT (06:00 UTC) to catch silent prompt/model drift.
+  # Triggers on: schedule only (not on PRs to avoid API key usage in forks).
+  # ---------------------------------------------------------------------------
+  # ── T2.3 (B9 CI surgery, guard-step pattern): same real blocker as `evals` — no
+  # golden datasets exist yet under tests/evals/. Previously disabled via `if: false`
+  # (invisible). Also fixes a latent bug: the comment above always claimed this job
+  # "Triggers on: schedule only (not on PRs to avoid API key usage in forks)", but
+  # there was no `if:` enforcing that — only the blanket `if: false` masked it. Now
+  # both are real: the job is schedule-gated at the job level, and a guard step
+  # decides whether there is anything to run. Unblock condition: T3.2
+  # (V2-COMPLETION-PLAN) lands golden datasets under tests/evals/. This lane
+  # auto-activates the moment that happens — no workflow edit needed.
+  evals-nightly:
+    name: arm64 / evals-nightly (full suite)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      # Three-bucket guard (see the `integration` job for the verification-cycle-1
+      # fail-open this replaces): 0 -> run; 4/5 -> visible skip; else -> job FAILS.
+      - name: Check for collectable eval golden datasets
+        id: guard
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          set +e
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/evals --collect-only -q -m eval
+          code=$?
+          set -e
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: eval tests collected — running the full nightly suite"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no golden datasets yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — tests/evals exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no golden datasets yet' — failing the job."
+              exit 1
+              ;;
+          esac
+
+      - name: EVALS-NIGHTLY LANE SKIPPED (visible)
+        if: steps.guard.outputs.run == 'false'
+        run: |
+          echo "::notice::EVALS-NIGHTLY LANE SKIPPED — no golden datasets yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.2 (V2-COMPLETION-PLAN)"
+          {
+            echo "## evals-nightly (full suite): SKIPPED"
+            echo ""
+            echo "No collectable eval-marked tests exist under \`tests/evals/\` yet (pytest"
+            echo "--collect-only exit ${{ steps.guard.outputs.collect_code }}). This lane"
+            echo "auto-activates the moment T3.2 (V2-COMPLETION-PLAN) lands golden datasets"
+            echo "there — no workflow edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Full nightly eval run
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make evals
+        env:
+          LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
+          NIGHTLY_EVAL: "1"
+
+      - name: Upload nightly eval results
+        if: always() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: nightly-eval-results-${{ github.sha }}
+          path: .pytest_cache/
+          retention-days: 30
