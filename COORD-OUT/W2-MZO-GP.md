@@ -336,3 +336,16 @@ Nada de DMN, migração, DL, `PLANS.md`, CODEOWNERS, workflows ou contrato. Arqu
 - 4 merges atrás (#1321, #1323, #1325, #1324), sem arquivo em comum e sem uso do catálogo público, não trazidos. Simulação de merge real sobre `c297f507`, em worktree temporária destacada e já removida: comerciais + gateway 7655 passed (1 falha de ambiente, igual na main).
 - Falha de processo: a primeira simulação deste PR foi feita num clone `--shared`, cujo `origin/main` apontava para o `main` local antigo (fast-forward, não valia). Refeita no sha real da main.
 - Depois do merge: LIMPEZA #1327, depois 05r-b (CAMINHO já aceito na CD-162).
+
+## 2026-11-18 ~14:55Z — #1327 mesclado (main `5cf8a3fb`); LIMPEZA #1327 (CD-149)
+
+- #1327 mesclado; a main atual (`ab35f086`) contém o head `b158b334db1b591194dc0b312ef7ad3b5e7b6fd9`.
+- **LIMPEZA #1327**
+  - Ramos para o dono apagar:
+    - `sf-w2/mzo-gp/esf05r-a` @ `b158b334db1b591194dc0b312ef7ad3b5e7b6fd9`, no remoto.
+    - O mesmo ramo no LOCAL: apagar com `git branch -d` (ramo já mesclado, sem forçar) foi NEGADO pelo modo automático desta sessão. Não contornei; fica no meu disco, só registrado.
+  - Ramos locais nunca enviados: nenhum novo. `sf-w2/mzo-gp/esf26-parse-ca` @ `e1822aa2` segue só registrado.
+  - PR órfão ou substituído: nenhum. Nenhum PR meu aberto no maezo.
+  - Título e corpo do #1327 descrevem o que entrou.
+  - Disco: temporários desta linha apagados. A worktree destacada `mainu` (main limpa `bef44a63`) segue ativa só para a comparação da CD-173/174 e sai sem `--force` ao fim.
+- CD-173/174: a rodada do resto de `tests/unit` sobre o head mesclado acabou (partes 1–4 com falhas, parte 5 limpa). A comparação nome a nome com a main limpa está em curso; o resultado vem na próxima entrada.
