@@ -15,18 +15,18 @@ Método: parser namespace-aware, qualquer profundidade sob `<process>`; elemento
 | Arquivo | sha256 (bytes do arquivo no head do re-base) | processos | tasks | gateways | events | **denominador** |
 |---|---|---|---|---|---|---|
 | `CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn` | `b77619a1bdc997b0598627c36ff8273dc6402ac05702acbcad59b0b06381a0e7` | 7 | 36 (2 uT + 31 sT + 3 cA) | 21 (19X + 2P) | 34 (8+20+1+2+3) | **98** |
-| `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn` | `cd571d6dc8e5bdfec2ff731315792cd8e74437c007e4f3ebec3afbe3252d8f79` | 5 | 21 (4 uT + 10 sT + 7 cA) | 21 (20X + 1EB) | 57 (10+28+4+6+9) | **104** |
+| `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn` | `1f145fe75b5a53baa5bb704bc9ca2d58846192f0fec7854cde3603e8452ff0b3` | 5 | 24 (7 uT + 10 sT + 7 cA) | 24 (23X + 1EB) | 62 (11+31+4+6+10) | **115** |
 | `CA_2_UTILIZACAO_v4_adaptado.bpmn` | `b85ed1b4c2a130c8d7bab25e09640d367a298ddcd8e9d5b1f21750b6e35af674` | 5 | 15 (2 uT + 2 sT + 2 rT + 4 cA + 5 task) | 14 (11X + 2P + 1EB) | 42 (8+16+2+9+7) | **76** |
 | `CA_3_SUPORTE_v4_adaptado.bpmn` | `666d883e748b510c1915099a1f663648471fd9128aa7d7c0d3e6841e2c1e3576` | 5 | 25 (10 uT + 10 sT + 5 cA) | 18 (18X) | 41 (7+22+0+2+10) | **89** |
-| **TOTAL** | — | **22** | **97** | **74** | **174** | **367** |
+| **TOTAL** | — | **22** | **100** | **77** | **179** | **378** |
 
-Ordem das parcelas de events: start + end + catch + throw + boundary. Soma checada: 98+104+76+89 = **367** = 22+97+74+174 ✓. Delta vs a base `5a8ba09e` (359): **+8, todos no CA_2**, bloco LA-02 (commit `f57f08219`, REG-1.5(b)/D-07) em `Process_CA_UTILIZACAO_U4_LiquidarAvaliar` — +4 `task` sem tipo, +2 XOR, +1 boundary (timer P30D), +1 end; listados em §5. Deltas históricos vs inventário v4-pré-CORP (355): +4 no CA_0 (#932: processo `Process_CA_DS_Monitoramento` +3 elementos: start de sinal, serviceTask, end); CA_3 re-tipou `S4_T_Ouvidoria` task→userTask (mesma contagem).
+Ordem das parcelas de events: start + end + catch + throw + boundary. Soma checada: 98+115+76+89 = **378** = 22+100+77+179 ✓. Delta de 2026-11-18: **+11 no CA_1** (subprocesso E-SF-26 no C2: 3 uT + 3 XOR + 5 events; listados em §4). Delta vs a base `5a8ba09e` (359): **+8, todos no CA_2**, bloco LA-02 (commit `f57f08219`, REG-1.5(b)/D-07) em `Process_CA_UTILIZACAO_U4_LiquidarAvaliar` — +4 `task` sem tipo, +2 XOR, +1 boundary (timer P30D), +1 end; listados em §5. Deltas históricos vs inventário v4-pré-CORP (355): +4 no CA_0 (#932: processo `Process_CA_DS_Monitoramento` +3 elementos: start de sinal, serviceTask, end); CA_3 re-tipou `S4_T_Ouvidoria` task→userTask (mesma contagem).
 
-**Relatados à parte (fora do denominador; parcelas na ordem CA_0+CA_1+CA_2+CA_3):** sequenceFlow 322 (91+91+63+77) · subProcess 4 (0+1+3+0) · textAnnotation 2 (1+0+0+1) · association 2 (1+0+0+1) · dataObject 27 (5+9+10+3) · dataObjectReference 27 (5+9+10+3) · dataStore 16 (6+5+1+4) · dataStoreReference 19 (8+5+1+5) · dataInputAssociation 43 (12+14+9+8) · dataOutputAssociation 6 (2+1+3+0) · participant 34 (9+9+8+8) · messageFlow 36 (6+15+10+5) · laneSet 21 (6+5+5+5) · lane 57 (16+16+12+13) · declarações 42 (36 message + 1 signal + 4 error + 1 escalation) · BPMNDiagram 8 (2+1+4+1) planos (**0 sem id** — ver §8) · BPMNShape 488 (130+139+105+114) · BPMNEdge 406 (112+121+82+91) · conditionExpression 54 (16+17+6+15) · collaboration 4 (1+1+1+1). IDs duplicados: 0 (por arquivo; e 0 entre os IDs de denominador no corpus — 26 IDs fora do denominador, de participant, message, error, dados e DI, repetem-se entre arquivos por desenho e ficam fora desta contagem). `camunda:delegateExpression`: 44 distintos no corpus (75 ocorrências).
+**Relatados à parte (fora do denominador; parcelas na ordem CA_0+CA_1+CA_2+CA_3):** sequenceFlow 333 (91+102+63+77) · subProcess 5 (0+2+3+0) · textAnnotation 2 (1+0+0+1) · association 2 (1+0+0+1) · dataObject 27 (5+9+10+3) · dataObjectReference 27 (5+9+10+3) · dataStore 16 (6+5+1+4) · dataStoreReference 19 (8+5+1+5) · dataInputAssociation 43 (12+14+9+8) · dataOutputAssociation 6 (2+1+3+0) · participant 34 (9+9+8+8) · messageFlow 36 (6+15+10+5) · laneSet 21 (6+5+5+5) · lane 57 (16+16+12+13) · declarações 43 (36 message + 1 signal + 5 error + 1 escalation) · BPMNDiagram 8 (2+1+4+1) planos (**0 sem id** — ver §8) · BPMNShape 500 (130+151+105+114) · BPMNEdge 417 (112+132+82+91) · conditionExpression 56 (16+19+6+15) · collaboration 4 (1+1+1+1). IDs duplicados: 0 (por arquivo; e 0 entre os IDs de denominador no corpus — 26 IDs fora do denominador, de participant, message, error, dados e DI, repetem-se entre arquivos por desenho e ficam fora desta contagem). `camunda:delegateExpression`: 44 distintos no corpus (75 ocorrências).
 
 ## §2 Estados terminais e catálogo de casas
 
-Cada um dos 367 elementos está em **exatamente 1** estado terminal:
+Cada um dos 378 elementos está em **exatamente 1** estado terminal:
 
 - **CASA** — existe capacidade runtime em main que exerce a função do elemento (worker/motor/fila humana/DMN/escalação/observabilidade), com caminho + teste citáveis. O elemento do v4 é *vocabulário de desenho* dessa capacidade existente; a admissão runtime do desenho é a ponte (à parte, se o mapa provar lacuna de chave).
 - **LACUNA** — nenhuma capacidade existente exerce a função; único candidato legítimo a ponte futura, delimitado ao caminho canônico D-02 (§8/§9). LACUNA **não** é autorização de implementação.
@@ -82,7 +82,7 @@ Famílias de lacuna: **L1** despacho proativo omnicanal ao cliente · **L2** res
 
 Soma CA_0 (linhas, incl. processo): H2 5+19=24 · H2.1 0+13=13 · H1 6+5=11 · H3 7+9=16 · H3.1 3+11=14 · H3.2 4+12=16 · DS 4+0=4 → **98** ✓ (CASA 29, LACUNA 69).
 
-## §4 CA_1 — Compra (com suporte) (104 = 51 CASA + 53 LACUNA) — LEITURA-ONLY
+## §4 CA_1 — Compra (com suporte) (115 = 51 CASA + 64 LACUNA) — LEITURA-ONLY (aberto em 2026-11-18 só para E-SF-26, pelo canal de coordenação)
 
 Famílias: **L3C** oferta/agenda de compra (casa parcial = autoridade comercial C-10; ponte = wiring, não processo novo) · **L4** NBA · **L5** perfil · **L6** agenda/slot/reagendamento · **L1** lembretes/cadência.
 
@@ -105,6 +105,7 @@ Famílias: **L3C** oferta/agenda de compra (casa parcial = autoridade comercial 
 | `Process_CA_COMPRA_C2_DecidirContratar` | process | decisão/contratação — casa parcial (C-10 + aceite no motor) | — | C-10 | **CASA** (parcial) |
 | `C2_Start`, `C2_T_Aceite`, `C2_EV_Agendado`, `C2_B_Recusa`, `C2_End_Aceite`, `C2_End_Recusa` | start+uT+throw+boundary+end×2 (6) | aceite do cliente no motor + marcos + recusa | — (C-10; fila humana C-7; marcos C-5) | C-10, C-5, C-7 | **CASA** |
 | `C2_EV_Lembrete`, `C2_B_Lembrete`, `C2_End_Lembrete`, `C2_B_PrazoMax`, `C2_End_SemResposta` | throw+boundary+end×2+boundary (5) | cadência de lembrete e prazo de decisão — política comercial sem runtime (L1-cadência; `${prazoMaximoDecisao}` sem default é contrato de ingresso, CORRECOES §6.5) | — | LACUNA→SP-OP-NOTIF-001 (+política C-10) | LACUNA |
+| `C2_G_OfertaCPT`, `C2_G_Junta`, `C2DS_Start`, `C2DS_T_Carta`, `C2DS_G_Ratificada`, `C2DS_T_Declarar`, `C2DS_T_DecidirCPT`, `C2DS_End_Concluida`, `C2DS_End_NaoRatificada`, `C2_B_DSNaoRatificada`, `C2_End_DSIndisponivel` | gw×3+start+uT×3+end×3+boundary (11) | declaração de saúde e CPT antes do aceite (E-SF-26, EP-REG-13a): Carta → declaração → decisão humana de CPT; nó fechado sem ratificação (fim de erro `DS_NAO_RATIFICADO`, sem efeito); sem Agravo; banco de perguntas só sintético (`spec/health/`) | — | LACUNA→ratificação REG-11 + banco aprovado (sem runtime) | LACUNA |
 | `Process_CA_COMPRA_C3_HabilitarDireito` | process | habilitação/autorização — **SP-OP-AUTH-001 absorve** (ruling D-02: `authorizationRequestService` ≈ workers SP-OP-AUTH) | **SP-OP-AUTH-001** | C-2 | **CASA** |
 | `C3_Start`, `C3_GW_Tipo`, `C3_GW_MergeEleg`, `C3_T_Elegibilidade`, `C3_GW_Auto`, `C3_T_AutoAutorizar`, `C3_GW_MergeAut`, `C3_EV_Autorizado`, `C3_End_Habilitado`, `C3_GW_MergeReq`, `C3_T_Requisitar`, `C3_EV_EmAnalise`, `C3_GW_Espera`, `C3_EV_Concedida`, `C3_EV_Pendencia`, `C3_EV_Negada`, `C3_EV_Expirou` (PT48H — valor = D-05/RN 623, REG-1.2), `C3_GW_Pendencia`, `C3_GW_TipoNegativa`, `C3_T_Parecer`, `C3_B_SLA_Parecer`, `C3_T_EscalarParecer`, `C3_End_SLA_Parecer`, `C3_GW_MergeReneg`, `C3_T_Renegociar`, `C3_B_SLA_Renegociar`, `C3_T_EscalarRenegociar`, `C3_End_SLA_Renegociar`, `C3_GW_Alternativa`, `C3_End_Perdida`, `C3_End_Suporte`, `C3_End_Plano` | 32 (start, cA? não — gw×9, task×5, uT×2, catch×4, throw×2, boundary×2, end×6, EBG×1) | critérios de autorização, rota automática TISS, requisição, desfechos, negativa com fundamento, fila humana de parecer/alternativa, escalações F-04 | **SP-OP-AUTH-001** (+negativa C-12; fila humana C-7; escalação **SP-OP-ESCALATION-001**; marcos C-5) | C-2, C-12, C-7, C-4, C-5 | **CASA** |
 | `C3_CA_Perfil` | callActivity | chama `EnriquecerCliente` (L5) | — | LACUNA→SP-OP-PERFIL-001 | LACUNA |
@@ -113,7 +114,7 @@ Famílias: **L3C** oferta/agenda de compra (casa parcial = autoridade comercial 
 | `C4_Start`, `C4_End_Remarcado` | start+end (2) | ingresso de manutenção de slot sem montagem; desfecho de remarcação cujo produtor (`C4_T_Reagendar`) é LACUNA (flips §7.1 #3 e #4 adotados; L6) | — | LACUNA→SP-OP-AGENDA-001 | LACUNA |
 | `C4_GW_Motivo`, `C4_T_Reagendar`, `C4_B_SemSlot`, `C4_B_Lembrete`, `C4_B_PrazoMax`, `C4_EV_Lembrete`, `C4_End_Lembrete`, `C4_End_SemConfirmacao`, `C4_End_SemSlot` | gw+task+boundary×3+throw+end×3 (9) | reagendamento automático em slot equivalente (`autoRebookingService`; erro `SEM_SLOT_EQUIVALENTE` = contrato declarado externo, F-05/§8) — sem casa (L6) | — | LACUNA→SP-OP-AGENDA-001 | LACUNA |
 
-Soma CA_1: (1+1+1+2+2+1) + 24 + (1+1+1+2+2+1+3) + (1+6+5) + (1+32+1) + (1+3+2+9) = **104** ✓ (CASA 51, LACUNA 53). Flips §7.1 #1–#4 adotados em 2026-11-17. (Re-base 2026-11-16: a expressão anterior somava 102 — omitia `CP_B_ConsentimentoNegado` e `C1_T_Cruzar`; as linhas da tabela não mudaram.)
+Soma CA_1: (1+1+1+2+2+1) + 24 + (1+1+1+2+2+1+3) + (1+6+5+11) + (1+32+1) + (1+3+2+9) = **115** ✓ (CASA 51, LACUNA 64). Flips §7.1 #1–#4 adotados em 2026-11-17. (Re-base 2026-11-16: a expressão anterior somava 102 — omitia `CP_B_ConsentimentoNegado` e `C1_T_Cruzar`; as linhas da tabela não mudaram.)
 
 ## §5 CA_2 — Utilização (76 = 42 CASA + 34 LACUNA)
 
@@ -181,16 +182,16 @@ Gerador: `python -m scripts.docs.gerar_inventario_ca --resumo` (stdlib + lxml; c
 ```
 A. CONTAGENS POR ARQUIVO (gerador: python -m scripts.docs.gerar_inventario_ca)
    CA_0: DENOMINADOR = 98   (process=7 uT=2 sT=31 cA=3 XOR=19 AND=2 start=8 end=20 catch=1 throw=2 boundary=3)
-   CA_1: DENOMINADOR = 104  (process=5 uT=4 sT=10 cA=7 XOR=20 EBG=1 start=10 end=28 catch=4 throw=6 boundary=9)
+   CA_1: DENOMINADOR = 115  (process=5 uT=7 sT=10 cA=7 XOR=23 EBG=1 start=11 end=31 catch=4 throw=6 boundary=10)
    CA_2: DENOMINADOR = 76   (process=5 uT=2 sT=2 rT=2 cA=4 task=5 XOR=11 AND=2 EBG=1 start=8 end=16 catch=2 throw=9 boundary=7)
    CA_3: DENOMINADOR = 89   (process=5 uT=10 sT=10 cA=5 XOR=18 start=7 end=22 throw=2 boundary=10)
    planos DI sem id: CA_0=0 CA_1=0 CA_2=0 CA_3=0
 B. RECONCILIACAO - soma checada
-   por arquivo: CA_0=98 | CA_1=104 | CA_2=76 | CA_3=89
-   TOTAL DENOMINADOR CORPUS = 367 = 22 processos + 97 tasks + 74 gateways + 174 events
+   por arquivo: CA_0=98 | CA_1=115 | CA_2=76 | CA_3=89
+   TOTAL DENOMINADOR CORPUS = 378 = 22 processos + 100 tasks + 77 gateways + 179 events
 C. AGREGADOS (fora do denominador)
-   sequenceFlow = 322 (91+91+63+77)
-   subProcess = 4 (0+1+3+0)
+   sequenceFlow = 333 (91+102+63+77)
+   subProcess = 5 (0+2+3+0)
    textAnnotation = 2 (1+0+0+1)
    association = 2 (1+0+0+1)
    dataObject = 27 (5+9+10+3)
@@ -203,18 +204,18 @@ C. AGREGADOS (fora do denominador)
    messageFlow = 36 (6+15+10+5)
    laneSet = 21 (6+5+5+5)
    lane = 57 (16+16+12+13)
-   flowNodeRef = 337 (88+98+67+84)
+   flowNodeRef = 342 (88+103+67+84)
    collaboration = 4 (1+1+1+1)
-   conditionExpression = 54 (16+17+6+15)
+   conditionExpression = 56 (16+19+6+15)
    BPMNDiagram = 8 (2+1+4+1)
    BPMNPlane = 8 (2+1+4+1)
-   BPMNShape = 488 (130+139+105+114)
-   BPMNEdge = 406 (112+121+82+91)
+   BPMNShape = 500 (130+151+105+114)
+   BPMNEdge = 417 (112+132+82+91)
 D. IDS E DELEGATES
    ids duplicados por arquivo: 0
    ids de denominador duplicados no corpus: 0
    camunda:delegateExpression: 75 ocorrencias, 44 distintos no corpus
-F. DECLARACOES: 42 = message 36 + signal 1 + error 4 + escalation 1
+F. DECLARACOES: 43 = message 36 + signal 1 + error 5 + escalation 1
 ```
 
 Pareamento Gate-3 set-level (transcrito da saída do script da base `5a8ba09e`; o inventário gerado não refaz o pareamento, e LA-02 não alterou declarações — 42 nos dois heads; veredito em §8):
@@ -225,7 +226,7 @@ Pareamento Gate-3 set-level (transcrito da saída do script da base `5a8ba09e`; 
 [SEM-PAR] Error_CA_SemSlotEquivalente ('Sem slot equivalente para reagendamento'): THROW - ; CATCH CA_1#C4_B_SemSlot
 ```
 
-Estados terminais (contagem deste documento, somada por arquivo): CA_0 29 CASA + 69 LACUNA = 98 ✓ · CA_1 51 + 53 = 104 ✓ · CA_2 42 + 34 = 76 ✓ · CA_3 85 + 4 = 89 ✓. **Total: 207 CASA + 160 LACUNA = 367 — zero none-por-silêncio** (todo elemento em exatamente 1 estado; nenhum elemento citado em duas linhas; IDs duplicados no corpus: 0). Os 8 elementos LA-02 entram com o estado de partida da Reconciliação (§5); dos 8 flips de §7.1, os 7 adotados estão aplicados e o rejeitado (#8) mantém o estado de partida.
+Estados terminais (contagem deste documento, somada por arquivo): CA_0 29 CASA + 69 LACUNA = 98 ✓ · CA_1 51 + 64 = 115 ✓ · CA_2 42 + 34 = 76 ✓ · CA_3 85 + 4 = 89 ✓. **Total: 207 CASA + 171 LACUNA = 378 — zero none-por-silêncio** (todo elemento em exatamente 1 estado; nenhum elemento citado em duas linhas; IDs duplicados no corpus: 0). Os 8 elementos LA-02 entram com o estado de partida da Reconciliação (§5); dos 8 flips de §7.1, os 7 adotados estão aplicados e o rejeitado (#8) mantém o estado de partida.
 
 ### §7.1 Divergências element-level registradas (Reconciliação §6.2) — 8 flips: 7 adotados e aplicados, 1 rejeitado
 
@@ -303,6 +304,10 @@ Registro do item 7 do despacho (REG-RESIDUAL-AUDIT-v1.md §3.10/§4; snapshot `5
 - Esta §12 não altera contagens (§1/§7) nem o pareamento CASA/LACUNA — âncoras são documentation-only; `SP-OP-AGENDA-001` segue LACUNA (§9, item 2 — Agenda/slot/no-show/reagendamento) e não recebe contrato nesta leva.
 
 ## Changelog
+
+### 2026-11-18 — subprocesso "Declaração de Saúde e CPT" no C2 do CA_1 (E-SF-26)
+
++11 elementos no CA_1, todos LACUNA: gateway "Oferta com CPT?" (padrão = caminho de antes), subprocesso com Carta → gateway de ratificação (padrão = fim de erro `DS_NAO_RATIFICADO`, sem efeito) → declaração → decisão humana de CPT, junta antes do aceite, borda de erro e fim "indisponível — sem efeito". Só userTask, gateway e evento (nenhum motivo novo de recusa no motor). Sem Agravo. "Oferta com CPT nunca chega ao Express": GAP (não há nó Express no CA_1). Números: CA_1 104 → 115 (CASA 51, LACUNA 53 → 64); corpus 367 → 378 (CASA 207, LACUNA 160 → 171). O CA_1, LEITURA-ONLY, foi aberto só para esta linha pelo canal de coordenação. O corpus CA continua documento não implantável.
 
 ### 2026-11-17 — disposição dos 8 flips de §7.1
 

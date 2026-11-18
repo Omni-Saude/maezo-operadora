@@ -664,6 +664,11 @@
         <bpmn:flowNodeRef>C2_B_PrazoMax</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>C2_B_Lembrete</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>C2_B_Recusa</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>C2_G_OfertaCPT</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>C2_G_Junta</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>C2_SP_DeclaracaoSaude</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>C2_B_DSNaoRatificada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>C2_End_DSIndisponivel</bpmn:flowNodeRef>
       </bpmn:lane>
     </bpmn:laneSet>
     <bpmn:startEvent id="C2_Start" name="Proposta apresentada">
@@ -715,17 +720,86 @@
       </bpmn:extensionElements>
       <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_07</bpmn:incoming>
     </bpmn:endEvent>
-    <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_01" sourceRef="C2_Start" targetRef="C2_T_Aceite" />
+    <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_01" sourceRef="C2_Start" targetRef="C2_G_OfertaCPT" />
     <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_02" sourceRef="C2_T_Aceite" targetRef="C2_EV_Agendado" />
     <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_03" sourceRef="C2_EV_Agendado" targetRef="C2_End_Aceite" />
     <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_04" sourceRef="C2_B_Recusa" targetRef="C2_End_Recusa" />
     <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_05" sourceRef="C2_B_Lembrete" targetRef="C2_EV_Lembrete" />
     <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_06" sourceRef="C2_EV_Lembrete" targetRef="C2_End_Lembrete" />
     <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_07" sourceRef="C2_B_PrazoMax" targetRef="C2_End_SemResposta" />
+    <bpmn:exclusiveGateway id="C2_G_OfertaCPT" name="Oferta com CPT?" default="F_CA_COMPRA_C2_DecidirContratar_08">
+      <bpmn:documentation>E-SF-26 (EP-REG-13a). Oferta com CPT passa por Carta → declaração de saúde → decisão humana de CPT, antes do aceite (J60: só estrutura, sem prazo exibido). Sem Agravo. O nó da declaração é FECHADO por construção: sem a ratificação do banco de perguntas e da base (REG-11/VW0-D16), o único caminho vai ao fim de erro tipado DS_NAO_RATIFICADO, sem efeito. Nenhuma tarefa automática; o corpus CA é documento não implantável.</bpmn:documentation>
+      <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_08</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_09</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="C2_G_Junta" name="Seguir para a decisão">
+      <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_08</bpmn:incoming>
+      <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_10</bpmn:incoming>
+      <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_11</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:subProcess id="C2_SP_DeclaracaoSaude" name="Declaração de Saúde e CPT">
+      <bpmn:documentation>E-SF-26 (EP-REG-13a). Oferta com CPT passa por Carta → declaração de saúde → decisão humana de CPT, antes do aceite (J60: só estrutura, sem prazo exibido). Sem Agravo. O nó da declaração é FECHADO por construção: sem a ratificação do banco de perguntas e da base (REG-11/VW0-D16), o único caminho vai ao fim de erro tipado DS_NAO_RATIFICADO, sem efeito. Nenhuma tarefa automática; o corpus CA é documento não implantável.</bpmn:documentation>
+      <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_09</bpmn:incoming>
+      <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_10</bpmn:outgoing>
+      <bpmn:startEvent id="C2DS_Start" name="Oferta com CPT recebida">
+        <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_12</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="C2DS_T_Carta" name="Ler a Carta de Orientação" camunda:assignee="${clienteId}">
+        <bpmn:documentation>Carta de Orientação ao Beneficiário (texto do jurídico; não fornecido no corpus). Sem prazo exibido.</bpmn:documentation>
+        <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_12</bpmn:incoming>
+        <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_13</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="C2DS_G_Ratificada" name="Declaração de saúde ratificada?" default="F_CA_COMPRA_C2_DecidirContratar_15">
+        <bpmn:documentation>Nó fechado por construção: o caminho padrão é o fim de erro DS_NAO_RATIFICADO. Só a ratificação do banco de perguntas e da base (REG-11/VW0-D16) abre o outro caminho.</bpmn:documentation>
+        <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_13</bpmn:incoming>
+        <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_14</bpmn:outgoing>
+        <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_15</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="C2DS_T_Declarar" name="Preencher a declaração de saúde" camunda:assignee="${clienteId}">
+        <bpmn:documentation>Perguntas do banco aprovado pergunta a pergunta (spec/health/question-banks/); nenhum banco real aprovado hoje.</bpmn:documentation>
+        <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_14</bpmn:incoming>
+        <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_16</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="C2DS_T_DecidirCPT" name="Decidir sobre a CPT" camunda:candidateGroups="governanca-clinica">
+        <bpmn:documentation>Decisão humana da governança clínica; sem implementação automática. A oferta de CPT termina antes do registro do aceite. Sem Agravo.</bpmn:documentation>
+        <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_16</bpmn:incoming>
+        <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_17</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="C2DS_End_Concluida" name="Declaração e CPT concluídas">
+        <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_17</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:endEvent id="C2DS_End_NaoRatificada" name="Declaração não ratificada — sem efeito">
+        <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_15</bpmn:incoming>
+        <bpmn:errorEventDefinition errorRef="Error_CA_DSNaoRatificada" />
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_12" sourceRef="C2DS_Start" targetRef="C2DS_T_Carta" />
+      <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_13" sourceRef="C2DS_T_Carta" targetRef="C2DS_G_Ratificada" />
+      <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_14" name="Ratificada" sourceRef="C2DS_G_Ratificada" targetRef="C2DS_T_Declarar">
+        <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${declaracaoSaudeRatificada == true}</bpmn:conditionExpression>
+      </bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_15" name="Não ratificada" sourceRef="C2DS_G_Ratificada" targetRef="C2DS_End_NaoRatificada" />
+      <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_16" sourceRef="C2DS_T_Declarar" targetRef="C2DS_T_DecidirCPT" />
+      <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_17" sourceRef="C2DS_T_DecidirCPT" targetRef="C2DS_End_Concluida" />
+    </bpmn:subProcess>
+    <bpmn:boundaryEvent id="C2_B_DSNaoRatificada" name="Declaração não ratificada" attachedToRef="C2_SP_DeclaracaoSaude">
+      <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_18</bpmn:outgoing>
+      <bpmn:errorEventDefinition errorRef="Error_CA_DSNaoRatificada" />
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="C2_End_DSIndisponivel" name="Declaração de saúde indisponível — sem efeito">
+      <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_18</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_08" name="Sem CPT" sourceRef="C2_G_OfertaCPT" targetRef="C2_G_Junta" />
+    <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_09" name="Com CPT" sourceRef="C2_G_OfertaCPT" targetRef="C2_SP_DeclaracaoSaude">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${ofertaComCpt == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_10" sourceRef="C2_SP_DeclaracaoSaude" targetRef="C2_G_Junta" />
+    <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_11" sourceRef="C2_G_Junta" targetRef="C2_T_Aceite" />
+    <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_18" sourceRef="C2_B_DSNaoRatificada" targetRef="C2_End_DSIndisponivel" />
     <bpmn:userTask id="C2_T_Aceite" name="Decidir sobre a proposta (1 clique)" camunda:formKey="ced:aceite-slot" camunda:assignee="${clienteId}">
       <bpmn:documentation>Formulário produz: agendamentoId, dataHoraServico, prestadorId, procedimentoId, promessaResultado. | Origem: M2_T_Aceite</bpmn:documentation>
       <bpmn:documentation>Guard-rail de contratação: decisão de contratar é do cliente/humano; a automação prepara a decisão, nunca decide.</bpmn:documentation>
-      <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_01</bpmn:incoming>
+      <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_11</bpmn:incoming>
       <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_02</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:boundaryEvent id="C2_B_PrazoMax" name="Prazo máximo de decisão" attachedToRef="C2_T_Aceite">
@@ -1254,6 +1328,7 @@
   <bpmn:message id="Message_CA_ExperienciaInsatisfatoria" name="CA_ExperienciaInsatisfatoria" />
   <bpmn:error id="Error_CA_ConsentimentoNegado" name="Consentimento LGPD negado/expirado" errorCode="LGPD_CONSENT_NEGADO" />
   <bpmn:error id="Error_CA_SemSlotEquivalente" name="Sem slot equivalente para reagendamento" errorCode="SEM_SLOT_EQUIVALENTE" />
+  <bpmn:error id="Error_CA_DSNaoRatificada" name="Declaração de saúde não ratificada" errorCode="DS_NAO_RATIFICADO" />
   <bpmndi:BPMNDiagram id="BPMNDiagram_CA_COMPRA">
     <bpmndi:BPMNPlane id="BPMNPlane_CA_COMPRA" bpmnElement="Collaboration_CA_COMPRA">
       <bpmndi:BPMNShape id="Participant_Cliente_di" bpmnElement="Participant_Cliente" isHorizontal="true">
@@ -1794,75 +1869,162 @@
         <dc:Bounds x="240" y="3066" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="C2_EV_Lembrete_di" bpmnElement="C2_EV_Lembrete">
-        <dc:Bounds x="540" y="3420" width="36" height="36" />
+        <dc:Bounds x="800" y="3420" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="C2_End_Lembrete_di" bpmnElement="C2_End_Lembrete">
-        <dc:Bounds x="690" y="3420" width="36" height="36" />
+        <dc:Bounds x="950" y="3420" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="C2_EV_Agendado_di" bpmnElement="C2_EV_Agendado">
-        <dc:Bounds x="540" y="3066" width="36" height="36" />
+        <dc:Bounds x="800" y="3066" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="C2_End_Aceite_di" bpmnElement="C2_End_Aceite">
-        <dc:Bounds x="690" y="3066" width="36" height="36" />
+        <dc:Bounds x="950" y="3066" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="C2_End_Recusa_di" bpmnElement="C2_End_Recusa">
-        <dc:Bounds x="540" y="3554" width="36" height="36" />
+        <dc:Bounds x="800" y="3554" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="C2_End_SemResposta_di" bpmnElement="C2_End_SemResposta">
-        <dc:Bounds x="540" y="3298" width="36" height="36" />
+        <dc:Bounds x="800" y="3298" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="C2_T_Aceite_di" bpmnElement="C2_T_Aceite">
-        <dc:Bounds x="358" y="3044" width="100" height="80" />
+        <dc:Bounds x="618" y="3044" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="C2_B_Recusa_di" bpmnElement="C2_B_Recusa">
-        <dc:Bounds x="350" y="3106" width="36" height="36" />
+        <dc:Bounds x="610" y="3106" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="291" y="3145" width="77" height="14" />
+          <dc:Bounds x="551" y="3145" width="77" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="C2_B_Lembrete_di" bpmnElement="C2_B_Lembrete">
-        <dc:Bounds x="390" y="3106" width="36" height="36" />
+        <dc:Bounds x="650" y="3106" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="376" y="3234" width="88" height="14" />
+          <dc:Bounds x="636" y="3234" width="88" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="C2_B_PrazoMax_di" bpmnElement="C2_B_PrazoMax">
-        <dc:Bounds x="430" y="3106" width="36" height="36" />
+        <dc:Bounds x="690" y="3106" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="457" y="3157" width="86" height="27" />
+          <dc:Bounds x="717" y="3157" width="86" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_01_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_01">
-        <di:waypoint x="276" y="3084" />
-        <di:waypoint x="358" y="3084" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_02_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_02">
-        <di:waypoint x="458" y="3084" />
+      <bpmndi:BPMNShape id="C2_G_OfertaCPT_di" bpmnElement="C2_G_OfertaCPT" isMarkerVisible="true">
+        <dc:Bounds x="320" y="3059" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2_G_Junta_di" bpmnElement="C2_G_Junta" isMarkerVisible="true">
+        <dc:Bounds x="540" y="3059" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2_SP_DeclaracaoSaude_di" bpmnElement="C2_SP_DeclaracaoSaude" isExpanded="true">
+        <dc:Bounds x="1100" y="3180" width="860" height="220" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2DS_Start_di" bpmnElement="C2DS_Start">
+        <dc:Bounds x="1130" y="3272" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2DS_T_Carta_di" bpmnElement="C2DS_T_Carta">
+        <dc:Bounds x="1200" y="3250" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2DS_G_Ratificada_di" bpmnElement="C2DS_G_Ratificada" isMarkerVisible="true">
+        <dc:Bounds x="1340" y="3265" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2DS_T_Declarar_di" bpmnElement="C2DS_T_Declarar">
+        <dc:Bounds x="1440" y="3250" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2DS_T_DecidirCPT_di" bpmnElement="C2DS_T_DecidirCPT">
+        <dc:Bounds x="1600" y="3250" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2DS_End_Concluida_di" bpmnElement="C2DS_End_Concluida">
+        <dc:Bounds x="1760" y="3272" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2DS_End_NaoRatificada_di" bpmnElement="C2DS_End_NaoRatificada">
+        <dc:Bounds x="1347" y="3345" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2_B_DSNaoRatificada_di" bpmnElement="C2_B_DSNaoRatificada">
+        <dc:Bounds x="1842" y="3382" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C2_End_DSIndisponivel_di" bpmnElement="C2_End_DSIndisponivel">
+        <dc:Bounds x="2042" y="3470" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_08_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_08">
+        <di:waypoint x="370" y="3084" />
         <di:waypoint x="540" y="3084" />
       </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_09_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_09">
+        <di:waypoint x="345" y="3109" />
+        <di:waypoint x="345" y="3170" />
+        <di:waypoint x="1080" y="3170" />
+        <di:waypoint x="1080" y="3290" />
+        <di:waypoint x="1100" y="3290" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_10_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_10">
+        <di:waypoint x="1960" y="3290" />
+        <di:waypoint x="1990" y="3290" />
+        <di:waypoint x="1990" y="3030" />
+        <di:waypoint x="565" y="3030" />
+        <di:waypoint x="565" y="3059" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_11_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_11">
+        <di:waypoint x="590" y="3084" />
+        <di:waypoint x="618" y="3084" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_12_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_12">
+        <di:waypoint x="1166" y="3290" />
+        <di:waypoint x="1200" y="3290" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_13_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_13">
+        <di:waypoint x="1300" y="3290" />
+        <di:waypoint x="1340" y="3290" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_14_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_14">
+        <di:waypoint x="1390" y="3290" />
+        <di:waypoint x="1440" y="3290" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_15_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_15">
+        <di:waypoint x="1365" y="3315" />
+        <di:waypoint x="1365" y="3345" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_16_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_16">
+        <di:waypoint x="1540" y="3290" />
+        <di:waypoint x="1600" y="3290" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_17_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_17">
+        <di:waypoint x="1700" y="3290" />
+        <di:waypoint x="1760" y="3290" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_18_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_18">
+        <di:waypoint x="1860" y="3418" />
+        <di:waypoint x="1860" y="3488" />
+        <di:waypoint x="2042" y="3488" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_01_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_01">
+        <di:waypoint x="276" y="3084" />
+        <di:waypoint x="320" y="3084" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_02_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_02">
+        <di:waypoint x="718" y="3084" />
+        <di:waypoint x="800" y="3084" />
+      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_03_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_03">
-        <di:waypoint x="576" y="3084" />
-        <di:waypoint x="690" y="3084" />
+        <di:waypoint x="836" y="3084" />
+        <di:waypoint x="950" y="3084" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_04_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_04">
-        <di:waypoint x="368" y="3142" />
-        <di:waypoint x="368" y="3572" />
-        <di:waypoint x="540" y="3572" />
+        <di:waypoint x="628" y="3142" />
+        <di:waypoint x="628" y="3572" />
+        <di:waypoint x="800" y="3572" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_05_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_05">
-        <di:waypoint x="408" y="3142" />
-        <di:waypoint x="408" y="3438" />
-        <di:waypoint x="540" y="3438" />
+        <di:waypoint x="668" y="3142" />
+        <di:waypoint x="668" y="3438" />
+        <di:waypoint x="800" y="3438" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_06_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_06">
-        <di:waypoint x="576" y="3438" />
-        <di:waypoint x="690" y="3438" />
+        <di:waypoint x="836" y="3438" />
+        <di:waypoint x="950" y="3438" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_COMPRA_C2_DecidirContratar_07_di" bpmnElement="F_CA_COMPRA_C2_DecidirContratar_07">
-        <di:waypoint x="448" y="3142" />
-        <di:waypoint x="448" y="3148" />
-        <di:waypoint x="558" y="3148" />
-        <di:waypoint x="558" y="3298" />
+        <di:waypoint x="708" y="3142" />
+        <di:waypoint x="708" y="3148" />
+        <di:waypoint x="818" y="3148" />
+        <di:waypoint x="818" y="3298" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="Participant_CA_COMPRA_C3_HabilitarDireito_di" bpmnElement="Participant_CA_COMPRA_C3_HabilitarDireito" isHorizontal="true">
         <dc:Bounds x="131" y="3700" width="2775" height="1380" />

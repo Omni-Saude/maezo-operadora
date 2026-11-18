@@ -471,19 +471,19 @@ def test_inventario_reproduz_os_numeros_do_criterio() -> None:
     """EP-PROC-03 criterio 1 — se o XML mudar, o numero novo vence e este pin e atualizado no PR."""
     inv = _inventario_head()
     tot = inv["totais"]
-    assert [a["denominador"]["total"] for a in inv["arquivos"]] == [98, 104, 76, 89]
-    assert tot["denominador"]["total"] == 367
+    assert [a["denominador"]["total"] for a in inv["arquivos"]] == [98, 115, 76, 89]
+    assert tot["denominador"]["total"] == 378
     ag = tot["agregados"]
     assert [
         ag[k] for k in ("sequenceFlow", "dataObject", "dataOutputAssociation", "conditionExpression")
     ] == [
-        322,
+        333,
         27,
         6,
-        54,
+        56,
     ]
-    assert [ag["BPMNShape"], ag["BPMNEdge"]] == [488, 406]
-    assert [ag["lane"], ag["participant"], ag["messageFlow"], tot["declaracoes"]["total"]] == [57, 34, 36, 42]
+    assert [ag["BPMNShape"], ag["BPMNEdge"]] == [500, 417]
+    assert [ag["lane"], ag["participant"], ag["messageFlow"], tot["declaracoes"]["total"]] == [57, 34, 36, 43]
     assert tot["ids_duplicados_por_arquivo"] == 0 and tot["ids_de_denominador_duplicados_no_corpus"] == []
     assert tot["delegate_expressions"]["distintos_no_corpus"] == 44
     for arq in inv["arquivos"]:
@@ -519,7 +519,7 @@ def test_negativo_d1_xml_ganha_elemento_que_o_mapa_nao_conta(tmp_path: Path) -> 
 
 
 def test_negativo_d1_agregado_relatado_a_parte_diverge() -> None:
-    texto = _mutar(_mapa(), "sequenceFlow 322 (91+91+63+77)", "sequenceFlow 314 (91+91+55+77)")
+    texto = _mutar(_mapa(), "sequenceFlow 333 (91+102+63+77)", "sequenceFlow 314 (91+91+55+77)")
     assert any("sequenceFlow" in p for p in problemas_d1(texto, _inventario_head()))
 
 
