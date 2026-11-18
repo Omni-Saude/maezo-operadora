@@ -136,14 +136,77 @@ def test_nunca_chama_aceite_contrato_ou_matricula_e_sem_assert() -> None:
     assert not re.search(r"\bret\.\w+\.\w+", fonte)
 
 
+_LIMIARES_DO_RELOGIO = frozenset({15, 20, 23, 25})
+#: Atributos do estado do relogio que os dois modulos podem ler. Nada de `dias_corridos` nem alarmes.
+_ATRIBUTOS_LIDOS_PERMITIDOS = frozenset({"recuperacao_bloqueada", "inicio", "proponente_digest"})
+_ATRIBUTOS_DO_ESTADO = frozenset(
+    {
+        "dias_corridos",
+        "alarmes_atingidos",
+        "possivel_vigencia_automatica",
+        "suspensoes_registradas",
+        "recuperacao_bloqueada",
+        "inicio",
+        "proponente_digest",
+    }
+)
+
+
+def _violacoes_de_limiar(fonte: str) -> list[str]:
+    """Por AST: numero de limiar, constante do relogio, comparacao com a contagem ou leitura proibida."""
+    achados: list[str] = []
+    for no in ast.walk(ast.parse(fonte)):
+        if isinstance(no, ast.Constant) and type(no.value) is int and no.value in _LIMIARES_DO_RELOGIO:
+            achados.append(f"numero {no.value}")
+        if isinstance(no, ast.Name) and re.match(r"DIA_|DIAS_DE_ALARME", no.id):
+            achados.append(f"constante {no.id}")
+        if isinstance(no, ast.alias) and re.match(r"DIA_|DIAS_DE_ALARME", no.name):
+            achados.append(f"import {no.name}")
+        if isinstance(no, ast.Attribute) and no.attr in _ATRIBUTOS_DO_ESTADO - _ATRIBUTOS_LIDOS_PERMITIDOS:
+            achados.append(f"leitura {no.attr}")
+        if isinstance(no, ast.Compare):
+            lados = [no.left, *no.comparators]
+            nomes = {n.attr for lado in lados for n in ast.walk(lado) if isinstance(n, ast.Attribute)} | {
+                n.id for lado in lados for n in ast.walk(lado) if isinstance(n, ast.Name)
+            }
+            # Unica comparacao admitida com o estado: a ancora ausente (`inicio is None` / `is not None`).
+            so_ancora = all(isinstance(op, (ast.Is, ast.IsNot)) for op in no.ops) and any(
+                isinstance(c, ast.Constant) and c.value is None for c in no.comparators
+            )
+            if nomes & {"dias_corridos", "alarmes_atingidos"} or ("inicio" in nomes and not so_ancora):
+                achados.append("comparacao com contagem do relogio")
+    return achados
+
+
 def test_os_dois_modulos_nao_redefinem_limiar_do_relogio() -> None:
-    # Os limiares (15, 20, 23, 25) vivem so' nas constantes do relogio canonico; aqui so' se le o estado.
+    # CD-171/CD-173: so' leem `recuperacao_bloqueada` (e a ancora/digest), nunca comparam nem definem limiar.
     from maezo.gateway.communications import recovery_dispatch as rd
 
     for modulo in (re_mod, rd):
-        fonte = inspect.getsource(modulo)
-        assert not re.search(r"(?<![\w.])(15|20|23|25)(?![\w.])", fonte), modulo.__name__
-        assert not re.search(r"DIA_(ALARME|CORTE|BLOQUEIO)", fonte), modulo.__name__
+        assert _violacoes_de_limiar(inspect.getsource(modulo)) == [], modulo.__name__
+    leituras = {
+        n.attr
+        for m in (re_mod, rd)
+        for n in ast.walk(ast.parse(inspect.getsource(m)))
+        if isinstance(n, ast.Attribute) and n.attr in _ATRIBUTOS_DO_ESTADO
+    }
+    assert "recuperacao_bloqueada" in leituras  # a leitura real existe (a varredura nao e' vazia)
+
+
+@pytest.mark.parametrize(
+    "trecho",
+    [
+        "x = 20",
+        "if estado.dias_corridos >= 20: pass",
+        "if estado.dias_corridos > limite: pass",
+        "from maezo.domain.rn413_contracting_clock import DIA_CORTE",
+        "y = DIA_ALARME_2",
+        "z = estado.alarmes_atingidos",
+        "if estado.inicio < agora: pass",
+    ],
+)
+def test_a_varredura_de_limiar_pega_cada_forma(trecho: str) -> None:
+    assert _violacoes_de_limiar(trecho)
 
 
 def test_sem_importador_em_src() -> None:
