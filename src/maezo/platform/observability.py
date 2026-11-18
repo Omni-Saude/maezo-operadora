@@ -812,6 +812,12 @@ RCO_SOMBRA_DESFECHOS: Final[frozenset[str]] = frozenset(
         "prazo_esgotado",
         "avaliada",
         "erro_de_programacao",
+        # DL-0173: guarda (membro de grupo pedido sozinho) e a avaliacao do grupo em sombra.
+        "membro_de_composicao",
+        "composicao_ausente",
+        "entradas_em_conflito",
+        "composicao_escolhida",
+        "composicao_revisao_humana",
     }
 )
 
@@ -819,8 +825,8 @@ RCO_SOMBRA_DESFECHOS: Final[frozenset[str]] = frozenset(
 def record_rco_sombra(desfecho: str) -> None:
     """Count ONE shadow evaluation of an rco K1 table — `maezo_rco_sombra_total` (MZO-3).
 
-    Unico sitio de chamada: `tools.workers.rco_sombra.avaliar_em_sombra`. Rotulo fechado; nunca dado
-    de caso. Best-effort: a telemetria nunca muda o worker que chamou a sombra.
+    Sitios de chamada: `tools.workers.rco_sombra.avaliar_em_sombra` e `avaliar_composicao_em_sombra`.
+    Rotulo fechado; nunca dado de caso. Best-effort: a telemetria nunca muda o worker que chamou a sombra.
     """
     rotulo = desfecho if desfecho in RCO_SOMBRA_DESFECHOS else "outro"
     try:
