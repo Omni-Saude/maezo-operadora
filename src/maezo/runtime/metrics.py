@@ -551,16 +551,19 @@ class MetricsCollector:
             registry=self._registry,
         )
 
-        # DL-0173: cada composicao de decisoes K1 do rco (`platform.rco_composicao`) que caiu em
+        # DL-0173: cada composicao de decisoes K1 do rco (`platform.rco_composicao`) cuja regra deu
         # revisao humana, por motivo FECHADO (`observability.RCO_COMPOSICAO_MOTIVOS`, outro valor vira
-        # `outro`). `violacao_prova_rco` = duas decisoes antes do padrao com `idRegra` (ou mais de uma
+        # `outro`) e modo FECHADO (`observability.RCO_COMPOSICAO_MODOS`): `sombra` = so observado pela
+        # sombra (`tools.workers.rco_sombra`), nada encaminhado a humano; `efeito` = encaminhado.
+        # `violacao_prova_rco` = duas decisoes antes do padrao com `idRegra` (ou mais de uma
         # linha): o que a prova do rco (`make composicao-dmn`) diz que nao acontece. Nunca tenant,
         # lote, guia, chave ou instancia.
         self._rco_composicao_revisao_total = Counter(
             "maezo_rco_composicao_revisao_humana_total",
-            "rco K1 decision compositions routed to human review, by closed reason "
-            "(COUNTS ONLY; motivo is a closed vocabulary)",
-            labelnames=["motivo"],
+            "rco K1 decision compositions whose rule yielded human review, by closed reason and mode "
+            "(modo=efeito: routed to human review; modo=sombra: shadow only, nothing routed; "
+            "COUNTS ONLY; motivo and modo are closed vocabularies)",
+            labelnames=["motivo", "modo"],
             registry=self._registry,
         )
 

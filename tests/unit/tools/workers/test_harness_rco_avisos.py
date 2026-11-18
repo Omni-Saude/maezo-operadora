@@ -127,6 +127,7 @@ def _montar(
             {"x": 1},
             ordem_restricao=pin.ordem_restricao,
             sinais_auditoria=pin.sinais_auditoria,
+            modo="efeito",
         )
         if registrar:
             registrar_composicao(resultado, modo=modo)
@@ -444,6 +445,7 @@ async def test_compor_e_puro_e_nao_registra_nada(pin: rco_pin.RcoRulesPin) -> No
             {},
             sinais_auditoria=pin.sinais_auditoria,
             ordem_restricao=pin.ordem_restricao,
+            modo="efeito",
         )
         assinc = await rco_composicao.compor_async(
             _grupo(pin),
@@ -451,6 +453,7 @@ async def test_compor_e_puro_e_nao_registra_nada(pin: rco_pin.RcoRulesPin) -> No
             {},
             sinais_auditoria=pin.sinais_auditoria,
             ordem_restricao=pin.ordem_restricao,
+            modo="efeito",
         )
     assert sinc.sinais == assinc.sinais == (sint.SINAL,)
     assert composicoes == {} and versoes == {}

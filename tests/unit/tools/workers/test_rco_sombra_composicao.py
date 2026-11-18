@@ -37,7 +37,12 @@ from maezo.tools.workers._audit_ctx import (
     collect_rco_avaliacoes,
     collect_rco_composicoes,
 )
-from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnVersion, FakeDmnTransport
+from maezo.tools.workers.dmn_transport import (
+    DmnEvaluationError,
+    DmnHitPolicyViolationError,
+    DmnVersion,
+    FakeDmnTransport,
+)
 from tests.unit.platform import rco_k1_2_3_recorte as rec
 
 GRUPO = rec.COMPOSICAO
@@ -263,6 +268,62 @@ def test_uniao_em_conflito_nao_avalia(
     _assert_logs_permitidos(_logs(logs))
 
 
+#: O valor da MESMA entrada compartilhada (`dataAtendimento`) em carencia e em cpt.
+_CONFLITOS = [
+    (None, "2026-11-03"),
+    ("2026-11-03", None),
+    (True, 1),
+    (1, True),
+    (1, 1.0),
+    ("2026-11-03", "2026-11-04"),
+]
+_UNIOES = [("2026-11-03", "2026-11-03"), (None, None), (True, True), (7, 7)]
+
+
+def _com_valores(monkeypatch: pytest.MonkeyPatch, carencia: object, cpt: object) -> None:
+    montar = mt.montar_entradas
+
+    def fixo(decisao: k1.DecisaoK1, *a: Any) -> mt.EntradasMontadas:
+        montadas = montar(decisao, *a)
+        valor = carencia if decisao.id == CARENCIA else cpt
+        return dataclasses.replace(montadas, variaveis={**montadas.variaveis, "dataAtendimento": valor})
+
+    monkeypatch.setattr(mt, "montar_entradas", fixo)
+
+
+@pytest.mark.parametrize(("carencia", "cpt"), _CONFLITOS)
+def test_uniao_com_tipo_ou_valor_diferente_e_conflito(
+    pin_2_3: rco_pin.RcoRulesPin,
+    metrica: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    carencia: object,
+    cpt: object,
+) -> None:
+    """`True == 1` e `1 == 1.0` em Python: a uniao exige o MESMO tipo; nulo contra valor tambem e conflito."""
+    _com_valores(monkeypatch, carencia, cpt)
+    dmn = _dmn_pior_caso()
+    rco_sombra.avaliar_composicao_em_sombra(dmn, GRUPO, _Fatos())
+    assert (dmn.calls, metrica) == ([], [rco_sombra.ENTRADAS_EM_CONFLITO])
+
+
+@pytest.mark.parametrize(("carencia", "cpt"), _UNIOES)
+def test_uniao_de_mesmo_tipo_e_valor_avalia(
+    pin_2_3: rco_pin.RcoRulesPin,
+    metrica: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    carencia: object,
+    cpt: object,
+) -> None:
+    _com_valores(monkeypatch, carencia, cpt)
+    dmn = _dmn_pior_caso()
+    rco_sombra.avaliar_composicao_em_sombra(dmn, GRUPO, _Fatos())
+    assert metrica == [rco_sombra.COMPOSICAO_ESCOLHIDA]
+    assert [(k, type(v["dataAtendimento"]), v["dataAtendimento"]) for k, v in dmn.calls] == [
+        (CARENCIA, type(carencia), carencia),
+        (CPT, type(carencia), carencia),
+    ]
+
+
 def test_composicao_ausente_nao_avalia(pin_2_3: rco_pin.RcoRulesPin, metrica: list[str]) -> None:
     dmn = _dmn_pior_caso()
     fatos = _Fatos()
@@ -362,6 +423,40 @@ def test_falha_esperada_do_motor_e_avaliacao_falhou(pin_2_3: rco_pin.RcoRulesPin
     assert rco_sombra.avaliar_composicao_em_sombra(motor, GRUPO, _Fatos()) is None
     assert motor.avaliadas == [CARENCIA]
     assert metrica == [rco_sombra.AVALIACAO_FALHOU]
+
+
+def test_hit_policy_violation_e_avaliacao_falhou(pin_2_3: rco_pin.RcoRulesPin, metrica: list[str]) -> None:
+    motor = _Motor(exc=DmnHitPolicyViolationError(CARENCIA))
+    assert rco_sombra.avaliar_composicao_em_sombra(motor, GRUPO, _Fatos()) is None
+    assert motor.avaliadas == [CARENCIA]
+    assert metrica == [rco_sombra.AVALIACAO_FALHOU]
+
+
+def test_falha_do_motor_na_sombra_conta_a_composicao_com_modo_sombra(
+    pin_2_3: rco_pin.RcoRulesPin, metrica: list[str]
+) -> None:
+    """M1: a revisao humana que `compor` conta numa SOMBRA leva `modo=sombra` no rotulo e no log: nunca se
+    confunde com uma composicao de efeito (nada foi encaminhado a humano)."""
+    from maezo.platform import observability
+
+    registro = observability.get_metrics_collector().registry
+    nome = "maezo_rco_composicao_revisao_humana_total"
+    sombra = {"motivo": cmp.MOTIVO_AVALIADOR_FALHOU, "modo": cmp.MODO_SOMBRA}
+    efeito = {"motivo": cmp.MOTIVO_AVALIADOR_FALHOU, "modo": cmp.MODO_EFEITO}
+    antes_sombra = registro.get_sample_value(nome, sombra) or 0.0
+    antes_efeito = registro.get_sample_value(nome, efeito) or 0.0
+    with structlog.testing.capture_logs() as logs:
+        rco_sombra.avaliar_composicao_em_sombra(_Motor(exc=DmnEvaluationError("motor fora")), GRUPO, _Fatos())
+    assert metrica == [rco_sombra.AVALIACAO_FALHOU]
+    assert registro.get_sample_value(nome, sombra) == antes_sombra + 1
+    assert (registro.get_sample_value(nome, efeito) or 0.0) == antes_efeito
+    [evento] = [e for e in logs if str(e["event"]).startswith("rco_composicao")]
+    assert (evento["event"], evento["log_level"], evento["modo"]) == (
+        "rco_composicao_avaliador_falhou",
+        "warning",
+        cmp.MODO_SOMBRA,
+    )
+    assert not any(p in repr(evento) for p in PROIBIDOS)
 
 
 # --- erro de programacao: contado, logado so o tipo, nunca sobe --------------------------------------------

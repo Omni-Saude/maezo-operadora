@@ -259,10 +259,10 @@ def test_grupo_de_tres_pelo_leitor_gate_e_runtime(pacote_22_tres: tuple[Path, di
             rco_composicao.exigir_avaliacao_isolada(pin, decisao)
     # A segunda anterior vence quando so ela traz idRegra; o padrao, quando nenhuma traz.
     respostas = {_A: [], "rco_sint_c": [_linha("SINT-C-0001")], _B: [_linha("SINT-B-0001", "informar")]}
-    r = rco_composicao.compor(grupo, _Fake(respostas), _ENTRADAS)
+    r = rco_composicao.compor(grupo, _Fake(respostas), _ENTRADAS, modo="efeito")
     assert (r.decisao_vencedora, r.pelo_padrao) == ("rco_sint_c", False)
     respostas["rco_sint_c"] = [_linha("")]
-    r = rco_composicao.compor(grupo, _Fake(respostas), _ENTRADAS)
+    r = rco_composicao.compor(grupo, _Fake(respostas), _ENTRADAS, modo="efeito")
     assert (r.decisao_vencedora, r.pelo_padrao) == (_B, True)
 
 
@@ -296,13 +296,18 @@ def _linha(id_regra: Any, decisao: str = "glosar") -> dict[str, Any]:
 @pytest.fixture
 def contados(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     registro: list[str] = []
-    monkeypatch.setattr(rco_composicao, "record_rco_composicao_revisao", registro.append)
+
+    def contar(motivo: str, *, modo: str) -> None:
+        assert modo == rco_composicao.MODO_EFEITO  # estes testes compoem em modo efeito
+        registro.append(motivo)
+
+    monkeypatch.setattr(rco_composicao, "record_rco_composicao_revisao", contar)
     return registro
 
 
 def test_avalia_todas_na_ordem_com_as_mesmas_entradas() -> None:
     fake = _Fake({_P1: [_linha("A")], _P2: [], _PADRAO: [_linha("D", "liberar")]})
-    rco_composicao.compor(_G, fake, _ENTRADAS)
+    rco_composicao.compor(_G, fake, _ENTRADAS, modo="efeito")
     assert [d for d, _ in fake.chamadas] == [_P1, _P2, _PADRAO]
     assert all(e == _ENTRADAS for _, e in fake.chamadas)
 
@@ -317,15 +322,15 @@ def test_avaliador_que_muda_as_entradas_nao_muda_as_da_seguinte() -> None:
         entradas["lista"].append(99)
         return []
 
-    rco_composicao.compor(_G, avaliador, _ENTRADAS)
+    rco_composicao.compor(_G, avaliador, _ENTRADAS, modo="efeito")
     assert vistas == [_ENTRADAS, _ENTRADAS, _ENTRADAS]
     assert _ENTRADAS == {"codigoPrincipal": "X", "lista": [1, 2]}
 
 
-def _primeira_vence(escolher: Callable[[ComposicaoK1, Mapping[str, Any]], Any]) -> None:
+def _primeira_vence(escolher: Callable[..., Any]) -> None:
     """A anterior e o padrao trazem `idRegra`: vale a anterior (a prova da ordem)."""
     resultados = {_P1: [_linha("A")], _P2: [_linha(None)], _PADRAO: [_linha("D", "liberar")]}
-    r = escolher(_G, resultados)
+    r = escolher(_G, resultados, modo="efeito")
     assert r.decisao_vencedora == _P1
     assert r.linhas == (_linha("A"),)
     assert r.pelo_padrao is False
@@ -335,13 +340,13 @@ def test_ordem_invertida_falha() -> None:
     """Teste que REPROVA se a ordem de avaliacao for invertida (padrao antes das anteriores)."""
     _primeira_vence(rco_composicao.escolher)
     fake = _Fake({_P1: [_linha("A")], _P2: [_linha(None)], _PADRAO: [_linha("D", "liberar")]})
-    r = rco_composicao.compor(_G, fake, _ENTRADAS)
+    r = rco_composicao.compor(_G, fake, _ENTRADAS, modo="efeito")
     assert (r.decisao_vencedora, r.linhas) == (_P1, (_linha("A"),))
 
     # Mutacao: a mesma regra aplicada na ordem inversa. O teste acima tem de pegar o mutante.
-    def escolher_invertido(g: ComposicaoK1, resultados: Mapping[str, Any]) -> Any:
+    def escolher_invertido(g: ComposicaoK1, resultados: Mapping[str, Any], *, modo: str) -> Any:
         invertido = ComposicaoK1(g.nome, tuple(reversed(g.decisoes)), g.regra, g.decisoes[0])
-        return rco_composicao.escolher(invertido, resultados)
+        return rco_composicao.escolher(invertido, resultados, modo=modo)
 
     with pytest.raises(AssertionError):
         _primeira_vence(escolher_invertido)
@@ -349,7 +354,7 @@ def test_ordem_invertida_falha() -> None:
 
 def test_primeira_vence() -> None:
     r = rco_composicao.compor(
-        _G, _Fake({_P1: [_linha("A")], _P2: [], _PADRAO: [_linha("", "liberar")]}), _ENTRADAS
+        _G, _Fake({_P1: [_linha("A")], _P2: [], _PADRAO: [_linha("", "liberar")]}), _ENTRADAS, modo="efeito"
     )
     assert (r.desfecho, r.decisao_vencedora, r.pelo_padrao) == ("escolhido", _P1, False)
     assert r.revisao_humana is False and r.motivo is None
@@ -358,21 +363,21 @@ def test_primeira_vence() -> None:
 
 def test_segunda_vence() -> None:
     r = rco_composicao.compor(
-        _G, _Fake({_P1: [], _P2: [_linha("B")], _PADRAO: [_linha("D", "liberar")]}), _ENTRADAS
+        _G, _Fake({_P1: [], _P2: [_linha("B")], _PADRAO: [_linha("D", "liberar")]}), _ENTRADAS, modo="efeito"
     )
     assert (r.decisao_vencedora, r.linhas, r.pelo_padrao) == (_P2, (_linha("B"),), False)
 
 
 def test_nenhuma_anterior_vale_o_padrao_com_id_regra() -> None:
     r = rco_composicao.compor(
-        _G, _Fake({_P1: [], _P2: [_linha(None)], _PADRAO: [_linha("D", "liberar")]}), _ENTRADAS
+        _G, _Fake({_P1: [], _P2: [_linha(None)], _PADRAO: [_linha("D", "liberar")]}), _ENTRADAS, modo="efeito"
     )
     assert (r.decisao_vencedora, r.linhas, r.pelo_padrao) == (_PADRAO, (_linha("D", "liberar"),), True)
 
 
 def test_nenhuma_anterior_vale_o_padrao_sem_id_regra() -> None:
     padrao = [{"decisao": "liberar", "idRegra": ""}]
-    r = rco_composicao.compor(_G, _Fake({_P1: [], _P2: [], _PADRAO: padrao}), _ENTRADAS)
+    r = rco_composicao.compor(_G, _Fake({_P1: [], _P2: [], _PADRAO: padrao}), _ENTRADAS, modo="efeito")
     assert (r.desfecho, r.decisao_vencedora, r.linhas, r.pelo_padrao) == (
         "escolhido",
         _PADRAO,
@@ -382,7 +387,7 @@ def test_nenhuma_anterior_vale_o_padrao_sem_id_regra() -> None:
 
 
 def test_padrao_sem_linha_vale_sem_linha() -> None:
-    r = rco_composicao.compor(_G, _Fake({_P1: [], _P2: [], _PADRAO: []}), _ENTRADAS)
+    r = rco_composicao.compor(_G, _Fake({_P1: [], _P2: [], _PADRAO: []}), _ENTRADAS, modo="efeito")
     assert (r.desfecho, r.decisao_vencedora, r.linhas, r.pelo_padrao) == ("escolhido", _PADRAO, (), True)
 
 
@@ -404,6 +409,7 @@ def test_id_regra_nulo_ou_vazio_conta_como_ausente(linha_anterior: dict[str, Any
         _G,
         _Fake({_P1: [linha_anterior], _P2: [linha_anterior], _PADRAO: [_linha("D", "liberar")]}),
         _ENTRADAS,
+        modo="efeito",
     )
     assert (r.decisao_vencedora, r.pelo_padrao) == (_PADRAO, True)
 
@@ -411,7 +417,10 @@ def test_id_regra_nulo_ou_vazio_conta_como_ausente(linha_anterior: dict[str, Any
 def test_duas_anteriores_com_id_regra_vao_a_revisao_humana(contados: list[str]) -> None:
     with structlog.testing.capture_logs() as logs:
         r = rco_composicao.compor(
-            _G, _Fake({_P1: [_linha("A")], _P2: [_linha("B")], _PADRAO: [_linha("D")]}), _ENTRADAS
+            _G,
+            _Fake({_P1: [_linha("A")], _P2: [_linha("B")], _PADRAO: [_linha("D")]}),
+            _ENTRADAS,
+            modo="efeito",
         )
     assert (r.desfecho, r.motivo, r.linhas, r.decisao_vencedora) == (
         "revisao_humana",
@@ -426,6 +435,7 @@ def test_duas_anteriores_com_id_regra_vao_a_revisao_humana(contados: list[str]) 
             "log_level": "warning",
             "decisoes": [_P1, _P2],
             "codigo": "CMP06_EXCLUSIVIDADE",
+            "modo": "efeito",
         }
     ]
     assert contados == ["violacao_prova_rco"]
@@ -434,7 +444,7 @@ def test_duas_anteriores_com_id_regra_vao_a_revisao_humana(contados: list[str]) 
 def test_mais_de_uma_linha_vai_a_revisao_humana(contados: list[str]) -> None:
     with structlog.testing.capture_logs() as logs:
         r = rco_composicao.compor(
-            _G, _Fake({_P1: [], _P2: [_linha("B"), _linha("C")], _PADRAO: []}), _ENTRADAS
+            _G, _Fake({_P1: [], _P2: [_linha("B"), _linha("C")], _PADRAO: []}), _ENTRADAS, modo="efeito"
         )
     assert (r.desfecho, r.motivo) == ("revisao_humana", "violacao_prova_rco")
     assert [(e["decisoes"], e["codigo"]) for e in logs] == [([_P2], "CMP08_UNIQUE")]
@@ -443,7 +453,7 @@ def test_mais_de_uma_linha_vai_a_revisao_humana(contados: list[str]) -> None:
 
 @pytest.mark.parametrize("resultado", [None, {"idRegra": "A"}, "linha", [None], [_linha(7)]], ids=str)
 def test_resultado_invalido_vai_a_revisao_humana(resultado: Any, contados: list[str]) -> None:
-    r = rco_composicao.compor(_G, _Fake({_P1: resultado, _P2: [], _PADRAO: []}), _ENTRADAS)
+    r = rco_composicao.compor(_G, _Fake({_P1: resultado, _P2: [], _PADRAO: []}), _ENTRADAS, modo="efeito")
     assert (r.desfecho, r.motivo, r.linhas) == ("revisao_humana", "resultado_invalido", ())
     assert contados == ["resultado_invalido"]
 
@@ -454,7 +464,7 @@ def test_falha_do_avaliador_vai_a_revisao_humana_sem_resultado_parcial(
 ) -> None:
     fake = _Fake({_P1: [_linha("A")], _P2: [], _PADRAO: [_linha("D")]}, falha_em=falha_em)
     with structlog.testing.capture_logs() as logs:
-        r = rco_composicao.compor(_G, fake, _ENTRADAS)
+        r = rco_composicao.compor(_G, fake, _ENTRADAS, modo="efeito")
     assert (r.desfecho, r.motivo, r.linhas, r.decisao_vencedora) == (
         "revisao_humana",
         "avaliador_falhou",
@@ -469,13 +479,14 @@ def test_falha_do_avaliador_vai_a_revisao_humana_sem_resultado_parcial(
             "log_level": "warning",
             "decisoes": [falha_em],
             "codigo": "ConnectionError",
+            "modo": "efeito",
         }
     ]
     assert contados == ["avaliador_falhou"]
 
 
 def test_escolher_sem_o_resultado_de_uma_decisao_vai_a_revisao_humana(contados: list[str]) -> None:
-    r = rco_composicao.escolher(_G, {_P1: [_linha("A")], _PADRAO: []})
+    r = rco_composicao.escolher(_G, {_P1: [_linha("A")], _PADRAO: []}, modo="efeito")
     assert (r.desfecho, r.motivo) == ("revisao_humana", "avaliador_falhou")
     assert contados == ["avaliador_falhou"]
 
@@ -487,18 +498,20 @@ def test_compor_async_mesma_regra_e_falha(contados: list[str]) -> None:
     async def falha(decisao: str, entradas: Mapping[str, Any]) -> list[dict[str, Any]]:
         raise TimeoutError
 
-    r = asyncio.run(rco_composicao.compor_async(_G, ok, _ENTRADAS))
+    r = asyncio.run(rco_composicao.compor_async(_G, ok, _ENTRADAS, modo="efeito"))
     assert (r.decisao_vencedora, r.pelo_padrao) == (_P2, False)
-    r = asyncio.run(rco_composicao.compor_async(_G, falha, _ENTRADAS))
+    r = asyncio.run(rco_composicao.compor_async(_G, falha, _ENTRADAS, modo="efeito"))
     assert (r.desfecho, r.motivo) == ("revisao_humana", "avaliador_falhou")
     assert contados == ["avaliador_falhou"]
 
 
 def test_metrica_real_conta_a_violacao() -> None:
     registro = observability.get_metrics_collector().registry
-    rotulos = {"motivo": "violacao_prova_rco"}
+    rotulos = {"motivo": "violacao_prova_rco", "modo": "efeito"}
     antes = registro.get_sample_value("maezo_rco_composicao_revisao_humana_total", rotulos) or 0.0
-    rco_composicao.compor(_G, _Fake({_P1: [_linha("A")], _P2: [_linha("B")], _PADRAO: []}), _ENTRADAS)
+    rco_composicao.compor(
+        _G, _Fake({_P1: [_linha("A")], _P2: [_linha("B")], _PADRAO: []}), _ENTRADAS, modo="efeito"
+    )
     depois = registro.get_sample_value("maezo_rco_composicao_revisao_humana_total", rotulos)
     assert depois == antes + 1
 
@@ -508,7 +521,9 @@ def test_motivos_fechados_em_paridade_com_a_metrica() -> None:
 
 
 def test_id_regra_com_espacos_em_volta_conta_como_presente() -> None:
-    r = rco_composicao.compor(_G, _Fake({_P1: [_linha(" A ")], _P2: [], _PADRAO: [_linha("D")]}), _ENTRADAS)
+    r = rco_composicao.compor(
+        _G, _Fake({_P1: [_linha(" A ")], _P2: [], _PADRAO: [_linha("D")]}), _ENTRADAS, modo="efeito"
+    )
     assert r.decisao_vencedora == _P1
 
 
@@ -525,21 +540,21 @@ def test_forma_tupla_com_dmn_version_leva_as_versoes_ao_resultado() -> None:
         _P2: ([_linha("B")], _versao(_P2)),
         _PADRAO: ([_linha("D")], _versao(_PADRAO)),
     }
-    r = rco_composicao.compor(_G, _Fake(respostas), _ENTRADAS)
+    r = rco_composicao.compor(_G, _Fake(respostas), _ENTRADAS, modo="efeito")
     assert (r.decisao_vencedora, r.linhas) == (_P2, (_linha("B"),))
     assert dict(r.versoes) == {d: _versao(d) for d in _G.decisoes}
 
 
 def test_formas_misturadas_e_versoes_em_revisao_humana(contados: list[str]) -> None:
     respostas = {_P1: ([_linha("A")], _versao(_P1)), _P2: [_linha("B")], _PADRAO: []}
-    r = rco_composicao.compor(_G, _Fake(respostas), _ENTRADAS)
+    r = rco_composicao.compor(_G, _Fake(respostas), _ENTRADAS, modo="efeito")
     assert (r.desfecho, r.motivo) == ("revisao_humana", "violacao_prova_rco")
     assert dict(r.versoes) == {_P1: _versao(_P1)}  # so quem a devolveu
 
 
 def test_linhas_vencedoras_sao_copias_profundas() -> None:
     linha = {"decisao": "glosar", "idRegra": "A", "detalhe": {"itens": [1]}}
-    r = rco_composicao.compor(_G, _Fake({_P1: [linha], _P2: [], _PADRAO: []}), _ENTRADAS)
+    r = rco_composicao.compor(_G, _Fake({_P1: [linha], _P2: [], _PADRAO: []}), _ENTRADAS, modo="efeito")
     (copia,) = r.linhas
     assert copia == linha and copia is not linha
     copia["detalhe"]["itens"].append(2)
@@ -564,7 +579,7 @@ class _Levanta:
 def test_hit_policy_violation_do_motor_e_violacao_cmp08(contados: list[str]) -> None:
     fake = _Levanta(_P2, DmnHitPolicyViolationError(_P2, version=_versao(_P2)))
     with structlog.testing.capture_logs() as logs:
-        r = rco_composicao.compor(_G, fake, _ENTRADAS)
+        r = rco_composicao.compor(_G, fake, _ENTRADAS, modo="efeito")
     assert (r.desfecho, r.motivo, r.linhas) == ("revisao_humana", "violacao_prova_rco", ())
     assert fake.chamadas == [_P1, _P2]
     assert [(e["event"], e["decisoes"], e["codigo"]) for e in logs] == [
@@ -578,7 +593,7 @@ def test_erro_deterministico_generico_do_cib_seven_210_fica_avaliador_falhou(con
     """Limite documentado: o 2.1.0 nao nomeia a causa; o desfecho continua `revisao_humana`."""
     fake = _Levanta(_PADRAO, DmnDeterministicEvaluationError(_PADRAO, version=_versao(_PADRAO)))
     with structlog.testing.capture_logs() as logs:
-        r = rco_composicao.compor(_G, fake, _ENTRADAS)
+        r = rco_composicao.compor(_G, fake, _ENTRADAS, modo="efeito")
     assert (r.desfecho, r.motivo) == ("revisao_humana", "avaliador_falhou")
     assert [(e["decisoes"], e["codigo"]) for e in logs] == [([_PADRAO], "DmnDeterministicEvaluationError")]
     assert contados == ["avaliador_falhou"]
@@ -597,7 +612,7 @@ def test_compor_async_copia_profunda_por_chamada() -> None:
         entradas["novo"] = decisao
         return []
 
-    r = asyncio.run(rco_composicao.compor_async(_G, avaliador, _ENTRADAS))
+    r = asyncio.run(rco_composicao.compor_async(_G, avaliador, _ENTRADAS, modo="efeito"))
     assert vistas == [_ENTRADAS, _ENTRADAS, _ENTRADAS]
     assert _ENTRADAS == {"codigoPrincipal": "X", "lista": [1, 2]}
     assert (r.decisao_vencedora, r.pelo_padrao) == (_PADRAO, True)
@@ -612,7 +627,7 @@ def test_compor_async_falha_no_meio_do_grupo(contados: list[str]) -> None:
             raise ConnectionError("motor fora")
         return ([_linha("A")], _versao(decisao))
 
-    r = asyncio.run(rco_composicao.compor_async(_G, avaliador, _ENTRADAS))
+    r = asyncio.run(rco_composicao.compor_async(_G, avaliador, _ENTRADAS, modo="efeito"))
     assert (r.desfecho, r.motivo, r.linhas, r.decisao_vencedora) == (
         "revisao_humana",
         "avaliador_falhou",
@@ -627,7 +642,65 @@ def test_compor_async_falha_no_meio_do_grupo(contados: list[str]) -> None:
 def test_motivo_fora_do_vocabulario_vira_outro_na_metrica() -> None:
     registro = observability.get_metrics_collector().registry
     nome = "maezo_rco_composicao_revisao_humana_total"
-    antes = registro.get_sample_value(nome, {"motivo": "outro"}) or 0.0
-    observability.record_rco_composicao_revisao("motivo_inventado")
-    assert registro.get_sample_value(nome, {"motivo": "outro"}) == antes + 1
+    antes = registro.get_sample_value(nome, {"motivo": "outro", "modo": "efeito"}) or 0.0
+    observability.record_rco_composicao_revisao("motivo_inventado", modo="efeito")
+    assert registro.get_sample_value(nome, {"motivo": "outro", "modo": "efeito"}) == antes + 1
     assert registro.get_sample_value(nome, {"motivo": "motivo_inventado"}) is None
+
+
+# --- `modo` obrigatorio e fechado (sombra x efeito no log e na metrica) -------------------------------------
+
+
+def test_modos_em_paridade_com_o_registro_e_a_metrica() -> None:
+    from maezo.tools.workers._audit_ctx import MODOS_COMPOSICAO
+
+    assert rco_composicao.MODOS == MODOS_COMPOSICAO == observability.RCO_COMPOSICAO_MODOS
+    assert {rco_composicao.MODO_SOMBRA, rco_composicao.MODO_EFEITO} == rco_composicao.MODOS
+
+
+def test_modo_e_obrigatorio_e_fechado() -> None:
+    fake = _Fake({_P1: [_linha("A")], _P2: [], _PADRAO: [_linha("D", "liberar")]})
+    with pytest.raises(TypeError):
+        rco_composicao.compor(_G, fake, _ENTRADAS)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        rco_composicao.escolher(_G, {})  # type: ignore[call-arg]
+    for invalido in ("SOMBRA", "", "ativa"):
+        with pytest.raises(ValueError):
+            rco_composicao.compor(_G, fake, _ENTRADAS, modo=invalido)
+        with pytest.raises(ValueError):
+            asyncio.run(rco_composicao.compor_async(_G, _async(fake), _ENTRADAS, modo=invalido))
+    assert fake.chamadas == []  # o modo e recusado antes de avaliar qualquer decisao
+
+
+def _async(fake: Any) -> Any:
+    async def avaliador(decisao: str, entradas: Mapping[str, Any]) -> Any:
+        return fake(decisao, entradas)
+
+    return avaliador
+
+
+@pytest.mark.parametrize("modo", ["sombra", "efeito"])
+def test_modo_vai_ao_log_e_ao_rotulo_da_metrica(modo: str) -> None:
+    registro = observability.get_metrics_collector().registry
+    nome = "maezo_rco_composicao_revisao_humana_total"
+    rotulos = {"motivo": "avaliador_falhou", "modo": modo}
+    antes = registro.get_sample_value(nome, rotulos) or 0.0
+
+    def falha(decisao: str, entradas: Mapping[str, Any]) -> Any:
+        raise ConnectionError("motor fora")
+
+    with structlog.testing.capture_logs() as logs:
+        r = rco_composicao.compor(_G, falha, _ENTRADAS, modo=modo)
+    assert r.motivo == "avaliador_falhou"
+    [evento] = [e for e in logs if str(e["event"]).startswith("rco_composicao")]
+    assert evento["modo"] == modo
+    assert registro.get_sample_value(nome, rotulos) == antes + 1
+
+
+def test_modo_fora_do_vocabulario_vira_outro_na_metrica() -> None:
+    registro = observability.get_metrics_collector().registry
+    nome = "maezo_rco_composicao_revisao_humana_total"
+    rotulos = {"motivo": "avaliador_falhou", "modo": "outro"}
+    antes = registro.get_sample_value(nome, rotulos) or 0.0
+    observability.record_rco_composicao_revisao("avaliador_falhou", modo="inventado")
+    assert registro.get_sample_value(nome, rotulos) == antes + 1

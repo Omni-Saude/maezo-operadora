@@ -55,7 +55,10 @@ if TYPE_CHECKING:
 _logger = structlog.get_logger(__name__)
 
 #: DL-0185: modos de uma composicao registrada. `sombra` = a avaliacao nao muda o caso; `efeito` = a
-#: decisao pode ter efeito. Os dois enfileiram o aviso: o modo so vai para o log.
+#: decisao pode ter efeito. Os dois enfileiram o aviso: o modo so vai para o log. A composicao GENERICA em
+#: sombra (`rco_sombra.avaliar_composicao_em_sombra`) de proposito NAO registra (decisao da coordenacao; o
+#: "sombra nao enfileira" no registro/outbox vem com a emenda ao DL-0185). Tambem e o rotulo `modo` de
+#: `rco_composicao.compor` e de `maezo_rco_composicao_revisao_humana_total`.
 MODOS_COMPOSICAO: Final[frozenset[str]] = frozenset({"sombra", "efeito"})
 #: DL-0185: a chave acrescentada a entrada de `dmn_versions` de cada decisao avaliada do grupo.
 CHAVE_SINAIS_AUDITORIA: Final[str] = "sinaisAuditoria"
@@ -165,8 +168,10 @@ def registrar_composicao(resultado: ResultadoComposicao, *, modo: str) -> None:
     `test_compor_e_puro_e_nao_registra_nada`). E o WORKER que compoe quem chama
     `registrar_composicao(resultado, modo=...)` logo depois de compor, com o modo (`MODOS_COMPOSICAO`):
     `sombra` quando a avaliacao nao muda o caso, `efeito` quando pode mudar. Enquanto nenhum worker de
-    producao compoe (hoje: nenhum), nada e registrado nem enfileirado em producao. Faz duas coisas, ambas
-    sem efeito fora do coletor:
+    producao compoe (hoje: nenhum), nada e registrado nem enfileirado em producao. A composicao generica
+    em sombra (`rco_sombra.avaliar_composicao_em_sombra`) de proposito NAO chama isto (decisao da
+    coordenacao; a regra "sombra nao enfileira" no registro vem com a emenda ao DL-0185). Faz duas coisas,
+    ambas sem efeito fora do coletor:
 
     1. guarda `ComposicaoRegistrada` no coletor de `collect_rco_composicoes` (o harness enfileira os avisos
        DEPOIS de completar a tarefa);

@@ -36,13 +36,18 @@ Com o pacote pinado, os termos de `diasAteApresentacao` ainda nao tem produtor n
 GUARDA DA COMPOSICAO (DL-0173): `avaliar` chama `rco_composicao.exigir_avaliacao_isolada` antes de montar;
 uma decisao que e membro (ou padrao) de um grupo de `composicoes[]` nunca e avaliada sozinha (desfecho
 `membro_de_composicao`, nada avaliado). O grupo inteiro passa por `avaliar_composicao_em_sombra`: monta as
-entradas de cada membro, faz a UNIAO (mesmo nome com valores diferentes: `entradas_em_conflito`, nada
-avaliado), avalia cada membro pelo funil (`evaluate_sync(sombra=True)`, com a auditoria do montador DAQUELE
-membro) e aplica a regra do grupo (`rco_composicao.compor`) com o vocabulario do pin. As mesmas razoes 1-4
-valem: devolve `None`, so codigos fechados no log e na metrica, nenhuma excecao sobe. O prazo e UM so para
+entradas de cada membro, faz a UNIAO (o primeiro valor fica; mesmo nome com valor OU tipo diferente, nulo
+contra valor e `True` contra `1` inclusive: `entradas_em_conflito`, nada avaliado), avalia cada membro pelo
+funil (`evaluate_sync(sombra=True)`, com a auditoria do montador DAQUELE membro) e aplica a regra do grupo
+(`rco_composicao.compor`, `modo=sombra`) com o vocabulario do pin. As mesmas razoes 1-4 valem: devolve
+`None`, so codigos fechados no log e na metrica, nenhuma `Exception` sobe. O prazo e UM so para
 o grupo (`PRAZO_SOMBRA_S`), repartido em partes iguais entre os membros: este modulo nao le relogio
 (`test_montador_e_sombra_nao_leem_relogio`), entao a parte de um membro rapido nao passa ao seguinte, mas a
-soma nunca passa do total. A sombra NAO chama `_audit_ctx.registrar_composicao`: nenhum aviso do K6 e
+soma nunca passa do total. O prazo cobre SO as chamadas ao motor (nao a leitura do pin, `montar_fatos` nem o
+montador, que sao locais). `BaseException` (cancelamento, saida) propaga, como em `avaliar_em_sombra`.
+Alem de `maezo_rco_sombra_total`, a composicao conta `maezo_rco_composicao_revisao_humana_total{motivo,
+modo="sombra"}` quando a regra do grupo da revisao humana (o log de `rco_composicao` leva `modo=sombra`):
+nada e encaminhado a humano. A sombra NAO chama `_audit_ctx.registrar_composicao`: nenhum aviso do K6 e
 enfileirado a partir dela (unidade posterior). NADA disto esta ligado a um worker ainda.
 """
 
@@ -308,9 +313,13 @@ def avaliar_composicao(
     uniao: dict[str, Any] = {}
     for m in montadas.values():
         for nome, valor in m.variaveis.items():
-            if nome in uniao and uniao[nome] != valor:
+            if nome not in uniao:
+                uniao[nome] = valor  # o primeiro valor fica; nunca sobrescrito
+                continue
+            anterior = uniao[nome]
+            # mesmo valor E mesmo tipo: `True == 1` e `None` contra valor sao conflito, nunca uniao
+            if type(anterior) is not type(valor) or anterior != valor:
                 return ENTRADAS_EM_CONFLITO
-            uniao[nome] = valor
     auditorias = {membro: auditoria_das_entradas(m) for membro, m in montadas.items()}
     prazo_membro = PRAZO_SOMBRA_S / len(grupo.decisoes)
     falhas: list[Exception] = []
@@ -334,6 +343,7 @@ def avaliar_composicao(
         grupo,
         avaliador,
         uniao,
+        modo=rco_composicao.MODO_SOMBRA,
         ordem_restricao=pin.ordem_restricao,
         sinais_auditoria=pin.sinais_auditoria,
         adversas=pin.adversas or rco_composicao.ADVERSAS_PISO,
@@ -361,8 +371,9 @@ def avaliar_composicao_em_sombra(
 
     Mesmo contrato de `avaliar_em_sombra`: nunca muda o desfecho de quem chama, nao escreve variavel de
     processo, nao le o indicador de efeito do K1 e nao registra a composicao (`registrar_composicao`):
-    nenhum aviso e enfileirado. Erro de programacao: log ERROR so com o NOME do tipo e a metrica
-    `erro_de_programacao`, sem subir. `topico`: so rotulo de log."""
+    nenhum aviso e enfileirado. Erro de programacao (`Exception` fora das esperadas): log ERROR so com o
+    NOME do tipo e a metrica `erro_de_programacao`, sem subir; `BaseException` propaga. O prazo
+    (`PRAZO_SOMBRA_S`) limita so as chamadas ao motor. `topico`: so rotulo de log."""
     try:
         desfecho = avaliar_composicao(dmn, nome_composicao, montar_fatos, tenant=tenant)
     except Exception as exc:  # razao 3 do modulo: erro de programacao, contado e logado, nunca efeito

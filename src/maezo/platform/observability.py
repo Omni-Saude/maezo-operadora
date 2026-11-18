@@ -842,15 +842,24 @@ RCO_COMPOSICAO_MOTIVOS: Final[frozenset[str]] = frozenset(
 )
 
 
-def record_rco_composicao_revisao(motivo: str) -> None:
-    """Count ONE rco K1 composition routed to human review — `maezo_rco_composicao_revisao_humana_total`.
+#: Rotulo `modo` de `maezo_rco_composicao_revisao_humana_total` (= `_audit_ctx.MODOS_COMPOSICAO`, paridade em
+#: teste). Valor fora do conjunto vira `outro`.
+RCO_COMPOSICAO_MODOS: Final[frozenset[str]] = frozenset({"sombra", "efeito"})
 
-    Unico sitio de chamada: `platform.rco_composicao`. Rotulo fechado; nunca dado de caso. Best-effort:
-    a telemetria nunca muda o desfecho (que ja e `revisao_humana`).
+
+def record_rco_composicao_revisao(motivo: str, *, modo: str) -> None:
+    """Count ONE rco K1 composition whose rule yielded `revisao_humana` —
+    `maezo_rco_composicao_revisao_humana_total{motivo, modo}`.
+
+    Unico sitio de chamada: `platform.rco_composicao`. Rotulos fechados; nunca dado de caso. `modo=sombra`:
+    a composicao foi avaliada pela sombra (`tools.workers.rco_sombra`) e NADA foi encaminhado a humano;
+    `modo=efeito`: o desfecho do caso e de fato a revisao humana. Best-effort: a telemetria nunca muda o
+    desfecho.
     """
     rotulo = motivo if motivo in RCO_COMPOSICAO_MOTIVOS else "outro"
+    rotulo_modo = modo if modo in RCO_COMPOSICAO_MODOS else "outro"
     try:
-        _get_metrics_collector().rco_composicao_revisao_total.labels(motivo=rotulo).inc()
+        _get_metrics_collector().rco_composicao_revisao_total.labels(motivo=rotulo, modo=rotulo_modo).inc()
     except Exception:  # never let telemetry disturb the caller.
         logger.debug("rco_composicao_metric_emit_failed", exc_info=True)
 

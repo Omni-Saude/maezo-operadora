@@ -198,7 +198,9 @@ def test_escolher_sobre_as_saidas_que_o_rco_declara(joelho: str, mesma_data: str
         "rco_mex_ortop": casos[f"rco_mex_ortop#{padrao}"],
     }
     assert len({tuple(sorted(c.entradas.items())) for c in linhas.values()}) == 1
-    resultado = rco_composicao.escolher(rec.composicao(), {d: [dict(c.esperado)] for d, c in linhas.items()})
+    resultado = rco_composicao.escolher(
+        rec.composicao(), {d: [dict(c.esperado)] for d, c in linhas.items()}, modo="efeito"
+    )
     assert resultado.desfecho == rco_composicao.DESFECHO_ESCOLHIDO
     assert resultado.decisao_vencedora == "rco_mex_ortop"
     assert resultado.pelo_padrao
