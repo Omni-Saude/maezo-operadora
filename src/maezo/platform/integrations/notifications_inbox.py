@@ -856,13 +856,59 @@ async def run_inbox_loop(
             if dlq is None:
                 raise
             # Raises on a failed publish / failed audit -> the commit below is never reached.
-            await dlq.shunt(message, exc)
+            dlq_topic = await dlq.shunt(message, exc)
+            _registrar_quarentena(message, exc, dlq_topic)
         else:
             if receipt is None:
                 logger.debug("notifications_inbox.skipped_foreign_type")
         await consumer.commit()
         if stop_event is not None and stop_event.is_set():
             break
+
+
+#: DL-0186: rotulo `tipo` de `maezo_notifications_inbox_dlq_total` (= `observability.INBOX_DLQ_TIPOS`).
+INBOX_DLQ_TIPO_NAO_JSON: Final[str] = "nao_json"
+INBOX_DLQ_TIPO_OUTRO: Final[str] = "outro"
+INBOX_DLQ_TIPOS: Final[frozenset[str]] = frozenset(
+    {
+        NOTIFY_TEAM_NOTIFICATION_TYPE,
+        NOTIFY_SUPERVISOR_NOTIFICATION_TYPE,
+        RCO_AVISO_TYPE,
+        INBOX_DLQ_TIPO_NAO_JSON,
+        INBOX_DLQ_TIPO_OUTRO,
+    }
+)
+
+
+def tipo_para_dlq(message: Any) -> str:
+    """O tipo FECHADO de uma mensagem quarentenada: um dos tres consumidos, `nao_json` ou `outro`."""
+    if getattr(message, "parse_error", None):
+        return INBOX_DLQ_TIPO_NAO_JSON
+    value = getattr(message, "value", None)
+    tipo = value.get("type") if isinstance(value, dict) else None
+    return tipo if isinstance(tipo, str) and tipo in INBOX_DLQ_TIPOS else INBOX_DLQ_TIPO_OUTRO
+
+
+def _registrar_quarentena(message: Any, exc: MalformedTeamNoticeError, dlq_topic: str) -> None:
+    """Uma quarentena do inbox NUNCA e silenciosa (DL-0186): alem do fato na cadeia e do
+    `maezo_bridge_dlq_total{topic,reason}` que o `BridgeDlqShunt` ja grava, conta por TIPO e codigo e loga so
+    coordenadas e codigos (nunca o payload). Best-effort: a telemetria nao muda o commit."""
+    tipo = tipo_para_dlq(message)
+    try:
+        from maezo.platform.observability import record_inbox_dlq
+
+        record_inbox_dlq(tipo=tipo, reason=exc.code)
+    except Exception:  # pragma: no cover - a telemetria nunca muda o que o inbox faz
+        logger.debug("notifications_inbox.dlq_metric_failed", reason=exc.code)
+    logger.warning(
+        "notifications_inbox.dlq_shunted",
+        tipo=tipo,
+        reason=exc.code,
+        dlq_topic=dlq_topic,
+        source_topic=getattr(message, "topic", None),
+        partition=getattr(message, "partition", None),
+        offset=getattr(message, "offset", None),
+    )
 
 
 class NotificationsInboxSettings(BaseSettings):

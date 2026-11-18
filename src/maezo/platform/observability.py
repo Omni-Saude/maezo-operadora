@@ -1285,6 +1285,31 @@ def record_bridge_dlq(*, topic: str, reason: str) -> None:
     collector.bridge_dlq.labels(topic=topic, reason=reason).inc()
 
 
+#: DL-0186: vocabulario FECHADO do rotulo `tipo` de `maezo_notifications_inbox_dlq_total` (=
+#: `notifications_inbox.INBOX_DLQ_TIPOS`, paridade em teste): os tres tipos que o inbox consome, a mensagem
+#: que nem e objeto JSON e `outro` (tipo alheio ou ausente; o valor lido nunca vira rotulo).
+INBOX_DLQ_TIPOS: Final[frozenset[str]] = frozenset(
+    {"escalation.notify_team", "escalation.notify_supervisor", "rco.aviso_auditoria", "nao_json", "outro"}
+)
+
+
+def record_inbox_dlq(*, tipo: str, reason: str) -> None:
+    """Count ONE notifications-inbox dead-letter shunt — `maezo_notifications_inbox_dlq_total` (DL-0186).
+
+    Sitio de chamada unico: `notifications_inbox.run_inbox_loop`, DEPOIS de `BridgeDlqShunt.shunt` voltar
+    (publicado + fato na cadeia). `tipo` fora de `INBOX_DLQ_TIPOS` e `reason` fora de
+    `notifications_bridge.BRIDGE_DLQ_REASONS` viram `outro`. Best-effort: nunca muda o shunt nem o commit.
+    """
+    from maezo.platform.integrations.notifications_bridge import BRIDGE_DLQ_REASONS
+
+    rotulo_tipo = tipo if tipo in INBOX_DLQ_TIPOS else "outro"
+    rotulo_reason = reason if reason in BRIDGE_DLQ_REASONS else "outro"
+    try:
+        _get_metrics_collector().inbox_dlq_total.labels(tipo=rotulo_tipo, reason=rotulo_reason).inc()
+    except Exception:  # never let telemetry disturb the caller.
+        logger.debug("inbox_dlq_metric_emit_failed", exc_info=True)
+
+
 def record_sla_alert_human_task(*, alert_domain: str, outcome: str) -> None:
     """Record what became of ONE SLA-risk alert on the notifications bridge (R-104/
     WP-ALERTA-SLA-CANAL). Increments `maezo_sla_alert_human_task_total{alert_domain,outcome}`.

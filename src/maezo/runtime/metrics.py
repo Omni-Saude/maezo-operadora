@@ -24,6 +24,7 @@ AF-12 model-tier routing (ADR-0009 §2, maezo.runtime.inference.InferenceProvide
 
 GAP-SC-04-a notifications-bridge dead-letter metering:
 - maezo_bridge_dlq_total (Counter) — poison messages shunted to `<topic>.dlq` by {topic,reason}
+- maezo_notifications_inbox_dlq_total (Counter) — the inbox's own shunts by closed {tipo,reason} (DL-0186)
 
 CC-09 (Agent Fleet Audit, 2026-09-04) per-agent DESFECHO telemetry:
 - maezo_agent_desfecho_total (Counter) — ONE terminal turn outcome by
@@ -263,6 +264,19 @@ class MetricsCollector:
             "Notifications-bridge poison messages shunted to a dead-letter topic (COUNTS ONLY; "
             "reason is a closed vocabulary, never payload-derived)",
             labelnames=["topic", "reason"],
+            registry=self._registry,
+        )
+
+        # DL-0186: o que o `notifications_inbox` mandou a fila morta, por TIPO da mensagem e codigo. O
+        # `maezo_bridge_dlq_total` (mesmo shunt) so tem `topic`, e a ponte e o inbox leem o MESMO topico: sem
+        # este contador um aviso de escalonamento quarentenado pelo inbox seria indistinguivel de um
+        # veneno da ponte. Rotulos FECHADOS (`observability.INBOX_DLQ_TIPOS`; `reason` em
+        # `notifications_bridge.BRIDGE_DLQ_REASONS`); fora do conjunto vira `outro`. Nunca payload.
+        self._inbox_dlq_total = Counter(
+            "maezo_notifications_inbox_dlq_total",
+            "Notifications-inbox messages shunted to the dead-letter topic, by closed message type and "
+            "closed reason code (COUNTS ONLY; never payload-derived)",
+            labelnames=["tipo", "reason"],
             registry=self._registry,
         )
 
@@ -709,6 +723,11 @@ class MetricsCollector:
         vocabulary). COUNTS ONLY; no task_id, no chain, no payload reference.
         """
         return self._a2a_handler_errors
+
+    @property
+    def inbox_dlq_total(self) -> Counter:
+        """Counter for notifications-inbox dead-letter shunts (DL-0186). Labels: tipo, reason (closed)."""
+        return self._inbox_dlq_total
 
     @property
     def bridge_dlq(self) -> Counter:
