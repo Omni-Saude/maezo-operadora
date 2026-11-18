@@ -240,3 +240,11 @@ Subperguntas sem item na cédula, com o padrão conservador proposto:
 - S7. Decreto 11.034 (J74 C): conferido só no que cabe ao módulo (cancelar no primeiro nível e protocolo); o resto do checklist é da linha de cancelamento (E-SF-09).
 
 Suíte local antes do push: `tests/unit/portal`, `tests/unit/processes`, `tests/unit/sec`, `tests/unit/ci`, com `--basetemp` próprio apagado a cada rodada. Revisão independente antes do push. Mutação em cópia isolada: chave ligada; linha exibida; total calculado; cancelar escondido; troca em autosserviço. Cada uma tem de deixar teste vermelho.
+
+## 2026-11-18 ~09:35Z — E-SF-RT-04: correção do CAMINHO (CD-130) e estado
+
+- Correção de fundamento (CD-130 item 3): meu CAMINHO (S1) citou errado. O dono pediu a alternativa no "quero cancelar" em página ou portal; a pergunta Q-OS08-1 tratava só do WhatsApp e foi respondida "ainda não". A redação e a posição da linha dependem do jurídico e de ato do dono. A variante que segue sem esperar é o fluxo SEM a linha, e é a que está construída.
+- CD-130 aplicada: sem chave, texto, campo ou passo de alternativa no módulo. Fica o teste negativo pela forma do tipo da tela de cancelamento, mais a varredura de nomes, funções, classes e textos.
+- Revisão independente: primeira passada FAIL (asserção sempre verdadeira no teste antigo, que saiu com CD-130). Segunda passada FAIL (varredura de textos não percorrida; nomes de função e classe fora). Reparo literal aplicado, mais um teste novo (toda função pública começa pela chave). Reverificação por mutação: função `oferecer_alternativa`, oferta no texto e função pública sem chave, cada uma vermelha.
+- Mutações do CAMINHO: chave ligada, valor calculado, cancelar no segundo nível e troca em autosserviço, cada uma vermelha.
+- Suíte local: `tests/unit/portal` 3222 passed (head atual); `processes` 114 e `sec` 162 passed; `ci` em curso. Push e PR quando o `ci` fechar sem falha nova.
