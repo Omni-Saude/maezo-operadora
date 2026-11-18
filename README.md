@@ -137,7 +137,7 @@ O que separa esta base do go-live **não é código** — são ações que só h
 | Testes arquivados | 664 arquivos, ~306K LOC |
 | Código fonte (`src/maezo/`) | 444 arquivos Python, ~165K LOC |
 | ADRs | 78 (0001–0078; 62 Accepted, 16 Proposed/Proposto) |
-| Decision log | 188 decisões registradas (DL-0001–DL-0188) |
+| Decision log | 189 decisões registradas (DL-0001–DL-0189) |
 | Runbooks | 32 (22 gerais + 8 de alerta + 2 drills) |
 | Milestones de construção | 15/15 self-certified |
 
@@ -202,7 +202,7 @@ src/maezo/
 | [docs/adr/](docs/adr/) | 78 ADRs numerados (0001–0078; contagem verificada por teste) |
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo dos processos SP-OP |
 | [docs/processes/contracts/](docs/processes/contracts/) | 18 contratos SP-OP — ~1.000 regras de negócio |
-| [docs/decisions-log.md](docs/decisions-log.md) | 188 decisões operacionais (DL-0001–DL-0188) |
+| [docs/decisions-log.md](docs/decisions-log.md) | 189 decisões operacionais (DL-0001–DL-0189) |
 | [docs/runbooks/](docs/runbooks/) | 32 runbooks operacionais (22 gerais + 8 de alerta + 2 drills) |
 | [docs/observability/SLO.md](docs/observability/SLO.md) | SLIs/SLOs (DRAFT) para worker-runtime, agent-runtime e gateway |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Como contribuir: princípios, receitas de agente/MCP/processo |

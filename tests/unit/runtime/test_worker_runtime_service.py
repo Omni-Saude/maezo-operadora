@@ -424,10 +424,12 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         lgpd_legal_hold_predicate: bool = False,
         junta_rn424_guard: bool = False,
         auth_prazo_dias_uteis: bool = False,
+        auth_dmn_orcamento_s: float | None = None,
         pagto_resolve_lastro: bool = False,
         pagto_detect_duplicidade: bool = False,
         pagto_obrigacao_ledger: Any = None,
     ) -> None:
+        captured["auth_dmn_orcamento_s"] = auth_dmn_orcamento_s
         captured["pagto_chave_conta_fase"] = pagto_chave_conta_fase
         captured["pagto_resolve_lastro"] = pagto_resolve_lastro
         captured["pagto_detect_duplicidade"] = pagto_detect_duplicidade
@@ -504,6 +506,8 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # R-005 / F-018: prazo de resposta AUTH em dias uteis ships dark (MAEZO_AUTH_PRAZO_DIAS_UTEIS).
         assert settings.auth_prazo_dias_uteis is False
         assert captured["auth_prazo_dias_uteis"] is False
+        # DL-0189: the AUTH criteria gate gets the DERIVED engine budget (lock minus complete margin).
+        assert captured["auth_dmn_orcamento_s"] == settings.auth_dmn_budget_s == 20.0
         # PAGTO PR-D: os fatos do lastro conferidos no historico ship dark (MAEZO_PAGTO_RESOLVE_LASTRO).
         assert settings.pagto_resolve_lastro is False
         assert captured["pagto_resolve_lastro"] is False
