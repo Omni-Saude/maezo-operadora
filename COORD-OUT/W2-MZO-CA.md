@@ -172,3 +172,12 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
   - (A, recomendo) Mudança consciente da cerca neste PR: exceção estreita, nomeada para `boas_vindas.py` e só para o nome do modelo, condicionada a um teste que prova o envio fechado (como já se faz para o registro de modelos). Toca o teste da RT-01, por isso pede CD.
   - (B) O módulo resolve o id do modelo no registro por finalidade, sem literal em `src/`. Não recomendo: tira a dependência da vista da cerca sem decisão.
   - (C) Segurar a E-SF-22r até a E-SF-35r (o emissor consciente) e fechar o #1315.
+
+## 2026-11-18 ~07:55Z — #1315 (E-SF-22r): CD-123 aplicada, segundo push, CI em curso
+
+- CD-123 aplicada no head `395f141bd7c441a05cbd686b58e5b62fed6d860d` (push às ~07:08Z): o identificador do modelo de boas-vindas é parâmetro injetado (`template_id`, obrigatório, sem padrão), validado só na forma; sem ele, recusa `modelo_nao_injetado` antes do portão. Zero literal `ret.*` em `src/`. A cerca da RT-01 e o seu arquivo de teste não foram tocados.
+- Testes novos: sem modelo injetado recusa sem chamar o portão; modelo injetado não publicado nem ratificado; fonte do módulo sem nome de sinal e sem emissor. Os testes de CD-122 item 2 seguem cobertos (não despacha, sem evento, não ratificado); nada montado.
+- Mutação em cópia isolada: literal de volta em `src/` → a cerca original e a varredura do módulo vermelhas; módulo despachando sem o portão → teste de envio fechado vermelho.
+- Suíte local sobre `204999bf`: `tests/unit/gateway` 6320 passed, `tests/unit/processes` 114 passed (a cerca incluída), `tests/unit/sec` 162 passed, `tests/unit/ci` 3403 passed; falhas e erros só os da lista da main limpa. Revisão independente: PASS, sem reparo. Corpo do PR atualizado (CD-123 item 6).
+- CI do head `395f141b`: 38 success, 2 skipped, 2 em curso (integração), nenhuma falha até agora.
+- Main atual `8c509a09` está um merge à frente do ramo (#1316, rco), arquivos disjuntos dos meus e sem nome `ret.*` novo (CD-80). Simulação de merge sobre ela vai no pronto.
