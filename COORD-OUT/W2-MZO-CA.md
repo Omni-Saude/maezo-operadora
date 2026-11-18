@@ -161,3 +161,14 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
 
 - PRONTO: maezo-operadora #1314, head `648fafef7b4a0162c46574ea57305714927539a8`, checks verdes (42: 40 success, 2 skipped; integração 1416 testes, 0 falhas, 0 erros). Contém a main atual `2a986442`; simulação de merge limpa e abortada.
 - Falha de processo minha: um diretório temporário de suíte interrompida (9,6 GB) esgotou a cota de disco da sessão e truncou três logs de suíte local da E-SF-22r; resultados descartados, diretório apagado, suíte refeita. Nenhum resultado truncado foi usado como verificação.
+
+## 2026-11-18 ~06:35Z — #1313 e #1314 mesclados; ACHADO e Q-04 no #1315 (E-SF-22r)
+
+- Registro pedido em CD-119/CD-121: #1313 (E-SF-23) mesclado na main `2a986442`; #1314 (E-SF-15) mesclado na main `204999bf`.
+- #1315 (E-SF-22r) aberto, head `819ad7d7`, sobre `204999bf`. CI vermelho, causa deste PR: `tests/unit/processes/test_e_sf_rt_01_retention_signals.py::test_nenhum_emissor_de_evento_ret_na_onda_1`. A cerca da E-SF-RT-01 proíbe qualquer nome `ret.*` em `src/`, `spec/`, `deploy/` e `config/` fora da allowlist e do registro de modelos ("o dia em que um emissor nascer, este teste cai e a mudança é consciente"). O módulo de boas-vindas declara `TEMPLATE_BOAS_VINDAS = "ret.boas_vindas.v1"` em `src/maezo/gateway/capabilities/journeys/boas_vindas.py`. Reproduzido local.
+- Falha de processo minha: a suíte local da E-SF-22r cobriu `tests/unit/gateway` e `tests/unit/ci`, não `tests/unit/processes`. Daqui em diante a suíte local de toda linha inclui `tests/unit/processes`.
+- Não mexo na cerca, não dou push e não mando pronto até a decisão.
+- Q-W2-MZO-CA-04: como a boas-vindas referencia o modelo `ret.boas_vindas.v1`?
+  - (A, recomendo) Mudança consciente da cerca neste PR: exceção estreita, nomeada para `boas_vindas.py` e só para o nome do modelo, condicionada a um teste que prova o envio fechado (como já se faz para o registro de modelos). Toca o teste da RT-01, por isso pede CD.
+  - (B) O módulo resolve o id do modelo no registro por finalidade, sem literal em `src/`. Não recomendo: tira a dependência da vista da cerca sem decisão.
+  - (C) Segurar a E-SF-22r até a E-SF-35r (o emissor consciente) e fechar o #1315.
