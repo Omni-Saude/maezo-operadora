@@ -123,13 +123,51 @@ def test_linha_alternativa_ausente_do_cancelamento(ligado: None) -> None:
         for n in ast.walk(arvore)
         if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name)
     }
-    textos = [n.value for n in ast.walk(arvore) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    nomes |= {
+        n.name
+        for n in ast.walk(arvore)
+        if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+    }
+    docstrings = {
+        id(n.body[0].value)
+        for n in ast.walk(arvore)
+        if isinstance(n, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+        and n.body
+        and isinstance(n.body[0], ast.Expr)
+        and isinstance(n.body[0].value, ast.Constant)
+    }
+    textos = [
+        n.value
+        for n in ast.walk(arvore)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings
+    ]
     for vedado in ("alternativ", "retenc", "retencao", "oferta", "desconto"):
         assert not any(vedado in x.lower() for x in nomes)
     for texto in (TEXTO_PEDIDO_DE_CANCELAMENTO, *ACOES_DO_CANCELAMENTO):
         for vedado in ("alternativ", "mudar de plano", "retirar", "oferta", "desconto"):
             assert vedado not in texto.lower()
-    assert textos  # nao-vacuidade da varredura
+    assert TEXTO_PEDIDO_DE_CANCELAMENTO in textos  # a varredura alcanca o texto ao cliente
+    for texto in textos:
+        for vedado in ("alternativ", "retenc", "oferta", "desconto"):
+            assert vedado not in texto.lower()
+
+
+def test_toda_funcao_publica_comeca_pela_chave() -> None:
+    """Uma funcao publica nova entra sozinha na cerca: a primeira instrucao tem de ser `_exigir_ligado()`."""
+    arvore = ast.parse(_FONTE_DO_MODULO)
+    publicas = [
+        f
+        for f in arvore.body
+        if isinstance(f, ast.FunctionDef | ast.AsyncFunctionDef) and not f.name.startswith("_")
+    ]
+    assert len(publicas) >= 5
+    for f in publicas:
+        corpo = [n for n in f.body if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))]
+        primeira = corpo[0]
+        assert isinstance(primeira, ast.Expr) and isinstance(primeira.value, ast.Call)
+        assert isinstance(primeira.value.func, ast.Name) and primeira.value.func.id == "_exigir_ligado", (
+            f.name
+        )
 
 
 def test_modulo_nao_montado_e_sem_importador() -> None:
