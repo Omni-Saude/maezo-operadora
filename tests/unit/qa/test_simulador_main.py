@@ -85,6 +85,7 @@ async def test_planos_de_repeticao_so_as_conversas_que_falharam() -> None:
 
 def test_main_devolve_codigo_de_preparo_sem_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MAEZO_SIMULADOR_BUCKET", raising=False)
+    monkeypatch.setenv("MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA", CPF_SINTETICO)
     assert principal.main(["--conversas", "1"]) == principal.SAIDA_PREPARO
 
 

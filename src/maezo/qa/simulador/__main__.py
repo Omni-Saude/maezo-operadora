@@ -14,6 +14,10 @@ Uso (na task `maezo-operadora-dev-simulador` os argumentos chegam pela variavel 
   --sem-juiz                   pula o juiz (so' as checagens deterministicas)
   --roteiro NOME               roteiro de ACEITE do dono (mensagens fixas, sem persona; `dono_v1`)
 
+Parametro OBRIGATORIO no ambiente (nunca em `SIMULADOR_ARGS`, que vai para o manifesto):
+`MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA`, o documento (CPF) da primeira linha do roster. Sem ele, ou
+invalido, a execucao para antes de qualquer coisa com o codigo 2 e uma mensagem que nunca repete o valor.
+
 Saida: `s3://$MAEZO_SIMULADOR_BUCKET/runs/<run_id>/` (manifest, transcricoes, checagens, juiz,
 resumo e report.md), tudo mascarado. Codigo de saida: 0 execucao concluida com o motor limpo;
 2 erro de preparo; 3 o motor tem caso ESC de conversa simulada (nao deveria acontecer nunca).
@@ -57,7 +61,7 @@ from .mascaramento import Mascarador
 from .personas import planejar, por_id, selecionar
 from .registro import Achado, Avaliacao, Conversa, Sujeito, Turno
 from .relatorio import ItemDaExecucao, agrupar_falhas, relatorio_md, resumo
-from .roster import ler_roster_csv, preflight
+from .roster import DocumentoDaPrimeiraLinhaError, documento_da_primeira_linha, ler_roster_csv, preflight
 
 logger = structlog.get_logger(__name__)
 
@@ -254,7 +258,9 @@ def _extras(
     }
 
 
-async def _executar_roteiro(args: argparse.Namespace, armazenamento: ArmazenamentoS3) -> int:
+async def _executar_roteiro(
+    args: argparse.Namespace, armazenamento: ArmazenamentoS3, documento_primeira_linha: str
+) -> int:
     """`--roteiro NOME`: o roteiro de aceite do dono (`aceite.py`), com o despachante real."""
     roteiro = aceite.ROTEIROS[args.roteiro]
     aceite.validar(roteiro)
@@ -272,7 +278,9 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
         if composicao.resolver is None:
             raise RuntimeError("simulador: o acesso do beneficiario nao esta' ligado neste ambiente")
         roster_chave = args.roster or await roster_mais_recente(armazenamento)
-        lidos = ler_roster_csv(await armazenamento.ler(roster_chave))
+        lidos = ler_roster_csv(
+            await armazenamento.ler(roster_chave), documento_primeira_linha=documento_primeira_linha
+        )
         alvo = aceite.SUJEITO_DO_ROTEIRO.get(args.roteiro, "dono")
         if alvo == aceite.SUJEITO_PF_TITULAR:
             # DL-0111 (`cancelamento_v1`): o beneficiario e' o primeiro do roster que resolveu na AMH e NAO e'
@@ -419,7 +427,7 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
     return SAIDA_OK if dados["roteiro_passou"] else SAIDA_ROTEIRO_REPROVADO
 
 
-async def executar(args: argparse.Namespace) -> int:
+async def executar(args: argparse.Namespace, documento_primeira_linha: str) -> int:
     bucket = os.environ.get("MAEZO_SIMULADOR_BUCKET", "")
     # A regiao do Bedrock da task (a mesma do bucket: tudo em sa-east-1).
     regiao = os.environ.get("MAEZO_BEDROCK_REGION") or "sa-east-1"
@@ -429,7 +437,7 @@ async def executar(args: argparse.Namespace) -> int:
     if args.limpar:
         return await _so_limpar(args, armazenamento)
     if args.roteiro:
-        return await _executar_roteiro(args, armazenamento)
+        return await _executar_roteiro(args, armazenamento, documento_primeira_linha)
 
     run_id = novo_run_id()
     semente = args.semente if args.semente is not None else int(time.time())
@@ -451,7 +459,9 @@ async def executar(args: argparse.Namespace) -> int:
             )
             roster_chave = roster_chave or manifesto_antigo["roster"]
         roster_chave = roster_chave or await roster_mais_recente(armazenamento)
-        lidos = ler_roster_csv(await armazenamento.ler(roster_chave))
+        lidos = ler_roster_csv(
+            await armazenamento.ler(roster_chave), documento_primeira_linha=documento_primeira_linha
+        )
         sujeitos, descartados = await preflight(lidos, composicao.resolver, limite=args.max_sujeitos)
         if not sujeitos:
             raise RuntimeError("simulador: nenhuma pessoa do roster resolveu na AMH")
@@ -608,13 +618,22 @@ def argumentos_do_ambiente(argv: Sequence[str] | None) -> list[str]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = construir_parser().parse_args(argumentos_do_ambiente(argv))
+    # O documento da primeira linha do roster e' parametro OBRIGATORIO (sem padrao): sem ele, ou invalido,
+    # nada roda. So' do ambiente, nunca de `args` (que vai inteiro para o manifesto); a mensagem nunca
+    # repete o valor.
+    try:
+        documento_primeira_linha = documento_da_primeira_linha()
+    except DocumentoDaPrimeiraLinhaError as exc:
+        print(str(exc), file=sys.stderr)
+        logger.error("simulador_sem_documento_da_primeira_linha")
+        return SAIDA_PREPARO
     # Avaliacao de 21/10/2026 (privacidade): todo nome de dependente lido da AMH neste processo entra no
     # mascarador de TODA saida gravada (relatorio, transcricao, log), em qualquer formato de texto.
     from maezo.agents.helena.consultas_plano import registrar_nomes_lidos
 
     registrar_nomes_lidos()
     try:
-        return asyncio.run(executar(args))
+        return asyncio.run(executar(args, documento_primeira_linha))
     except Exception as exc:
         # O detalhe passa pelo mascarador generico: nenhuma excecao leva CPF ou telefone ao log.
         logger.error("simulador_falhou", erro=type(exc).__name__, detalhe=Mascarador().texto(str(exc))[:300])

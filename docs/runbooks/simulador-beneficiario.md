@@ -59,15 +59,28 @@ e tudo o que sai do processo é mascarado.
 ## 1. Roster (pessoas reais, só no S3)
 
 O código não lê o lago (ADR-0037). Uma pessoa com acesso de coluna no Athena roda
-`src/maezo/qa/simulador/roster.sql` (beneficiários com mensalidade nos últimos 6 meses + o dono,
-CPF 42853296890, sempre na primeira linha) e copia o CSV **de bucket para bucket** (nada passa pelo
-laptop). Git Bash: `MSYS_NO_PATHCONV=1` antes de argumentos que começam com `/`.
+`src/maezo/qa/simulador/roster.sql` (beneficiários com mensalidade nos últimos 6 meses + a pessoa de
+`<documento informado na execução>`, sempre na primeira linha) e copia o CSV **de bucket para
+bucket** (nada passa pelo laptop). Git Bash: `MSYS_NO_PATHCONV=1` antes de argumentos que começam com `/`.
+
+**Parâmetro obrigatório `MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA`.** O documento (CPF, 11 dígitos, só
+números) da pessoa que fica sempre na primeira linha do roster não está no repositório: é informado em
+cada execução, na consulta do roster e na task. Não tem valor padrão. Sem ele, ou com um valor que não
+é CPF válido, a consulta não é montada e o simulador sai com o código 2 antes de qualquer outra coisa;
+a mensagem nunca repete o valor. Não grave o valor em arquivo, no repositório nem em `SIMULADOR_ARGS`
+(os argumentos vão para o manifesto). Os SQLs recebem o valor como **parâmetro de execução do Athena**
+(`?` no texto, `--execution-parameters` no comando), montado e validado por
+`python -m maezo.qa.simulador.roster`; o texto da consulta nunca contém o valor.
 
 ```
-export AWS_PROFILE=amh-data-dev AWS_REGION=sa-east-1
+export AWS_PROFILE=amh-data-dev AWS_REGION=sa-east-1 PYTHONPATH=src
+read -rs MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA && export MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA
 BUCKET=maezo-operadora-dev-qa-simulador-203312548462
+SQL=src/maezo/qa/simulador/roster.sql
 QID=$(aws athena start-query-execution --work-group amh-austa_operadora-analytics-dev \
-  --query-string "$(cat src/maezo/qa/simulador/roster.sql)" --query QueryExecutionId --output text)
+  --query-string "$(python -m maezo.qa.simulador.roster consulta $SQL)" \
+  --execution-parameters $(python -m maezo.qa.simulador.roster parametros $SQL) \
+  --query QueryExecutionId --output text)
 aws athena get-query-execution --query-execution-id "$QID" --query QueryExecution.Status.State --output text
 # quando SUCCEEDED:
 SAIDA=$(aws athena get-query-execution --query-execution-id "$QID" \
@@ -91,10 +104,12 @@ aws ecs run-task --cluster maezo-operadora-dev --launch-type FARGATE \
   --network-configuration "awsvpcConfiguration={subnets=[subnet-06647b0c664d0d22a,subnet-0e1f840dbec44e66a],securityGroups=[sg-0e2aebe1a2c1d253d],assignPublicIp=DISABLED}" \
   --no-enable-execute-command \
   --tags key=MaezoPurpose,value=simulador-beneficiario key=MaezoOwner,value=$DONO \
-  --overrides '{"containerOverrides":[{"name":"simulador","environment":[{"name":"SIMULADOR_ARGS","value":"--conversas 20 --concorrencia 3"}]}]}'
+  --overrides '{"containerOverrides":[{"name":"simulador","environment":[{"name":"SIMULADOR_ARGS","value":"--conversas 20 --concorrencia 3"},{"name":"MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA","value":"'"$MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA"'"}]}]}'
 ```
 
-Os argumentos vão em `SIMULADOR_ARGS` (padrão `--conversas 10`):
+`MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA` (ver a seção 1) vai sempre no `environment` do override,
+nunca em `SIMULADOR_ARGS`: sem ela a task sai com o código 2 sem ler o roster. Os argumentos vão em
+`SIMULADOR_ARGS` (padrão `--conversas 10`):
 
 | Opção | Efeito |
 |---|---|
@@ -182,7 +197,8 @@ aws ecs run-task --cluster maezo-operadora-dev --launch-type FARGATE   --task-de
   respostas), `manifest.json` e `transcripts.jsonl`. Nao roda juiz nem D1..D12.
 - **Codigo de saida**: 0 so' se TODOS os passos passam e o motor esta' limpo; 1 se algum passo
   reprova (ou o acesso de um segmento nao concluiu); 2 erro de preparo; 3 motor com caso ESC.
-- Pre-requisito extra: o dono (CPF 42853296890) tem de estar na primeira linha do roster e resolver
+- Pre-requisito extra: a pessoa de `MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA`
+  (`<documento informado na execução>`) tem de estar na primeira linha do roster e resolver
   na AMH (o preflight para na primeira pessoa); senao o modo recusa rodar.
 
 - **Outros roteiros** (`--roteiro NOME`, mesmas regras): `triagem_v2` (DL-0104, chave `MAEZO_HELENA_TRIAGEM_V2`),

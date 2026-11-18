@@ -12,6 +12,9 @@
 --
 -- Saida (as duas consultas): cpf,nascimento,nome (nascimento em AAAA-MM-DD). O dono NAO entra aqui: o roteiro
 -- `lucas_v4` e' do dono (plano empresarial) e o `__main__` usa o primeiro do roster que resolver na AMH e nao for o dono.
+-- O `?` de cada consulta e' o documento da primeira linha do roster (fora do sorteio), passado como parametro de execucao do
+-- Athena e validado por `python -m maezo.qa.simulador.roster parametros <este arquivo> --numero N` (runbook do
+-- simulador); o valor nunca fica neste arquivo.
 
 -- =====================================================================================================
 -- 1) PAGADORES: titulares PF que sao o proprio pagador do contrato (roteiro `lucas_v4_pagador`)
@@ -43,7 +46,7 @@ pagadores AS (
 SELECT p.cpf, CAST(p.nascimento AS varchar) AS nascimento, p.nome
 FROM pessoa p
 JOIN pagadores g ON g.cd_pessoa_fisica = p.cd_pessoa_fisica
-WHERE p.ordem = 1 AND length(p.cpf) = 11 AND p.cpf <> '42853296890'
+WHERE p.ordem = 1 AND length(p.cpf) = 11 AND p.cpf <> ?
 ORDER BY rand()
 LIMIT 200;
 
@@ -74,6 +77,6 @@ nao_pagadores AS (
 SELECT p.cpf, CAST(p.nascimento AS varchar) AS nascimento, p.nome
 FROM pessoa p
 JOIN nao_pagadores n ON n.cd_pessoa_fisica = p.cd_pessoa_fisica
-WHERE p.ordem = 1 AND length(p.cpf) = 11 AND p.cpf <> '42853296890'
+WHERE p.ordem = 1 AND length(p.cpf) = 11 AND p.cpf <> ?
 ORDER BY rand()
 LIMIT 200;
