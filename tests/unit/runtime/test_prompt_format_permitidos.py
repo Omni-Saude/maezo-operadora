@@ -10,9 +10,11 @@ dossie chegava ao prompt sem ninguem decidir. Agora:
 3. Booleano declarado fora da lista e' erro do chamador (`PromptFormatError`).
 4. O descarte e' VISIVEL: `maezo_prompt_fatos_descartados_total{agente}` conta as chaves
    descartadas, com `agente` de vocabulario fechado (`observability.PROMPT_FATOS_AGENTES`).
-5. A CERCA: toda chamada ao renderizador em `src/` passa `permitidos=` por nome e `agente=` como
-   literal do vocabulario fechado. Chamada nova sem elas falha aqui, inclusive por alias de
-   import ou acesso por atributo; o conjunto de literais e' o vocabulario (paridade).
+5. A CERCA (so' `src/`): toda chamada ao renderizador passa `permitidos=` resolvendo para lista
+   DECLARADA no topo do modulo (`Final[frozenset[str]]` ou mapa `Final` delas; nunca derivada de
+   dado) e `agente=` literal do vocabulario fechado. Pega tambem import relativo, alias por nome
+   ou atributo, `getattr` com o nome em string e `import *` do modulo; o conjunto de literais
+   `agente=` e' o vocabulario (paridade).
 
 Todos os valores sao SINTETICOS.
 """
@@ -86,6 +88,41 @@ def test_o_descarte_registra_so_o_nome_e_a_quantidade() -> None:
     assert "SENTINELA-" not in repr(logs)
 
 
+def test_o_log_so_lista_nomes_de_identificador() -> None:
+    """Chave que nao parece identificador (CPF, texto livre, maiuscula) entra so' na contagem."""
+    facts: dict[Any, Any] = {
+        "ok": 1,
+        "chave_valida": "x",
+        "123.456.789-00": "y",
+        "Texto Livre do beneficiario": "z",
+        "MAIUSCULA": "w",
+        "quebra\n": "v",
+        7: "n",
+    }
+
+    with structlog.testing.capture_logs() as logs:
+        render_fatos_para_prompt(facts, booleanos={}, permitidos=frozenset({"ok"}), agente="marina")
+
+    (evento,) = [e for e in logs if e["event"] == "prompt_fatos_chaves_fora_da_lista_descartadas"]
+    assert evento["chaves"] == ["chave_valida"]
+    assert evento["nao_identificadores"] == 5
+    assert evento["quantidade"] == 6
+    assert "123.456.789-00" not in repr(logs) and "Texto Livre" not in repr(logs)
+
+
+def test_o_log_lista_no_maximo_vinte_nomes() -> None:
+    facts = {f"chave_{i:02d}": i for i in range(25)}
+
+    with structlog.testing.capture_logs() as logs:
+        render_fatos_para_prompt(facts, booleanos={}, permitidos=frozenset(), agente="marina")
+
+    (evento,) = [e for e in logs if e["event"] == "prompt_fatos_chaves_fora_da_lista_descartadas"]
+    assert evento["chaves"] == [f"chave_{i:02d}" for i in range(20)]
+    assert evento["chaves_omitidas"] == 5
+    assert evento["nao_identificadores"] == 0
+    assert evento["quantidade"] == 25
+
+
 def test_sem_descarte_nao_ha_log() -> None:
     with structlog.testing.capture_logs() as logs:
         render_fatos_para_prompt({"ok": 1}, booleanos={}, permitidos=frozenset({"ok"}), agente="marina")
@@ -131,32 +168,132 @@ def test_booleano_permitido_e_ausente_continua_sem_dado() -> None:
 # --- a cerca AST --------------------------------------------------------------------------
 
 
+def _anotacao_final_frozenset(anotacao: ast.expr) -> bool:
+    texto = ast.unparse(anotacao)
+    return "Final" in texto and "frozenset" in texto
+
+
+def _anotacao_final_mapa_de_frozensets(anotacao: ast.expr) -> bool:
+    texto = ast.unparse(anotacao)
+    return "Final" in texto and ("dict[" in texto or "Mapping[" in texto) and "frozenset" in texto
+
+
+def _constantes_do_modulo(arvore: ast.Module) -> tuple[set[str], set[str]]:
+    """Listas (`X: Final[frozenset[str]] = ...`) e mapas de listas declarados no TOPO do modulo."""
+    listas: set[str] = set()
+    mapas: set[str] = set()
+    for no in arvore.body:
+        if isinstance(no, ast.AnnAssign) and isinstance(no.target, ast.Name):
+            if _anotacao_final_mapa_de_frozensets(no.annotation):
+                mapas.add(no.target.id)
+            elif _anotacao_final_frozenset(no.annotation):
+                listas.add(no.target.id)
+    return listas, mapas
+
+
+def _e_lista_constante(expr: ast.expr, listas: set[str], mapas: set[str]) -> bool:
+    """`CONST`, `a if c else b` de constantes, ou `MAPA.get(k, CONST)` / `MAPA[k]`."""
+    if isinstance(expr, ast.Name):
+        return expr.id in listas
+    if isinstance(expr, ast.IfExp):
+        return _e_lista_constante(expr.body, listas, mapas) and _e_lista_constante(expr.orelse, listas, mapas)
+    if isinstance(expr, ast.Subscript):
+        return isinstance(expr.value, ast.Name) and expr.value.id in mapas
+    if (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Attribute)
+        and expr.func.attr == "get"
+        and isinstance(expr.func.value, ast.Name)
+        and expr.func.value.id in mapas
+        and not expr.keywords
+    ):
+        return len(expr.args) == 1 or (
+            len(expr.args) == 2 and _e_lista_constante(expr.args[1], listas, mapas)
+        )
+    return False
+
+
+def _permitidos_e_constante(
+    valor: ast.expr, funcao: ast.AST | None, listas: set[str], mapas: set[str]
+) -> bool:
+    """`permitidos=` resolve para lista declarada no modulo, direto ou por local atribuido SO de
+    constantes na mesma funcao. Nunca `frozenset(facts)` nem outro valor derivado de dado."""
+    if _e_lista_constante(valor, listas, mapas):
+        return True
+    if not (isinstance(valor, ast.Name) and funcao is not None):
+        return False
+    atribuicoes = [
+        no.value
+        for no in ast.walk(funcao)
+        if isinstance(no, ast.Assign)
+        and any(isinstance(alvo, ast.Name) and alvo.id == valor.id for alvo in no.targets)
+    ] + [
+        no.value
+        for no in ast.walk(funcao)
+        if isinstance(no, ast.AnnAssign)
+        and isinstance(no.target, ast.Name)
+        and no.target.id == valor.id
+        and no.value is not None
+    ]
+    return bool(atribuicoes) and all(_e_lista_constante(v, listas, mapas) for v in atribuicoes)
+
+
+def _importa_o_modulo(no: ast.ImportFrom) -> bool:
+    """`from maezo.runtime.prompt_format import ...` ou relativo (`from ..runtime.prompt_format`,
+    `from .prompt_format`)."""
+    modulo = no.module or ""
+    return modulo == _MODULO or (
+        no.level > 0 and (modulo == "prompt_format" or modulo.endswith(".prompt_format"))
+    )
+
+
 def _cercar(fonte: str, arquivo: str) -> tuple[int, list[str], set[str]]:
     """Le as chamadas ao renderizador do runtime em `fonte`: quantas, as que violam a cerca e os
     literais de `agente=`.
 
-    Reconhece: o nome importado de `maezo.runtime.prompt_format` (com ou sem `as`) e qualquer
-    `<expr>.render_fatos_para_prompt(...)`. Viola a cerca a chamada sem `permitidos=` por nome,
-    ou sem `agente=` como literal `str` do vocabulario fechado. Um `**kwargs` nao conta: a cerca
-    nao consegue ler o que vai nele. Referencia ao nome importado FORA de chamada (alias por
-    atribuicao, passagem como argumento) tambem acusa: seria um caminho que a cerca nao ve'.
+    Reconhece o nome importado do modulo (absoluto ou relativo, com ou sem `as`) e qualquer
+    `<expr>.render_fatos_para_prompt(...)`. Viola a cerca:
+    - chamada sem `permitidos=` por nome, ou com `permitidos=` que nao resolve para lista
+      declarada no topo do modulo (`Final[frozenset[str]]`, mapa `Final` de listas, ou local
+      atribuido so' delas na mesma funcao);
+    - chamada sem `agente=` literal `str` do vocabulario fechado; `**kwargs` nao conta;
+    - referencia ao renderizador FORA de chamada (alias por atribuicao do nome ou do atributo);
+    - `getattr(..., "render_fatos_para_prompt")`;
+    - `from <o modulo> import *`.
     """
     arvore = ast.parse(fonte)
+    listas, mapas = _constantes_do_modulo(arvore)
     locais: set[str] = set()
+    achados: list[str] = []
     for no in ast.walk(arvore):
-        if isinstance(no, ast.ImportFrom) and no.module == _MODULO:
+        if isinstance(no, ast.ImportFrom) and _importa_o_modulo(no):
             for alias in no.names:
+                if alias.name == "*":
+                    achados.append(f"{arquivo}:{no.lineno} (import * do renderizador)")
                 if alias.name == _NOME:
                     locais.add(alias.asname or alias.name)
 
+    funcao_de: dict[int, ast.AST] = {}
+    # `ast.walk` desce do externo ao interno; a funcao MAIS interna e' a ultima a ver o no'.
+    for funcao in ast.walk(arvore):
+        if isinstance(funcao, ast.FunctionDef | ast.AsyncFunctionDef):
+            for filho in ast.walk(funcao):
+                funcao_de[id(filho)] = funcao
+
     chamadas = 0
-    achados: list[str] = []
     agentes: set[str] = set()
     funcs_de_chamada: set[int] = set()
     for no in ast.walk(arvore):
         if not isinstance(no, ast.Call):
             continue
         func = no.func
+        if (
+            isinstance(func, ast.Name)
+            and func.id == "getattr"
+            and any(isinstance(a, ast.Constant) and a.value == _NOME for a in no.args)
+        ):
+            achados.append(f"{arquivo}:{no.lineno} (getattr do renderizador)")
+            continue
         alvo = (isinstance(func, ast.Name) and func.id in locais) or (
             isinstance(func, ast.Attribute) and func.attr == _NOME
         )
@@ -165,8 +302,11 @@ def _cercar(fonte: str, arquivo: str) -> tuple[int, list[str], set[str]]:
         funcs_de_chamada.add(id(func))
         chamadas += 1
         kws = {kw.arg: kw.value for kw in no.keywords}
-        if "permitidos" not in kws:
+        permitidos = kws.get("permitidos")
+        if permitidos is None:
             achados.append(f"{arquivo}:{no.lineno} (sem permitidos)")
+        elif not _permitidos_e_constante(permitidos, funcao_de.get(id(no)), listas, mapas):
+            achados.append(f"{arquivo}:{no.lineno} (permitidos nao e' lista constante do modulo)")
         agente = kws.get("agente")
         if not (isinstance(agente, ast.Constant) and isinstance(agente.value, str)):
             achados.append(f"{arquivo}:{no.lineno} (agente sem literal)")
@@ -175,13 +315,11 @@ def _cercar(fonte: str, arquivo: str) -> tuple[int, list[str], set[str]]:
         else:
             agentes.add(agente.value)
     for no in ast.walk(arvore):
-        if (
-            isinstance(no, ast.Name)
-            and no.id in locais
-            and isinstance(no.ctx, ast.Load)
-            and id(no) not in funcs_de_chamada
-        ):
+        fora_de_chamada = id(no) not in funcs_de_chamada
+        if isinstance(no, ast.Name) and no.id in locais and isinstance(no.ctx, ast.Load) and fora_de_chamada:
             achados.append(f"{arquivo}:{no.lineno} (referencia fora de chamada)")
+        if isinstance(no, ast.Attribute) and no.attr == _NOME and fora_de_chamada:
+            achados.append(f"{arquivo}:{no.lineno} (atributo fora de chamada)")
     return chamadas, achados, agentes
 
 
@@ -191,7 +329,7 @@ def _cercar_src() -> tuple[int, list[str], set[str]]:
     agentes: set[str] = set()
     for arquivo in sorted(_SRC.rglob("*.py")):
         fonte = arquivo.read_text(encoding="utf-8")
-        if _NOME not in fonte:
+        if _NOME not in fonte and "prompt_format import *" not in fonte:
             continue
         chamadas, sem, nomes = _cercar(fonte, str(arquivo.relative_to(_RAIZ)))
         total += chamadas
@@ -204,9 +342,11 @@ def test_toda_chamada_em_src_passa_permitidos_e_agente() -> None:
     total, achados, _ = _cercar_src()
 
     assert not achados, f"chamada ao renderizador de fatos fora da cerca: {achados} (DL-0191)"
-    # Guarda contra cerca vazia: rafael (pelo alias), marina, valentina, gustavo, beatriz,
-    # carolina, andre, lucas e os dois do fernando = 10 chamadas.
-    assert total >= 10, f"a cerca achou so' {total} chamadas — o reconhecimento quebrou?"
+    # Guarda contra cerca vazia: 10 chamadas em 9 agentes (o fernando chama duas vezes; o rafael,
+    # pelo alias `render_fatos`).
+    assert total == 10, (
+        f"a cerca achou {total} chamadas, esperava 10 — sitio novo ou reconhecimento quebrado?"
+    )
 
 
 def test_paridade_entre_o_vocabulario_e_os_sitios() -> None:
@@ -222,23 +362,42 @@ def test_paridade_entre_o_vocabulario_e_os_sitios() -> None:
     assert set(_DESFECHO_VOCAB) >= PROMPT_FATOS_AGENTES
 
 
-_SEM_AGENTE = "permitidos=frozenset()"
+_CABECA = f"from typing import Final\nfrom {_MODULO} import {_NOME}\nL: Final[frozenset[str]] = frozenset()\n"
+_OK = "permitidos=L, agente='marina'"
 
 
 @pytest.mark.parametrize(
     "fonte",
     [
-        f"from {_MODULO} import {_NOME}\nx = {_NOME}({{}}, booleanos={{}}, agente='marina')\n",
+        f"{_CABECA}x = {_NOME}({{}}, booleanos={{}}, agente='marina')\n",
         f"from {_MODULO} import {_NOME} as r\nx = r({{}}, booleanos={{}}, agente='marina')\n",
         (
             "from maezo.runtime import prompt_format as pf\n"
             f"x = pf.{_NOME}({{}}, booleanos={{}}, agente='marina')\n"
         ),
-        f"from {_MODULO} import {_NOME}\nx = {_NOME}({{}}, booleanos={{}}, **kw)\n",
-        f"from {_MODULO} import {_NOME}\nf = {_NOME}\n",
-        f"from {_MODULO} import {_NOME}\nx = {_NOME}({{}}, booleanos={{}}, {_SEM_AGENTE})\n",
-        f"from {_MODULO} import {_NOME}\nx = {_NOME}({{}}, booleanos={{}}, {_SEM_AGENTE}, agente=a)\n",
-        f"from {_MODULO} import {_NOME}\nx = {_NOME}({{}}, booleanos={{}}, {_SEM_AGENTE}, agente='zeca')\n",
+        f"{_CABECA}x = {_NOME}({{}}, booleanos={{}}, **kw)\n",
+        f"{_CABECA}f = {_NOME}\n",
+        f"{_CABECA}x = {_NOME}({{}}, booleanos={{}}, permitidos=L)\n",
+        f"{_CABECA}x = {_NOME}({{}}, booleanos={{}}, permitidos=L, agente=a)\n",
+        f"{_CABECA}x = {_NOME}({{}}, booleanos={{}}, permitidos=L, agente='zeca')\n",
+        (
+            f"{_CABECA}def f(facts):\n"
+            f"    return {_NOME}(facts, booleanos={{}}, permitidos=frozenset(facts), agente='marina')\n"
+        ),
+        (
+            f"{_CABECA}def f(facts):\n    p = frozenset(facts)\n"
+            f"    return {_NOME}(facts, booleanos={{}}, permitidos=p, agente='marina')\n"
+        ),
+        (
+            f"{_CABECA}M: frozenset[str] = frozenset()\n"
+            f"x = {_NOME}({{}}, booleanos={{}}, permitidos=M, agente='marina')\n"
+        ),
+        f"from ..runtime.prompt_format import {_NOME}\nx = {_NOME}({{}}, booleanos={{}}, agente='marina')\n",
+        f"from .prompt_format import {_NOME} as r\nf = r\n",
+        f"from maezo.runtime import prompt_format as pf\nf = pf.{_NOME}\n",
+        f"import maezo.runtime.prompt_format as pf\nf = getattr(pf, '{_NOME}')\n",
+        f"from {_MODULO} import *\n",
+        "from ..runtime.prompt_format import *\n",
     ],
     ids=[
         "nome-direto",
@@ -249,6 +408,15 @@ _SEM_AGENTE = "permitidos=frozenset()"
         "sem-agente",
         "agente-variavel",
         "agente-fora-do-vocabulario",
+        "permitidos-derivado-de-dado",
+        "local-derivado-de-dado",
+        "constante-sem-final",
+        "import-relativo",
+        "import-relativo-alias",
+        "alias-de-atributo",
+        "getattr-string",
+        "import-estrela",
+        "import-estrela-relativo",
     ],
 )
 def test_a_cerca_acusa_chamada_fora_dela(fonte: str) -> None:
@@ -257,12 +425,24 @@ def test_a_cerca_acusa_chamada_fora_dela(fonte: str) -> None:
     assert achados
 
 
-def test_a_cerca_aceita_chamada_com_permitidos_e_agente() -> None:
-    fonte = (
-        f"from {_MODULO} import {_NOME}\nx = {_NOME}({{}}, booleanos={{}}, {_SEM_AGENTE}, agente='marina')\n"
-    )
-
-    chamadas, achados, agentes = _cercar(fonte, "sintetico.py")
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        f"x = {_NOME}({{}}, booleanos={{}}, {_OK})\n",
+        (
+            "def f(fluxo):\n    p = L if fluxo else L\n"
+            f"    return {_NOME}({{}}, booleanos={{}}, permitidos=p, agente='marina')\n"
+        ),
+        (
+            "MAPA: Final[dict[str, frozenset[str]]] = {}\n"
+            f"def f(fluxo):\n    p = MAPA.get(fluxo, L)\n"
+            f"    return {_NOME}({{}}, booleanos={{}}, permitidos=p, agente='marina')\n"
+        ),
+    ],
+    ids=["constante-direta", "local-de-constantes", "mapa-get-com-default-constante"],
+)
+def test_a_cerca_aceita_chamada_com_lista_constante(corpo: str) -> None:
+    chamadas, achados, agentes = _cercar(_CABECA + corpo, "sintetico.py")
 
     assert chamadas == 1
     assert not achados

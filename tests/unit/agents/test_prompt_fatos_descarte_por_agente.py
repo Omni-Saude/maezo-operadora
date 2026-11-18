@@ -290,3 +290,27 @@ def test_todo_agente_do_vocabulario_tem_sitio_de_referencia() -> None:
     from maezo.platform.observability import PROMPT_FATOS_AGENTES
 
     assert {s["agente"] for s in _SITIOS} == PROMPT_FATOS_AGENTES
+
+
+async def test_chave_nova_num_montador_e_acusada(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prova de nao-vacuidade (revisao de e9b3c3bd, F1): uma chave nova em
+    `ValentinaGraph._care_facts` some do prompt pelo renderizador E faz o teste de referencia falhar."""
+    from maezo.agents.valentina.graph import ValentinaGraph
+
+    original = ValentinaGraph._care_facts
+
+    def _com_chave_nova(state: Any) -> dict[str, Any]:
+        return {**original(state), "chave_nova_sintetica": "SENTINELA-NOVA-0001"}
+
+    monkeypatch.setattr(ValentinaGraph, "_care_facts", staticmethod(_com_chave_nova))
+    sitio = next(s for s in _SITIOS if s["sitio"] == "valentina._build_dossier/stratify")
+    antes = _descartes("valentina")
+
+    chamadas, fatos = await _rodar(sitio, monkeypatch)
+
+    chaves, permitidos = chamadas[0]
+    assert "chave_nova_sintetica" in chaves - permitidos  # o renderizador a descarta...
+    assert _descartes("valentina") == antes + 1  # ...conta o descarte...
+    assert fatos is not None
+    assert set(fatos) - permitidos == {"chave_nova_sintetica"}  # ...e o teste de referencia a acusa
+    assert set(fatos) - permitidos != DESCARTE_ESPERADO.get(sitio["sitio"], frozenset())

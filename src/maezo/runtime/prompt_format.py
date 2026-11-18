@@ -283,6 +283,16 @@ def _podar_copiando_cada_nivel(contexto: dict[str, Any], segmentos: list[str]) -
     recipiente.pop(segmentos[-1], None)
 
 
+#: DL-0191: so' um NOME DE IDENTIFICADOR vai ao log de descarte. Uma chave de `facts` e' dado do
+#: chamador: quem montasse o dicionario a partir de entrada externa poderia ter como CHAVE um CPF,
+#: um texto livre ou um numero de guia. Chave fora deste formato entra so' na contagem
+#: `nao_identificadores`, nunca por extenso.
+_NOME_DE_CHAVE_LOGAVEL: Final[re.Pattern[str]] = re.compile(r"[a-z_][a-z0-9_]{0,63}")
+
+#: Teto de nomes listados numa linha de log de descarte; o excedente vai so' em `chaves_omitidas`.
+_MAX_CHAVES_NO_LOG: Final[int] = 20
+
+
 def _recorte_permitido(facts: Mapping[str, Any], permitidos: frozenset[str], agente: str) -> dict[str, Any]:
     """`facts` so' com as chaves de topo em `permitidos`, na ordem de insercao do chamador.
 
@@ -292,14 +302,23 @@ def _recorte_permitido(facts: Mapping[str, Any], permitidos: frozenset[str], age
     narrativa e' acessoria e a falha dela tem de virar narrativa vazia, nunca caso parado. Entao
     a chave fora da lista nao chega ao prompt, e o descarte fica VISIVEL em dois lugares: o log diz
     QUAIS chaves e QUANTAS (so' os nomes, que sao identificadores de codigo; o valor nunca e'
-    registrado) e `maezo_prompt_fatos_descartados_total{agente}` conta quantas, por agente.
+    registrado) e `maezo_prompt_fatos_descartados_total{agente}` conta quantas, por agente. O log
+    lista so' nomes no formato de identificador (`_NOME_DE_CHAVE_LOGAVEL`), no maximo
+    `_MAX_CHAVES_NO_LOG`; o resto entra so' nas contagens.
     """
     descartadas = [chave for chave in facts if chave not in permitidos]
     if descartadas:
+        nomes = sorted(
+            chave
+            for chave in descartadas
+            if isinstance(chave, str) and _NOME_DE_CHAVE_LOGAVEL.fullmatch(chave)
+        )
         logger.warning(
             "prompt_fatos_chaves_fora_da_lista_descartadas",
             agente=agente,
-            chaves=sorted(str(chave) for chave in descartadas),
+            chaves=nomes[:_MAX_CHAVES_NO_LOG],
+            chaves_omitidas=max(0, len(nomes) - _MAX_CHAVES_NO_LOG),
+            nao_identificadores=len(descartadas) - len(nomes),
             quantidade=len(descartadas),
         )
         record_prompt_fatos_descartados(agente, len(descartadas))
