@@ -39,6 +39,7 @@ def _real(**kw: Any) -> dict[str, Any]:
     for secao in banco["sections"]:
         for pergunta in secao["questions"]:
             pergunta["prompt"] = pergunta["prompt"].replace("[SINTETICO] ", "")
+            pergunta["approval"] = {"medical": "Ana", "legal": "Bruno"}
     return banco
 
 
@@ -94,6 +95,7 @@ def test_ds_declaration_mode_rejects_out_of_scope_concept() -> None:
             "options": [],
             "required": False,
             "dependsOn": None,
+            "approval": {"medical": None, "legal": None},
         }
     )
     assert qb.problemas_do_banco(banco) == ["DS_CONCEPT_OUT_OF_SCOPE:q-habito"]
@@ -312,3 +314,43 @@ def test_recusa_aponta_o_lugar_certo() -> None:
     banco = _banco()
     banco["sections"][0]["questions"][1]["dependsOn"] = {"questionRef": "q-1", "value": "talvez"}
     assert qb.problemas_do_banco(banco) == ["DS_SHAPE_INVALID:sections[0].questions[1].dependsOn"]
+
+
+# --- aprovacao nominal por pergunta (no proprio banco, nao por CODEOWNERS) ----------------------
+
+
+@pytest.mark.parametrize("papel", ["medical", "legal"])
+@pytest.mark.parametrize("valor", [None, "SINTETICO-revisor"])
+def test_banco_real_com_pergunta_sem_aprovacao_nominal_e_recusado(papel: str, valor: object) -> None:
+    aprovacoes = {"APR-CLIN-0001", "APR-REG-0001"}
+    banco = _real()
+    _primeira(banco)["approval"][papel] = valor
+    assert f"DS_QUESTION_APPROVAL_MISSING:q-1.{papel}" in qb.problemas_do_banco(banco, aprovacoes=aprovacoes)
+    with pytest.raises(qb.BancoRecusadoError):
+        qb.carregar_para_uso(banco, aprovacoes=aprovacoes)
+
+
+def test_banco_sintetico_tem_aprovacoes_das_perguntas_vazias() -> None:
+    banco = _banco()
+    assert all(
+        p["approval"] == {"medical": None, "legal": None} for s in banco["sections"] for p in s["questions"]
+    )
+    _primeira(banco)["approval"]["medical"] = "Ana"
+    assert "DS_SYNTHETIC_UNMARKED:q-1.approval" in qb.problemas_do_banco(banco)
+
+
+@pytest.mark.parametrize(
+    "aprovacao",
+    [
+        None,
+        {},
+        {"medical": None},
+        {"medical": None, "legal": None, "extra": None},
+        {"medical": 1, "legal": None},
+    ],
+    ids=["ausente", "vazia", "sem-juridico", "chave-extra", "nao-ref"],
+)
+def test_forma_da_aprovacao_por_pergunta(aprovacao: object) -> None:
+    banco = _banco()
+    _primeira(banco)["approval"] = aprovacao
+    assert "DS_SHAPE_INVALID:sections[0].questions[0].approval" in qb.problemas_do_banco(banco)

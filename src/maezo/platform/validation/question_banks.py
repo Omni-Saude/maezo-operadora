@@ -22,7 +22,9 @@ Regras (codigo da recusa entre parenteses):
      dependencia so' de pergunta de escolha anterior e de opcao existente (`DS_SHAPE_INVALID`);
   5. banco sintetico: `synthetic: true`, aprovacoes com prefixo sintetico e toda pergunta marcada
      `[SINTETICO]` (`DS_SYNTHETIC_UNMARKED`); banco real com essa marca recusa (`DS_SYNTHETIC_IN_REAL_BANK`);
-  6. texto com controle ou formatacao invisivel recusa (`DS_SHAPE_INVALID`), e a pasta so' aceita `.yaml` de
+  6. aprovacao NOMINAL por pergunta, no proprio banco (`approval: {medical, legal}`): vazia no banco
+     sintetico; em banco real, pergunta sem as duas aprovacoes recusa (`DS_QUESTION_APPROVAL_MISSING`);
+  7. texto com controle ou formatacao invisivel recusa (`DS_SHAPE_INVALID`), e a pasta so' aceita `.yaml` de
      topo.
 """
 
@@ -86,8 +88,10 @@ _CHAVES_BANCO: Final = frozenset(
 )
 _CHAVES_SECAO: Final = frozenset({"ref", "title", "questions"})
 _CHAVES_PERGUNTA: Final = frozenset(
-    {"ref", "prompt", "help", "kind", "concept", "options", "required", "dependsOn"}
+    {"ref", "prompt", "help", "kind", "concept", "options", "required", "dependsOn", "approval"}
 )
+#: Aprovacao NOMINAL de cada pergunta, no proprio banco (nao por CODEOWNERS): medica e juridica.
+_CHAVES_APROVACAO: Final = frozenset({"medical", "legal"})
 _CHAVES_OPCAO: Final = frozenset({"value", "label"})
 _CHAVES_DEPENDENCIA: Final = frozenset({"questionRef", "value"})
 
@@ -199,6 +203,10 @@ def _pergunta(p: object, onde: str, vistas: dict[str, Mapping[str, Any]], proble
         ):
             problemas.append(f"DS_SHAPE_INVALID:{onde}.dependsOn")
             return
+    aprovacao = p["approval"]
+    if not _forma(aprovacao, _CHAVES_APROVACAO) or not all(v is None or _ref(v) for v in aprovacao.values()):
+        problemas.append(f"DS_SHAPE_INVALID:{onde}.approval")
+        return
     vistas[p["ref"]] = p
 
 
@@ -251,9 +259,17 @@ def problemas_do_banco(banco: object, *, aprovacoes: Collection[str] = APROVACOE
             str(p["prompt"]).startswith(MARCA_SINTETICA) for p in perguntas
         ):
             problemas.append("DS_SYNTHETIC_UNMARKED")
+        # Banco sintetico: nenhuma pergunta aprovada; os campos de aprovacao ficam VAZIOS.
+        for p in perguntas:
+            if any(v is not None for v in p["approval"].values()):
+                problemas.append(f"DS_SYNTHETIC_UNMARKED:{p['ref']}.approval")
     else:
         if any(str(p["prompt"]).startswith(MARCA_SINTETICA) for p in perguntas):
             problemas.append("DS_SYNTHETIC_IN_REAL_BANK")
+        for p in perguntas:
+            for papel, quem in sorted(p["approval"].items()):
+                if quem is None or str(quem).startswith(PREFIXO_SINTETICO):
+                    problemas.append(f"DS_QUESTION_APPROVAL_MISSING:{p['ref']}.{papel}")
         for nome, r in zip(("clinicalApprovalRef", "regulatoryApprovalRef"), refs, strict=True):
             if not _ref(r):
                 problemas.append(f"DS_APPROVAL_UNRESOLVED:{nome}")

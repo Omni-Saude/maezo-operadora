@@ -29,6 +29,7 @@ sections:
           - {value: "nao", label: "Nao"}
         required: true
         dependsOn: null
+        approval: {medical: null, legal: null}
       - ref: q-2
         prompt: "[SINTETICO] Pergunta dependente"
         help: "Ajuda sintetica"
@@ -37,3 +38,4 @@ sections:
         options: []
         required: false
         dependsOn: {questionRef: q-1, value: sim}
+        approval: {medical: null, legal: null}
