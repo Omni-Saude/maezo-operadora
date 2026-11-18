@@ -485,7 +485,7 @@ def test_ratificar_uma_fonte_nova_consultada_pelo_criterio_regulatorio_tambem_e_
 
 _ASSINATURA_REGULATORIO = (
     "    def _criterio_regulatorio(\n"  # the consumer's signature, verbatim
-    "        self, process_vars: dict[str, Any], sources: CriteriaSources\n"
+    "        self, process_vars: dict[str, Any], sources: CriteriaSources, orcamento: _OrcamentoDmn\n"
     "    )"
 )
 

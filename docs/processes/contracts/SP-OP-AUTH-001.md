@@ -607,6 +607,17 @@ de negativa (L0 hard).
 - `carencia_check` — in: `tipo_procedimento`, `dias_desde_adesao`, `cpt_declarada`; out: `carencia_cumprida`, `prazo_restante_dias`, `fonte`.
 - `auth_criteria_contratual` (NOVA) — in: `tenant_id`, `categoria_procedimento`; out: `criterio_contratual_ok`, `motivo`. **Costura VAZIA**: uma unica regra catch-all devolvendo `false` / `SEM_REGRA_RATIFICADA`. Nenhuma regra contratual/milestone/KPI foi inventada.
 
+**Orcamento de motor por tarefa (DL-0189).** As 2 a 4 avaliacoes acima, em sequencia, dividem UM prazo
+por tarefa: `WorkerRuntimeSettings.auth_dmn_budget_s`, o bloqueio da tarefa (`WORKER_LOCK_DURATION_MS`,
+30 s) menos a margem do `complete` (`WORKER_DMN_COMPLETE_MARGIN_MS`, 10 s) = 20 s; a partida recusa
+margem que nao deixe orcamento. Cada avaliacao recebe o que resta; esgotado, as tabelas que faltam
+saem como `*_TABELA_INDISPONIVEL` sem chamar o motor — a mesma saida de uma tabela indisponivel, que
+leva ao catch-all `ANALISE_HUMANA` (nunca negativa). Antes disso, uma tabela lenta podia segurar a
+tarefa alem do bloqueio: o motor a re-entregava e uma das copias tinha o `complete` recusado.
+Teto brando: bloqueio sincrono que escapa do `wait_for` (DNS na criacao do cliente HTTP) pode passar
+do prazo uma vez por tarefa; a margem de 10 s e uma suposicao (auditoria e `complete` nao tem timeout
+ligado ao bloqueio). Orcamento esgotado usa o mesmo token de tabela indisponivel; o log distingue.
+
 ### `auth_junta_admissibility` (FIRST — DRAFT, R-064)
 in: `carater_atendimento: string`
 out: `resultado: string` (`ADMITIDA` | `VEDADA_URGENCIA_EMERGENCIA` | `CARATER_INDETERMINADO`), `motivo: string`
