@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import inspect
+import re
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -129,5 +130,10 @@ def test_nenhum_composto_de_producao_instancia_a_memoria() -> None:
 
 
 def test_sem_assert_e_sem_nome_de_sinal_na_fonte() -> None:
-    arvore = ast.parse(Path(inspect.getfile(lg)).read_text(encoding="utf-8"))
-    assert not [n for n in ast.walk(arvore) if isinstance(n, ast.Assert)]
+    from maezo.domain import rn413_contracting_clock as rc
+    from maezo.gateway import commercial_pos_dia_25 as pd
+
+    for m in (lg, rc, pd):
+        fonte = Path(inspect.getfile(m)).read_text(encoding="utf-8")
+        assert not [n for n in ast.walk(ast.parse(fonte)) if isinstance(n, ast.Assert)]
+        assert not re.search(r"\bret\.\w+\.\w+", fonte)

@@ -84,31 +84,49 @@ class EstadoDoRelogio:
     possivel_vigencia_automatica: bool
     recuperacao_bloqueada: bool
     suspensoes_registradas: int
-    _origem: object = field(repr=False, compare=False)
+    _origem: object = field(default=None, init=False, repr=False, compare=False)
+
+
+#: Data civil do inicio contada com recuo de 5 horas: conservador para todo fuso brasileiro (UTC-2 a UTC-5),
+#: porque a data de inicio nunca fica depois da data civil local; contar a mais antecipa alarme, nunca atrasa.
+_RECUO_DA_DATA_DE_INICIO: Final[timedelta] = timedelta(hours=5)
+
+
+def _selar(estado: EstadoDoRelogio) -> EstadoDoRelogio:
+    """So' o relogio canonico sela o estado; `dataclasses.replace` nao copia o selo (campo fora do init)."""
+    object.__setattr__(estado, "_origem", _ORIGEM_CANONICA)
+    return estado
+
+
+def _utc(valor: object) -> bool:
+    return type(valor) is datetime and valor.utcoffset() == timedelta(0)
 
 
 def estado_do_relogio(
     eventos: Sequence[EventoCandidato], *, proponente_digest: str, agora: datetime
 ) -> EstadoDoRelogio:
     """O relogio canonico. Sem evento de inicio, nao ha' contagem (estado sem inicio, nunca inventado)."""
-    if type(agora) is not datetime or agora.utcoffset() != timedelta(0):
+    if not _utc(agora):
         raise RelogioRecusado("relogio_instante_invalido")
     proprios = [e for e in eventos if type(e) is EventoCandidato and e.proponente_digest == proponente_digest]
+    if not all(_utc(e.instante) for e in proprios):
+        raise RelogioRecusado("relogio_instante_invalido")
     inicios = [e.instante for e in proprios if e.tipo in TIPOS_DE_INICIO]
     suspensoes = sum(1 for e in proprios if e.tipo in TIPOS_DE_SUSPENSAO)
     if not inicios:
-        return EstadoDoRelogio(proponente_digest, None, None, (), False, False, suspensoes, _ORIGEM_CANONICA)
+        return _selar(EstadoDoRelogio(proponente_digest, None, None, (), False, False, suspensoes))
     inicio = min(inicios)
-    dias = (agora.date() - inicio.date()).days
-    return EstadoDoRelogio(
-        proponente_digest=proponente_digest,
-        inicio=inicio,
-        dias_corridos=dias,
-        alarmes_atingidos=tuple(d for d in DIAS_DE_ALARME if dias >= d),
-        possivel_vigencia_automatica=dias >= DIA_CORTE,
-        recuperacao_bloqueada=dias >= DIA_BLOQUEIO_DA_RECUPERACAO,
-        suspensoes_registradas=suspensoes,
-        _origem=_ORIGEM_CANONICA,
+    dias = (agora.date() - (inicio - _RECUO_DA_DATA_DE_INICIO).date()).days
+    return _selar(
+        EstadoDoRelogio(
+            proponente_digest=proponente_digest,
+            inicio=inicio,
+            dias_corridos=dias,
+            alarmes_atingidos=tuple(d for d in DIAS_DE_ALARME if dias >= d),
+            possivel_vigencia_automatica=dias >= DIA_CORTE,
+            recuperacao_bloqueada=dias >= DIA_BLOQUEIO_DA_RECUPERACAO,
+            suspensoes_registradas=suspensoes,
+        )
     )
 
 

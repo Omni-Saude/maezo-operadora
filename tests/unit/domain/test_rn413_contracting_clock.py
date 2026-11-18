@@ -13,7 +13,6 @@ import pytest
 
 from maezo.domain import rn413_contracting_clock as rc
 from maezo.domain.rn413_contracting_clock import (
-    DIA_CORTE,
     EstadoDoRelogio,
     EventoCandidato,
     RelogioRecusado,
@@ -66,7 +65,7 @@ def test_clock_alerts_before_day_25(dia: int, alarmes: tuple[int, ...]) -> None:
     assert estado.alarmes_atingidos == alarmes and estado.possivel_vigencia_automatica is False
     itens = itens_de_escalonamento(estado, estagio="cadastro", grupo_responsavel="especialista_comercial")
     assert [i.dia for i in itens] == list(alarmes)
-    assert max(alarmes, default=0) < DIA_CORTE
+    assert all(i.motivo == "alarme_relogio_sombra" for i in itens)
 
 
 def test_rn413_monitor_alerts_on_shadow_clock_without_anchor() -> None:
@@ -156,3 +155,41 @@ def test_nao_registrado_no_runtime() -> None:
     assert not [
         p for p in runtime.rglob("*.py") if "rn413_contracting_clock" in p.read_text(encoding="utf-8")
     ]
+
+
+def test_virada_de_data_utc() -> None:
+    s = datetime(2026, 11, 1, 23, 59, tzinfo=UTC)
+    e = estado_do_relogio(
+        [EventoCandidato(D, "party_submit", s)], proponente_digest=D, agora=s + timedelta(minutes=2)
+    )
+    assert e.dias_corridos == 1
+
+
+def test_inicio_a_noite_no_brasil_conta_pelo_dia_civil_local() -> None:
+    # 01:00 UTC de 2/11 e' 22:00 de 1/11 em Brasilia: o dia do inicio e' 1/11, nao 2/11.
+    s = datetime(2026, 11, 2, 1, 0, tzinfo=UTC)
+    e = estado_do_relogio(
+        [EventoCandidato(D, "party_submit", s)],
+        proponente_digest=D,
+        agora=datetime(2026, 11, 26, 12, 0, tzinfo=UTC),
+    )
+    assert e.dias_corridos == 25 and e.possivel_vigencia_automatica is True
+
+
+def test_instante_de_evento_sem_utc_recusa() -> None:
+    from datetime import timezone
+
+    s = datetime(2026, 11, 1, 9, 0, tzinfo=timezone(timedelta(hours=-3)))
+    with pytest.raises(RelogioRecusado) as e:
+        estado_do_relogio([EventoCandidato(D, "party_submit", s)], proponente_digest=D, agora=INICIO)
+    assert e.value.code == "relogio_instante_invalido"
+
+
+def test_estado_adulterado_nao_passa_por_canonico() -> None:
+    import dataclasses
+
+    real = _estado([_ev("prospect_save_com_valores", 0)], 30)
+    adulterado = dataclasses.replace(real, possivel_vigencia_automatica=False, dias_corridos=3)
+    with pytest.raises(RelogioRecusado) as e:
+        itens_de_escalonamento(adulterado, estagio="cadastro", grupo_responsavel="especialista_comercial")
+    assert e.value.code == "SECOND_CLOCK_FORBIDDEN"

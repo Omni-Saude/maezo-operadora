@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
 import inspect
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -51,7 +52,7 @@ def test_antes_do_corte_nao_recusa_e_nao_autoriza() -> None:
 
 
 def test_estado_de_outro_relogio_recusado() -> None:
-    falso = EstadoDoRelogio(D, INICIO, 30, (15, 20, 23), True, True, 0, object())
+    falso = dataclasses.replace(_estado(30), possivel_vigencia_automatica=False)
     with pytest.raises(RelogioRecusado) as e:
         recusar_acao_adversa(falso, acao="rescisao")
     assert e.value.code == "SECOND_CLOCK_FORBIDDEN"
@@ -69,9 +70,13 @@ def test_redacao_hipotese_nunca_conclusao() -> None:
         inspect.getsource(pd),
         (_RAIZ / "src/maezo/domain/rn413_contracting_clock.py").read_text(),
     ):
-        baixo = fonte.lower()
-        for conclusao in ("contrato esta vigente", "contrato vigente.", "entrou em vigor", "esta em vigor"):
-            assert conclusao not in baixo
+        arvore_fonte = ast.parse(fonte)
+        nomes = (
+            {n.id for n in ast.walk(arvore_fonte) if isinstance(n, ast.Name)}
+            | {n.attr for n in ast.walk(arvore_fonte) if isinstance(n, ast.Attribute)}
+            | {f.name for f in dataclasses.fields(EstadoDoRelogio)}
+        )
+        assert not [n for n in nomes if "vigen" in n.lower() and n != "possivel_vigencia_automatica"]
     arvore = ast.parse(inspect.getsource(pd))
     funcoes = {n.name for n in ast.walk(arvore) if isinstance(n, ast.FunctionDef)}
     assert funcoes == {"__init__", "recusar_acao_adversa"}

@@ -39,7 +39,7 @@ def test_overrun_requires_responsible_group(grupo: object) -> None:
 
 
 def test_overrun_alarm_reads_canonical_clock() -> None:
-    proprio = EstadoDoRelogio(D, INICIO, 21, (15, 20), False, True, 0, object())
+    proprio = EstadoDoRelogio(D, INICIO, 21, (15, 20), False, True, 0)
     with pytest.raises(RelogioRecusado) as e:
         itens_de_escalonamento(proprio, estagio="cadastro", grupo_responsavel="especialista_comercial")
     assert e.value.code == "SECOND_CLOCK_FORBIDDEN"
