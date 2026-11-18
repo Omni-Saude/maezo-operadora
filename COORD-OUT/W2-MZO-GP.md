@@ -131,3 +131,9 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
   - Nada em `PLANS.md`, decisions-log, ledger, `spec/policies/autonomy/`, `_hard_frozen.yaml`. Sem migração. Sem conteúdo clínico real (J47: banco é do jurídico + médico auditor); sem Agravo (E22/J38).
   - Começo a construir em ramo; abro só depois da CD sobre o CAMINHO.
 - CAMINHO (acréscimo, E-SF-25): o ramo `sf-w2/mzo-gp/esf25` também toca `Makefile` (um token: `spec/health` na linha de `validate-artifacts`; `/Makefile` é linha do CODEOWNERS). O validador entra como raiz nova reconhecida pela estrutura (`question-banks/`), sem mudar as raízes existentes. Ramo pronto localmente; aguardo a CD antes de abrir.
+
+## 2026-11-18 ~01:55Z — PR E-SF-25 aberto (CD-103)
+
+- PR maezo-operadora #1308, ramo `sf-w2/mzo-gp/esf25`, head `0ff8d8caff475c255d260bdb6da4a1304b47e594` (contém a main `6520e4a1`). CI em curso.
+- Arquivos: `spec/health/{README.md,question-banks/ds-sintetico-v0.yaml}`, `src/maezo/platform/validation/{question_banks.py (novo),cli.py}`, `tests/unit/platform/test_validation_question_banks.py`, `.github/CODEOWNERS` (linha `/spec/health/` + contagem 35→36), `Makefile` (token `spec/health`). Edições compartilhadas listadas linha a linha no corpo; dono da linha = padrão, `medical-team` como reparo se a coordenação do programa pedir.
+- Mutação em clone isolado: 6 violações, todas vermelhas. Revisão independente: 1ª rodada FAIL (exceção com YAML hostil), reparada; 2ª rodada PASS. Uma falha local nova (`test_validation_perspective.py` fixa a linha de import do CLI) reparada antes do push. `tests/unit/ci` + `tests/unit/sec` rodados sobre o head antes do push.
