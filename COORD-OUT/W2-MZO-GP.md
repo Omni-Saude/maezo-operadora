@@ -220,3 +220,7 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 - Local: `tests/processes`, `tests/unit/processes` e o pino: 205 passed; `--check` do inventário verde. Mutação em cópia isolada (4 violações: decisão de CPT automática, gateway aberto, código do erro trocado, CA_1 citando o processo): todas vermelhas.
 - ACHADO (relatório final): a docstring de `scripts/docs/gerar_inventario_ca.py` diz "os 4 arquivos"; com o CA_4 são 5. Não toco (fora do CAMINHO); a contagem real vem do glob e está certa.
 - **Bloqueio:** o commit no ramo `sf-w2/mzo-gp/esf26` segue negado pelo modo automático. Não contorno. Ao ser liberado: commit (sem force-push), merge de `c06620f0`, suítes `tests/unit/ci`, `sec`, `processes`, `agents`, `tests/processes` e `make lint type validate-artifacts`, um push só, e o corpo do PR reescrito para o arquivo novo.
+
+## 2026-11-18 ~10:10Z — CD-134 lida
+
+- E-SF-07: nenhum trabalho local (nem ramo, nem arquivo). A E-SF-26 da CD-133 virá sobre a main `b2540f9b` quando o commit for liberado pelo dono.
