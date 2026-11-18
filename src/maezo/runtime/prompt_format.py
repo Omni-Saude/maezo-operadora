@@ -29,8 +29,11 @@ instead of hiding inside one opaque blob.
 :func:`stable_prefix_is_byte_stable` is that check, offered as a first-class function so a
 test (or a future canary) asserts the property rather than eyeballing it.
 
-PHI DISCIPLINE. Pure string assembly: no logging, no telemetry, no I/O, no hashing of content
-into anything that leaves this frame. Prompt bytes travel only in the returned value.
+PHI DISCIPLINE. Pure string assembly: no telemetry, no I/O, no hashing of content into anything
+that leaves this frame. Prompt bytes travel only in the returned value. The ONE log line in this
+module (DL-0191) names the fact KEYS that :func:`render_fatos_para_prompt` dropped for being
+outside the caller's allowlist, and the matching counter counts them per agent; keys are code
+identifiers, and no value ever reaches the log or a label.
 """
 
 from __future__ import annotations
@@ -39,6 +42,12 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
+
+import structlog
+
+from maezo.platform.observability import record_prompt_fatos_descartados
+
+logger = structlog.get_logger(__name__)
 
 #: Separator BETWEEN consecutive static segments, and between the static block and the
 #: variable block. Two newlines, matching the shape every in-repo assembly site already emits
@@ -178,9 +187,11 @@ def stable_prefix_is_byte_stable(prompts: Iterable[FormattedPrompt]) -> bool:
 # este modulo — o ponto mais baixo que ja' e' dono da FORMA de um prompt — e' o que impede o
 # proximo conserto de nascer de novo em um lugar so'.
 #
-# LIMITE DELIBERADO: esta funcao NAO DECIDE NADA. Ela nao filtra, nao pondera, nao classifica e
-# nao muda o dicionario de fatos que o dossie devolve — a proveniencia de auditoria (ADR-0007)
-# continua sendo o dicionario intacto. Ela so' escolhe como o modelo LE cada valor.
+# LIMITE DELIBERADO: esta funcao NAO DECIDE NADA. Ela nao pondera, nao classifica e nao muda o
+# dicionario de fatos que o dossie devolve — a proveniencia de auditoria (ADR-0007) continua
+# sendo o dicionario intacto. Ela escolhe como o modelo LE cada valor e, desde a DL-0191, so'
+# deixa o modelo ler as chaves que o chamador declarou em `permitidos` (lista FECHADA): o
+# repr do "resto do caso" deixou de ser um ralo por onde qualquer chave nova escorria ao prompt.
 
 #: Cabecalho do bloco de booleanos nomeados.
 FATOS_CABECALHO: Final[str] = "fatos apurados:"
@@ -272,10 +283,70 @@ def _podar_copiando_cada_nivel(contexto: dict[str, Any], segmentos: list[str]) -
     recipiente.pop(segmentos[-1], None)
 
 
+#: DL-0191: so' um NOME DE IDENTIFICADOR vai ao log de descarte. Uma chave de `facts` e' dado do
+#: chamador: quem montasse o dicionario a partir de entrada externa poderia ter como CHAVE um CPF,
+#: um texto livre ou um numero de guia. Chave fora deste formato entra so' na contagem
+#: `nao_identificadores`, nunca por extenso.
+_NOME_DE_CHAVE_LOGAVEL: Final[re.Pattern[str]] = re.compile(r"[a-z_][a-z0-9_]{0,63}")
+
+#: Teto de nomes listados numa linha de log de descarte; o excedente vai so' em `chaves_omitidas`.
+_MAX_CHAVES_NO_LOG: Final[int] = 20
+
+
+def _recorte_permitido(facts: Mapping[str, Any], permitidos: frozenset[str], agente: str) -> dict[str, Any]:
+    """`facts` so' com as chaves de topo em `permitidos`, na ordem de insercao do chamador.
+
+    FALHA FECHADA POR DESCARTE, e nao por excecao (DL-0191). Os sitios de montagem chamam o
+    renderizador FORA do `try` que protege a chamada ao modelo, e esse `try` ainda re-levanta
+    `PROGRAMMING_ERRORS`: uma excecao aqui derrubaria o no' do grafo e travaria o caso, quando a
+    narrativa e' acessoria e a falha dela tem de virar narrativa vazia, nunca caso parado. Entao
+    a chave fora da lista nao chega ao prompt, e o descarte fica VISIVEL em dois lugares: o log diz
+    QUAIS chaves e QUANTAS (so' os nomes, que sao identificadores de codigo; o valor nunca e'
+    registrado) e `maezo_prompt_fatos_descartados_total{agente}` conta quantas, por agente. O log
+    lista so' nomes no formato de identificador (`_NOME_DE_CHAVE_LOGAVEL`), no maximo
+    `_MAX_CHAVES_NO_LOG`; o resto entra so' nas contagens.
+    """
+    descartadas = [chave for chave in facts if chave not in permitidos]
+    if descartadas:
+        nomes = sorted(
+            chave
+            for chave in descartadas
+            if isinstance(chave, str) and _NOME_DE_CHAVE_LOGAVEL.fullmatch(chave)
+        )
+        logger.warning(
+            "prompt_fatos_chaves_fora_da_lista_descartadas",
+            agente=agente,
+            chaves=nomes[:_MAX_CHAVES_NO_LOG],
+            chaves_omitidas=max(0, len(nomes) - _MAX_CHAVES_NO_LOG),
+            nao_identificadores=len(descartadas) - len(nomes),
+            quantidade=len(descartadas),
+        )
+        record_prompt_fatos_descartados(agente, len(descartadas))
+    return {chave: valor for chave, valor in facts.items() if chave in permitidos}
+
+
+def _exigir_booleanos_permitidos(booleanos: Mapping[str, str], permitidos: frozenset[str]) -> None:
+    """Todo booleano declarado mora numa chave de topo da lista `permitidos`.
+
+    Aqui SIM levanta: `booleanos` e `permitidos` sao constantes do modulo do chamador, nao dado
+    do caso, entao o erro aparece no primeiro teste que exercitar o sitio e nunca depende de
+    um valor que chegou em producao. Descartar em silencio seria pior: o booleano sairia como
+    `SEM DADO` sobre um fato que FOI apurado — o defeito de 24/08/2026 do outro lado.
+    """
+    fora = [caminho for caminho in booleanos if caminho.split(".", 1)[0] not in permitidos]
+    if fora:
+        raise PromptFormatError(
+            f"booleanos declarados fora de `permitidos`: {sorted(fora)} — acrescente a chave de "
+            "topo a lista do chamador ou tire o booleano do mapa (DL-0191)"
+        )
+
+
 def render_fatos_para_prompt(
     facts: Mapping[str, Any],
     *,
     booleanos: Mapping[str, str],
+    permitidos: frozenset[str],
+    agente: str,
     linhas_extra: Sequence[str] = (),
 ) -> str:
     """Serializa os fatos NOMEANDO o estado de cada booleano, em vez de despejar o dicionario.
@@ -295,6 +366,13 @@ def render_fatos_para_prompt(
         booleanos: Mapa `chave do fato -> rotulo em pt-BR`, especifico do fluxo do chamador. A
             ORDEM deste mapa e' a ordem das linhas — o chamador e' dono dela. Uma chave pode ser
             um caminho pontilhado (`"adequacao.cobertura_geo_suficiente"`) para um fato aninhado.
+        permitidos: Lista FECHADA (DL-0191) das chaves de topo de `facts` que podem chegar ao
+            modelo. Obrigatoria e sem default: sitio novo sem ela e' `TypeError` e erro de mypy.
+            Chave de `facts` fora dela e' descartada e registrada so' pelo nome (ver
+            `_recorte_permitido`); a chave de topo de cada booleano tem de estar nela, senao
+            :class:`PromptFormatError` (ver `_exigir_booleanos_permitidos`).
+        agente: Id do agente chamador, rotulo do contador de descarte (vocabulario fechado
+            `observability.PROMPT_FATOS_AGENTES`; outro valor conta como `outro`). Obrigatorio.
         linhas_extra: Linhas ja' formatadas, anexadas depois dos booleanos. Existe para o fato
             que NAO e' do agente: o rafael declara o teto de aprovacao como `APURADO PELO MOTOR`
             porque `ceilings.py` o computa DEPOIS do dossie (C-02, 27/08/2026) — dizer "sem
@@ -313,6 +391,8 @@ def render_fatos_para_prompt(
         ordem fixa, entao a saida e' estavel entre requisicoes. O que o repr colapsa — `False`
         contra `None` — deixa de importar aqui, porque os booleanos declarados sairam dele.
     """
+    _exigir_booleanos_permitidos(booleanos, permitidos)
+    facts = _recorte_permitido(facts, permitidos, agente)
     linhas: list[str] = []
     for caminho, rotulo in booleanos.items():
         valor = _valor_do_fato(facts, caminho)

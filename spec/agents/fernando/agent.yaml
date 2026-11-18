@@ -13,6 +13,7 @@ graph: graph.py:build
 prompt_versions:                             # versionados (ADR-0009) — gate de eval no golden
   system: system-v2
   message: message-v2
+  dossier: dossier-v2                       # o dossie de analise (J3); o codigo ja' o versionava
 model:
   task_default: { tier: fast }              # notificacao/lembrete/montagem do dossie de analise
   reasoning:    { tier: frontier }          # casos ambiguos / dossie de analise complexo

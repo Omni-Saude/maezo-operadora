@@ -63,6 +63,7 @@ from maezo.portal.api.commercial import (
 )
 from maezo.ports.commercial import CommercialRefusalError
 from tests.unit.test_commercial_c6 import (
+    SYN_PRESENTIAL_FACT,
     PublicScope,
     PublicSource,
     catalog_admission,
@@ -172,6 +173,7 @@ def catalog_kwargs(schema_bytes, calls, *, admitted):
     )
     if admitted:
         kwargs["source_admission"] = catalog_admission()
+        kwargs["presential_fact"] = SYN_PRESENTIAL_FACT
     return kwargs
 
 

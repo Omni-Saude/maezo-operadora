@@ -43,6 +43,7 @@ from maezo.gateway.commercial_portability_admission import (
     PortabilityPayloadError,
     refuse_portability_verdict_payload,
 )
+from maezo.gateway.commercial_public_fences import PresentialChannelFact, PublicOfferFenceCodec
 from maezo.gateway.commercial_sales_admission import SalesSessionAdmission
 from maezo.gateway.commercial_support_admission import (
     A5_ADMITTED_COMMANDS,
@@ -737,6 +738,7 @@ def compose_public_catalog_gateway(
     scope_authority: PublicCatalogScopeAuthority | None = None,
     source_authority: AmhPublicCatalogAuthority | None = None,
     source_admission: CatalogSourceAdmission | None = None,
+    presential_fact: PresentialChannelFact | None = None,
     timeout_seconds: float = 5.0,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> PublicCatalogGateway:
@@ -748,9 +750,13 @@ def compose_public_catalog_gateway(
     activation exists. The self-service catalog stays PF-only while REG-08 is unratified
     (E-SF-20, EP-REG-08a): `CollectiveHoldCatalogCodec` refuses, before disclosure, a catalog
     that offers a collective product as `usable` — on every composition, admitted or not.
+    The first-leg fences of E-SF-05r (`PublicOfferFenceCodec`) wrap it on every composition
+    too: a `usable` product with an unknown ANS registry or any numeric public price refuses
+    the whole catalog, and without the owner's `presential_fact` (the default) no catalog is
+    disclosed at all.
     """
     wire = CommercialWire(schema_bytes)
-    codec = CollectiveHoldCatalogCodec(wire)
+    codec = PublicOfferFenceCodec(CollectiveHoldCatalogCodec(wire), presential_fact=presential_fact)
     if (
         caller is None
         or scope_authority is None

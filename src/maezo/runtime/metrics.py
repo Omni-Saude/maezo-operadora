@@ -26,6 +26,12 @@ GAP-SC-04-a notifications-bridge dead-letter metering:
 - maezo_bridge_dlq_total (Counter) — poison messages shunted to `<topic>.dlq` by {topic,reason}
 - maezo_notifications_inbox_dlq_total (Counter) — the inbox's own shunts by closed {tipo,reason} (DL-0186)
 
+DL-0191 prompt-facts allowlist metering:
+- maezo_prompt_fatos_descartados_total (Counter) — fact KEYS that
+  `runtime.prompt_format.render_fatos_para_prompt` dropped for being outside the caller's closed
+  `permitidos`, by closed {agente}
+  (`observability.PROMPT_FATOS_AGENTES`). COUNTS ONLY: never the key name or value in a label.
+
 CC-09 (Agent Fleet Audit, 2026-09-04) per-agent DESFECHO telemetry:
 - maezo_agent_desfecho_total (Counter) — ONE terminal turn outcome by
   {agent_id,desfecho,route,motivo_categoria}. Emitted by
@@ -551,6 +557,18 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # DL-0191: chaves de fatos DESCARTADAS pelo renderizador de fatos do prompt por estarem fora
+        # da lista fechada `permitidos` do sitio. Rotulo `agente` FECHADO
+        # (`observability.PROMPT_FATOS_AGENTES`, outro valor vira `outro`). Nunca o nome nem o valor
+        # da chave: o nome vai so' a linha de log `prompt_fatos_chaves_fora_da_lista_descartadas`.
+        self._prompt_fatos_descartados_total = Counter(
+            "maezo_prompt_fatos_descartados_total",
+            "Fact keys dropped from an LLM prompt for being outside the call site's closed allowlist, "
+            "by agent (COUNTS ONLY; agente is a closed vocabulary)",
+            labelnames=["agente"],
+            registry=self._registry,
+        )
+
         # DL-0187: cada execucao do trabalho de SOMBRA adiado para DEPOIS de completar a tarefa
         # (`harness._executar_pos_conclusao`), por desfecho FECHADO
         # (`observability.RCO_SOMBRA_POS_CONCLUSAO_DESFECHOS`, outro valor vira `outro`). A tarefa ja
@@ -925,6 +943,11 @@ class MetricsCollector:
     def rco_aviso_consumo_total(self) -> Counter:
         """Counter for rco K1 audit-signal notices consumed by the inbox (DL-0186). Label: desfecho."""
         return self._rco_aviso_consumo_total
+
+    @property
+    def prompt_fatos_descartados_total(self) -> Counter:
+        """`maezo_prompt_fatos_descartados_total{agente}` (DL-0191)."""
+        return self._prompt_fatos_descartados_total
 
     @property
     def rco_sombra_pos_conclusao_total(self) -> Counter:

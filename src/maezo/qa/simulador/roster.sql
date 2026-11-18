@@ -6,9 +6,14 @@
 -- (comando no runbook). O codigo do simulador NUNCA le' o lago (ADR-0037): so' esse CSV.
 --
 -- Quem entra: beneficiarios com mensalidade gerada nos ultimos 6 meses e contrato sem rescisao nem
--- cancelamento, com CPF de 11 digitos e data de nascimento, sem obito; mais o DONO (CPF 42853296890),
--- sempre, na primeira linha. 200 pessoas sorteadas: o preflight do simulador resolve cada uma na
--- AMH (resolve-by-document) e usa as primeiras que resolverem (padrao 40).
+-- cancelamento, com CPF de 11 digitos e data de nascimento, sem obito; mais a pessoa do
+-- documento da primeira linha, sempre, na primeira linha. 200 pessoas sorteadas: o preflight do simulador resolve cada uma na AMH
+-- (resolve-by-document) e usa as primeiras que resolverem (padrao 40).
+--
+-- O documento da primeira linha NAO esta' neste arquivo: cada `?` abaixo e' um parametro de execucao do Athena
+-- (`ExecutionParameters`), o MESMO valor nas duas posicoes, montado em memoria e validado (11 digitos com
+-- o digito verificador do CPF) por `python -m maezo.qa.simulador.roster submeter` a partir da
+-- variavel MAEZO_SIMULADOR_DOCUMENTO_PRIMEIRA_LINHA (comando no runbook). Sem a variavel nao ha' consulta.
 --
 -- Saida: cpf,nascimento,nome (nascimento em AAAA-MM-DD).
 WITH pessoa AS (
@@ -36,7 +41,7 @@ com_cobranca AS (
 dono AS (
     SELECT cpf, nascimento, nome, 0 AS prioridade, 0.0E0 AS sorteio
     FROM pessoa
-    WHERE ordem = 1 AND cpf = '42853296890'
+    WHERE ordem = 1 AND cpf = ?
     LIMIT 1
 ),
 sorteados AS (
@@ -45,7 +50,7 @@ sorteados AS (
     JOIN com_cobranca c ON c.cd_pessoa_fisica = p.cd_pessoa_fisica
     WHERE p.ordem = 1
       AND length(p.cpf) = 11
-      AND p.cpf <> '42853296890'
+      AND p.cpf <> ?
 )
 SELECT cpf, CAST(nascimento AS varchar) AS nascimento, nome
 FROM (

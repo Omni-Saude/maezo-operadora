@@ -36,6 +36,7 @@ from maezo.gateway.commercial_legitimacy_guard import (
     LegitimacyScreenEnforcing,
     collective_legitimacy_shadow,
 )
+from maezo.gateway.commercial_public_fences import PublicOfferFenceCodec
 from maezo.portal.api.commercial import PUBLIC_CATALOG_PATH
 from maezo.portal.api.config import PortalSettings
 from maezo.ports.commercial import CommercialRefusalError
@@ -138,7 +139,9 @@ def test_every_composition_carries_the_hold(schema_bytes: bytes) -> None:
     unbound = compose_public_catalog_gateway(schema_bytes=schema_bytes)
     _, bound, _, _, _ = public_rig(schema_bytes)
     for gateway in (unbound, bound):
-        assert type(gateway.codec) is CollectiveHoldCatalogCodec
+        # E-SF-05r: as cercas da vitrine envolvem a espera do coletivo em toda composição.
+        assert type(gateway.codec) is PublicOfferFenceCodec
+        assert type(gateway.codec._inner) is CollectiveHoldCatalogCodec
         assert gateway.codec.schema_digest == CommercialWire(schema_bytes).schema_digest
 
 

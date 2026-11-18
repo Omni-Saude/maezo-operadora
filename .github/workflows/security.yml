@@ -191,6 +191,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      pull-requests: read
       actions: read
       contents: read
       security-events: write
@@ -199,7 +200,34 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      # ARVORE VERIFICADA (L1a, 18/11/2026) — ver scripts/ci/arvore_verificada.py e o job `trilha` do ci.yml.
+      # No PR grava a arvore do merge de teste; no push em main, se a arvore e' identica a testada pela ULTIMA
+      # run deste workflow no head final do PR, e essa run esta verde, o scan nao repete (mesmos bytes ja
+      # escaneados). Qualquer duvida = scan completo, como antes.
+      - name: Grava a arvore testada (pull_request)
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/ci/arvore_verificada.py --gravar "$RUNNER_TEMP/arvore-testada"
+      - name: Publica a arvore testada (pull_request)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: arvore-testada-security
+          path: ${{ runner.temp }}/arvore-testada/arvore.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Arvore ja verificada pelo PR? (push em main)
+        id: arvore
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/arvore_verificada.py --decidir --workflow security.yml --artefato arvore-testada-security
+      - name: SCAN NAO REPETIDO — arvore identica a ja escaneada no PR (visivel)
+        if: steps.arvore.outputs.verificado == 'true'
+        env:
+          RUN_VERIFICADORA: ${{ steps.arvore.outputs.run_verificadora }}
+        run: echo "::notice::arvore identica a escaneada pela run verde ${RUN_VERIFICADORA} do PR; o scan nao repete."
       - name: Initialize CodeQL
+        if: steps.arvore.outputs.verificado != 'true'
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066  # v4.39.3
         with:
           languages: python
@@ -208,6 +236,7 @@ jobs:
       # The scan itself needs no GHAS and always runs for real; a scan
       # failure here is a plain red job. Upload is deferred (see above).
       - name: Perform CodeQL analysis (scan always real; upload deferred)
+        if: steps.arvore.outputs.verificado != 'true'
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066  # v4.39.3
         with:
           upload: never
@@ -215,6 +244,7 @@ jobs:
           output: sarif-results
 
       - name: Upload SARIF (try-and-classify the GHAS gate)
+        if: steps.arvore.outputs.verificado != 'true'
         run: |
           set -euo pipefail
           sarif="sarif-results/python.sarif"
@@ -277,6 +307,7 @@ jobs:
       # Reuses the exact actions/upload-artifact pin already vetted
       # elsewhere in this repo (ci.yml) — no new SHA to independently trust.
       - name: Upload SARIF as workflow artifact (GHAS-substitute review path)
+        if: steps.arvore.outputs.verificado != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: codeql-python-sarif
@@ -303,6 +334,7 @@ jobs:
       # unit-tested off-runner by `tests/unit/ci/test_summarize_sarif.py`,
       # where a regression is cheap to read.
       - name: Summarize SARIF findings (step-summary, GHAS-substitute)
+        if: steps.arvore.outputs.verificado != 'true'
         run: |
           set -euo pipefail
           python3 scripts/ci/summarize_sarif.py \
@@ -341,6 +373,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      pull-requests: read
       actions: read
       contents: read
       security-events: write
@@ -349,7 +382,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      - name: Arvore ja verificada pelo PR? (push em main)
+        id: arvore
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/arvore_verificada.py --decidir --workflow security.yml --artefato arvore-testada-security
+      - name: SCAN NAO REPETIDO — arvore identica a ja escaneada no PR (visivel)
+        if: steps.arvore.outputs.verificado == 'true'
+        env:
+          RUN_VERIFICADORA: ${{ steps.arvore.outputs.run_verificadora }}
+        run: echo "::notice::arvore identica a escaneada pela run verde ${RUN_VERIFICADORA} do PR; o scan nao repete."
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        if: steps.arvore.outputs.verificado != 'true'
         with:
           # 17: `maven.compiler.release` do pom (src/maezo/portal/engine/java/pom.xml),
           # o mesmo do job `java-plugin` em ci.yml.
@@ -358,6 +403,7 @@ jobs:
           cache: maven
 
       - name: Initialize CodeQL
+        if: steps.arvore.outputs.verificado != 'true'
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066  # v4.39.3
         with:
           languages: java-kotlin
@@ -368,9 +414,11 @@ jobs:
       # repeating them here would only add minutes and a second, redundant
       # red on the very same failure.
       - name: Build the Java engine plugin (CodeQL manual build)
+        if: steps.arvore.outputs.verificado != 'true'
         run: mvn -B -f src/maezo/portal/engine/java/pom.xml -DskipTests package
 
       - name: Perform CodeQL analysis (scan always real; upload deferred)
+        if: steps.arvore.outputs.verificado != 'true'
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066  # v4.39.3
         with:
           upload: never
@@ -384,6 +432,7 @@ jobs:
       # Fail-closed on its absence: a missing scan result must never read as
       # a successful scan.
       - name: Upload SARIF (try-and-classify the GHAS gate)
+        if: steps.arvore.outputs.verificado != 'true'
         run: |
           set -euo pipefail
           sarif="sarif-results/java.sarif"
@@ -431,6 +480,7 @@ jobs:
           fi
 
       - name: Upload SARIF as workflow artifact (GHAS-substitute review path)
+        if: steps.arvore.outputs.verificado != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: codeql-java-sarif
@@ -439,6 +489,7 @@ jobs:
           if-no-files-found: error
 
       - name: Summarize SARIF findings (step-summary, GHAS-substitute)
+        if: steps.arvore.outputs.verificado != 'true'
         run: |
           set -euo pipefail
           python3 scripts/ci/summarize_sarif.py \
