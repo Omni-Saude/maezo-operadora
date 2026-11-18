@@ -646,7 +646,7 @@ class BeatrizGraph:
             lacunas.append(score_lacuna)
 
         fatos_txt = render_fatos_para_prompt(
-            facts, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_LEGADO_U1C
+            facts, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_LEGADO_U1C, agente="beatriz"
         )
         prompt = f"{dossier_prompt()}\n\n{fatos_txt}"
         try:

@@ -475,6 +475,7 @@ def render_fatos_para_prompt(facts: dict[str, Any]) -> str:
         facts,
         booleanos=_FATOS_BOOLEANOS,
         permitidos=_PERMITIDOS_PROMPT,
+        agente="rafael",
         linhas_extra=(_LINHA_TETO_DO_MOTOR,),
     )
 

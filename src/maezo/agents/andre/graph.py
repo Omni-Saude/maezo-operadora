@@ -1441,10 +1441,10 @@ class AndreGraph:
         booleanos = dict(_FATOS_BOOLEANOS_PAGTO)
         if flow == "adequacao_dossier":
             booleanos.update(_FATOS_BOOLEANOS_ADEQUACAO)
-        prompt = (
-            f"{dossier_prompt()}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n"
-            f"{render_fatos_para_prompt(facts, booleanos=booleanos, permitidos=_PERMITIDOS_LEGADO_U1C)}"
+        fatos_txt = render_fatos_para_prompt(
+            facts, booleanos=booleanos, permitidos=_PERMITIDOS_LEGADO_U1C, agente="andre"
         )
+        prompt = f"{dossier_prompt()}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n{fatos_txt}"
         try:
             narrativa = await self._llm.generate(
                 prompt,

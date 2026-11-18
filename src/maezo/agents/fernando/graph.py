@@ -1067,7 +1067,10 @@ class FernandoGraph:
         intencao = state.get("intencao")
         intencao_validated = intencao if intencao in _VALID_INTENCOES else None
         fatos_txt = render_fatos_para_prompt(
-            facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM, permitidos=_PERMITIDOS_LEGADO_U1C_MENSAGEM
+            facts,
+            booleanos=_FATOS_BOOLEANOS_MENSAGEM,
+            permitidos=_PERMITIDOS_LEGADO_U1C_MENSAGEM,
+            agente="fernando",
         )
         prompt = f"{message_prompt()}\n\nintencao={intencao_validated}\n{fatos_txt}"
         try:
@@ -1130,7 +1133,10 @@ class FernandoGraph:
             "dmn_refs": state.get("dmn_refs", {}),
         }
         fatos_txt = render_fatos_para_prompt(
-            facts, booleanos=_FATOS_BOOLEANOS_DOSSIE, permitidos=_PERMITIDOS_LEGADO_U1C_DOSSIE
+            facts,
+            booleanos=_FATOS_BOOLEANOS_DOSSIE,
+            permitidos=_PERMITIDOS_LEGADO_U1C_DOSSIE,
+            agente="fernando",
         )
         prompt = f"{dossier_prompt()}\n\nmotivo={state.get('motivo_humano')}\n{fatos_txt}"
         try:

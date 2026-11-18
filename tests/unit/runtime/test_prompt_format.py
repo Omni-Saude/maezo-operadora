@@ -249,7 +249,7 @@ def _render_tudo_permitido(
     """
     permitidos = frozenset(facts) | {caminho.split(".", 1)[0] for caminho in booleanos}
     return render_fatos_para_prompt(
-        facts, booleanos=booleanos, permitidos=permitidos, linhas_extra=linhas_extra
+        facts, booleanos=booleanos, permitidos=permitidos, agente="teste", linhas_extra=linhas_extra
     )
 
 

@@ -43,8 +43,6 @@ CID_SINTETICO = "Q99.9-SINTETICO"
 ESPERADO: dict[str, frozenset[str]] = {
     "contas": frozenset(
         {
-            "numero_lote_tiss",
-            "numero_conta",
             "competencia",
             "tipo_lote",
             "valor_apresentado_brl",
@@ -64,7 +62,6 @@ ESPERADO: dict[str, frozenset[str]] = {
     ),
     "recurso": frozenset(
         {
-            "glosa_id",
             "glosa_type",
             "glosa_reason_code",
             "valor_glosado_brl",
@@ -82,25 +79,29 @@ ESPERADO: dict[str, frozenset[str]] = {
     ),
     "reembolso": frozenset(
         {
-            "protocolo_reembolso",
             "tipo_reembolso",
             "categoria_procedimento",
             "codigo_procedimento_tuss",
             "valor_solicitado_cents",
             "situacao_prazo",
-            "relacao_com_titular",
             "motivo_nao_rede",
             "lacunas_enriquecimento",
         }
     ),
 }
 
-#: Chaves de `fatos` que ficam no dossie do humano e FORA do prompt, por fluxo.
+#: Chaves de `fatos` que ficam no dossie do humano e FORA do prompt, por fluxo: guia e CID-10,
+#: as chaves de vinculo do caso (lote, conta, glosa, protocolo) e a relacao com o titular.
 SO_NO_DOSSIE: dict[str, frozenset[str]] = {
-    "contas": frozenset({"numero_guia_tiss"}),
-    "recurso": frozenset({"numero_guia_tiss", "cid10"}),
-    "reembolso": frozenset({"numero_guia_tiss"}),
+    "contas": frozenset({"numero_guia_tiss", "numero_lote_tiss", "numero_conta"}),
+    "recurso": frozenset({"numero_guia_tiss", "cid10", "glosa_id"}),
+    "reembolso": frozenset({"numero_guia_tiss", "protocolo_reembolso", "relacao_com_titular"}),
 }
+
+#: Chaves que a Marina LE do estado e que a U1b tirou do prompt alem de guia e CID (DL-0191).
+VINCULO_DO_CASO: frozenset[str] = frozenset(
+    {"numero_lote_tiss", "numero_conta", "glosa_id", "protocolo_reembolso", "relacao_com_titular"}
+)
 
 FLUXOS: tuple[str, ...] = ("contas", "recurso", "reembolso")
 
@@ -263,7 +264,7 @@ def test_as_listas_fechadas_sao_as_esperadas() -> None:
 
 @pytest.mark.parametrize("flow", FLUXOS)
 def test_a_lista_fechada_nao_tem_campo_que_nunca_entra(flow: str) -> None:
-    assert not ESPERADO[flow] & NUNCA_ENTRA
+    assert not ESPERADO[flow] & (NUNCA_ENTRA | VINCULO_DO_CASO)
 
 
 @pytest.mark.parametrize("flow", FLUXOS)
@@ -293,7 +294,7 @@ async def test_todo_fato_do_dossie_esta_classificado(flow: str, monkeypatch: pyt
 
 
 @pytest.mark.parametrize("flow", FLUXOS)
-@pytest.mark.parametrize("chave", sorted(NUNCA_ENTRA))
+@pytest.mark.parametrize("chave", sorted(NUNCA_ENTRA | VINCULO_DO_CASO))
 async def test_sentinela_de_cada_campo_que_nunca_entra(
     flow: str, chave: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -330,6 +331,28 @@ async def test_o_dossie_do_humano_segue_com_guia_e_cid(flow: str, monkeypatch: p
     assert dossie["fatos"]["numero_guia_tiss"] == GUIA_SINTETICA
     if flow == "recurso":
         assert dossie["fatos"]["cid10"] == CID_SINTETICO
+    for chave in SO_NO_DOSSIE[flow]:
+        assert dossie["fatos"][chave] == state[chave]  # type: ignore[literal-required]
+
+
+#: Valor sintetico de cada chave de vinculo no `_estado` de cada fluxo.
+VALORES_DE_VINCULO: dict[str, dict[str, str]] = {
+    "contas": {"numero_lote_tiss": "FICT-LOTE-0001", "numero_conta": "FICT-CONTA-0001"},
+    "recurso": {"glosa_id": "FICT-GLOSA-0001"},
+    "reembolso": {"protocolo_reembolso": "FICT-REEMB-0001", "relacao_com_titular": "titular"},
+}
+
+
+@pytest.mark.parametrize("flow", FLUXOS)
+async def test_o_prompt_nao_leva_as_chaves_de_vinculo(flow: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lote, conta, glosa e protocolo (e a relacao com o titular) ficam so' no dossie (DL-0191)."""
+    dossie, prompt, fatos_prompt, _ = await _dossie_e_prompt(_estado(flow), monkeypatch)
+
+    for chave, valor in VALORES_DE_VINCULO[flow].items():
+        assert chave not in fatos_prompt
+        assert f"'{chave}':" not in prompt  # o texto fixo do prompt pode citar o nome do campo
+        assert f"'{valor}'" not in prompt
+        assert dossie["fatos"][chave] == valor
 
 
 async def test_as_variaveis_do_processo_seguem_com_guia_e_cid_no_recurso(
@@ -343,6 +366,7 @@ async def test_as_variaveis_do_processo_seguem_com_guia_e_cid_no_recurso(
 
     assert variaveis["numero_guia_tiss"] == GUIA_SINTETICA
     assert variaveis["cid10"] == CID_SINTETICO
+    assert variaveis["glosa_id"] == "FICT-GLOSA-0001"
     assert variaveis["dossie_marina"]["fatos"]["cid10"] == CID_SINTETICO
     assert variaveis["dossie_marina"]["fatos"]["numero_guia_tiss"] == GUIA_SINTETICA
 
@@ -357,6 +381,8 @@ async def test_as_variaveis_do_processo_seguem_com_guia_nas_contas(
     variaveis = _graph(_CapturaLLM())._contract_variables(state)
 
     assert variaveis["numero_guia_tiss"] == GUIA_SINTETICA
+    assert variaveis["numero_lote_tiss"] == "FICT-LOTE-0001"
+    assert variaveis["numero_conta"] == "FICT-CONTA-0001"
     assert variaveis["dossie_marina"]["fatos"]["numero_guia_tiss"] == GUIA_SINTETICA
 
 

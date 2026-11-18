@@ -953,6 +953,29 @@ def record_rco_entrada_cobertura(
         logger.debug("rco_entrada_cobertura_metric_emit_failed", exc_info=True)
 
 
+#: DL-0191: vocabulario FECHADO do rotulo `agente` de `maezo_prompt_fatos_descartados_total` — os
+#: agentes que chamam `runtime.prompt_format.render_fatos_para_prompt` (paridade com os literais
+#: `agente=` dos sitios em `src/`, provada em teste). Valor fora do conjunto vira `outro`.
+PROMPT_FATOS_AGENTES: Final[frozenset[str]] = frozenset(
+    {"andre", "beatriz", "carolina", "fernando", "gustavo", "lucas", "marina", "rafael", "valentina"}
+)
+
+
+def record_prompt_fatos_descartados(agente: str, quantidade: int) -> None:
+    """Count fact KEYS dropped from a prompt — `maezo_prompt_fatos_descartados_total{agente}` (DL-0191).
+
+    Sitio de chamada unico: `runtime.prompt_format.render_fatos_para_prompt`. Rotulo fechado; nunca o
+    nome nem o valor da chave. Best-effort: a telemetria nunca muda o prompt nem o caso.
+    """
+    if quantidade <= 0:
+        return
+    rotulo = agente if agente in PROMPT_FATOS_AGENTES else "outro"
+    try:
+        _get_metrics_collector().prompt_fatos_descartados_total.labels(agente=rotulo).inc(quantidade)
+    except Exception:  # never let telemetry disturb the caller.
+        logger.debug("prompt_fatos_descartados_metric_emit_failed", exc_info=True)
+
+
 #: DL-0187: vocabulario FECHADO de `maezo_rco_sombra_pos_conclusao_total`
 #: (= `harness.SOMBRA_POS_CONCLUSAO_DESFECHOS`, paridade em teste). Valor fora do conjunto vira `outro`.
 RCO_SOMBRA_POS_CONCLUSAO_DESFECHOS: Final[frozenset[str]] = frozenset(

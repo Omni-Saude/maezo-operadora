@@ -945,7 +945,7 @@ class ValentinaGraph:
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
         fatos_txt = render_fatos_para_prompt(
-            facts, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_LEGADO_U1C
+            facts, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_LEGADO_U1C, agente="valentina"
         )
         prompt = f"{prompt_text}\n\ntask={task} route={route} motivo_humano={motivo_humano}\n{fatos_txt}"
         llm_ok = True

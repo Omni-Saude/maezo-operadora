@@ -32,7 +32,8 @@ test (or a future canary) asserts the property rather than eyeballing it.
 PHI DISCIPLINE. Pure string assembly: no telemetry, no I/O, no hashing of content into anything
 that leaves this frame. Prompt bytes travel only in the returned value. The ONE log line in this
 module (DL-0191) names the fact KEYS that :func:`render_fatos_para_prompt` dropped for being
-outside the caller's allowlist; keys are code identifiers, and no value ever reaches the log.
+outside the caller's allowlist, and the matching counter counts them per agent; keys are code
+identifiers, and no value ever reaches the log or a label.
 """
 
 from __future__ import annotations
@@ -43,6 +44,8 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 import structlog
+
+from maezo.platform.observability import record_prompt_fatos_descartados
 
 logger = structlog.get_logger(__name__)
 
@@ -280,23 +283,26 @@ def _podar_copiando_cada_nivel(contexto: dict[str, Any], segmentos: list[str]) -
     recipiente.pop(segmentos[-1], None)
 
 
-def _recorte_permitido(facts: Mapping[str, Any], permitidos: frozenset[str]) -> dict[str, Any]:
+def _recorte_permitido(facts: Mapping[str, Any], permitidos: frozenset[str], agente: str) -> dict[str, Any]:
     """`facts` so' com as chaves de topo em `permitidos`, na ordem de insercao do chamador.
 
     FALHA FECHADA POR DESCARTE, e nao por excecao (DL-0191). Os sitios de montagem chamam o
     renderizador FORA do `try` que protege a chamada ao modelo, e esse `try` ainda re-levanta
     `PROGRAMMING_ERRORS`: uma excecao aqui derrubaria o no' do grafo e travaria o caso, quando a
     narrativa e' acessoria e a falha dela tem de virar narrativa vazia, nunca caso parado. Entao
-    a chave fora da lista nao chega ao prompt e o log diz QUAIS chaves e QUANTAS — so' os nomes,
-    que sao identificadores de codigo; o valor nunca e' registrado.
+    a chave fora da lista nao chega ao prompt, e o descarte fica VISIVEL em dois lugares: o log diz
+    QUAIS chaves e QUANTAS (so' os nomes, que sao identificadores de codigo; o valor nunca e'
+    registrado) e `maezo_prompt_fatos_descartados_total{agente}` conta quantas, por agente.
     """
     descartadas = [chave for chave in facts if chave not in permitidos]
     if descartadas:
         logger.warning(
             "prompt_fatos_chaves_fora_da_lista_descartadas",
+            agente=agente,
             chaves=sorted(str(chave) for chave in descartadas),
             quantidade=len(descartadas),
         )
+        record_prompt_fatos_descartados(agente, len(descartadas))
     return {chave: valor for chave, valor in facts.items() if chave in permitidos}
 
 
@@ -321,6 +327,7 @@ def render_fatos_para_prompt(
     *,
     booleanos: Mapping[str, str],
     permitidos: frozenset[str],
+    agente: str,
     linhas_extra: Sequence[str] = (),
 ) -> str:
     """Serializa os fatos NOMEANDO o estado de cada booleano, em vez de despejar o dicionario.
@@ -345,6 +352,8 @@ def render_fatos_para_prompt(
             Chave de `facts` fora dela e' descartada e registrada so' pelo nome (ver
             `_recorte_permitido`); a chave de topo de cada booleano tem de estar nela, senao
             :class:`PromptFormatError` (ver `_exigir_booleanos_permitidos`).
+        agente: Id do agente chamador, rotulo do contador de descarte (vocabulario fechado
+            `observability.PROMPT_FATOS_AGENTES`; outro valor conta como `outro`). Obrigatorio.
         linhas_extra: Linhas ja' formatadas, anexadas depois dos booleanos. Existe para o fato
             que NAO e' do agente: o rafael declara o teto de aprovacao como `APURADO PELO MOTOR`
             porque `ceilings.py` o computa DEPOIS do dossie (C-02, 27/08/2026) — dizer "sem
@@ -364,7 +373,7 @@ def render_fatos_para_prompt(
         contra `None` — deixa de importar aqui, porque os booleanos declarados sairam dele.
     """
     _exigir_booleanos_permitidos(booleanos, permitidos)
-    facts = _recorte_permitido(facts, permitidos)
+    facts = _recorte_permitido(facts, permitidos, agente)
     linhas: list[str] = []
     for caminho, rotulo in booleanos.items():
         valor = _valor_do_fato(facts, caminho)

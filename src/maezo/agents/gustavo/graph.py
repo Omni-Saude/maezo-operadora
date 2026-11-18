@@ -994,9 +994,12 @@ class GustavoGraph:
         fatos_para_prompt = sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS)
         tema_nip = facts.get("tema_nip")
         referencia = facts.get("referencia_negativa_original")
+        fatos_txt = render_fatos_para_prompt(
+            fatos_para_prompt, booleanos=booleanos, permitidos=permitidos, agente="gustavo"
+        )
         prompt = (
             f"{dossier_prompt()}\n\nroute={route} motivo_humano={state.get('motivo_humano')}\n"
-            f"{render_fatos_para_prompt(fatos_para_prompt, booleanos=booleanos, permitidos=permitidos)}\n"
+            f"{fatos_txt}\n"
             f"{render_untrusted_block('tema_nip', tema_nip)}\n"
             f"{render_untrusted_block('referencia_negativa_original', referencia)}"
         )

@@ -4392,7 +4392,10 @@ class LucasGraph:
         if isinstance(facts.get("numero_boleto"), str):
             fatos_do_prompt["numero_boleto"] = _boleto_do_rascunho_sem_asterisco(facts["numero_boleto"])
         fatos_txt = render_fatos_para_prompt(
-            fatos_do_prompt, booleanos=_FATOS_BOOLEANOS_MENSAGEM, permitidos=_PERMITIDOS_LEGADO_U1C
+            fatos_do_prompt,
+            booleanos=_FATOS_BOOLEANOS_MENSAGEM,
+            permitidos=_PERMITIDOS_LEGADO_U1C,
+            agente="lucas",
         )
         prompt = f"{message_prompt()}\n\n{fatos_txt}"
         try:

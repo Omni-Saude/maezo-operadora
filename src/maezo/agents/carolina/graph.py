@@ -938,7 +938,10 @@ class CarolinaGraph:
         fatos_para_prompt = sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS)
         motivo_informado = facts.get("motivo_informado")
         fatos_txt = render_fatos_para_prompt(
-            fatos_para_prompt, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_LEGADO_U1C
+            fatos_para_prompt,
+            booleanos=_FATOS_BOOLEANOS,
+            permitidos=_PERMITIDOS_LEGADO_U1C,
+            agente="carolina",
         )
         prompt = (
             f"{dossier_prompt()}\n\ndirecao={direcao} route={route} motivo_humano={motivo_humano}\n"

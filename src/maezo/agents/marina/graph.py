@@ -634,17 +634,19 @@ _FATOS_BOOLEANOS_POR_FLUXO: Final[dict[str, dict[str, str]]] = {
 
 #: DL-0191 (ADR-0079 §2, unidade U1b): as UNICAS chaves de `fatos` que chegam ao prompt da
 #: narrativa, por fluxo. Listas FECHADAS: as chaves de hoje de `_contas_facts`/`_recurso_facts`/
-#: `_reembolso_facts` MENOS `numero_guia_tiss` (vinculo do caso com a pessoa) e `cid10` (dado
-#: sensivel de saude, LGPD art. 11), e nenhuma chave nova. Campo novo nos montadores fica fora
-#: do prompt ate' alguem o acrescentar aqui de proposito. Os dois seguem no dossie devolvido ao
-#: humano (`fatos`), na auditoria e nas variaveis do processo — a minimizacao e' do prompt.
-#:
-#: Ficam AQUI, pendentes de decisao (relatorio da U1b): `numero_lote_tiss`, `numero_conta`,
-#: `glosa_id`, `protocolo_reembolso` e `relacao_com_titular`.
+#: `_reembolso_facts`, nenhuma chave nova, MENOS:
+#:   - `numero_guia_tiss` (vinculo do caso com a pessoa) e `cid10` (dado sensivel de saude, LGPD
+#:     art. 11);
+#:   - as chaves de vinculo do caso — `numero_lote_tiss`, `numero_conta`, `glosa_id` e
+#:     `protocolo_reembolso` — que compoem as business keys deste modulo (`_business_key`) e
+#:     ligam o caso a pessoa sem acrescentar nada a narrativa (decisao da coordenacao);
+#:   - `relacao_com_titular` (titular | dependente): a estrutura do prompt de reembolso
+#:     (`prompts.py::reembolso_prompt`, itens 1 a 5) nao a pede.
+#: Campo novo nos montadores fica fora do prompt ate' alguem o acrescentar aqui de proposito. Todas
+#: seguem no dossie devolvido ao humano (`fatos`), na auditoria e nas variaveis do processo — a
+#: minimizacao e' do prompt.
 _PERMITIDOS_PROMPT_CONTAS: Final[frozenset[str]] = frozenset(
     {
-        "numero_lote_tiss",
-        "numero_conta",
         "competencia",
         "tipo_lote",
         "valor_apresentado_brl",
@@ -665,7 +667,6 @@ _PERMITIDOS_PROMPT_CONTAS: Final[frozenset[str]] = frozenset(
 
 _PERMITIDOS_PROMPT_RECURSO: Final[frozenset[str]] = frozenset(
     {
-        "glosa_id",
         "glosa_type",
         "glosa_reason_code",
         "valor_glosado_brl",
@@ -684,13 +685,11 @@ _PERMITIDOS_PROMPT_RECURSO: Final[frozenset[str]] = frozenset(
 
 _PERMITIDOS_PROMPT_REEMBOLSO: Final[frozenset[str]] = frozenset(
     {
-        "protocolo_reembolso",
         "tipo_reembolso",
         "categoria_procedimento",
         "codigo_procedimento_tuss",
         "valor_solicitado_cents",
         "situacao_prazo",
-        "relacao_com_titular",
         "motivo_nao_rede",
         "lacunas_enriquecimento",
     }
@@ -1297,10 +1296,10 @@ class MarinaGraph:
         # recorte da lista fechada do fluxo (sem guia nem CID-10).
         permitidos = _PERMITIDOS_PROMPT_POR_FLUXO.get(flow, _PERMITIDOS_PROMPT_CONTAS)
         fatos_do_prompt = fatos_para_prompt(facts, permitidos)
-        prompt = (
-            f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n"
-            f"{render_fatos_para_prompt(fatos_do_prompt, booleanos=booleanos, permitidos=permitidos)}"
+        fatos_txt = render_fatos_para_prompt(
+            fatos_do_prompt, booleanos=booleanos, permitidos=permitidos, agente="marina"
         )
+        prompt = f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n{fatos_txt}"
         try:
             narrativa = await self._llm.generate(
                 prompt,
