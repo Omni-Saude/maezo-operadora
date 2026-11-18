@@ -87,7 +87,7 @@ async def test_casos_do_rco_pela_composicao_no_motor(
             _gravadas[decisao] = [dict(linha) for linha in linhas]
             return linhas, versao
 
-        resultado = await rco_composicao.compor_async(grupo, avaliador, caso.entradas)
+        resultado = await rco_composicao.compor_async(grupo, avaliador, caso.entradas, modo="efeito")
         onde = f"{caso.arquivo}#{caso.id} ({caso.decisao})"
         if resultado.desfecho != rco_composicao.DESFECHO_ESCOLHIDO:
             divergencias.append(f"{onde}: revisao_humana ({resultado.motivo})")

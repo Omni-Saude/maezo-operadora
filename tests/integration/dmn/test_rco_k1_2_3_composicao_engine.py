@@ -82,6 +82,7 @@ async def _compor(
         entradas,
         ordem_restricao=vocab.ordem_restricao,
         sinais_auditoria=vocab.sinais_auditoria,
+        modo="efeito",
     )
 
 

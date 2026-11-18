@@ -1896,7 +1896,9 @@ class WorkerHarness:
 
         Expansao: `rco_avisos.linhas_de_aviso` com os `avisos` do K6 pinado (`self._rco_avisos_do_pin`), uma
         linha por (aviso, fila); a re-entrega da tarefa cai na mesma `chave_idempotencia` e nao duplica.
-        Sombra e efeito enfileiram igual; o indicador `efeito_k1_habilitado` nao e lido.
+        Sombra e efeito enfileiram igual; o indicador `efeito_k1_habilitado` nao e lido. A composicao
+        generica em sombra (`rco_sombra.avaliar_composicao_em_sombra`) nao chega aqui: ela de proposito nao
+        chama `registrar_composicao` (a regra "sombra nao enfileira" vem com a emenda ao DL-0185).
 
         FAIL-OPEN, no idioma de `_registrar_decisoes_rco`: UM teto total (`_RCO_AVISO_TIMEOUT_S`) com
         `asyncio.wait` (um store que engole o cancelamento nao segura a tarefa), toda falha vira log

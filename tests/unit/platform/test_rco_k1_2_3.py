@@ -108,15 +108,17 @@ def test_compor_com_o_vocabulario_de_um_pin_22_da_resultado_normal(tmp_path: Pat
         "adversas": pin.adversas,
         "adversa_exige_preenchidos": pin.adversa_exige_preenchidos,
     }
-    r = rco_composicao.compor(grupo, _Fake(linhas), {"tipoSintetico": "B"}, **kw)
+    r = rco_composicao.compor(grupo, _Fake(linhas), {"tipoSintetico": "B"}, **kw, modo="efeito")
     assert (r.desfecho, r.decisao_vencedora, r.sinais) == ("escolhido", "rco_sint_a", ())
     sem_sinal = {"rco_sint_a": [_l("liberar", "")], "rco_sint_b": [_l("informar", "SINT-B-0001")]}
-    r = rco_composicao.compor(grupo, _Fake(sem_sinal), {"tipoSintetico": "B"}, **kw)
+    r = rco_composicao.compor(grupo, _Fake(sem_sinal), {"tipoSintetico": "B"}, **kw, modo="efeito")
     assert (r.desfecho, r.decisao_vencedora, r.pelo_padrao) == ("escolhido", "rco_sint_b", True)
     # `mais_restritiva` nao existe no 2.2 (o leitor recusa); com o vocabulario do pin 2.2 e a ordem do
     # contrato, a regra tambem decide normalmente.
     gm = ComposicaoK1("gm", ("rco_sint_a", "rco_sint_b"), k1.REGRA_MAIS_RESTRITIVA, "rco_sint_b")
-    r = rco_composicao.compor(gm, _Fake(linhas), {}, **{**kw, "ordem_restricao": tuple(_ORDEM)})
+    r = rco_composicao.compor(
+        gm, _Fake(linhas), {}, **{**kw, "ordem_restricao": tuple(_ORDEM)}, modo="efeito"
+    )
     assert (r.desfecho, r.decisao_vencedora) == ("escolhido", "rco_sint_a")
 
 
@@ -126,7 +128,9 @@ def test_vocabulario_real_22_tem_o_sinal_vazio() -> None:
     vocab = k1.carregar_vocabulario(rec22.manifesto(), k1_dir=rec22.RECORTE)
     assert vocab.sinais_auditoria == ("",)
     linhas = {d: [_l("liberar", "")] for d in rec22.ORDEM}
-    r = rco_composicao.compor(rec22.composicao(), _Fake(linhas), {}, sinais_auditoria=vocab.sinais_auditoria)
+    r = rco_composicao.compor(
+        rec22.composicao(), _Fake(linhas), {}, sinais_auditoria=vocab.sinais_auditoria, modo="efeito"
+    )
     assert (r.desfecho, r.decisao_vencedora) == ("escolhido", "rco_mex_ortop")
 
 
@@ -436,13 +440,18 @@ def _compor(
 ) -> rco_composicao.ResultadoComposicao:
     kw.setdefault("ordem_restricao", _ORDEM_T)
     kw.setdefault("sinais_auditoria", _SINAIS)
-    return rco_composicao.compor(grupo, _Fake(respostas), _ENTRADAS, **kw)
+    return rco_composicao.compor(grupo, _Fake(respostas), _ENTRADAS, **kw, modo="efeito")
 
 
 @pytest.fixture
 def contados(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     registro: list[str] = []
-    monkeypatch.setattr(rco_composicao, "record_rco_composicao_revisao", registro.append)
+
+    def contar(motivo: str, *, modo: str) -> None:
+        assert modo == rco_composicao.MODO_EFEITO  # estes testes compoem em modo efeito
+        registro.append(motivo)
+
+    monkeypatch.setattr(rco_composicao, "record_rco_composicao_revisao", contar)
     return registro
 
 
@@ -479,6 +488,7 @@ def test_resultado_leva_os_campos_da_vencedora_e_o_veredicto_de_todas() -> None:
         {_M1: ([linha_car], v1), _M2: ([linha_cpt], v2)},
         ordem_restricao=_ORDEM_T,
         sinais_auditoria=_SINAIS,
+        modo="efeito",
     )
     assert r.decisao_vencedora == _M2
     assert dict(r.linhas[0]) == linha_cpt
@@ -513,7 +523,9 @@ def test_sinal_vazio_nao_entra_na_uniao(vazio: Any) -> None:
 
 def test_entradas_iguais_para_todas_e_todas_avaliadas() -> None:
     fake = _Fake({_M1: [_l("negar", "R-1")], _M2: [_l("liberar")], _M3: [_l("liberar")]})
-    r = rco_composicao.compor(_GM, fake, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS)
+    r = rco_composicao.compor(
+        _GM, fake, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS, modo="efeito"
+    )
     assert [d for d, _ in fake.chamadas] == [_M1, _M2, _M3]
     assert all(e == _ENTRADAS for _, e in fake.chamadas)
     assert r.avaliadas == (_M1, _M2, _M3)
@@ -567,7 +579,9 @@ def test_falha_do_motor_em_qualquer_membro_vai_a_revisao_humana(contados: list[s
     respostas = {_M1: [_l("liberar", "R-1", sint.SINAL)], _M2: [_l("negar", "R-2")], _M3: [_l("liberar")]}
     for falha in (_M1, _M2, _M3):
         fake = _Fake(respostas, falha_em=falha)
-        r = rco_composicao.compor(_GM, fake, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS)
+        r = rco_composicao.compor(
+            _GM, fake, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS, modo="efeito"
+        )
         _revisao(r, "avaliador_falhou")
         assert [d for d, _ in fake.chamadas][-1] == falha  # nao avalia as seguintes
         assert r.avaliadas == _GM.decisoes[: _GM.decisoes.index(falha)]
@@ -577,13 +591,17 @@ def test_falha_do_motor_em_qualquer_membro_vai_a_revisao_humana(contados: list[s
 
 def test_hit_policy_violation_do_motor_e_cmp08(contados: list[str]) -> None:
     fake = _Fake({_M1: [_l("liberar")]}, falha_em=_M2, erro=DmnHitPolicyViolationError(_M2))
-    r = rco_composicao.compor(_GM, fake, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS)
+    r = rco_composicao.compor(
+        _GM, fake, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS, modo="efeito"
+    )
     _revisao(r, "violacao_prova_rco")
     assert contados == ["violacao_prova_rco"]
 
 
 def test_resultado_faltando_vai_a_revisao_humana(contados: list[str]) -> None:
-    r = rco_composicao.escolher(_GM, {_M1: [_l("liberar")], _M3: [_l("liberar")]}, ordem_restricao=_ORDEM_T)
+    r = rco_composicao.escolher(
+        _GM, {_M1: [_l("liberar")], _M3: [_l("liberar")]}, ordem_restricao=_ORDEM_T, modo="efeito"
+    )
     _revisao(r, "avaliador_falhou")
 
 
@@ -602,6 +620,7 @@ def test_sinal_sem_vocabulario_do_pin_vai_a_revisao_humana(contados: list[str]) 
         _Fake({_M1: [_l("liberar", sinal=sint.SINAL)], _M2: [_l("liberar")]}),
         _ENTRADAS,
         ordem_restricao=_ORDEM_T,
+        modo="efeito",
     )
     _revisao(r, "violacao_prova_rco")
 
@@ -622,16 +641,22 @@ def test_compor_async_mesma_regra(contados: list[str]) -> None:
         return list(respostas[decisao])
 
     r = asyncio.run(
-        rco_composicao.compor_async(_GM, ok, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS)
+        rco_composicao.compor_async(
+            _GM, ok, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS, modo="efeito"
+        )
     )
     assert (r.decisao_vencedora, r.linhas[0]["decisao"], r.sinais) == (_M2, "exigir_documento", (sint.SINAL,))
     r = asyncio.run(
-        rco_composicao.compor_async(_GM, falha, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS)
+        rco_composicao.compor_async(
+            _GM, falha, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS, modo="efeito"
+        )
     )
     _revisao(r, "avaliador_falhou")
     assert r.sinais == (sint.SINAL,)
     r = asyncio.run(
-        rco_composicao.compor_async(_GM, ok, _ENTRADAS, ordem_restricao=(), sinais_auditoria=_SINAIS)
+        rco_composicao.compor_async(
+            _GM, ok, _ENTRADAS, ordem_restricao=(), sinais_auditoria=_SINAIS, modo="efeito"
+        )
     )
     _revisao(r, "resultado_invalido")
     assert contados == ["avaliador_falhou", "resultado_invalido"]
@@ -639,7 +664,7 @@ def test_compor_async_mesma_regra(contados: list[str]) -> None:
 
 def test_metrica_real_conta_a_lacuna() -> None:
     registro = observability.get_metrics_collector().registry
-    rotulos = {"motivo": "violacao_prova_rco"}
+    rotulos = {"motivo": "violacao_prova_rco", "modo": "efeito"}
     antes = registro.get_sample_value("maezo_rco_composicao_revisao_humana_total", rotulos) or 0.0
     _compor(_GM2, {_M1: [], _M2: [_l("liberar")]})
     depois = registro.get_sample_value("maezo_rco_composicao_revisao_humana_total", rotulos)
@@ -666,7 +691,7 @@ def test_primeira_com_id_regra_ignora_a_ordem_de_restricao() -> None:
 
 
 def test_primeira_com_id_regra_sem_linha_no_padrao_continua_valendo() -> None:
-    r = rco_composicao.compor(_GP, _Fake({_P1: [_l("glosar", "")], _PADRAO: []}), _ENTRADAS)
+    r = rco_composicao.compor(_GP, _Fake({_P1: [_l("glosar", "")], _PADRAO: []}), _ENTRADAS, modo="efeito")
     assert (r.desfecho, r.decisao_vencedora, r.linhas, r.sinais) == ("escolhido", _PADRAO, (), ())
 
 
@@ -695,6 +720,7 @@ def test_compor_com_o_pin_23(pacote_23: tuple[Path, dict[str, Any]]) -> None:
         {"tipoSintetico": "A"},
         ordem_restricao=pin.ordem_restricao,
         sinais_auditoria=pin.sinais_auditoria,
+        modo="efeito",
     )
     assert (r.decisao_vencedora, r.linhas[0]["idRegra"], r.sinais) == (
         "rco_sint_c",
@@ -765,6 +791,8 @@ def test_sinal_em_linha_a_mais_nao_se_perde(contados: list[str]) -> None:
 
 def test_sinal_em_linha_a_mais_tambem_na_falha_do_motor(contados: list[str]) -> None:
     fake = _Fake({_M1: [_l("liberar"), _l("liberar", sinal=sint.SINAL)]}, falha_em=_M2)
-    r = rco_composicao.compor(_GM2, fake, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS)
+    r = rco_composicao.compor(
+        _GM2, fake, _ENTRADAS, ordem_restricao=_ORDEM_T, sinais_auditoria=_SINAIS, modo="efeito"
+    )
     _revisao(r, "avaliador_falhou")
     assert r.sinais == (sint.SINAL,)
