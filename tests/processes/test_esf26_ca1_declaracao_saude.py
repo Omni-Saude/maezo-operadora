@@ -72,7 +72,8 @@ def test_ds_node_fail_closed_until_vw0_d16(raiz: etree._Element) -> None:
     condicionais = [f for f in saidas if f is not padrao]
     assert len(condicionais) == 1
     cond = condicionais[0].find("bpmn:conditionExpression", NS).text
-    assert cond.strip() == "${declaracaoSaudeRatificada == true}"
+    # Constante falsa: nenhuma variável gravada por tarefa ou chamador abre o caminho.
+    assert cond.strip() == "${false}"
     assert condicionais[0].get("targetRef") == "C2DS_T_Declarar"
     # O erro é capturado na borda do subprocesso e termina SEM efeito (sem listener, sem mensagem).
     borda = _por_id(raiz, "C2_B_DSNaoRatificada")
@@ -88,7 +89,9 @@ def test_ds_node_fail_closed_until_vw0_d16(raiz: etree._Element) -> None:
 def test_oferta_com_cpt_percorre_carta_declaracao_e_decisao(raiz: etree._Element) -> None:
     oferta = _por_id(raiz, "C2_G_OfertaCPT")
     com_cpt = _fluxo(raiz, "C2_G_OfertaCPT", "C2_SP_DeclaracaoSaude")
-    assert com_cpt.find("bpmn:conditionExpression", NS).text.strip() == "${ofertaComCpt == true}"
+    # Forma tolerante: variável ausente não vira incidente no gateway (o padrão segue o caminho de antes).
+    esperado = '${execution.getVariable("ofertaComCpt") == true}'
+    assert com_cpt.find("bpmn:conditionExpression", NS).text.strip() == esperado
     assert oferta.get("default") != com_cpt.get("id")
     for origem, destino in [
         ("C2DS_Start", "C2DS_T_Carta"),

@@ -751,7 +751,7 @@
         <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_13</bpmn:outgoing>
       </bpmn:userTask>
       <bpmn:exclusiveGateway id="C2DS_G_Ratificada" name="Declaração de saúde ratificada?" default="F_CA_COMPRA_C2_DecidirContratar_15">
-        <bpmn:documentation>Nó fechado por construção: o caminho padrão é o fim de erro DS_NAO_RATIFICADO. Só a ratificação do banco de perguntas e da base (REG-11/VW0-D16) abre o outro caminho.</bpmn:documentation>
+        <bpmn:documentation>Nó fechado por construção: o caminho padrão é o fim de erro DS_NAO_RATIFICADO e o outro caminho tem condição constante falsa (nenhuma variável de processo o abre). Abrir exige PR que troque a condição depois da ratificação do banco de perguntas e da base (REG-11/VW0-D16).</bpmn:documentation>
         <bpmn:incoming>F_CA_COMPRA_C2_DecidirContratar_13</bpmn:incoming>
         <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_14</bpmn:outgoing>
         <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_15</bpmn:outgoing>
@@ -776,7 +776,7 @@
       <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_12" sourceRef="C2DS_Start" targetRef="C2DS_T_Carta" />
       <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_13" sourceRef="C2DS_T_Carta" targetRef="C2DS_G_Ratificada" />
       <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_14" name="Ratificada" sourceRef="C2DS_G_Ratificada" targetRef="C2DS_T_Declarar">
-        <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${declaracaoSaudeRatificada == true}</bpmn:conditionExpression>
+        <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${false}</bpmn:conditionExpression>
       </bpmn:sequenceFlow>
       <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_15" name="Não ratificada" sourceRef="C2DS_G_Ratificada" targetRef="C2DS_End_NaoRatificada" />
       <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_16" sourceRef="C2DS_T_Declarar" targetRef="C2DS_T_DecidirCPT" />
@@ -791,7 +791,7 @@
     </bpmn:endEvent>
     <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_08" name="Sem CPT" sourceRef="C2_G_OfertaCPT" targetRef="C2_G_Junta" />
     <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_09" name="Com CPT" sourceRef="C2_G_OfertaCPT" targetRef="C2_SP_DeclaracaoSaude">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${ofertaComCpt == true}</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable("ofertaComCpt") == true}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_10" sourceRef="C2_SP_DeclaracaoSaude" targetRef="C2_G_Junta" />
     <bpmn:sequenceFlow id="F_CA_COMPRA_C2_DecidirContratar_11" sourceRef="C2_G_Junta" targetRef="C2_T_Aceite" />

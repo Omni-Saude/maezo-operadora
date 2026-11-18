@@ -15,7 +15,7 @@ Método: parser namespace-aware, qualquer profundidade sob `<process>`; elemento
 | Arquivo | sha256 (bytes do arquivo no head do re-base) | processos | tasks | gateways | events | **denominador** |
 |---|---|---|---|---|---|---|
 | `CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn` | `b77619a1bdc997b0598627c36ff8273dc6402ac05702acbcad59b0b06381a0e7` | 7 | 36 (2 uT + 31 sT + 3 cA) | 21 (19X + 2P) | 34 (8+20+1+2+3) | **98** |
-| `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn` | `1f145fe75b5a53baa5bb704bc9ca2d58846192f0fec7854cde3603e8452ff0b3` | 5 | 24 (7 uT + 10 sT + 7 cA) | 24 (23X + 1EB) | 62 (11+31+4+6+10) | **115** |
+| `CA_1_COMPRA (com suporte)_v4_adaptado.bpmn` | `6ad4983df2bc935b8f5cc0f3b4cea256c62c0e6de6e66b9c2a6fb28ea645e0fe` | 5 | 24 (7 uT + 10 sT + 7 cA) | 24 (23X + 1EB) | 62 (11+31+4+6+10) | **115** |
 | `CA_2_UTILIZACAO_v4_adaptado.bpmn` | `b85ed1b4c2a130c8d7bab25e09640d367a298ddcd8e9d5b1f21750b6e35af674` | 5 | 15 (2 uT + 2 sT + 2 rT + 4 cA + 5 task) | 14 (11X + 2P + 1EB) | 42 (8+16+2+9+7) | **76** |
 | `CA_3_SUPORTE_v4_adaptado.bpmn` | `666d883e748b510c1915099a1f663648471fd9128aa7d7c0d3e6841e2c1e3576` | 5 | 25 (10 uT + 10 sT + 5 cA) | 18 (18X) | 41 (7+22+0+2+10) | **89** |
 | **TOTAL** | — | **22** | **100** | **77** | **179** | **378** |
@@ -218,7 +218,7 @@ D. IDS E DELEGATES
 F. DECLARACOES: 43 = message 36 + signal 1 + error 5 + escalation 1
 ```
 
-Pareamento Gate-3 set-level (transcrito da saída do script da base `5a8ba09e`; o inventário gerado não refaz o pareamento, e LA-02 não alterou declarações — 42 nos dois heads; veredito em §8):
+Pareamento Gate-3 set-level (transcrito da saída do script da base `5a8ba09e`; o inventário gerado não refaz o pareamento, e LA-02 não alterou declarações — 42 nos dois heads; E-SF-26 acrescentou 1 erro com throw e catch no próprio CA_1, 43 hoje, sem pareamento novo entre arquivos; veredito em §8):
 
 ```
 [PAREADO] Signal_CA_AlertaDS ('Alerta Time Data Science'): THROW CA_0#H3_EV_AlertaDS; CATCH CA_0#DS_Start_AlertaDS <- Process_CA_DS_Monitoramento (#932)

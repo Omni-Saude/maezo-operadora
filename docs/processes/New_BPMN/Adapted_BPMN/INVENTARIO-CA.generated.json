@@ -961,7 +961,7 @@
     {
       "arquivo": "docs/processes/New_BPMN/Adapted_BPMN/CA_1_COMPRA (com suporte)_v4_adaptado.bpmn",
       "chave": "CA_1",
-      "sha256": "1f145fe75b5a53baa5bb704bc9ca2d58846192f0fec7854cde3603e8452ff0b3",
+      "sha256": "6ad4983df2bc935b8f5cc0f3b4cea256c62c0e6de6e66b9c2a6fb28ea645e0fe",
       "denominador": {
         "total": 115,
         "processos": 5,
