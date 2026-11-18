@@ -117,3 +117,16 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 - Simulação de merge sobre origin/main `4826d014`: limpa; 7 arquivos (os listados no PR).
 - Consumo de CI: dois pushes. O primeiro caiu em `tests/unit/sec/test_sem_assert_nem_except_pass_em_src.py` (um `assert` em `src/maezo/platform/lembretes/job.py`); falha de processo minha: `tests/unit/sec` não estava na rodada local. Regra da janela a partir daqui: `tests/unit/sec` junto de `tests/unit/ci` antes de todo push.
 - Pronto enviado à coordenação. Próxima da fila depois do merge: E-SF-25 (banco de questionário, esqueleto e lint; `spec/health/` novo com a linha de CODEOWNERS no PR — CODEOWNERS é arquivo compartilhado, CD-80: gravo CAMINHO antes de abrir).
+
+## 2026-11-18 ~00:20Z — #1305 incorporado; conferências; CAMINHO de E-SF-25
+
+- #1305 (E-SF-21r) mesclado; main `6520e4a1`. Ordem confirmada pela coordenação do programa.
+- CD-98 (valores do critério de seleção nos validadores do #1304): no ramo de E-SF-21r já com a main `4826d014`, rodei `tests/unit/gateway/test_cd87_classes_fechadas.py` (inclui os valores reais do produtor de lembretes) junto de `tests/unit/platform/lembretes` e `tests/unit/gateway/communications`: 482 passed. O critério novo não muda as variáveis: o produtor e o template seguem os mesmos.
+- #1306 da W2-MZO-CA: toca só `gateway/communications/{outbound_gate.py,whatsapp_templates.py}` e testes do gateway; NÃO toca `platform/lembretes`. Nenhuma atualização de ramo necessária por causa do #1305.
+- **CAMINHO (CD-80) — E-SF-25** (questionário da declaração de saúde: esqueleto e lint, banco só sintético):
+  - novo `spec/health/question-banks/` (README + um banco SINTÉTICO, aprovação com prefixo sintético, nunca carregado como real);
+  - novo validador `src/maezo/platform/validation/question_banks.py` + ligação em `validation/cli.py` (`make validate-artifacts`);
+  - testes em `tests/unit/platform/validation/`;
+  - `.github/CODEOWNERS`: UMA linha nova `/spec/health/  @rodaquino-OMNI @Omni-Saude/security-team` e, no mesmo arquivo, a contagem esperada do comentário passa de 35 para 36 (`tests/unit/ci/test_codeowners_rules.py` exige). Pergunta: dono da linha — só `security-team` (36 erros, uma por linha) ou também `@Omni-Saude/medical-team` (o lint conta um erro por token de time, então 37 e o texto da contagem muda de forma)? Padrão proposto: só `security-team`.
+  - Nada em `PLANS.md`, decisions-log, ledger, `spec/policies/autonomy/`, `_hard_frozen.yaml`. Sem migração. Sem conteúdo clínico real (J47: banco é do jurídico + médico auditor); sem Agravo (E22/J38).
+  - Começo a construir em ramo; abro só depois da CD sobre o CAMINHO.
