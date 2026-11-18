@@ -328,3 +328,11 @@ Nada de DMN, migração, DL, `PLANS.md`, CODEOWNERS, workflows ou contrato. Arqu
 - A entrada das ~14:15Z dizia que as falhas comuns tinham mensagem idêntica, mas a rodada paralela do ramo não tinha produzido o arquivo de falhas (0 linhas contra 16 da main). Afirmei sem conferir a contagem. Erro meu.
 - Refeito, em série: a seleção dos testes de `tests/unit/ci` que varrem a árvore dá `1 failed, 805 passed, 15 errors` na main limpa (`bef44a63`, clone isolado) e no ramo. As 16 linhas de resumo, com mensagem e caminhos normalizados, são idênticas nos dois lados: 0 só no ramo, 0 só na main.
 - Também não procede o que eu disse sobre "erros a mais na main nos testes de ledger": a diferença vinha da rodada defeituosa. Os 15 erros de ledger aparecem igual nos dois lados.
+
+## 2026-11-18 ~14:35Z — PRONTO #1327 (E-SF-05r parte a)
+
+- **PRONTO** enviado ao ROOT: #1327, head `b158b334db1b591194dc0b312ef7ad3b5e7b6fd9`. 40 success, 2 skipped, 0 vermelho; `live-pytest] PASS`: cred-ans 129, cancel-contas 138, recurso-nip 128, reembolso 53, restante 965. mergeable=true, clean.
+- Gates do diff e comparação da CD-170: ver as entradas das ~14:15Z (corrigida) e ~14:25Z.
+- 4 merges atrás (#1321, #1323, #1325, #1324), sem arquivo em comum e sem uso do catálogo público, não trazidos. Simulação de merge real sobre `c297f507`, em worktree temporária destacada e já removida: comerciais + gateway 7655 passed (1 falha de ambiente, igual na main).
+- Falha de processo: a primeira simulação deste PR foi feita num clone `--shared`, cujo `origin/main` apontava para o `main` local antigo (fast-forward, não valia). Refeita no sha real da main.
+- Depois do merge: LIMPEZA #1327, depois 05r-b (CAMINHO já aceito na CD-162).
