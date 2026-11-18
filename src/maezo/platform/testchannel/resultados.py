@@ -1,4 +1,4 @@
-"""Resultados do Canal de Teste — o que aconteceu com um caso REAL, so' para numeros DECLARADOS.
+"""Resultados do Canal de Teste — caso de teste pelo caminho real, so' para numeros DECLARADOS.
 
 Parte 2 de `temp/TESTES_CAMINHO_REAL.md`. A pagina `paginas/resultados.html` responde, por caso:
 o que a Helena entendeu, para onde foi, com que prazo, quem tratou, o que o humano fez e como
