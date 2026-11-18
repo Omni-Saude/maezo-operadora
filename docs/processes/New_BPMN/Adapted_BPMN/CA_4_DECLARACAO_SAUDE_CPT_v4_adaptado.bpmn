@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_CA_DECLARACAO_SAUDE" targetNamespace="http://central-atendimento/bpmn/arq01" exporter="Camunda Modeler" exporterVersion="5.36.1" modeler:executionPlatform="Camunda Platform" modeler:executionPlatformVersion="7.24.0">
+  <bpmn:collaboration id="Collaboration_CA_DECLARACAO_SAUDE" name="Central de Atendimento — 4 · DECLARAÇÃO DE SAÚDE E CPT">
+    <bpmn:documentation>E-SF-26 (EP-REG-13a). Documento do corpus CA, não implantável. Arquivo próprio para não editar o CA_1 (decisão da coordenação): o subprocesso "Declaração de Saúde e CPT" mora aqui, sozinho. LIGAÇÃO PENDENTE: o gateway "Oferta com CPT?" no C2 do CA_1 (Process_CA_COMPRA_C2_DecidirContratar), antes do aceite, que levaria a oferta com CPT a este subprocesso e o traria de volta ao aceite, NÃO existe; fica para a unidade que der implementação real às tarefas do CA_1.</bpmn:documentation>
+    <bpmn:participant id="Participant_CA_DECLARACAO_SAUDE" name="DECLARAÇÃO DE SAÚDE E CPT — Oferta com CPT" processRef="Process_CA_DECLARACAO_SAUDE" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_CA_DECLARACAO_SAUDE" name="DECLARAÇÃO DE SAÚDE E CPT — Oferta com CPT" isExecutable="true" camunda:versionTag="1.0.0-esf26" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Oferta com CPT: Carta de Orientação → declaração de saúde → decisão humana de CPT, antes do aceite (J60: só estrutura, sem prazo exibido). Sem Agravo. O nó da declaração é FECHADO por construção. Sem efeito fora deste arquivo: nenhum processo do corpus chama este (LIGAÇÃO PENDENTE, ver a documentação da colaboração).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_DECLARACAO_SAUDE">
+      <bpmn:lane id="LN_CA4_DSC_ContratacaoBackOfficeComercial" name="Contratação e back-office comercial">
+        <bpmn:flowNodeRef>DSC_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>DSC_SP_DeclaracaoSaude</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>DSC_End_Concluida</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>DSC_B_NaoRatificada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>DSC_End_Indisponivel</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="DSC_Start" name="Oferta com CPT">
+      <bpmn:outgoing>F_CA_DSC_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:subProcess id="DSC_SP_DeclaracaoSaude" name="Declaração de Saúde e CPT">
+      <bpmn:documentation>Oferta com CPT passa por Carta → declaração de saúde → decisão humana de CPT. Sem Agravo. O nó da declaração é FECHADO por construção: sem a ratificação do banco de perguntas e da base (REG-11/VW0-D16), o único caminho vai ao fim de erro tipado DS_NAO_RATIFICADO, sem efeito. Nenhuma tarefa automática.</bpmn:documentation>
+      <bpmn:incoming>F_CA_DSC_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_DSC_02</bpmn:outgoing>
+      <bpmn:startEvent id="DSCS_Start" name="Oferta com CPT recebida">
+        <bpmn:outgoing>F_CA_DSC_11</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="DSCS_T_Carta" name="Ler a Carta de Orientação" camunda:assignee="${clienteId}">
+        <bpmn:documentation>Carta de Orientação ao Beneficiário (texto do jurídico; não fornecido no corpus). Sem prazo exibido.</bpmn:documentation>
+        <bpmn:incoming>F_CA_DSC_11</bpmn:incoming>
+        <bpmn:outgoing>F_CA_DSC_12</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="DSCS_G_Ratificada" name="Declaração de saúde ratificada?" default="F_CA_DSC_14">
+        <bpmn:documentation>Nó fechado por construção: o caminho padrão é o fim de erro DS_NAO_RATIFICADO e o outro caminho tem condição constante falsa (nenhuma variável de processo o abre). Abrir exige PR que troque a condição depois da ratificação do banco de perguntas e da base (REG-11/VW0-D16).</bpmn:documentation>
+        <bpmn:incoming>F_CA_DSC_12</bpmn:incoming>
+        <bpmn:outgoing>F_CA_DSC_13</bpmn:outgoing>
+        <bpmn:outgoing>F_CA_DSC_14</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="DSCS_T_Declarar" name="Preencher a declaração de saúde" camunda:assignee="${clienteId}">
+        <bpmn:documentation>Perguntas do banco aprovado pergunta a pergunta (spec/health/question-banks/); nenhum banco real aprovado hoje.</bpmn:documentation>
+        <bpmn:incoming>F_CA_DSC_13</bpmn:incoming>
+        <bpmn:outgoing>F_CA_DSC_15</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="DSCS_T_DecidirCPT" name="Decidir sobre a CPT" camunda:candidateGroups="governanca-clinica">
+        <bpmn:documentation>Decisão humana da governança clínica; sem implementação automática. A oferta de CPT termina antes do registro do aceite. Sem Agravo.</bpmn:documentation>
+        <bpmn:incoming>F_CA_DSC_15</bpmn:incoming>
+        <bpmn:outgoing>F_CA_DSC_16</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="DSCS_End_Concluida" name="Declaração e CPT concluídas">
+        <bpmn:incoming>F_CA_DSC_16</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:endEvent id="DSCS_End_NaoRatificada" name="Declaração não ratificada — sem efeito">
+        <bpmn:incoming>F_CA_DSC_14</bpmn:incoming>
+        <bpmn:errorEventDefinition errorRef="Error_CA_DSNaoRatificada" />
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F_CA_DSC_11" sourceRef="DSCS_Start" targetRef="DSCS_T_Carta" />
+      <bpmn:sequenceFlow id="F_CA_DSC_12" sourceRef="DSCS_T_Carta" targetRef="DSCS_G_Ratificada" />
+      <bpmn:sequenceFlow id="F_CA_DSC_13" name="Ratificada" sourceRef="DSCS_G_Ratificada" targetRef="DSCS_T_Declarar">
+        <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${false}</bpmn:conditionExpression>
+      </bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="F_CA_DSC_14" name="Não ratificada" sourceRef="DSCS_G_Ratificada" targetRef="DSCS_End_NaoRatificada" />
+      <bpmn:sequenceFlow id="F_CA_DSC_15" sourceRef="DSCS_T_Declarar" targetRef="DSCS_T_DecidirCPT" />
+      <bpmn:sequenceFlow id="F_CA_DSC_16" sourceRef="DSCS_T_DecidirCPT" targetRef="DSCS_End_Concluida" />
+    </bpmn:subProcess>
+    <bpmn:endEvent id="DSC_End_Concluida" name="Declaração e CPT concluídas — segue ao aceite">
+      <bpmn:incoming>F_CA_DSC_02</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:boundaryEvent id="DSC_B_NaoRatificada" name="Declaração não ratificada" attachedToRef="DSC_SP_DeclaracaoSaude">
+      <bpmn:outgoing>F_CA_DSC_03</bpmn:outgoing>
+      <bpmn:errorEventDefinition errorRef="Error_CA_DSNaoRatificada" />
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="DSC_End_Indisponivel" name="Declaração de saúde indisponível — sem efeito">
+      <bpmn:incoming>F_CA_DSC_03</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_DSC_01" sourceRef="DSC_Start" targetRef="DSC_SP_DeclaracaoSaude" />
+    <bpmn:sequenceFlow id="F_CA_DSC_02" sourceRef="DSC_SP_DeclaracaoSaude" targetRef="DSC_End_Concluida" />
+    <bpmn:sequenceFlow id="F_CA_DSC_03" sourceRef="DSC_B_NaoRatificada" targetRef="DSC_End_Indisponivel" />
+  </bpmn:process>
+  <bpmn:error id="Error_CA_DSNaoRatificada" name="Declaração de saúde não ratificada" errorCode="DS_NAO_RATIFICADO" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_CA_DECLARACAO_SAUDE">
+    <bpmndi:BPMNPlane id="BPMNPlane_CA_DECLARACAO_SAUDE" bpmnElement="Collaboration_CA_DECLARACAO_SAUDE">
+      <bpmndi:BPMNShape id="Participant_CA_DECLARACAO_SAUDE_di" bpmnElement="Participant_CA_DECLARACAO_SAUDE" isHorizontal="true">
+        <dc:Bounds x="160" y="80" width="1240" height="400" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA4_DSC_ContratacaoBackOfficeComercial_di" bpmnElement="LN_CA4_DSC_ContratacaoBackOfficeComercial" isHorizontal="true">
+        <dc:Bounds x="190" y="80" width="1210" height="400" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSC_Start_di" bpmnElement="DSC_Start">
+        <dc:Bounds x="232" y="262" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSC_SP_DeclaracaoSaude_di" bpmnElement="DSC_SP_DeclaracaoSaude" isExpanded="true">
+        <dc:Bounds x="320" y="170" width="900" height="220" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSCS_Start_di" bpmnElement="DSCS_Start">
+        <dc:Bounds x="352" y="262" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSCS_T_Carta_di" bpmnElement="DSCS_T_Carta">
+        <dc:Bounds x="430" y="240" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSCS_G_Ratificada_di" bpmnElement="DSCS_G_Ratificada" isMarkerVisible="true">
+        <dc:Bounds x="585" y="255" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSCS_T_Declarar_di" bpmnElement="DSCS_T_Declarar">
+        <dc:Bounds x="690" y="240" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSCS_T_DecidirCPT_di" bpmnElement="DSCS_T_DecidirCPT">
+        <dc:Bounds x="850" y="240" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSCS_End_Concluida_di" bpmnElement="DSCS_End_Concluida">
+        <dc:Bounds x="1012" y="262" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSCS_End_NaoRatificada_di" bpmnElement="DSCS_End_NaoRatificada">
+        <dc:Bounds x="592" y="332" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSC_End_Concluida_di" bpmnElement="DSC_End_Concluida">
+        <dc:Bounds x="1282" y="262" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSC_B_NaoRatificada_di" bpmnElement="DSC_B_NaoRatificada">
+        <dc:Bounds x="1102" y="372" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSC_End_Indisponivel_di" bpmnElement="DSC_End_Indisponivel">
+        <dc:Bounds x="1282" y="412" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_DSC_01_di" bpmnElement="F_CA_DSC_01">
+        <di:waypoint x="268" y="280" />
+        <di:waypoint x="320" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_DSC_02_di" bpmnElement="F_CA_DSC_02">
+        <di:waypoint x="1220" y="280" />
+        <di:waypoint x="1282" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_DSC_03_di" bpmnElement="F_CA_DSC_03">
+        <di:waypoint x="1120" y="408" />
+        <di:waypoint x="1120" y="430" />
+        <di:waypoint x="1282" y="430" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_DSC_11_di" bpmnElement="F_CA_DSC_11">
+        <di:waypoint x="388" y="280" />
+        <di:waypoint x="430" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_DSC_12_di" bpmnElement="F_CA_DSC_12">
+        <di:waypoint x="530" y="280" />
+        <di:waypoint x="585" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_DSC_13_di" bpmnElement="F_CA_DSC_13">
+        <di:waypoint x="635" y="280" />
+        <di:waypoint x="690" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_DSC_14_di" bpmnElement="F_CA_DSC_14">
+        <di:waypoint x="610" y="305" />
+        <di:waypoint x="610" y="332" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_DSC_15_di" bpmnElement="F_CA_DSC_15">
+        <di:waypoint x="790" y="280" />
+        <di:waypoint x="850" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_DSC_16_di" bpmnElement="F_CA_DSC_16">
+        <di:waypoint x="950" y="280" />
+        <di:waypoint x="1012" y="280" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
