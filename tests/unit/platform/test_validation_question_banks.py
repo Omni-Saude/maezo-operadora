@@ -226,3 +226,89 @@ def test_validate_artifacts_recusa_banco_invalido(tmp_path: Path) -> None:
     vazio = tmp_path / "vazio"
     (vazio / "question-banks").mkdir(parents=True)
     assert validate_artifacts([str(vazio)]) == 1
+
+
+# --- reparos da revisao ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mutacao",
+    [
+        lambda b: b.update(mode=["declaration"]),
+        lambda b: b["sections"][0]["questions"][0].update(kind=["choice"]),
+        lambda b: b["sections"][0]["questions"][0].update(concept={}),
+        lambda b: b["sections"][0]["questions"][1].update(dependsOn={"questionRef": "q-1", "value": ["sim"]}),
+        lambda b: b.update(sections=7),
+    ],
+    ids=["modo-lista", "tipo-lista", "conceito-dict", "dependencia-valor-lista", "secoes-inteiro"],
+)
+def test_valor_nao_hashable_vira_recusa_e_nao_excecao(mutacao: Any) -> None:
+    banco = _banco()
+    mutacao(banco)
+    assert "DS_SHAPE_INVALID" in _codigos(banco)
+
+
+def test_yaml_hostil_no_validate_artifacts_vira_relatorio(tmp_path: Path) -> None:
+    pasta = tmp_path / "question-banks"
+    pasta.mkdir()
+    banco = _banco()
+    _primeira(banco)["kind"] = ["choice"]
+    (pasta / "hostil.yaml").write_text(yaml.safe_dump(banco), encoding="utf-8")
+    assert validate_artifacts([str(tmp_path)]) == 1
+
+
+@pytest.mark.parametrize(
+    "mutacao",
+    [
+        lambda b: b.update(title="Banco com agravo"),
+        lambda b: b["sections"][0].update(title="Secao AGRAVO"),
+        lambda b: b["sections"][0]["questions"][0]["options"][0].update(label="Aceito agravo"),
+    ],
+    ids=["titulo", "titulo-da-secao", "rotulo-de-opcao"],
+)
+def test_agravo_recusado_em_qualquer_texto_do_banco(mutacao: Any) -> None:
+    banco = _banco()
+    mutacao(banco)
+    assert "DS_AGRAVO_NOT_BUILT" in _codigos(banco)
+
+
+@pytest.mark.parametrize("invisivel", ["​", "‮", "\x7f", "\x85"])
+def test_caractere_invisivel_ou_de_controle_e_recusado(invisivel: str) -> None:
+    banco = _banco()
+    _primeira(banco)["prompt"] = f"[SINTETICO] agr{invisivel}avo"
+    assert "DS_SHAPE_INVALID:sections[0].questions[0]" in qb.problemas_do_banco(banco)
+
+
+def test_cabecalho_com_acento_e_espaco_no_fim_conta() -> None:
+    banco = _banco()
+    banco["guidanceText"] = (
+        "Texto.\n## Cobertura parcial temporária (CPT)  \nSecao.\n## Consequências da omissão\r\nSecao.\n"
+    )
+    assert qb.problemas_do_banco(banco) == []
+
+
+def test_banco_real_com_marca_sintetica_e_recusado() -> None:
+    banco = _real()
+    _primeira(banco)["prompt"] = "[SINTETICO] Pergunta"
+    assert "DS_SYNTHETIC_IN_REAL_BANK" in _codigos(banco, aprovacoes={"APR-CLIN-0001", "APR-REG-0001"})
+
+
+@pytest.mark.parametrize("intruso", ["outro.yml", "sub/banco.yaml", "notas.md"])
+def test_pasta_de_bancos_recusa_arquivo_que_o_lint_nao_cobriria(tmp_path: Path, intruso: str) -> None:
+    pasta = tmp_path / "question-banks"
+    pasta.mkdir()
+    (pasta / "ds.yaml").write_text(BANCO_PUBLICADO.read_text(encoding="utf-8"), encoding="utf-8")
+    alvo = pasta / intruso
+    alvo.parent.mkdir(parents=True, exist_ok=True)
+    alvo.write_text("x: [", encoding="utf-8")
+    assert validate_artifacts([str(tmp_path)]) == 1
+
+
+def test_recusa_aponta_o_lugar_certo() -> None:
+    banco = _banco()
+    _primeira(banco)["options"] = [{"value": "sim", "label": "Sim"}]
+    problemas = qb.problemas_do_banco(banco)
+    assert "DS_SHAPE_INVALID:sections[0].questions[0].options" in problemas
+    banco = _banco()
+    banco["sections"][0]["questions"][1]["dependsOn"] = {"questionRef": "q-1", "value": "talvez"}
+    assert qb.problemas_do_banco(banco) == ["DS_SHAPE_INVALID:sections[0].questions[1].dependsOn"]

@@ -27,6 +27,7 @@ Regras (codigo da recusa entre parenteses):
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Any, Final
@@ -101,10 +102,25 @@ def _ref(valor: object) -> bool:
     return isinstance(valor, str) and _REF.fullmatch(valor) is not None
 
 
+def _caractere_permitido(c: str) -> bool:
+    if c in "\t\n\r":
+        return True
+    # Controles (C0, DEL, C1) e formatacao invisivel (bidi, largura zero): recusados.
+    return unicodedata.category(c) not in {"Cc", "Cf"}
+
+
 def _texto(valor: object, maximo: int = 2000) -> bool:
-    return (
-        isinstance(valor, str) and len(valor) <= maximo and all(ord(c) >= 32 or c in "\t\n\r" for c in valor)
-    )
+    return isinstance(valor, str) and len(valor) <= maximo and all(_caractere_permitido(c) for c in valor)
+
+
+def _membro(valor: object, conjunto: Collection[str]) -> bool:
+    return isinstance(valor, str) and valor in conjunto
+
+
+def _normal(texto: str) -> str:
+    """Sem acento, minusculo, sem espaco no fim: para comparar cabecalho e procurar Agravo."""
+    sem_acento = "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c))
+    return sem_acento.casefold().rstrip()
 
 
 def _forma(valor: object, chaves: frozenset[str]) -> bool:
@@ -145,12 +161,12 @@ def _pergunta(p: object, onde: str, vistas: dict[str, Mapping[str, Any]], proble
         and p["ref"] not in vistas
         and _texto(p["prompt"], 1000)
         and _texto(p["help"])
-        and p["kind"] in TIPOS
+        and _membro(p["kind"], TIPOS)
         and type(p["required"]) is bool
     ):
         problemas.append(f"DS_SHAPE_INVALID:{onde}")
         return
-    if p["concept"] not in CONCEITOS:
+    if not _membro(p["concept"], CONCEITOS):
         problemas.append(f"DS_SHAPE_INVALID:{onde}.concept")
         return
     opcoes = p["options"]
@@ -177,11 +193,22 @@ def _pergunta(p: object, onde: str, vistas: dict[str, Mapping[str, Any]], proble
             not _forma(dep, _CHAVES_DEPENDENCIA)
             or pai is None
             or pai["kind"] != "choice"
-            or dep["value"] not in {o["value"] for o in pai["options"]}
+            or not _membro(dep["value"], {o["value"] for o in pai["options"]})
         ):
             problemas.append(f"DS_SHAPE_INVALID:{onde}.dependsOn")
             return
     vistas[p["ref"]] = p
+
+
+def _textos_do_banco(banco: Mapping[str, Any], perguntas: list[Mapping[str, Any]]) -> list[str]:
+    textos = [str(banco["title"]), str(banco["guidanceText"])]
+    secoes = banco["sections"] if isinstance(banco["sections"], list) else []
+    for secao in secoes:
+        if isinstance(secao, dict):
+            textos.append(str(secao.get("title", "")))
+    for p in perguntas:
+        textos += [str(p["prompt"]), str(p["help"]), *(str(o["label"]) for o in p["options"])]
+    return textos
 
 
 def problemas_do_banco(banco: object, *, aprovacoes: Collection[str] = APROVACOES_PUBLICADAS) -> list[str]:
@@ -193,7 +220,7 @@ def problemas_do_banco(banco: object, *, aprovacoes: Collection[str] = APROVACOE
         banco["schema"] == SCHEMA
         and _ref(banco["ref"])
         and _ref(banco["version"])
-        and banco["mode"] in MODOS
+        and _membro(banco["mode"], MODOS)
         and type(banco["synthetic"]) is bool
         and _texto(banco["title"], 160)
         and _ref(banco["guidanceRef"])
@@ -209,10 +236,11 @@ def problemas_do_banco(banco: object, *, aprovacoes: Collection[str] = APROVACOE
                 problemas.append(f"DS_CONCEPT_OUT_OF_SCOPE:{p['ref']}")
 
     texto = banco["guidanceText"]
+    linhas = {_normal(linha) for linha in texto.splitlines()}
     for secao in SECOES_OBRIGATORIAS:
-        if secao not in texto.splitlines():
+        if _normal(secao) not in linhas:
             problemas.append(f"DS_GUIDANCE_SECTION_MISSING:{secao}")
-    if _AGRAVO.search(texto) or any(_AGRAVO.search(f"{p['prompt']} {p['help']}") for p in perguntas):
+    if any(_AGRAVO.search(_normal(t)) for t in _textos_do_banco(banco, perguntas)):
         problemas.append("DS_AGRAVO_NOT_BUILT")
 
     refs = (banco["clinicalApprovalRef"], banco["regulatoryApprovalRef"])
@@ -222,6 +250,8 @@ def problemas_do_banco(banco: object, *, aprovacoes: Collection[str] = APROVACOE
         ):
             problemas.append("DS_SYNTHETIC_UNMARKED")
     else:
+        if any(str(p["prompt"]).startswith(MARCA_SINTETICA) for p in perguntas):
+            problemas.append("DS_SYNTHETIC_IN_REAL_BANK")
         for nome, r in zip(("clinicalApprovalRef", "regulatoryApprovalRef"), refs, strict=True):
             if not _ref(r):
                 problemas.append(f"DS_APPROVAL_UNRESOLVED:{nome}")
@@ -245,7 +275,11 @@ def carregar_para_uso(
 
 
 def validate_dir(path: Path, report: Report) -> None:
-    """Lint de `spec/health/question-banks/`: todo `.yaml` tem de ser um banco valido (sintetico ou real)."""
+    """Lint de `spec/health/question-banks/`: todo `.yaml` tem de ser um banco valido (sintetico ou real).
+
+    Qualquer outro arquivo ou subpasta e' recusado: banco `.yml` ou aninhado nao escapa do lint."""
+    for intruso in sorted(p for p in path.iterdir() if not (p.is_file() and p.suffix == ".yaml")):
+        report.error(intruso, "DS_SHAPE_INVALID:not_a_bank_file (only top-level .yaml banks are allowed)")
     arquivos = sorted(path.glob("*.yaml"))
     if not arquivos:
         report.error(path, "no question bank .yaml files found")
