@@ -402,3 +402,12 @@ Verificação:
 - Arquivos: `src/maezo/gateway/commercial_admission.py`, `tests/unit/test_commercial_admission_a2.py`, `tests/unit/test_commercial_admission_a4.py`, `tests/unit/gateway/test_esf05r_acceptance.py` (novo).
 - O corpo lista as quatro dimensões da checagem de sha sem A2, cada uma com o teste, e o teste antigo vácuo do a4 entre os alterados. Também traz a revisão independente (PASS) e o `tests/unit` inteiro contra a main limpa.
 - 2 merges atrás (#1328, #1330), disjuntos, não trazidos. O pronto vai direto à coordenação do programa, com os nomes novos dos checks (CD-176/178).
+
+## 2026-11-18 ~16:50Z — PRONTO #1333 (E-SF-05r parte b)
+
+- **PRONTO** enviado direto à coordenação do programa (CD-178): #1333, head `1c46c31605f2bb49e22006ea3a73941f10596a7d`. 37 success, 2 skipped, 0 vermelho.
+  - Unit: ledger-consumer, ledger-resto, ci, ci-pesado, gateway-platform, dev, restante.
+  - Integração (`live-pytest] PASS`): recurso-nip 181, cancel-contas 138, cred-ans 129, restante 965.
+  - mergeable=true, clean.
+- 4 merges atrás (#1328, #1330, #1329, #1332), sem arquivo em comum nem uso dos símbolos tocados, não trazidos. Simulação de merge real sobre `6c12804c` (worktree destacada, removida): comerciais + gateway 7783 passed, 1 falha de ambiente.
+- Depois do merge: LIMPEZA #1333, depois a 05r-c (CAMINHO aceito na CD-162: `production.py` não muda, as rotas seguem 503, com o teste que prova).
