@@ -10,6 +10,7 @@ schema, que escrevem uma copia alterada. O ultimo bloco roda o gate contra a arv
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -576,3 +577,124 @@ def test_k1_linha_adversa_sem_id_regra_reprova(tmp_path: Path, vazio: str) -> No
     path = _rco_com_id_regra(tmp_path, [['"glosar"', vazio, '"faturamento"', '"contas"']])
     report = _run([path])
     assert not report.ok and "exige idRegra preenchido" in _messages(report)
+
+
+# ---------------------------------------------------------------------------------------------
+# K1 2.3.0 (DL-0183): saida opcional `sinalAuditoria`, vocabulario fechado em `k1.sinalAuditoria`
+# ---------------------------------------------------------------------------------------------
+
+
+def _rco_sinal(tmp_path: Path, sinais: list[str], name: str = "rco_s.dmn") -> Path:
+    path = tmp_path / "dmn" / "rco" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    linhas = [['"liberar"', '""', '""', s] for s in sinais]
+    path.write_text(
+        _dmn(path.stem, ["decisao", "classeAdverso", "fila", "sinalAuditoria"], linhas), encoding="utf-8"
+    )
+    return path
+
+
+def test_arquivo_de_dados_real_declara_o_vocabulario_do_sinal() -> None:
+    assert carregar(VOCAB).k1.sinais_auditoria == frozenset({"", "aviso_urgencia_carencia"})
+    assert "sinalAuditoria" not in carregar(VOCAB).k1.saidas_obrigatorias
+
+
+def test_k1_sinal_no_vocabulario_passa(tmp_path: Path) -> None:
+    report = _run([_rco_sinal(tmp_path, ['"aviso_urgencia_carencia"', '""', "null", ""])])
+    assert report.ok, _messages(report)
+
+
+@pytest.mark.parametrize(
+    "celula", ['"aviso_inventado"', '"AVISO_URGENCIA_CARENCIA"', 'if true then "x" else ""']
+)
+def test_k1_sinal_fora_do_vocabulario_reprova(tmp_path: Path, celula: str) -> None:
+    report = _run([_rco_sinal(tmp_path, ['""', celula])])
+    assert not report.ok
+    assert "sinalAuditoria" in _messages(report) and "fora do vocabulario fechado" in _messages(report)
+    assert len(report.findings) == 1, _messages(report)
+
+
+def test_k1_coluna_de_sinal_sem_vocabulario_no_dado_reprova(tmp_path: Path) -> None:
+    data = yaml.safe_load(VOCAB.read_text(encoding="utf-8"))
+    data["k1"].pop("sinalAuditoria")
+    out = tmp_path / "vocab.yaml"
+    out.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    report = _run([_rco_sinal(tmp_path, ['""'])], out)
+    assert not report.ok and "sem vocabulario fechado" in _messages(report)
+    assert _run([_rco(tmp_path, _VALIDAS)], out).ok  # tabela sem a coluna nao precisa do vocabulario
+
+
+@pytest.mark.parametrize(
+    "mutacao",
+    [
+        lambda d: d["k1"].update(sinalAuditoria=["aviso_urgencia_carencia"]),  # sem o vazio
+        lambda d: d["k1"].update(sinalAuditoria=["", "", "x"]),
+        lambda d: d["k1"].update(sinalAuditoria=""),
+        lambda d: d["k1"].update(sinalAuditoria=["", 3]),
+        lambda d: d["k1"]["saidas_obrigatorias"].append("sinalAuditoria"),
+    ],
+)
+def test_vocabulario_do_sinal_fora_do_schema_reprova(tmp_path: Path, mutacao: object) -> None:
+    data = yaml.safe_load(VOCAB.read_text(encoding="utf-8"))
+    mutacao(data)  # type: ignore[operator]
+    out = tmp_path / "vocab.yaml"
+    out.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    report = _run([_maezo(tmp_path, "x.dmn", ["r"], [['"ANALISE_HUMANA"']])], out)
+    assert [f.path for f in report.findings] == [out]
+
+
+def _vocab_com_pacote(tmp_path: Path, sinais_pacote: object | None, *, sem_chave_yaml: bool = False) -> Path:
+    """Copia o arquivo de dados para `tmp/rco/` com `k1/vocabulario.json` do pacote ao lado."""
+    pasta = tmp_path / "rco"
+    (pasta / "k1").mkdir(parents=True)
+    data = yaml.safe_load(VOCAB.read_text(encoding="utf-8"))
+    if sem_chave_yaml:
+        data["k1"].pop("sinalAuditoria")
+    out = pasta / "vocabulario-saida.yaml"
+    out.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    pacote: dict[str, object] = {"saidas_obrigatorias": ["decisao"]}
+    if sinais_pacote is not None:
+        pacote["sinalAuditoria"] = sinais_pacote
+    (pasta / "k1" / "vocabulario.json").write_text(json.dumps(pacote), encoding="utf-8")
+    return out
+
+
+def test_sinal_igual_ao_do_pacote_pinado_passa(tmp_path: Path) -> None:
+    out = _vocab_com_pacote(tmp_path, ["aviso_urgencia_carencia", ""])
+    assert _run([_rco_sinal(tmp_path, ['"aviso_urgencia_carencia"'])], out).ok
+
+
+def test_pacote_sem_sinal_ou_sem_pacote_nao_compara(tmp_path: Path) -> None:
+    assert _run([], _vocab_com_pacote(tmp_path, None)).ok  # pacote abaixo de 2.3.0
+    assert _run([], VOCAB).ok  # sem pacote pinado (estado sem_pacote)
+
+
+@pytest.mark.parametrize(
+    ("sinais_pacote", "sem_chave_yaml", "trecho"),
+    [
+        (["", "aviso_urgencia_carencia", "aviso_novo"], False, "so no pacote ['aviso_novo']"),
+        ([""], False, "so aqui ['aviso_urgencia_carencia']"),
+        (["", "aviso_urgencia_carencia"], True, "so no pacote ['aviso_urgencia_carencia']"),
+        ("aviso_urgencia_carencia", False, "fora da forma"),
+    ],
+)
+def test_sinal_divergente_do_pacote_pinado_reprova(
+    tmp_path: Path, sinais_pacote: object, sem_chave_yaml: bool, trecho: str
+) -> None:
+    out = _vocab_com_pacote(tmp_path, sinais_pacote, sem_chave_yaml=sem_chave_yaml)
+    report = _run([], out)
+    assert not report.ok and trecho in _messages(report), _messages(report)
+    assert [f.path for f in report.findings] == [out]
+
+
+def test_vocabulario_do_pacote_ilegivel_reprova(tmp_path: Path) -> None:
+    out = _vocab_com_pacote(tmp_path, [""])
+    (out.parent / "k1" / "vocabulario.json").write_text("{", encoding="utf-8")
+    assert "ilegivel" in _messages(_run([], out))
+
+
+def test_yaml_real_bate_com_o_pacote_real_23() -> None:
+    from tests.unit.platform import rco_k1_2_3_recorte as rec
+
+    pacote = json.loads((rec.RECORTE / "vocabulario.json").read_text(encoding="utf-8"))
+    assert frozenset(pacote["sinalAuditoria"]) == carregar(VOCAB).k1.sinais_auditoria

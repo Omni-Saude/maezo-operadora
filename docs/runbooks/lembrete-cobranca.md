@@ -10,14 +10,23 @@ sistema manda **sem ser chamado**: poucos dias antes do vencimento, "Sua mensali
 > `cobranca_lembrete_pre_vencimento` **não está ratificada** no registro
 > `spec/communications/whatsapp-templates.yaml`: a base do envio proativo é pergunta ao DPO (**RT-D4**,
 > RATIFY-LATER-DPO; ADDENDUM-01 §7 (q)). O consentimento do acesso (`atendimento_whatsapp` / `wa-consent-v2`,
-> "nesta conversa"), que a seleção abaixo exige, **não vale** como permissão de contato proativo: o gate o
-> recusa (`recontact_permission_unqualified`). Resultado: com o interruptor ligado ou não, em dry-run, real ou
+> "nesta conversa") só identifica a conversa verificada e **não vale** como permissão de contato proativo:
+> se apresentado ao gate, é recusado (`recontact_permission_unqualified`); o critério é o aceite do termo
+> (ver abaixo). Resultado: com o interruptor ligado ou não, em dry-run, real ou
 > `--simular`, **nenhum lembrete sai**; o resumo conta `recusado_outbound_PURPOSE_NOT_RATIFIED` e o job para
 > antes de ler o acesso, a cobrança ou a supressão. 2ª via e vencimento ficam só em resposta a conversa
 > iniciada pelo beneficiário. **Trava adicional (CD-25):** antes de qualquer leitura, a rodada inteira (e o
 > `--simular`) é recusada com `recusado_BENEFICIARY_OPPOSITION_NOT_EXECUTABLE` enquanto não existir oposição
 > executável para `beneficiario` (SP-OP-SUPP-001 não a registra hoje; o canal é ponto do DPO). Os passos de "Como ligar" abaixo descrevem o mecanismo (reuso decidido) e só
 > passam a valer depois de RT-D4 e do registro ratificado.
+>
+> **Critério de seleção (E-SF-21r, 17/11/2026).** A base decidida é o consentimento do termo de contato,
+> finalidade 2 (cobrança). O job seleciona pelo **aceite** dessa finalidade (`lembretes/aceite.py`), lido
+> antes de qualquer fato de cobrança; o consentimento de atendimento só identifica a conversa verificada.
+> Não há fonte de aceite em produção (termo em minuta, registro de aceites não publicado): ninguém é
+> selecionado (`sem_aceite_finalidade_cobranca`). A oposição pelo PARAR (`OposicaoPeloParar`) só é
+> executável com o gancho de entrada ligado no despachante, e nenhuma composição a monta. O lembrete só sai
+> antes do vencimento e nunca é notificação de inadimplência. Envio real fechado.
 
 ## O texto (fixo, guia de tom)
 
@@ -32,6 +41,8 @@ ao beneficiário, mesma base legal), e o texto é uma constante (`texto.py`).
 
 ## Quem recebe (todas as condições)
 
+0. **Aceite do termo de contato com a finalidade 2** (cobrança), não revogado, com o canal WhatsApp
+   (E-SF-21r). Sem ele a pessoa não é selecionada e a cobrança dela nem é lida.
 1. Acesso **verificado** e **consentimento** em vigor (`conversa_acesso_beneficiario`, DL-0083): estado
    `verificado`, consentimento dado e gravado na AMH (`consent_ref`), não revogado (REVOGAR tira a pessoa),
    nada pendente de gravação no lago.
@@ -120,7 +131,7 @@ se algum faltar, o job **recusa montar** (`lembrete_cobranca_nao_montou`), nunca
    No log (`/ecs/<name>/lembrete-cobranca`) aparece **uma linha** `lembrete_cobranca_resumo` só com
    contagens: `candidatos`, `enviaria`, `optout`, `suprimido`, `pagador_nao_e_pessoa_fisica`,
    `cobranca_da_administradora`, `sem_competencia_na_janela`, `ja_lembrado`, `fora_da_allowlist`,
-   `fonte_indisponivel_*`. Nenhum telefone, CPF, valor ou id de conversa entra no log nem em métrica.
+   `sem_aceite_finalidade_cobranca`, `fonte_indisponivel_*`. Nenhum telefone, CPF, valor ou id de conversa entra no log nem em métrica.
 3. **Modo de teste do dono** (`--simular`). O dono é beneficiário de empresa (PJ), então nunca receberia um
    lembrete real. O simulador manda **um** `[TESTE] ...` com fatos **sintéticos** (competência do mês do
    vencimento, R$ 123,45, vencimento hoje + N) a **uma** conversa da allowlist; não lê a cobrança de

@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_geral_carencia" name="Regras gerais: carência (OMNI-GERAL-CAR-0001, OMNI-GERAL-CAR-0002, OMNI-GERAL-CAR-0003)" namespace="https://omni-saude/dmn/regras-gerais">
+  <decision id="rco_geral_carencia" name="Regras gerais: carência (OMNI-GERAL-CAR-0001, OMNI-GERAL-CAR-0002, OMNI-GERAL-CAR-0003)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-GERAL-CAR-0001 (parto a termo, teto 300 dias), OMNI-GERAL-CAR-0002 (demais, teto 180 dias) e OMNI-GERAL-CAR-0003 (urgência na carência). Isenção declarada (portabilidade, dispensa contratual, coletivo no prazo da RN 557, recém-nascido no prazo legal) libera. Negativa só no eletivo com saldo de carência positivo e isenção afirmada como nenhuma (Tab. 38: 3171, LEI-9656-1998 art. 12, V). Urgência ou caráter ausente vai à regulação; saldo, grupo, isenção ou carência contratada ausentes, ou acima do teto, vão ao cadastro, nunca à negativa.</description>
+    <decisionTable id="dt_geral_carencia" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_grupoCarencia" label="grupoCarencia ← cadastro do produto: grupo de carência do TISS codigoProcedimento (parto_a_termo | demais)">
+        <inputExpression id="ie_grupoCarencia" typeRef="string"><text>grupoCarencia</text></inputExpression>
+      </input>
+      <input id="in_carenciaContratualDias" label="carenciaContratualDias ← cadastro do contrato: carência contratada para o grupo, em dias">
+        <inputExpression id="ie_carenciaContratualDias" typeRef="integer"><text>carenciaContratualDias</text></inputExpression>
+      </input>
+      <input id="in_saldoCarenciaDias" label="saldoCarenciaDias ← cadastro do beneficiário: dias que faltam para cumprir a carência do grupo na data do atendimento, já com as isenções (0 se cumprida ou isenta)">
+        <inputExpression id="ie_saldoCarenciaDias" typeRef="integer"><text>saldoCarenciaDias</text></inputExpression>
+      </input>
+      <input id="in_motivoIsencaoCarencia" label="motivoIsencaoCarencia ← derivado pelo worker (caráter TISS, datas e cadastro do beneficiário): isenção que vale no atendimento: nenhuma | portabilidade | dispensa_contratual | coletivo_ingresso_30_dias | recem_nascido_30_dias; nulo = cadastro não informa">
+        <inputExpression id="ie_motivoIsencaoCarencia" typeRef="string"><text>motivoIsencaoCarencia</text></inputExpression>
+      </input>
+      <input id="in_urgenciaAposVinteQuatroHorasCobertura" label="urgenciaAposVinteQuatroHorasCobertura ← derivado pelo worker de TISS (atendimento) e cadastro (início da cobertura): 24 horas ou mais; nulo vai à regulação">
+        <description>urgenciaAposVinteQuatroHorasCobertura ← derivado pelo worker: data e hora do atendimento (TISS) menos o início da cobertura do beneficiário (cadastro) maior ou igual a 24 horas; só com a data de início, conta do fim do dia; sem a hora do atendimento, nulo (nulo vai à regulação)</description>
+        <inputExpression id="ie_urgenciaAposVinteQuatroHorasCobertura" typeRef="boolean"><text>urgenciaAposVinteQuatroHorasCobertura</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <output id="out_sinalAuditoria" name="sinalAuditoria" typeRef="string"/>
+            <rule id="c_pre">
+        <description>Fora da vigência (antes de 2026-11-03)</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_parto_isenta">
+        <description>OMNI-GERAL-CAR-0001: isenção declarada (portabilidade, dispensa contratual, coletivo no prazo, recém-nascido no prazo): sem carência</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"parto_a_termo"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_parto_cumprida">
+        <description>OMNI-GERAL-CAR-0001: carência cumprida</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"parto_a_termo"</text></inputEntry>
+        <inputEntry><text>[0..300]</text></inputEntry>
+        <inputEntry><text>&lt;= 0</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_parto_eletivo">
+        <description>OMNI-GERAL-CAR-0001: atendimento eletivo dentro da carência, sem isenção (cadastro afirma nenhuma): negativa (Tab. 38: 3171)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"parto_a_termo"</text></inputEntry>
+        <inputEntry><text>[0..300]</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>"nenhuma"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"negar"</text></outputEntry>
+        <outputEntry><text>"3171"</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>"administrativo"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_parto_eletivo_sem_isencao">
+        <description>OMNI-GERAL-CAR-0001: eletivo com saldo e isenção não informada ou fora da lista: cadastro confere, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"parto_a_termo"</text></inputEntry>
+        <inputEntry><text>[0..300]</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias", "nenhuma")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_parto_urgencia">
+        <description>OMNI-GERAL-CAR-0003: urgência ou caráter ausente dentro da carência, sem isenção declarada: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>"parto_a_termo"</text></inputEntry>
+        <inputEntry><text>[0..300]</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_parto_saldo_nulo">
+        <description>OMNI-GERAL-CAR-0001: saldo de carência ausente: cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"parto_a_termo"</text></inputEntry>
+        <inputEntry><text>[0..300]</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_parto_contrato">
+        <description>OMNI-GERAL-CAR-0001: carência contratada ausente, negativa ou acima do teto legal de 300 dias: cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"parto_a_termo"</text></inputEntry>
+        <inputEntry><text>&lt; 0, &gt; 300, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_demais_isenta">
+        <description>OMNI-GERAL-CAR-0002: isenção declarada (portabilidade, dispensa contratual, coletivo no prazo, recém-nascido no prazo): sem carência</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"demais"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_demais_cumprida">
+        <description>OMNI-GERAL-CAR-0002: carência cumprida</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"demais"</text></inputEntry>
+        <inputEntry><text>[0..180]</text></inputEntry>
+        <inputEntry><text>&lt;= 0</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_demais_eletivo">
+        <description>OMNI-GERAL-CAR-0002: atendimento eletivo dentro da carência, sem isenção (cadastro afirma nenhuma): negativa (Tab. 38: 3171)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"demais"</text></inputEntry>
+        <inputEntry><text>[0..180]</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>"nenhuma"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"negar"</text></outputEntry>
+        <outputEntry><text>"3171"</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0002"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>"administrativo"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_demais_eletivo_sem_isencao">
+        <description>OMNI-GERAL-CAR-0002: eletivo com saldo e isenção não informada ou fora da lista: cadastro confere, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"demais"</text></inputEntry>
+        <inputEntry><text>[0..180]</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias", "nenhuma")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0002"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_demais_urgencia">
+        <description>OMNI-GERAL-CAR-0003: urgência (caráter 2) dentro da carência, sem isenção declarada, sem 24 horas cumpridas desde o início da cobertura ou sem o dado: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>"demais"</text></inputEntry>
+        <inputEntry><text>[0..180]</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_demais_urgencia_24h">
+        <description>OMNI-GERAL-CAR-0003 3.0.0 (decisão do dono PROG-COORD-26): urgência (caráter 2) dentro da carência, sem isenção declarada, com 24 horas ou mais desde o início da cobertura: liberar, com aviso depois do efeito à auditoria médica e ao cadastro para análise de risco de fraude; a cobertura parcial temporária é decidida na composição com geral_cpt (mais_restritiva)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>"demais"</text></inputEntry>
+        <inputEntry><text>[0..180]</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"aviso_urgencia_carencia"</text></outputEntry>
+      </rule>
+      <rule id="c_demais_urgencia_carater">
+        <description>OMNI-GERAL-CAR-0003: caráter ausente ou fora de 1 e 2 dentro da carência, sem isenção declarada: regulação, sem negativa (o caráter ausente nunca libera nem nega)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>"demais"</text></inputEntry>
+        <inputEntry><text>[0..180]</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_demais_saldo_nulo">
+        <description>OMNI-GERAL-CAR-0002: saldo de carência ausente: cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"demais"</text></inputEntry>
+        <inputEntry><text>[0..180]</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0002"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_demais_contrato">
+        <description>OMNI-GERAL-CAR-0002: carência contratada ausente, negativa ou acima do teto legal de 180 dias: cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"demais"</text></inputEntry>
+        <inputEntry><text>&lt; 0, &gt; 180, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("portabilidade", "dispensa_contratual", "coletivo_ingresso_30_dias", "recem_nascido_30_dias")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0002"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_fechamento">
+        <description>OMNI-GERAL-CAR-0002: grupo de carência ausente ou fora da lista: cadastro (linha final, nunca nega)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("parto_a_termo", "demais")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0002"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_sem_data">
+        <description>OMNI-GERAL-CAR-0002: data ausente (linha final, nunca nega)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0002"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

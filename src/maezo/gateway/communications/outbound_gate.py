@@ -24,6 +24,12 @@ ORDEM das verificacoes (a primeira que falha decide; o motivo e' um token, nunca
      `VARIABLE_VALUE_INVALID`      (ainda no passo 4, depois do detector) o VALOR de uma variavel nao passa
                                    no validador da SUA classe fechada (`VALIDADORES_DE_CLASSE`; classe sem
                                    validador nunca valida). Esta e' a garantia; o detector e' a defesa extra.
+     `VARIABLE_VALUE_FROM_CALLER`  (antes do validador de valor) variavel de classe resolvida pela fonte
+                                   (`CLASSES_RESOLVIDAS_PELA_FONTE`,
+                                   p.ex. `primeiro_nome`) com qualquer valor que nao seja o marcador
+                                   `VALOR_PELA_FONTE`: valor do chamador nunca vale.
+     `VARIABLE_SOURCE_UNAVAILABLE` com o marcador, o gate teria de resolver o valor pela custodia do
+                                   destinatario; GAP: nao existe fonte de primeiro nome -> recusa.
   5. `VARIABLE_CLASS_PENDING_DPO`  classe pessoal com a taxonomia de classes ainda nao ratificada (DPO).
   6. `SUBJECT_KIND_CLOSED`         tipo de titular sem oposicao executavel (beneficiario: GTM-04/D4 aberto;
                                    ADDENDUM-01 §7 (a)).
@@ -38,8 +44,9 @@ So' depois disso o gate emite uma `AutorizacaoDeEnvio`. `enviar()` acrescenta, p
 ponta a ponta: `RECIPIENT_UNRESOLVED` (custodia sem contato ou vencida) e `DUPLICATE` (reserva idempotente:
 a mesma chave nunca gera um segundo POST). O `WhatsAppServer.send_template` recusa sem autorizacao valida.
 
-Este fecho por classe e' pre-condicao de qualquer PR que ligue o envio real de recuperacao, retencao ou
-boas-vindas (D20, D21, D22).
+O fecho por classe (classes fechadas + resolucao pela fonte de `primeiro_nome`, CD-87 e CD-94) e'
+pre-condicao de qualquer PR que ligue o envio real de recuperacao, retencao ou boas-vindas (D20, D21, D22);
+a resolucao pela fonte das demais classes (data, valor, contagem, protocolo, link) tambem.
 
 LOG: so' o motivo e contagens (`contagens`). Nunca telefone, nome, referencia, variavel ou texto. Nada
 aqui emite evento de medicao (A9).
@@ -60,6 +67,7 @@ from typing import Final, Protocol
 import structlog
 
 from .whatsapp_templates import (
+    CLASSES_RESOLVIDAS_PELA_FONTE,
     FINALIDADES_GENERICAS,
     PREFIXO_VERSAO_CONSENTIMENTO_ATENDIMENTO,
     SHA256_TEXTO_CONSENTIMENTO_ATENDIMENTO,
@@ -71,6 +79,10 @@ from .whatsapp_templates import (
 )
 
 logger = structlog.get_logger(__name__)
+
+#: Marcador que o chamador manda no lugar do valor de uma variavel de classe resolvida pela fonte
+#: (`CLASSES_RESOLVIDAS_PELA_FONTE`). Qualquer outro valor nessa posicao e' recusado.
+VALOR_PELA_FONTE: Final[str] = "<<fonte>>"
 
 
 class Motivo(StrEnum):
@@ -84,6 +96,8 @@ class Motivo(StrEnum):
     PHI_IN_COMMERCIAL_INPUT = "PHI_IN_COMMERCIAL_INPUT"
     VARIABLE_CLASS_PENDING_DPO = "VARIABLE_CLASS_PENDING_DPO"
     VARIABLE_VALUE_INVALID = "VARIABLE_VALUE_INVALID"
+    VARIABLE_VALUE_FROM_CALLER = "VARIABLE_VALUE_FROM_CALLER"
+    VARIABLE_SOURCE_UNAVAILABLE = "VARIABLE_SOURCE_UNAVAILABLE"
     SUBJECT_KIND_CLOSED = "SUBJECT_KIND_CLOSED"
     RECONTACT_PERMISSION_ABSENT = "recontact_permission_absent"
     RECONTACT_PERMISSION_UNQUALIFIED = "recontact_permission_unqualified"
@@ -279,6 +293,13 @@ class OutboundGate:
             or any(v.classe not in r.classes for v in tpl.variables)
         ):
             return Motivo.PHI_IN_COMMERCIAL_INPUT
+        # Classe resolvida pela fonte: valor do chamador nunca vale; com o marcador o gate teria de resolver
+        # pela custodia, e a fonte nao existe (GAP) -> recusa.
+        pares = list(zip(tpl.variables, pedido.variaveis, strict=True))
+        if any(v.classe in CLASSES_RESOLVIDAS_PELA_FONTE and valor != VALOR_PELA_FONTE for v, valor in pares):
+            return Motivo.VARIABLE_VALUE_FROM_CALLER
+        if any(v.classe in CLASSES_RESOLVIDAS_PELA_FONTE for v, _ in pares):
+            return Motivo.VARIABLE_SOURCE_UNAVAILABLE
         # A GARANTIA: cada valor passa no validador da SUA classe fechada (a lista de termos acima e' so'
         # defesa em profundidade). Classe sem validador nunca valida.
         if any(
@@ -326,8 +347,10 @@ class OutboundGate:
             return self._recusar(Motivo.SUPPRESSED)
         tpl = r.templates[pedido.template_id]
         # PONTO UNICO de autorizacao do envio. Pre-condicao de qualquer PR que ligue o envio real de
-        # recuperacao, retencao ou boas-vindas (D20, D21, D22): o fecho por classe (validador de VALOR
-        # em `_verificar_template`) tem de valer para as classes do template; a lista de termos nao basta.
+        # recuperacao, retencao ou boas-vindas (D20, D21, D22): o fecho por classe (validador de VALOR e
+        # resolucao pela fonte de `primeiro_nome`, em `_verificar_template`; PRs CD-87 e CD-94) tem de valer
+        # para as classes do template; a lista de termos nao basta. A resolucao pela fonte das demais
+        # classes (data, valor, contagem, protocolo, link) tambem e' pre-condicao.
         self.contagens["autorizado"] += 1
         return Decisao(
             motivo=None,
