@@ -509,6 +509,38 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
 }
 
 
+#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
+#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
+#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
+#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
+_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+    {
+        "prestador_id",
+        "protocolo_cred",
+        "direcao",
+        "tipo_prestador",
+        "origem_solicitacao",
+        "data_solicitacao_iso",
+        "licenca_valida",
+        "documentacao_completa",
+        "dentro_criterios_rede",
+        "notificacao_previa_feita",
+        "substituto_equivalente_identificado",
+        "tem_beneficiarios_vinculados",
+        "indicio_irregularidade_sinalizado",
+        "admissibilidade",
+        "roteamento_natureza",
+        "exige_notificacao_previa",
+        "exige_substituto_equivalente",
+        "prazo_notificacao",
+        "fonte_regulatoria",
+        "dmn_refs",
+        "sla_analise",
+        "lacunas_enriquecimento",
+    }
+)
+
+
 class CarolinaGraph:
     """Wires Carolina's injected dependencies into a compilable `StateGraph[CarolinaState]`."""
 
@@ -905,9 +937,15 @@ class CarolinaGraph:
         # COPIA que vai ao modelo perde o texto livre, que reaparece logo abaixo demarcado.
         fatos_para_prompt = sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS)
         motivo_informado = facts.get("motivo_informado")
+        fatos_txt = render_fatos_para_prompt(
+            fatos_para_prompt,
+            booleanos=_FATOS_BOOLEANOS,
+            permitidos=_PERMITIDOS_LEGADO_U1C,
+            agente="carolina",
+        )
         prompt = (
             f"{dossier_prompt()}\n\ndirecao={direcao} route={route} motivo_humano={motivo_humano}\n"
-            f"{render_fatos_para_prompt(fatos_para_prompt, booleanos=_FATOS_BOOLEANOS)}\n"
+            f"{fatos_txt}\n"
             f"{render_untrusted_block('motivo_informado', motivo_informado)}"
         )
         try:

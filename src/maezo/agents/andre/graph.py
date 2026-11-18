@@ -731,6 +731,37 @@ _FATOS_BOOLEANOS_ADEQUACAO: Final[dict[str, str]] = {
 }
 
 
+#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
+#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
+#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
+#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
+_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+    {
+        "flow",
+        "ordem_pagamento_id",
+        "tipo_pagamento",
+        "competencia",
+        "data_vencimento",
+        "instrumento_pagamento",
+        "faixa_valor",
+        "grupo_aprovador",
+        "admissibilidade",
+        "dados_pagamento_validos",
+        "lastro_confirmado",
+        "dentro_teto_l2",
+        "duplicidade_suspeita",
+        "cohort_id",
+        "actuarial_aggregate",
+        "population_aggregate",
+        "aggregate_dataset_refs",
+        "dmn_refs",
+        "sla_aprovacao",
+        "lacunas_enriquecimento",
+        "adequacao",
+    }
+)
+
+
 class AndreGraph:
     """Wires Andre's injected dependencies into a compilable `StateGraph[AndreState]`."""
 
@@ -1410,10 +1441,10 @@ class AndreGraph:
         booleanos = dict(_FATOS_BOOLEANOS_PAGTO)
         if flow == "adequacao_dossier":
             booleanos.update(_FATOS_BOOLEANOS_ADEQUACAO)
-        prompt = (
-            f"{dossier_prompt()}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n"
-            f"{render_fatos_para_prompt(facts, booleanos=booleanos)}"
+        fatos_txt = render_fatos_para_prompt(
+            facts, booleanos=booleanos, permitidos=_PERMITIDOS_LEGADO_U1C, agente="andre"
         )
+        prompt = f"{dossier_prompt()}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n{fatos_txt}"
         try:
             narrativa = await self._llm.generate(
                 prompt,

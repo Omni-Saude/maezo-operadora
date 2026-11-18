@@ -152,7 +152,11 @@ _RAFAEL_CASOS: tuple[tuple[dict[str, Any], str], ...] = (
         "  SIM       prestador na rede credenciada\n"
         "  SEM DADO  documentacao completa\n"
         "  APURADO PELO MOTOR  valor dentro do teto de aprovacao automatica\n"
-        "\ndemais dados do caso: {'cid10': None, 'dmn_refs': {}}",
+        # DL-0191: o unico byte que mudou desde a captura. `cid10` esta' fora da lista fechada
+        # do rafael (`_PERMITIDOS_PROMPT`, DL-0190) e o renderizador do runtime o descarta; o
+        # dossie de producao ja' nao o mandava (recorte de `fatos_para_prompt`), entao nenhum
+        # prompt real mudou. A entrada continua com `cid10` de proposito: e' a prova do descarte.
+        "\ndemais dados do caso: {'dmn_refs': {}}",
     ),
 )
 
