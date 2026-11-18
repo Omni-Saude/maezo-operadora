@@ -12,6 +12,11 @@ LIGAR o envio e' PR proprio, com cada condicao do registro comprovada: termo de 
 indicado, registro de admissao, oposicao executavel, numero e modelos provisionados. Autorizacao do dono nao
 cumpre pre-condicao.
 
+Identificador do modelo de mensagem: e' PARAMETRO injetado por quem um dia montar o modulo, vindo do registro
+de modelos. Este modulo nao guarda nem resolve o identificador (nem por finalidade, nem por busca): recebe,
+valida a forma e usa. Sem identificador injetado, recusa (falha fechada). A cerca de nomes de sinal de
+retencao continua intacta; a mudanca consciente fica no ponto de composicao.
+
 Erros: `BoasVindasRecusada.code` fixo; a mensagem nunca ecoa o valor recebido.
 """
 
@@ -20,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
@@ -29,7 +35,6 @@ from typing import Any, Final, Literal
 from maezo.gateway.communications.outbound_gate import Decisao, OutboundGate, PedidoDeEnvio
 from maezo.gateway.communications.whatsapp_templates import contem_dado_de_saude
 
-TEMPLATE_BOAS_VINDAS: Final[str] = "ret.boas_vindas.v1"
 FINALIDADE_BOAS_VINDAS: Final[str] = "retencao_onboarding"
 TIPO_TITULAR: Final[str] = "beneficiario"
 ORIGEM_FONTE_COBERTURA: Final[str] = "fonte_cobertura"
@@ -41,6 +46,19 @@ class BoasVindasRecusada(ValueError):  # noqa: N818 - nome fixado pelo epico
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+#: Forma de identificador de modelo do registro: segmentos minusculos separados por ponto e versao no fim.
+_FORMA_DO_MODELO: Final[re.Pattern[str]] = re.compile(
+    r"[a-z][a-z0-9_]{0,31}(?:\.[a-z][a-z0-9_]{0,63}){1,3}\.v[0-9]{1,3}"
+)
+
+
+def _modelo_injetado(template_id: object) -> str:
+    """Recebe o identificador injetado e valida so' a forma; nunca o resolve."""
+    if type(template_id) is not str or _FORMA_DO_MODELO.fullmatch(template_id) is None:
+        raise BoasVindasRecusada("modelo_nao_injetado")
+    return template_id
 
 
 def _ref_valida(v: object) -> bool:
@@ -159,11 +177,12 @@ def fato_de_mapeamento(dados: Mapping[str, Any]) -> FatoDeCobertura:
 
 
 # --------------------------------------------------------------------------- 2. envio fechado
-def pedido_de_boas_vindas(intencao: IntencaoDeBoasVindas) -> PedidoDeEnvio:
+def pedido_de_boas_vindas(intencao: IntencaoDeBoasVindas, *, template_id: str) -> PedidoDeEnvio:
     """Pedido do despachante unico; sem variaveis (o modelo nao tem corpo); sem permissao resolvida."""
     _exigir_selo(intencao)
+    modelo = _modelo_injetado(template_id)
     return PedidoDeEnvio(
-        template_id=TEMPLATE_BOAS_VINDAS,
+        template_id=modelo,
         finalidade=FINALIDADE_BOAS_VINDAS,
         tipo_titular=TIPO_TITULAR,
         titular_ref=intencao.beneficiario_ref,
@@ -174,9 +193,11 @@ def pedido_de_boas_vindas(intencao: IntencaoDeBoasVindas) -> PedidoDeEnvio:
     )
 
 
-async def enviar_boas_vindas(intencao: IntencaoDeBoasVindas, *, gate: OutboundGate) -> Decisao:
+async def enviar_boas_vindas(
+    intencao: IntencaoDeBoasVindas, *, gate: OutboundGate, template_id: str
+) -> Decisao:
     """So' delega ao `OutboundGate.avaliar`; nao ha' outro caminho de envio."""
-    return await gate.avaliar(pedido_de_boas_vindas(intencao))
+    return await gate.avaliar(pedido_de_boas_vindas(intencao, template_id=template_id))
 
 
 # --------------------------------------------------------------------------- 3. documentos

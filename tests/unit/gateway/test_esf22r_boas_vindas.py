@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import inspect
+import re
 from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,6 +34,8 @@ from tests.unit.esf13_apoio import SupressaoFixa
 
 _RAIZ = Path(__file__).resolve().parents[3]
 VIG = date(2026, 3, 1)
+#: Dado de teste: o identificador vem do registro de modelos e e' injetado; o modulo nao o conhece.
+MODELO = "ret.boas_vindas.v1"
 
 
 def _fato(**kw: object) -> FatoDeCobertura:
@@ -146,7 +149,7 @@ def test_envio_de_boas_vindas_fechado() -> None:
     intencao = avaliar_gatilho(_fato())
     assert intencao is not None
     gate = OutboundGate(registro_de_producao(), supressao=SupressaoFixa(frozenset()))
-    decisao = asyncio.run(enviar_boas_vindas(intencao, gate=gate))
+    decisao = asyncio.run(enviar_boas_vindas(intencao, gate=gate, template_id=MODELO))
     assert decisao.permitido is False and decisao.autorizacao is None
     assert decisao.motivo is not None and decisao.motivo.value == "PURPOSE_NOT_RATIFIED"
     assert gate.contagens["autorizado"] == 0 and gate.contagens["postado"] == 0
@@ -230,7 +233,7 @@ def test_intencao_forjada_recusada() -> None:
     assert e.value.code == "sem_cobertura_ativa"
     gate = OutboundGate(registro_de_producao(), supressao=SupressaoFixa(frozenset()))
     with pytest.raises(BoasVindasRecusada) as e:
-        asyncio.run(enviar_boas_vindas(forjada, gate=gate))
+        asyncio.run(enviar_boas_vindas(forjada, gate=gate, template_id=MODELO))
     assert e.value.code == "sem_cobertura_ativa"
 
 
@@ -238,3 +241,63 @@ def test_pendente_com_recibo_nao_vira_entregue() -> None:
     with pytest.raises(BoasVindasRecusada) as e:
         marcar_entregue("pendente", recibo_ref="rec-1")
     assert e.value.code == "documento_nao_disponivel"
+
+
+# ------------------------------------------- CD-123: identificador do modelo injetado, zero literal na fonte
+class _PortaoQueNaoPodeSerChamado:
+    async def avaliar(self, pedido: object) -> object:
+        raise AssertionError("o portao nao pode ser chamado sem modelo injetado")
+
+
+@pytest.mark.parametrize(
+    "modelo",
+    [
+        None,
+        "",
+        5,
+        "ret boas_vindas v1",
+        "RET.BOAS_VINDAS.V1",
+        "ret.boas_vindas",
+        " ret.boas_vindas.v1",
+        "ret..v1",
+    ],
+)
+def test_sem_modelo_injetado_recusa(modelo: object) -> None:
+    intencao = avaliar_gatilho(_fato())
+    assert intencao is not None
+    with pytest.raises(BoasVindasRecusada) as e:
+        asyncio.run(
+            enviar_boas_vindas(
+                intencao,
+                gate=_PortaoQueNaoPodeSerChamado(),  # type: ignore[arg-type]
+                template_id=modelo,  # type: ignore[arg-type]
+            )
+        )
+    assert e.value.code == "modelo_nao_injetado"
+    assert str(modelo) not in str(e.value) or str(modelo) == ""
+
+
+def test_modelo_injetado_nao_publicado_nem_ratificado() -> None:
+    registro = registro_de_producao()
+    modelo = registro.templates[MODELO]
+    assert modelo.aprovado is False and modelo.meta_status != "approved"
+    assert modelo.purpose_ref == bv.FINALIDADE_BOAS_VINDAS
+    assert registro.finalidade_ratificada(modelo.purpose_ref) is False
+
+
+def test_fonte_sem_nome_de_sinal_e_sem_emissor() -> None:
+    fonte = Path(inspect.getfile(bv)).read_text(encoding="utf-8")
+    # Mesmo padrao generico da cerca da E-SF-RT-01: nenhum nome `ret.*` na fonte do modulo.
+    assert re.findall(r"(?<![\w.])ret\.[a-z0-9_]+\.[a-z0-9_]+", fonte) == []
+    tree = ast.parse(fonte)
+    modulos = [n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
+    modulos += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
+    for m in modulos:
+        for vedado in ("telemetry", "medicao", "measurement", "retention_signals", "eventos", "outbox"):
+            assert vedado not in m
+    chamadas = {
+        n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", "")
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+    }
+    assert not {c for c in chamadas if c.startswith(("emit", "publicar", "registrar_evento"))}
