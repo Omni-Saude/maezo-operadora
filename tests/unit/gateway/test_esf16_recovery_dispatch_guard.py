@@ -152,11 +152,26 @@ async def test_fonte_de_supressao_fora_do_formato_recusa(valor: object) -> None:
 
 
 @pytest.mark.parametrize(
-    "vigente", [("TITULAR-SINTETICO-1", "whatsapp"), (" titular-sintetico-1 ", "WhatsApp")]
+    "vigente",
+    [
+        ("TITULAR-SINTETICO-1", "whatsapp"),
+        (" titular-sintetico-1 ", "WhatsApp"),
+        ("titular-\u200bsintetico-1", "whatsapp"),  # espaco de largura zero
+        ("titular-sintetico-\uff11", "\uff57hatsapp"),  # formas de largura total
+    ],
 )
 async def test_oposicao_com_outra_grafia_na_fonte_ainda_recusa(vigente: tuple[str, str]) -> None:
     sup = _Supressao(frozenset({vigente}))
     assert await _motivo(_pedido(), supressao=sup) is MotivoDespachoRecuperacao.RECOVERY_OPPOSITION_REGISTERED
+
+
+@pytest.mark.parametrize("estranho", ["t\u0130tular-1", "titular\u00e9", "titular.1", ""])
+async def test_referencia_ilegivel_na_fonte_recusa_como_fonte_indisponivel(estranho: str) -> None:
+    # Referencia que nem normalizada fica canonica ("I" com ponto vira "i" + combinante): recusa.
+    sup = _Supressao(frozenset({(estranho, "whatsapp")}))
+    assert (
+        await _motivo(_pedido(), supressao=sup) is MotivoDespachoRecuperacao.RECOVERY_SUPPRESSION_UNAVAILABLE
+    )
 
 
 @pytest.mark.parametrize("ref", [None, "", "Titular-1", " titular-1", "titular 1", "x" * 129, 1, "-titular"])

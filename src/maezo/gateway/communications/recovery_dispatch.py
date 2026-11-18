@@ -22,6 +22,7 @@ importado por `platform/webhooks/whatsapp/dispatch.py`, pelo despachante nem por
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
@@ -100,6 +101,14 @@ def ler_chave_da_recuperacao(valor: object) -> bool:
     raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SWITCH_OFF)
 
 
+def _normalizar(valor: str) -> str:
+    """Compatibilidade Unicode, sem caractere invisivel, de controle ou espaco, em caixa unica."""
+    sem_invisiveis = "".join(
+        ch for ch in unicodedata.normalize("NFKC", valor) if unicodedata.category(ch)[0] not in {"C", "Z"}
+    )
+    return unicodedata.normalize("NFKC", sem_invisiveis.casefold())
+
+
 def _parece_documentacao(tipo: str) -> bool:
     baixo = tipo.lower()
     return "document" in baixo or "pericia" in baixo or "entrevista" in baixo
@@ -120,8 +129,13 @@ async def guardar_envio_de_recuperacao(
         type(v) is tuple and len(v) == 2 and all(type(x) is str for x in v) for v in vigentes
     ):
         raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SUPPRESSION_UNAVAILABLE)
-    # Grafia diferente na fonte (maiusculas, espacos) ainda conta como a mesma pessoa: na duvida, recusa.
-    if any(r.strip().casefold() == ref and c.strip().casefold() == CANAL for r, c in vigentes):
+    # Grafia diferente na fonte (maiusculas, espacos, invisivel, compatibilidade Unicode) ainda conta
+    # como a mesma pessoa. Referencia da fonte que nem normalizada fica em forma canonica torna a fonte
+    # ilegivel: na duvida, recusa (nunca "sem oposicao").
+    normalizadas = {(_normalizar(r), _normalizar(c)) for r, c in vigentes}
+    if not all(_REF_CANONICA.fullmatch(r) for r, _ in normalizadas):
+        raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_SUPPRESSION_UNAVAILABLE)
+    if (ref, CANAL) in normalizadas:
         raise RecuperacaoDespachoRecusado(MotivoDespachoRecuperacao.RECOVERY_OPPOSITION_REGISTERED)
     tipo = pedido.tipo_mensagem
     if type(tipo) is not str or tipo not in TIPOS_DE_MENSAGEM:
