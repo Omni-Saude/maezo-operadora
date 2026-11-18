@@ -408,3 +408,52 @@ def test_detector_continua_deixando_passar_o_texto_do_lembrete() -> None:
     from maezo.platform.lembretes.texto import CORPO_TEMPLATE_META
 
     assert not contem_dado_de_saude(CORPO_TEMPLATE_META)
+
+
+# ------------------------------------------- CD-99 item 2: competencia aceita so os doze meses como palavra
+_DOZE_MESES = frozenset(
+    {
+        "janeiro",
+        "fevereiro",
+        "março",
+        "abril",
+        "maio",
+        "junho",
+        "julho",
+        "agosto",
+        "setembro",
+        "outubro",
+        "novembro",
+        "dezembro",
+    }
+)
+
+
+def test_competencia_aceita_so_o_conjunto_fechado_de_doze_meses(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Detector por lista desligado: a prova e' so' da classe.
+    monkeypatch.setattr(wt, "TERMOS_DE_SAUDE", ())
+    monkeypatch.setattr(wt, "_CID10", re.compile(r"(?!x)x"))
+    monkeypatch.setattr(wt, "_CID10_MAIN", re.compile(r"(?!x)x"))
+    # 1) O conjunto de palavras da classe e' exatamente o de doze meses, e a expressao e' feita so dele.
+    assert len(wt._MESES) == 12 and frozenset(wt._MESES) == _DOZE_MESES
+    alternancia = re.search(r"\(([^?][^)]*)\) de ", wt._RE_COMPETENCIA.pattern)
+    assert alternancia is not None and frozenset(alternancia.group(1).split("|")) == _DOZE_MESES
+    # 2) Na posicao da palavra, so' os doze passam; qualquer outra palavra e' recusada.
+    candidatas = sorted(_DOZE_MESES) + [
+        "marco",
+        "Outubro",
+        "OUTUBRO",
+        "asma",
+        "gripe",
+        "losartana",
+        "gestante",
+        "maria",
+        "mes",
+        "outubrox",
+        "xoutubro",
+        "jan",
+        "outubro de março",
+        "",
+    ]
+    aceitas = {w for w in candidatas if valor_valido_para_classe("competencia_mes_ano", f"{w} de 2026")}
+    assert aceitas == _DOZE_MESES
