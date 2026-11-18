@@ -3436,16 +3436,201 @@
           "Process_CA_SUPORTE_S4_ConfirmarEncerrar"
         ]
       }
+    },
+    {
+      "arquivo": "docs/processes/New_BPMN/Adapted_BPMN/CA_4_DECLARACAO_SAUDE_CPT_v4_adaptado.bpmn",
+      "chave": "CA_4",
+      "sha256": "d74a5eecceb66f95b77a04fb03380e44597070a363c99a21362b2dcaf9222ee9",
+      "denominador": {
+        "total": 12,
+        "processos": 1,
+        "tasks": {
+          "total": 3,
+          "por_tipo": {
+            "userTask": 3,
+            "serviceTask": 0,
+            "sendTask": 0,
+            "receiveTask": 0,
+            "scriptTask": 0,
+            "manualTask": 0,
+            "businessRuleTask": 0,
+            "callActivity": 0,
+            "task": 0
+          }
+        },
+        "gateways": {
+          "total": 1,
+          "por_tipo": {
+            "exclusiveGateway": 1,
+            "parallelGateway": 0,
+            "inclusiveGateway": 0,
+            "eventBasedGateway": 0,
+            "complexGateway": 0
+          }
+        },
+        "events": {
+          "total": 7,
+          "por_tipo": {
+            "startEvent": 2,
+            "endEvent": 4,
+            "intermediateCatchEvent": 0,
+            "intermediateThrowEvent": 0,
+            "boundaryEvent": 1
+          }
+        }
+      },
+      "agregados": {
+        "sequenceFlow": 9,
+        "subProcess": 1,
+        "textAnnotation": 0,
+        "association": 0,
+        "dataObject": 0,
+        "dataObjectReference": 0,
+        "dataStore": 0,
+        "dataStoreReference": 0,
+        "dataInputAssociation": 0,
+        "dataOutputAssociation": 0,
+        "participant": 1,
+        "messageFlow": 0,
+        "laneSet": 1,
+        "lane": 1,
+        "flowNodeRef": 5,
+        "collaboration": 1,
+        "conditionExpression": 1,
+        "BPMNDiagram": 1,
+        "BPMNPlane": 1,
+        "BPMNShape": 14,
+        "BPMNEdge": 9
+      },
+      "planos_di_sem_id": 0,
+      "declaracoes": {
+        "message": 0,
+        "signal": 0,
+        "error": 1,
+        "escalation": 0,
+        "total": 1
+      },
+      "ids_duplicados": [],
+      "delegate_expressions": {
+        "ocorrencias": 0,
+        "distintos": 0,
+        "valores_distintos": []
+      },
+      "elementos": [
+        {
+          "id": "Process_CA_DECLARACAO_SAUDE",
+          "tipo": "process",
+          "nome": "DECLARAÇÃO DE SAÚDE E CPT — Oferta com CPT",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSC_Start",
+          "tipo": "startEvent",
+          "nome": "Oferta com CPT",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSCS_Start",
+          "tipo": "startEvent",
+          "nome": "Oferta com CPT recebida",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSCS_T_Carta",
+          "tipo": "userTask",
+          "nome": "Ler a Carta de Orientação",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSCS_G_Ratificada",
+          "tipo": "exclusiveGateway",
+          "nome": "Declaração de saúde ratificada?",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSCS_T_Declarar",
+          "tipo": "userTask",
+          "nome": "Preencher a declaração de saúde",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSCS_T_DecidirCPT",
+          "tipo": "userTask",
+          "nome": "Decidir sobre a CPT",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSCS_End_Concluida",
+          "tipo": "endEvent",
+          "nome": "Declaração e CPT concluídas",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSCS_End_NaoRatificada",
+          "tipo": "endEvent",
+          "nome": "Declaração não ratificada — sem efeito",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSC_End_Concluida",
+          "tipo": "endEvent",
+          "nome": "Declaração e CPT concluídas — segue ao aceite",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSC_B_NaoRatificada",
+          "tipo": "boundaryEvent",
+          "nome": "Declaração não ratificada",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        },
+        {
+          "id": "DSC_End_Indisponivel",
+          "tipo": "endEvent",
+          "nome": "Declaração de saúde indisponível — sem efeito",
+          "processo": "Process_CA_DECLARACAO_SAUDE"
+        }
+      ],
+      "lanes": [
+        {
+          "id": "LN_CA4_DSC_ContratacaoBackOfficeComercial",
+          "nome": "Contratação e back-office comercial",
+          "processo": "Process_CA_DECLARACAO_SAUDE",
+          "flow_node_refs": [
+            "DSC_Start",
+            "DSC_SP_DeclaracaoSaude",
+            "DSC_End_Concluida",
+            "DSC_B_NaoRatificada",
+            "DSC_End_Indisponivel"
+          ]
+        }
+      ],
+      "lanes_resumo": {
+        "flow_node_refs": 5,
+        "refs_fora_do_denominador": [
+          "DSC_SP_DeclaracaoSaude"
+        ],
+        "refs_em_mais_de_uma_lane": [],
+        "denominador_sem_lane": [
+          "Process_CA_DECLARACAO_SAUDE",
+          "DSCS_Start",
+          "DSCS_T_Carta",
+          "DSCS_G_Ratificada",
+          "DSCS_T_Declarar",
+          "DSCS_T_DecidirCPT",
+          "DSCS_End_Concluida",
+          "DSCS_End_NaoRatificada"
+        ]
+      }
     }
   ],
   "totais": {
     "denominador": {
-      "total": 367,
-      "processos": 22,
+      "total": 379,
+      "processos": 23,
       "tasks": {
-        "total": 97,
+        "total": 100,
         "por_tipo": {
-          "userTask": 18,
+          "userTask": 21,
           "serviceTask": 53,
           "sendTask": 0,
           "receiveTask": 2,
@@ -3457,9 +3642,9 @@
         }
       },
       "gateways": {
-        "total": 74,
+        "total": 75,
         "por_tipo": {
-          "exclusiveGateway": 68,
+          "exclusiveGateway": 69,
           "parallelGateway": 4,
           "inclusiveGateway": 0,
           "eventBasedGateway": 2,
@@ -3467,19 +3652,19 @@
         }
       },
       "events": {
-        "total": 174,
+        "total": 181,
         "por_tipo": {
-          "startEvent": 33,
-          "endEvent": 86,
+          "startEvent": 35,
+          "endEvent": 90,
           "intermediateCatchEvent": 7,
           "intermediateThrowEvent": 19,
-          "boundaryEvent": 29
+          "boundaryEvent": 30
         }
       }
     },
     "agregados": {
-      "sequenceFlow": 322,
-      "subProcess": 4,
+      "sequenceFlow": 331,
+      "subProcess": 5,
       "textAnnotation": 2,
       "association": 2,
       "dataObject": 27,
@@ -3488,25 +3673,25 @@
       "dataStoreReference": 19,
       "dataInputAssociation": 43,
       "dataOutputAssociation": 6,
-      "participant": 34,
+      "participant": 35,
       "messageFlow": 36,
-      "laneSet": 21,
-      "lane": 57,
-      "flowNodeRef": 337,
-      "collaboration": 4,
-      "conditionExpression": 54,
-      "BPMNDiagram": 8,
-      "BPMNPlane": 8,
-      "BPMNShape": 488,
-      "BPMNEdge": 406
+      "laneSet": 22,
+      "lane": 58,
+      "flowNodeRef": 342,
+      "collaboration": 5,
+      "conditionExpression": 55,
+      "BPMNDiagram": 9,
+      "BPMNPlane": 9,
+      "BPMNShape": 502,
+      "BPMNEdge": 415
     },
     "planos_di_sem_id": 0,
     "declaracoes": {
       "message": 36,
       "signal": 1,
-      "error": 4,
+      "error": 5,
       "escalation": 1,
-      "total": 42
+      "total": 43
     },
     "ids_duplicados_por_arquivo": 0,
     "ids_de_denominador_duplicados_no_corpus": [],

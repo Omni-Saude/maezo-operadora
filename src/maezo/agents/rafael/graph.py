@@ -416,6 +416,43 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
 _LINHA_TETO_DO_MOTOR: Final[str] = "  APURADO PELO MOTOR  valor dentro do teto de aprovacao automatica"
 
 
+#: DL-0190 (ADR-0079, unidade U1): as UNICAS chaves de `fatos` que chegam ao prompt do LLM.
+#:
+#: Lista FECHADA, e nao lista de exclusao: um campo novo em `fatos` fica fora do prompt ate'
+#: alguem o acrescentar aqui de proposito. Ficam de fora `numero_guia_tiss` (identificador
+#: direto do caso) e `cid10` (dado sensivel de saude, LGPD art. 11): nenhum dos dois serve a
+#: narrativa, que so' ajuda o medico auditor a ler o caso e nao decide nada. Os dois seguem no
+#: dossie devolvido ao humano (`fatos`), na auditoria e nas variaveis do processo.
+#:
+#: A ordem e' a do literal de `fatos` em `_build_dossier` — o repr do renderizador preserva a
+#: ordem de insercao, e ela entra nos bytes do prompt.
+_CHAVES_FATOS_PROMPT: Final[tuple[str, ...]] = (
+    "codigo_procedimento_tuss",
+    "categoria_procedimento",
+    "carater_atendimento",
+    "valor_estimado_brl",
+    "beneficiario_ativo",
+    "carencia_cumprida",
+    "dut_atendida",
+    "dentro_teto_l2",
+    "rede_credenciada",
+    "documentacao_completa",
+    "admissibilidade",
+    "recomendacao_auto",
+    "dmn_refs",
+    "sla_analise",
+    "lacunas_enriquecimento",
+)
+
+
+def fatos_para_prompt(facts: dict[str, Any]) -> dict[str, Any]:
+    """Recorta `fatos` pela lista fechada `_CHAVES_FATOS_PROMPT` (DL-0190).
+
+    So' leitura: o dicionario do dossie nao muda. Chave da lista ausente em `facts` nao entra.
+    """
+    return {chave: facts[chave] for chave in _CHAVES_FATOS_PROMPT if chave in facts}
+
+
 def render_fatos_para_prompt(facts: dict[str, Any]) -> str:
     """Renderiza os fatos do rafael com o mapa e a linha do motor deste agente.
 
@@ -802,10 +839,11 @@ class RafaelGraph:
             "lacunas_enriquecimento": state.get("gather_notes", []),
         }
         # `render_fatos_para_prompt` no lugar de `fatos={facts}`: ver `_FATOS_BOOLEANOS`.
-        # O dicionario `facts` segue intacto no dossie devolvido logo abaixo.
+        # O dicionario `facts` segue intacto no dossie devolvido logo abaixo; o prompt recebe so'
+        # o recorte da lista fechada `_CHAVES_FATOS_PROMPT` (DL-0190: sem guia nem CID-10).
         prompt = (
             f"{dossier_prompt()}\n\nroute={route} motivo_auditor={motivo_auditor}\n"
-            f"{render_fatos_para_prompt(facts)}"
+            f"{render_fatos_para_prompt(fatos_para_prompt(facts))}"
         )
         try:
             # `phi` NAO e' mais literal aqui. A pergunta "a narrativa do dossie e'
