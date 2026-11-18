@@ -3,8 +3,9 @@
 Base normativa (so' referencia, sem copia): `docs/compliance/legal/textos-base/RN-413-2016.md`, Art. 5º
 (§§2º, 5º, 6º e 7º).
 
-UM relogio so': funcao pura sobre o registro de eventos-candidatos (`commercial_t0_ledger`). Sem timer
-proprio, sem BPMN, sem DMN. NAO e' registrado no runtime de workers (nada montado).
+UM relogio so': funcao pura de dominio sobre os eventos-candidatos (gravados pelo registro de
+eventos-candidatos do gateway comercial, que importa os tipos daqui). Sem timer proprio, sem BPMN, sem DMN,
+sem importacao de outra camada. Nao e' worker e nao e' registrado em runtime nenhum (nada montado).
 
 * Inicio: o evento-candidato MAIS CEDO com dados. Qual evento e' o inicio legal nao e' decidido aqui.
 * Contagem em dias corridos, SEM pausa: suspensoes ficam registradas, mas nao descontam nada ate' haver
@@ -22,7 +23,30 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Final, Literal
 
-from maezo.gateway.commercial_t0_ledger import TIPOS_DE_INICIO, TIPOS_DE_SUSPENSAO, EventoCandidato
+TipoDeEvento = Literal[
+    "prospect_save_com_valores",
+    "party_submit",
+    "acceptance_record",
+    "pedido_de_documentacao",
+    "pericia_ou_entrevista",
+]
+#: Candidatos ao inicio do relogio (o relogio-sombra usa o MAIS CEDO deles).
+TIPOS_DE_INICIO: Final[frozenset[str]] = frozenset(
+    {"prospect_save_com_valores", "party_submit", "acceptance_record"}
+)
+#: Eventos que a norma trata como suspensao. So' registrados; a contagem nao pausa (sem ratificacao).
+TIPOS_DE_SUSPENSAO: Final[frozenset[str]] = frozenset({"pedido_de_documentacao", "pericia_ou_entrevista"})
+TIPOS_DE_EVENTO: Final[frozenset[str]] = TIPOS_DE_INICIO | TIPOS_DE_SUSPENSAO
+
+
+@dataclass(frozen=True, slots=True)
+class EventoCandidato:
+    """So' tipo, digest da referencia do proponente e instante UTC do servidor. Zero conteudo."""
+
+    proponente_digest: str
+    tipo: str
+    instante: datetime
+
 
 # --- Limiares: operacional, relogio-sombra, NAO e' prazo legal. Unico lugar destes numeros. -------------
 #: Alarmes internos (dias corridos desde o inicio do relogio-sombra).

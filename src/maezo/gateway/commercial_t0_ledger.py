@@ -21,24 +21,29 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Final, Literal, Protocol
+from typing import Protocol
 
-TipoDeEvento = Literal[
-    "prospect_save_com_valores",
-    "party_submit",
-    "acceptance_record",
-    "pedido_de_documentacao",
-    "pericia_ou_entrevista",
-]
-#: Candidatos ao inicio do relogio (o relogio-sombra usa o MAIS CEDO deles).
-TIPOS_DE_INICIO: Final[frozenset[str]] = frozenset(
-    {"prospect_save_com_valores", "party_submit", "acceptance_record"}
+from maezo.domain.rn413_contracting_clock import (
+    TIPOS_DE_EVENTO,
+    TIPOS_DE_INICIO,
+    TIPOS_DE_SUSPENSAO,
+    EventoCandidato,
+    TipoDeEvento,
 )
-#: Eventos que a norma trata como suspensao. So' registrados; a contagem nao pausa (sem ratificacao).
-TIPOS_DE_SUSPENSAO: Final[frozenset[str]] = frozenset({"pedido_de_documentacao", "pericia_ou_entrevista"})
-TIPOS_DE_EVENTO: Final[frozenset[str]] = TIPOS_DE_INICIO | TIPOS_DE_SUSPENSAO
+
+__all__ = [
+    "TIPOS_DE_EVENTO",
+    "TIPOS_DE_INICIO",
+    "TIPOS_DE_SUSPENSAO",
+    "EventoCandidato",
+    "PersistenciaDoRegistro",
+    "RegistroEmMemoriaSoParaTeste",
+    "T0LedgerRecusado",
+    "TipoDeEvento",
+    "digest_do_proponente",
+    "registrar_evento_candidato",
+]
 
 
 class T0LedgerRecusado(ValueError):  # noqa: N818
@@ -54,13 +59,6 @@ def digest_do_proponente(prospect_ref: object) -> str:
     if type(prospect_ref) is not str or not prospect_ref or len(prospect_ref) > 128:
         raise T0LedgerRecusado("t0_ledger_ref_invalida")
     return hashlib.sha256(prospect_ref.encode("utf-8")).hexdigest()
-
-
-@dataclass(frozen=True, slots=True)
-class EventoCandidato:
-    proponente_digest: str
-    tipo: str
-    instante: datetime
 
 
 def _validar(evento: object) -> EventoCandidato:

@@ -124,10 +124,8 @@ def test_nenhum_composto_de_producao_instancia_a_memoria() -> None:
         texto = p.read_text(encoding="utf-8")
         if "RegistroEmMemoriaSoParaTeste" in texto or "commercial_t0_ledger" in texto:
             usos.append(str(p.relative_to(_RAIZ)))
-    # O unico consumidor permitido e' o relogio (que so' le o tipo do evento), e ele nao instancia a memoria.
-    assert usos == ["src/maezo/tools/workers/rn413_contracting_clock.py"]
-    relogio = (src / "tools" / "workers" / "rn413_contracting_clock.py").read_text(encoding="utf-8")
-    assert "RegistroEmMemoriaSoParaTeste" not in relogio
+    # Nenhum arquivo de producao importa o registro nem instancia a implementacao em memoria.
+    assert usos == []
 
 
 def test_sem_assert_e_sem_nome_de_sinal_na_fonte() -> None:

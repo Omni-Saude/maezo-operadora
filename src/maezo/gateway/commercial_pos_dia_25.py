@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from maezo.tools.workers.rn413_contracting_clock import exigir_relogio_canonico
+from maezo.domain.rn413_contracting_clock import exigir_relogio_canonico
 
 #: Acao adversa -> codigo da recusa enquanto a hipotese estiver marcada. Todas encaminham a pessoa.
 RECUSAS_COM_A_HIPOTESE: Final[dict[str, str]] = {

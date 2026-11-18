@@ -11,17 +11,17 @@ from pathlib import Path
 
 import pytest
 
-from maezo.gateway.commercial_t0_ledger import EventoCandidato
-from maezo.tools.workers import rn413_contracting_clock as rc
-from maezo.tools.workers.rn413_contracting_clock import (
+from maezo.domain import rn413_contracting_clock as rc
+from maezo.domain.rn413_contracting_clock import (
     DIA_CORTE,
     EstadoDoRelogio,
+    EventoCandidato,
     RelogioRecusado,
     estado_do_relogio,
     itens_de_escalonamento,
 )
 
-_RAIZ = Path(rc.__file__).resolve().parents[4]
+_RAIZ = Path(rc.__file__).resolve().parents[3]
 _FONTE = Path(inspect.getfile(rc)).read_text(encoding="utf-8")
 D = "1" * 64
 INICIO = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
@@ -44,7 +44,7 @@ def test_shadow_clock_starts_at_first_prospect_save() -> None:
 
 def test_clock_not_suspended_by_marketing_reminder() -> None:
     # Lembrete de recuperacao nao e' evento do registro: nao existe como tipo, logo nao suspende nada.
-    from maezo.gateway.commercial_t0_ledger import TIPOS_DE_EVENTO
+    from maezo.domain.rn413_contracting_clock import TIPOS_DE_EVENTO
 
     assert not any("lembrete" in t or "recupera" in t for t in TIPOS_DE_EVENTO)
     assert _estado([_ev("prospect_save_com_valores", 0)], 24).dias_corridos == 24
@@ -135,7 +135,17 @@ def test_limiares_num_unico_lugar() -> None:
         texto = p.read_text(encoding="utf-8")
         if re.search(r"DIA_(ALARME|CORTE)|rn413_contracting", texto):
             outros.append(str(p.relative_to(_RAIZ)))
-    assert outros == ["src/maezo/gateway/commercial_pos_dia_25.py"]
+    assert sorted(outros) == [
+        "src/maezo/gateway/commercial_pos_dia_25.py",
+        "src/maezo/gateway/commercial_t0_ledger.py",
+    ]
+
+
+def test_dominio_puro_sem_importar_outra_camada() -> None:
+    arvore = ast.parse(_FONTE)
+    modulos = [n.module or "" for n in ast.walk(arvore) if isinstance(n, ast.ImportFrom)]
+    modulos += [a.name for n in ast.walk(arvore) if isinstance(n, ast.Import) for a in n.names]
+    assert not [m for m in modulos if m.startswith("maezo")]
 
 
 def test_nao_registrado_no_runtime() -> None:

@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 
+from maezo.domain.rn413_contracting_clock import EstadoDoRelogio, RelogioRecusado, estado_do_relogio
 from maezo.gateway import commercial_pos_dia_25 as pd
 from maezo.gateway.commercial_pos_dia_25 import PosCorteRecusado, recusar_acao_adversa
 from maezo.gateway.commercial_t0_ledger import EventoCandidato
-from maezo.tools.workers.rn413_contracting_clock import EstadoDoRelogio, RelogioRecusado, estado_do_relogio
 
 D = "3" * 64
 INICIO = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
@@ -67,7 +67,7 @@ def test_acao_desconhecida_recusa() -> None:
 def test_redacao_hipotese_nunca_conclusao() -> None:
     for fonte in (
         inspect.getsource(pd),
-        (_RAIZ / "src/maezo/tools/workers/rn413_contracting_clock.py").read_text(),
+        (_RAIZ / "src/maezo/domain/rn413_contracting_clock.py").read_text(),
     ):
         baixo = fonte.lower()
         for conclusao in ("contrato esta vigente", "contrato vigente.", "entrou em vigor", "esta em vigor"):

@@ -6,13 +6,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from maezo.gateway.commercial_t0_ledger import EventoCandidato
-from maezo.tools.workers.rn413_contracting_clock import (
+from maezo.domain.rn413_contracting_clock import (
     EstadoDoRelogio,
     RelogioRecusado,
     estado_do_relogio,
     itens_de_escalonamento,
 )
+from maezo.gateway.commercial_t0_ledger import EventoCandidato
 
 D = "4" * 64
 INICIO = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
