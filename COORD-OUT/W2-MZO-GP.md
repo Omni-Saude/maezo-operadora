@@ -316,3 +316,9 @@ Nada de DMN, migração, DL, `PLANS.md`, CODEOWNERS, workflows ou contrato. Arqu
 - Gates do diff: `make lint type validate-artifacts` verde; comerciais + gateway 7591 passed (1 falha que também ocorre na main); sec+processes+portal 3498 passed (2 falhas, sem Postgres); ci 3403 passed, 28 falhas e 141 erros = lista conhecida (os nomes de partição de shard falham igual na main limpa). Mutação: 4 violações reais vermelhas. Uma primeira mutação de "reescrita" sobreviveu por ser equivalente (o wire já canoniza) e foi trocada por filtro real.
 - 1 merge atrás: #1321 (`98b99c80`), disjunto, não trazido (CD-155); `merge-tree` limpo.
 - Falha de processo: na 1ª versão, a cerca lia um campo que o wire de fonte não tem (`operatorAnsRegistry`) e usava `assert` em src. Os testes pegaram os dois antes do commit.
+
+## 2026-11-18 ~14:15Z — CD-170 aplicada ao #1327
+
+- `git diff origin/main...HEAD`: nenhum `# noqa`, `# type: ignore` ou `# pragma` novo. `ruff check` e `ruff format --check` limpos nos 7 arquivos do diff.
+- Testes de `tests/unit/ci` que varrem a árvore (seleção por noqa, import, fence, count, shard, partition, census, inventory, hygiene, scan, boundary, perspective, chokepoint), rodados na main limpa (`bef44a63`, clone isolado) e no ramo, comparando a linha de resumo com a mensagem: nenhuma falha aparece só no ramo, e as comuns têm mensagem idêntica. A main isolada tem erros a mais só nos testes de ledger, que dependem do histórico git do clone.
+- CI do #1327 agora: 35 success, 2 skipped, 4 em curso, 0 vermelho.
