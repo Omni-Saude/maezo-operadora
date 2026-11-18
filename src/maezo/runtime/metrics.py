@@ -551,6 +551,20 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # DL-0187: cobertura das entradas que o montador entrega a cada avaliacao em SOMBRA
+        # (`tools.workers.rco_sombra`): uma contagem por entrada distinta da avaliacao, com a unidade
+        # avaliada, a origem K1 (ou `start_sem_procedencia`), o estado (`preenchida`|`nula`) e o motivo
+        # do nulo (`rco_montador.MotivoNulo`, `nenhum` se preenchida). Os cinco rotulos sao FECHADOS em
+        # `observability.RCO_COBERTURA_*` (outro valor vira `outro`). Nunca valor de entrada, tenant, guia,
+        # chave ou instancia.
+        self._rco_entrada_cobertura_total = Counter(
+            "maezo_rco_entrada_cobertura_total",
+            "Inputs delivered by the rco K1 montador to shadow evaluations, by evaluated unit, input, K1 "
+            "origin, filled/null state and null reason (COUNTS ONLY; all labels are closed vocabularies)",
+            labelnames=["unidade", "entrada", "origem", "estado", "motivo"],
+            registry=self._registry,
+        )
+
         # DL-0173: cada composicao de decisoes K1 do rco (`platform.rco_composicao`) cuja regra deu
         # revisao humana, por motivo FECHADO (`observability.RCO_COMPOSICAO_MOTIVOS`, outro valor vira
         # `outro`) e modo FECHADO (`observability.RCO_COMPOSICAO_MODOS`): `sombra` = so observado pela
@@ -899,6 +913,11 @@ class MetricsCollector:
     def rco_aviso_consumo_total(self) -> Counter:
         """Counter for rco K1 audit-signal notices consumed by the inbox (DL-0186). Label: desfecho."""
         return self._rco_aviso_consumo_total
+
+    @property
+    def rco_entrada_cobertura_total(self) -> Counter:
+        """`maezo_rco_entrada_cobertura_total{unidade,entrada,origem,estado,motivo}` (DL-0187)."""
+        return self._rco_entrada_cobertura_total
 
     @property
     def rco_composicao_revisao_total(self) -> Counter:

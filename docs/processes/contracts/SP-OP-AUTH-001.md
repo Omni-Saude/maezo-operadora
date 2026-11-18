@@ -279,7 +279,7 @@ análise de minimização.
 | `data_solicitacao_iso` | string (ISO 8601 com fuso, ou data `YYYY-MM-DD`) | nao | R-005: ancora do prazo de resposta da RN 623/2024 art. 12 ("a partir da data da solicitacao"). Lida SO por `operadora.auth.compute_response_deadline` com `MAEZO_AUTH_PRAZO_DIAS_UTEIS` ligada. Ausente = relogio do worker (a mesma ancora do timer ISO de hoje); instante sem fuso ou invalido = nao adivinhado (nulos, timer ISO); ancora no futuro e limitada a agora |
 | `uf_beneficiario` | string (UF) | nao | R-005: UF do beneficiario para os feriados estaduais do calendario versionado (`maezo.platform.calendario`). Ausente, invalida ou UF ainda sem fonte estadual conferida = so feriados nacionais (vencimento igual ou anterior ao legal, nunca posterior) |
 | `cpt_declarada` | boolean | nao | Input de `carencia_check` (Cobertura Parcial Temporaria). **Sem fonte hoje** (DPS — mesma fronteira). Ausente/nao-booleano => `REGULATORIO_ENTRADA_AUSENTE` |
-| `data_atendimento` | string (`AAAA-MM-DD`) | nao | MZO-2b: data do atendimento lida da guia TISS, elemento `dataSolicitacao` da solicitacao (`ctm_sp-sadtSolicitacaoGuia` / `ctm_internacaoSolicitacaoGuia`, TISS 4.03.00), copiada sem fuso e sem conversao. E a entrada `dataAtendimento` do dicionario de entradas do K1 1.1.0 do rco (origem `tiss`, padrao `^[0-9]{4}-(0[1-9]\|1[0-2])-(0[1-9]\|[12][0-9]\|3[01])$`). **NAO e `data_solicitacao_iso`** (instante em que o Maezo recebeu o pedido, ancora do prazo R-005) e nunca e derivada dela. Lida so pelo montador de entradas do K1 (`src/maezo/tools/workers/rco_montador.py`). Ausente ou fora do padrao = entrada nula; sem ela, os fatos do K3 (carencia, CPT e situacao cadastral na data) tambem entram nulos. Nenhuma tabela do AUTH a avalia hoje: as decisoes `rco_` sao ligadas ao processo numa unidade posterior (MZO-3, composicao das saidas do rco nos `criterio_*_ok`) |
+| `data_atendimento` | string (`AAAA-MM-DD`) | nao | MZO-2b: data do atendimento lida da guia TISS, elemento `dataSolicitacao` da solicitacao (`ctm_sp-sadtSolicitacaoGuia` / `ctm_internacaoSolicitacaoGuia`, TISS 4.03.00), copiada sem fuso e sem conversao. E a entrada `dataAtendimento` do dicionario de entradas do K1 1.1.0 do rco (origem `tiss`, padrao `^[0-9]{4}-(0[1-9]\|1[0-2])-(0[1-9]\|[12][0-9]\|3[01])$`). **NAO e `data_solicitacao_iso`** (instante em que o Maezo recebeu o pedido, ancora do prazo R-005) e nunca e derivada dela. Lida so pelo montador de entradas do K1 (`src/maezo/tools/workers/rco_montador.py`). Ausente ou fora do padrao = entrada nula; sem ela, os fatos do K3 (carencia, CPT e situacao cadastral na data) tambem entram nulos. Hoje so a SOMBRA do K1 no portao de criterios a le (DL-0187, secao "Sombra do K1 do rco no portao de criterios" abaixo): nenhuma variavel de saida depende dela. A composicao das saidas do rco nos `criterio_*_ok` segue para unidade posterior |
 
 > **GAP-AUTH-4 — PORTAO DE CRITERIOS (fechamento ESTRUTURAL, 2026-08-06).** Os quatro fatos que a
 > rota automatica consome deixaram de ser semeados: `ST_ValidateAutoApprovalCriteria`
@@ -347,8 +347,9 @@ análise de minimização.
 
 O montador (`src/maezo/tools/workers/rco_montador.py`) monta as entradas das decisoes `rco_` do pacote K1
 (ADR-0075) a partir do dicionario de entradas do K1 (`entradas.json`, versao 1.1.0, lido por
-`src/maezo/platform/rco_entradas.py`). Ele so mapeia e calcula pela formula publicada; nao decide nada e
-ainda nao esta ligado a nenhum worker deste processo. Regras:
+`src/maezo/platform/rco_entradas.py`). Ele so mapeia e calcula pela formula publicada e nao decide nada.
+Neste processo ele so e usado pela SOMBRA do portao de criterios (DL-0187, secao seguinte), que nao muda
+nenhuma variavel de saida. Regras:
 
 - **Dado ausente entra nulo** (`None`): nunca inventado, presumido, com valor padrao ou inferido. Valor fora
   do tipo ou do dominio do dicionario tambem entra nulo, com o motivo registrado. Toda entrada do K1 tem
@@ -389,6 +390,28 @@ ainda nao esta ligado a nenhum worker deste processo. Regras:
 - **Dominios cobertos nesta entrega:** `regras-gerais` (elegibilidade, carencia, CPT e materiais valem para toda
   guia) e `diarias-taxas` (38,9% das autorizacoes solicitadas no agregado do backtest 2026-10 do rco). Decisao de
   outro dominio levanta `DominioNaoSuportadoError`: o caso vai para pessoa.
+
+### Sombra do K1 do rco no portao de criterios (DL-0187)
+
+`ValidateAutoCriteriaWorker` (`operadora.auth.validate_auto_criteria`) avalia, em SOMBRA e sem mudanca de BPMN,
+a composicao `composicao_carencia_cpt` (`rco_geral_carencia` + `rco_geral_cpt`, regra `mais_restritiva`) e a
+decisao `rco_geral_elegibilidade` (`src/maezo/tools/workers/auth_rco.py`):
+
+- **Quando:** depois de o resultado dos quatro criterios estar pronto (inclusive o da degradacao) e fora do
+  tratamento de degradacao. A sombra devolve nada, nunca levanta e nao toca nenhuma variavel de saida
+  (`criterio_*_ok`, `auto_criteria_verificado`, `auto_criteria_falhas`, `auto_criteria_shadow`,
+  `motivo_bloqueio_criterios`). Rastro so na auditoria (`dmn_versions` das tabelas `rco_`, com a auditoria do
+  montador e `composicaoK1` com `modo=sombra`), no registro observacional de decisoes K1 (sempre `modo=sombra`,
+  sem ordinal) e em metricas de rotulo fechado.
+- **Entradas:** so `data_atendimento` e `codigo_procedimento_tuss` deste contrato; o carater do atendimento
+  entra nulo (a variavel `carater_atendimento` nunca e lida pelo montador), assim como K3, cadastro e os termos
+  de data e hora da urgencia, que nenhum worker deste processo produz. Com o start de hoje quase toda entrada
+  sai nula: a primeira medida e a cobertura das entradas (`maezo_rco_entrada_cobertura_total`, por entrada,
+  origem e motivo do nulo), nao a concordancia com o portao.
+- **Sem aviso:** a composicao em sombra nao enfileira aviso do K6 (`maezo_rco_aviso_total{desfecho=
+  "suprimido_sombra"}`); a reconciliacao de avisos le o modo da auditoria e nao espera linha para ela.
+- **Inerte hoje:** o pin do rco de producao esta em `sem_pacote`; a sombra so avalia algo com o primeiro pin
+  real do K1.
 
 ## Variaveis de saida
 

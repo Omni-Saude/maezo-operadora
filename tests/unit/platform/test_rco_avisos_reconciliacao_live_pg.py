@@ -58,7 +58,8 @@ async def test_reconciliacao_acha_o_aviso_que_nao_chegou_ao_outbox() -> None:
                     avaliadas=("rco_geral_carencia",),
                     sinais=(SINAL,),
                 ),
-                modo="sombra",
+                # DL-0187: a tarefa `sombra-*` registra em `modo=sombra` (auditada, nunca enfileirada)
+                modo="sombra" if task.task_id.startswith("sombra") else "efeito",
             )
             return {"ok": True}
 
@@ -85,6 +86,12 @@ async def test_reconciliacao_acha_o_aviso_que_nao_chegou_ao_outbox() -> None:
 
         await _harness(PostgresAvisosRco(dsn=dsn, tenant=tenant))._handle(_task("task-1"))
         await _harness(None)._handle(_task("task-2"))  # outbox nao configurado: aviso perdido
+        # DL-0187: sombra com o outbox LIGADO: nada vai ao outbox e a reconciliacao nao espera linha
+        await _harness(PostgresAvisosRco(dsn=dsn, tenant=tenant))._handle(_task("sombra-3"))
+        [linha] = await _sql(
+            dsn, tenant, "SELECT count(*) FROM rco_aviso_auditoria WHERE task_id = 'sombra-3'"
+        )
+        assert linha["count"] == 0
 
         antes = await _sql(dsn, tenant, "SELECT count(*) FROM rco_aviso_auditoria")
         agora = datetime.now(UTC)
@@ -96,7 +103,7 @@ async def test_reconciliacao_acha_o_aviso_que_nao_chegou_ao_outbox() -> None:
             composicoes=GRUPOS,
             avisos_do_pin=AVISOS,
         )
-        assert rel.registros == 2 and rel.esperados == 4
+        assert rel.registros == 3 and rel.esperados == 4 and rel.suprimidos_sombra == 1
         assert rel.encontrados_por_status == {"pendente": 2}
         assert [(d.codigo, d.task_id, d.fila, d.chave_idempotencia) for d in rel.divergencias] == [
             (

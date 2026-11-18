@@ -835,6 +835,122 @@ def record_rco_sombra(desfecho: str) -> None:
         logger.debug("rco_sombra_metric_emit_failed", exc_info=True)
 
 
+#: DL-0187: vocabularios FECHADOS de `maezo_rco_entrada_cobertura_total` (cobertura das entradas do montador
+#: na sombra). Cada um tem paridade fixada em teste com a sua fonte; valor fora do conjunto vira `outro`.
+#: `unidade`: o que a sombra avalia (= `rco_sombra.UNIDADES_COBERTURA`: a composicao ligada ao AUTH e as
+#: decisoes avaliadas sozinhas pelos workers).
+RCO_COBERTURA_UNIDADES: Final[frozenset[str]] = frozenset(
+    {"composicao_carencia_cpt", "rco_geral_elegibilidade", "rco_geral_prazos_conta"}
+)
+#: `entrada`: os nomes DMN que o montador sabe montar (= uniao de `rco_montador.MAPEAMENTOS`).
+RCO_COBERTURA_ENTRADAS: Final[frozenset[str]] = frozenset(
+    {
+        "autorizacaoExtemporanea",
+        "avisoItensNaoIncluidos",
+        "caraterAtendimento",
+        "carenciaContratualDias",
+        "cidIgualDlpDeclarada",
+        "cidNaDlpDeclarada",
+        "cidSecundarioInformado",
+        "classeMaterial",
+        "clausulaItensInclusos",
+        "codigoProcedimento",
+        "cptVigente",
+        "criterioRevisaoAtendido",
+        "dataAtendimento",
+        "deficienciaCadastro",
+        "diasAlemDoPrazoContratual",
+        "diasAposCirurgia",
+        "diasAteApresentacao",
+        "diasAteRecurso",
+        "diasDesdeFimImpedimento",
+        "evidenciaOperadora",
+        "familiaDiariaTaxa",
+        "grupoCarencia",
+        "idadeBeneficiario",
+        "internacaoObstetricaComAcompanhante",
+        "internacaoProgramadaOuComplicacao",
+        "mesmoProfissionalCirurgia",
+        "motivoExtemporaneidade",
+        "motivoIsencaoCarencia",
+        "pedidosExtemporaneos12mPrestador",
+        "procedimentoAlcancadoCpt",
+        "regime",
+        "registroAnvisaItem",
+        "registroAnvisaVigente",
+        "reinternacaoMesmaCausa",
+        "saldoCarenciaDias",
+        "situacaoCadastral",
+        "tipoTransacao",
+        "urgenciaAposVinteQuatroHorasCobertura",
+        "visitaNaDataDaAlta",
+    }
+)
+#: `origem`: a ORIGEM K1 da entrada no dicionario (`tiss`, `cadastro`, `derivado`, `fora_tiss`, `parametro`),
+#: salvo o valor que o montador le das variaveis de START (`Fonte.GUIA`): o contrato de start nao declara a
+#: procedencia dele, entao conta como `start_sem_procedencia` (= `rco_sombra.ORIGENS_COBERTURA`).
+RCO_COBERTURA_ORIGENS: Final[frozenset[str]] = frozenset(
+    {"tiss", "cadastro", "derivado", "fora_tiss", "parametro", "start_sem_procedencia"}
+)
+RCO_COBERTURA_ESTADOS: Final[frozenset[str]] = frozenset({"preenchida", "nula"})
+#: `motivo`: `nenhum` para entrada preenchida, senao o `rco_montador.MotivoNulo` (paridade em teste).
+RCO_COBERTURA_MOTIVOS: Final[frozenset[str]] = frozenset(
+    {
+        "nenhum",
+        "ausente_na_fonte",
+        "tipo_invalido",
+        "fora_do_dominio",
+        "derivada_sem_formula",
+        "termo_da_formula_ausente",
+        "termo_sem_produtor_no_maezo",
+        "termo_data_invalida",
+        "termo_hora_invalida",
+        "termo_parametro_invalido",
+        "termo_fora_da_forma_do_elemento",
+        "codigo_sem_valor_na_formula",
+        "termos_da_formula_em_conflito",
+        "grupo_de_saida_sem_diagnostico",
+        "tipo_guia_sem_data_de_referencia",
+        "referencia_por_tipo_guia_nao_publicada",
+        "regime_da_guia_ausente",
+        "formula_publicada_nao_implementada",
+        "prazo_contratual_negativo",
+        "k3_v1_16_nao_pinado",
+        "k3_fora_da_data_do_atendimento",
+        "k3_lacuna_saldo_isencoes_aberta",
+    }
+)
+RCO_COBERTURA_OUTRO: Final[str] = "outro"
+
+
+def _fechado(valor: str, vocabulario: frozenset[str]) -> str:
+    return valor if valor in vocabulario else RCO_COBERTURA_OUTRO
+
+
+def record_rco_entrada_cobertura(
+    *, unidade: str, entrada: str, origem: str, estado: str, motivo: str
+) -> None:
+    """Count ONE input the K1 montador delivered to a shadow evaluation — `maezo_rco_entrada_cobertura_total`
+    `{unidade, entrada, origem, estado, motivo}` (DL-0187).
+
+    Sitio de chamada unico: `tools.workers.rco_sombra` (uma vez por entrada distinta de cada avaliacao
+    montada).
+    A fracao de nulos por entrada, por motivo e por origem sai de `sum by (...)`. Os cinco rotulos sao
+    FECHADOS (um valor fora vira `outro`): cardinalidade limitada pelo codigo, nunca pelo pin nem pelo caso.
+    Nenhum valor de entrada, nenhum dado de caso. Best-effort: a telemetria nunca muda o worker.
+    """
+    try:
+        _get_metrics_collector().rco_entrada_cobertura_total.labels(
+            unidade=_fechado(unidade, RCO_COBERTURA_UNIDADES),
+            entrada=_fechado(entrada, RCO_COBERTURA_ENTRADAS),
+            origem=_fechado(origem, RCO_COBERTURA_ORIGENS),
+            estado=_fechado(estado, RCO_COBERTURA_ESTADOS),
+            motivo=_fechado(motivo, RCO_COBERTURA_MOTIVOS),
+        ).inc()
+    except Exception:  # never let telemetry disturb the worker.
+        logger.debug("rco_entrada_cobertura_metric_emit_failed", exc_info=True)
+
+
 #: DL-0173: vocabulario FECHADO de `maezo_rco_composicao_revisao_humana_total` (= os motivos de
 #: `platform.rco_composicao`, paridade fixada em teste). Valor fora do conjunto vira `outro`.
 RCO_COMPOSICAO_MOTIVOS: Final[frozenset[str]] = frozenset(
@@ -1486,6 +1602,7 @@ RCO_AVISO_DESFECHOS: Final[frozenset[str]] = frozenset(
         "outbox_indisponivel",
         "fila_sem_grupo",
         "pin_indisponivel",
+        "suprimido_sombra",
     }
 )
 

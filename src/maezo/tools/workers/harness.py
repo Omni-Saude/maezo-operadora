@@ -85,6 +85,7 @@ from maezo.platform.rco_manifesto import AvisoK6
 from maezo.platform.rco_registro import AvaliacaoRegra, RegistroDecisoesRco, contexto_da_tarefa
 from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
 from maezo.tools.workers._audit_ctx import (
+    MODO_EFEITO,
     ComposicaoRegistrada,
     collect_dmn_versions,
     collect_rco_avaliacoes,
@@ -1896,15 +1897,19 @@ class WorkerHarness:
 
         Expansao: `rco_avisos.linhas_de_aviso` com os `avisos` do K6 pinado (`self._rco_avisos_do_pin`), uma
         linha por (aviso, fila); a re-entrega da tarefa cai na mesma `chave_idempotencia` e nao duplica.
-        Sombra e efeito enfileiram igual; o indicador `efeito_k1_habilitado` nao e lido. A composicao
-        generica em sombra (`rco_sombra.avaliar_composicao_em_sombra`) nao chega aqui: ela de proposito nao
-        chama `registrar_composicao` (a regra "sombra nao enfileira" vem com a emenda ao DL-0185).
+        DL-0187 (emenda ao DL-0185): SO a composicao registrada com `modo=efeito` enfileira. A de
+        `modo=sombra` (ex.: `rco_sombra.avaliar_composicao`, ligada ao AUTH) ja deixou `sinaisAuditoria` e
+        `composicaoK1` na auditoria; aqui cada (composicao, sinal) dela vira o log
+        `rco_aviso_suprimido_sombra` e `maezo_rco_aviso_total{desfecho="suprimido_sombra"}`, e nada vai ao
+        outbox. O modo vem do registro
+        (`ComposicaoRegistrada.modo`); o indicador `efeito_k1_habilitado` nao e lido.
 
         FAIL-OPEN, no idioma de `_registrar_decisoes_rco`: UM teto total (`_RCO_AVISO_TIMEOUT_S`) com
         `asyncio.wait` (um store que engole o cancelamento nao segura a tarefa), toda falha vira log
         estruturado (so tipo e codigo, nunca a mensagem do driver) e `maezo_rco_aviso_total{desfecho}`.
         """
-        com_sinal = [c for c in composicoes.values() if c.sinais]
+        com_sinal = [c for c in composicoes.values() if c.sinais and c.modo == MODO_EFEITO]
+        self._avisos_rco_suprimidos_sombra(task, composicoes)
         if not com_sinal:
             return
         try:
@@ -1945,17 +1950,43 @@ class WorkerHarness:
             )
             record_rco_aviso("falha_enfileirar")
 
+    def _avisos_rco_suprimidos_sombra(
+        self, task: ExternalTask, composicoes: Mapping[str, ComposicaoRegistrada]
+    ) -> None:
+        """DL-0187: log `rco_aviso_suprimido_sombra` por (composicao, sinal) das composicoes em `modo=sombra`
+        e a metrica `suprimido_sombra`. So codigos (composicao e sinal do pin) e o id da tarefa. NUNCA
+        levanta.
+        """
+        try:
+            pares = [
+                (c.composicao, s) for c in composicoes.values() if c.modo != MODO_EFEITO for s in c.sinais
+            ]
+            for composicao, sinal in pares:
+                logger.info(
+                    "rco_aviso_suprimido_sombra",
+                    task_id=task.task_id,
+                    topic=task.topic,
+                    composicao=composicao,
+                    sinal=sinal,
+                )
+            record_rco_aviso("suprimido_sombra", len(pares))
+        except Exception:  # pragma: no cover - cinto e suspensorio
+            _stdlib_logger.debug("rco_aviso_suprimido_sombra_log_failed", exc_info=True)
+
     def _avisos_rco_nao_enfileirados(
         self, task: ExternalTask, composicoes: Mapping[str, ComposicaoRegistrada], motivo: str
     ) -> None:
         """Log `rco_aviso_nao_enfileirado` por (composicao, sinal) e a metrica com `motivo` (DL-0185).
 
         Chamado quando `complete` levantou do lado do cliente: a conclusao e incerta, entao nada e
-        enfileirado (a re-entrega enfileira com a mesma chave); a reconciliacao e pela auditoria. NUNCA
+        enfileirado (a re-entrega enfileira com a mesma chave); a reconciliacao e pela auditoria. So as
+        composicoes de `modo=efeito` contam (DL-0187: as de sombra nunca seriam enfileiradas). NUNCA
         levanta: a excecao original de `complete` segue o caminho de sempre.
         """
         try:
-            pares = [(c.composicao, s) for c in composicoes.values() for s in c.sinais]
+            pares = [
+                (c.composicao, s) for c in composicoes.values() if c.modo == MODO_EFEITO for s in c.sinais
+            ]
             for composicao, sinal in pares:
                 logger.warning(
                     "rco_aviso_nao_enfileirado",
@@ -2251,8 +2282,8 @@ class WorkerHarness:
                 # is classified transient below -> `complete` NEVER runs -> engine re-delivery.
                 # The forbidden direction (an engine effect with no audit row) is structurally
                 # impossible (design §4.2).
-                # DL-0185: `sinaisAuditoria` de novo nas entradas do grupo (uma reavaliacao depois de
-                # `registrar_composicao` reescreveria a entrada sem a chave: "ultima vence").
+                # DL-0185/DL-0187: `sinaisAuditoria` e `composicaoK1` de novo nas entradas do grupo (uma
+                # reavaliacao depois de `registrar_composicao` reescreveria a entrada sem as chaves).
                 reaplicar_sinais_auditoria(dmn_versions, rco_composicoes)
                 record = self._build_audit_record(task, out_vars, dict(dmn_versions))
                 audit_record_hash = await self._emit_audit(record, task)

@@ -87,6 +87,7 @@ from maezo.platform.calendario.dias_uteis import (
 )
 from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.platform.observability import record_worker_error
+from maezo.tools.workers import auth_rco
 from maezo.tools.workers.auth_criteria import CriteriaSources, criteria_sources
 from maezo.tools.workers.base import (
     ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED,
@@ -767,9 +768,18 @@ class ValidateAutoCriteriaWorker(WorkerBase):
             `auto_criteria_falhas` / `auto_criteria_shadow` lists and the single bounded
             `motivo_bloqueio_criterios` audit token. NEVER raises, NEVER emits a `bpmnError`,
             and NEVER produces a denial.
+
+        RCO K1 SHADOW (DL-0187). After `result` is fully built — on the normal AND the degraded path,
+        OUTSIDE the degradation try/except so a shadow problem can never zero the four criteria —
+        `auth_rco.avaliar_em_sombra_auth` evaluates the composition `composicao_carencia_cpt` and the
+        decision `rco_geral_elegibilidade` in SHADOW. It returns `None`, never raises and never touches
+        `result` (`auto_criteria_shadow`/`auto_criteria_falhas` included): its only traces are the audit's
+        `dmn_versions`, the observational K1 decision record (`modo=sombra`) and closed-label metrics. The
+        composition is registered with `modo=sombra`, so no K6 notice is enqueued. Inert while the rco pin
+        is `sem_pacote`.
         """
         try:
-            return self._evaluate_criteria(process_vars)
+            result = self._evaluate_criteria(process_vars)
         except Exception as exc:  # degradation (design §6): fail-safe AND visible
             # Fail-safe, not an incident: an incident stalls a care-authorization request, which
             # is worse for the beneficiary than routing it to a human auditor (mirrors DL-0037's
@@ -786,13 +796,15 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 ),
             )
             self._record_unavailability(_VALIDADOR_INDISPONIVEL)
-            return _criteria_result(
+            result = _criteria_result(
                 tecnico=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
                 financeiro=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
                 regulatorio=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
                 contratual=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
                 status="validator_unavailable",
             )
+        auth_rco.avaliar_em_sombra_auth(self._dmn, process_vars, topico=self.topic)
+        return result
 
     def _record_unavailability(self, token: str) -> None:
         """Increment the worker-error metric for a MECHANISM failure (never a business "no").
