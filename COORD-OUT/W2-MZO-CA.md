@@ -305,3 +305,125 @@ Suíte local antes do push: `tests/unit/gateway`, `tests/unit/tools`, `tests/uni
 - Gates da CD-138 rodados: `check_fronteira_agentes` PASS (769 arquivos, nenhuma dependência nova); `check_qa_isolada` PASS; `check_start_process_fence` PASS (785); `check_plans_counts` PASS (4 contagens); testes que varrem `gateway/commercial_*` e as allowlists de SQL: 135 passed.
 - Main nova `7fefa48d` (CD-142): incorporo por merge antes do push.
 - Sem push até o CAMINHO.
+
+## 2026-11-18 ~11:55Z — E-SF-07 em CI: maezo-operadora #1322 (head `4f3989e14833836dcc004dd8c099b851eb53f839`)
+
+- CD-147 aplicada: edição única em `tests/unit/domain/integration/test_identity.py` (`rn413_contracting_clock.py` em `_EXPECTED_MODULES`, contagem 21→22). `tests/unit/domain`: 528 passed. O ramo contém a main `7fefa48d`. PR declara módulo de domínio novo, função pura, não registrado em runtime, sem importador em `src`.
+- Diff: sete arquivos novos mais a guarda. PRONTO quando o CI fechar verde.
+- Nenhum número de DL nos meus ramos (CD-145 item 1).
+
+## 2026-11-18 ~11:55Z — PEDIDO-AUTONOMIA (formato da CD-145): quatro linhas, sem código
+
+Base: main `7fefa48d`. As quatro são da W2-MZO-CA; a parte de agente da 17r também. Comum a todas:
+- nada em `_hard_frozen.yaml`;
+- nenhuma ação ou classe existente muda;
+- o arquivo de aprovações continua `status: DRAFT` e `modo: shadow`;
+- só dado sintético.
+
+Gate que a entrada aciona: `tests/unit/agents/test_esf17_comercial.py::test_cd13_nenhuma_acao_existente_mudou` fixa por sha256 todas as ações de `L0-core.yaml` exceto `send_prospect_message`. Qualquer ação nova ali (linhas 2 e 3 abaixo) deixa esse teste vermelho. O arquivo é desta janela; proponho que o próprio PR da entrada acrescente o nome novo ao conjunto excluído, numa linha, sem mudar o hash. Como dona do arquivo, não me oponho a que o PR da coordenação faça essa edição; a decisão é sua.
+
+### 1. Comunicação com prospect
+
+- **Pedido:** classe de efeito `comunicacao_prospect` em `spec/policies/autonomy/action-approvals.yaml`, junto da ref `agente.whatsapp.send_prospect_message`, que aponta para ela em `mapeamento_acoes`.
+- **Agente:** `comercial`.
+- **Campos e valor mais restritivo:**
+  - `enforcement: shadow`;
+  - `dominios_exigidos: [medica, ans, seguranca]`, os três;
+  - em cada domínio, `aprovado: false`;
+  - descrição restrita a "resposta ao prospect só na sessão que ele iniciou".
+- **Vazio:**
+  - `aprovador`, `data` e `evidencia_ref` dos três domínios, no marcador `PENDENTE` que o carregador lê como não aprovado;
+  - `superficies`: lista vazia (a superfície entra com o PR de código; nunca uma referência a uma linha que ainda não existe).
+- **Teste do funil:** nenhum falha ou está pulado hoje. Hoje o envio ao prospect é classificado como `comunicacao_beneficiario` (comentário de `L0-core.yaml`, linhas 80-84). Com a entrada, a linha cria o teste "o envio ao prospect aparece em sombra como `comunicacao_prospect`, nunca como `ACAO_NAO_MAPEADA` nem como `comunicacao_beneficiario`; com o arquivo em DRAFT, a decisão é sempre negar".
+- **NÃO conceder:**
+  - qualquer `aprovado: true`;
+  - `enforcement` diferente de `shadow`;
+  - mapear para esta classe `whatsapp.send_template`, envio proativo, campanha ou lembrete;
+  - tocar `L0-core.yaml` (`send_prospect_message` L3 já existe na linha 85 e não muda).
+
+### 2. ADD01-03 — copiloto do especialista (modo `staff_assist`)
+
+- **Pedido:** ação `staff_assist_draft` em `spec/policies/autonomy/L0-core.yaml`.
+- **Agente:** `comercial`, modo `staff_assist`.
+- **Campos e valor mais restritivo:**
+  - `level: L1`: o humano autora e aprova, e o envio é sempre por clique humano;
+  - sem `hard`;
+  - sem `params`.
+- **Vazio:** `params`. A restrição "só conteúdo de produto publicado, sem ler o snapshot do prospect" fica no código e em teste, não na política.
+- **Teste do funil:** nenhum falha ou está pulado hoje. `test_staff_assist_nunca_envia_ao_prospect` passa sem a entrada, porque o modo só produz nota fixa. A linha cria testes de que o copiloto não lê o snapshot do prospect e de que nunca há ação de envio no modo `staff_assist`.
+- **NÃO conceder:**
+  - nível L2 ou L3;
+  - ação de envio ao prospect ou ao beneficiário pelo copiloto;
+  - leitura do snapshot do prospect ou de qualquer dado de membro, que depende do encarregado de dados;
+  - `generate_model_inference_phi`;
+  - mudar a classe `inferencia_llm` (continua não aprovada).
+
+### 3. RT-03, variante completa — assistente do papel "Relacionamento e renovação"
+
+- **Pedido:** ação `retention_staff_assist_draft` em `spec/policies/autonomy/L0-core.yaml`.
+- **Agente:** assistente do papel humano "Relacionamento e renovação", sem nome de pessoa e ainda sem definição de agente na main.
+- **Campos e valor mais restritivo:** `level: L1`, só rascunho ao humano; sem `hard`; sem `params`.
+- **Vazio:** `params`; nenhuma ferramenta associada na entrada.
+- **Teste do funil:** nenhum falha ou está pulado hoje; só a variante "fila humana sem assistente" é construível. Com a entrada, a linha cria:
+  - `test_assistente_retencao_sem_ferramenta_decisoria`;
+  - `test_assistente_retencao_sem_zona_phi`;
+  - o reuso de "rescisão nunca autônoma".
+- **NÃO conceder:**
+  - nível acima de L1;
+  - qualquer ferramenta de decisão de valor, elegibilidade, rescisão ou contestação;
+  - envio ao beneficiário;
+  - zona PHI ou leitura de dado do beneficiário, que depende do encarregado;
+  - rebaixar ou tocar `contract_termination` e os demais itens hard.
+
+### 4. Parte do agente da 17r
+
+- **Pedido:** nenhuma entrada própria. O teto já está na main: `send_prospect_message` L3 (`L0-core.yaml:85`) e a lista fechada de ações do agente comercial na validação de definição de agente. O que falta é a entrada da linha 1.
+- **Agente:** `comercial`.
+- **Campos, vazio, NÃO conceder:** os mesmos da linha 1. Não conceder também nenhuma ação nova ao agente comercial além das três que ele já declara (`informational_response`, `triage_and_routing`, `send_prospect_message`).
+- **Teste do funil:** nenhum falha ou está pulado hoje. Com a entrada da linha 1, a 17r ganha o critério "envio aparece em sombra como `comunicacao_prospect`". Ligar continua dependendo do encarregado, do jurídico e do dono.
+
+Gates sugeridos para o PR de cada entrada (CD-138):
+- `make validate-artifacts`;
+- `tests/unit/agents/test_esf17_comercial.py`;
+- `tests/unit/gateway/test_pep.py`, `test_pep_policy_unification.py`, `test_pep_parse_mutation_guards.py`, `test_action_execution_gateway.py`, `test_effect_enforcement.py`;
+- `tests/unit/gateway/seams/test_manifest_choked_surfaces.py`;
+- `tests/unit/sec/test_action_execution_fence.py`.
+
+## 2026-11-18 ~11:55Z — CAMINHO (CD-144 item 2): aceite do prospect cobre as finalidades 1, 5 e 7; sem push
+
+Achado antes da lista: no maezo não existe hoje regra escrita "a 7 só para prospect" nem registro numérico de finalidades.
+- O portão de campanha (`src/maezo/gateway/communications/campanha.py`) compara a finalidade do pedido com a da campanha, como texto (`purpose_ref`), e não olha o tipo de titular. O registro de campanhas é vazio.
+- O registro publicado (`spec/communications/whatsapp-templates.yaml`) tem finalidades por id de texto, sem número 1 a 7, e nenhuma ratificada.
+- O aceite com finalidades numéricas que existe é o do lembrete de cobrança do beneficiário (`src/maezo/platform/lembretes/aceite.py`, finalidade 2), que não é desta janela e não muda.
+
+Proposta, só arquivos da minha posse:
+1. NOVO `src/maezo/gateway/communications/finalidades_do_aceite.py`, tabela fechada e pura:
+   - finalidades por tipo de titular: `prospect` = {1, 5, 7}; `beneficiario` = {1..6}.
+   - validador do aceite com as regras da CD-141/CD-144: subconjunto não vazio; fora da tabela recusa; ausência = não autorizada; nunca herdada de outra finalidade nem de aceite anterior; a 5 com marca própria e explícita, sem valor padrão; a 7 nunca no aceite do beneficiário.
+   - mapa `purpose_ref` (texto) → número: VAZIO. Nenhuma finalidade publicada tem número hoje; preencher é ato do registro, não meu.
+2. `src/maezo/gateway/communications/campanha.py`, uma checagem nova no `avaliar_envio`, depois de `admitir` e antes do gate: pedido com `tipo_titular` "prospect" só passa se o `purpose_ref` da campanha mapear para {1, 5, 7}. Com o mapa vazio, recusa sempre, com motivo tipado novo e sem eco. A ordem das recusas existentes não muda.
+3. Testes, todos em arquivo novo com o id da linha: `tests/unit/gateway/test_cd144_finalidades_prospect.py`:
+   - subconjunto vazio recusa;
+   - finalidade fora de {1, 5, 7} para prospect recusa (2, 3, 4, 6 e 8);
+   - 7 no aceite do beneficiário recusa;
+   - ausência ≠ autorização;
+   - a 5 sem marca explícita recusa;
+   - nada herdado;
+   - mapa de `purpose_ref` vazio ⇒ campanha para prospect sempre recusa;
+   - nenhum envio: o gate continua recusando 100%;
+   - nenhum importador em `src` fora do portão.
+   - `tests/unit/gateway/test_esf15_portao_campanha.py` deve passar sem edição. Se a ordem de recusa obrigar a mexer nele, peço CAMINHO antes.
+
+Não toco:
+- `spec/communications/whatsapp-templates.yaml` (arquivo de contagem, com verificador em `tests/unit/ci`);
+- `outbound_gate.py`;
+- `platform/lembretes/`;
+- a pasta de autonomia;
+- `_hard_frozen.yaml`.
+Sem migração, sem DL. Nada liga envio.
+
+Subperguntas, com padrão conservador:
+- S1. O número de cada `purpose_ref` publicado: fica vazio até o registro trazer o número. Até lá, toda campanha para prospect é recusada.
+- S2. Finalidade 1 ("andamento da contratação") para prospect é transacional, não campanha. Proponho que o portão de campanha recuse também a 1 para prospect: campanha só para 5 e 7. A 1 fica para a mensagem transacional da E-SF-16 e da E-SF-23, cada uma com o próprio gate.
+
+Ramo `sf-w2/mzo-ca/cd144-finalidades`, um PR só, depois do merge da E-SF-07 (um PR aberto por vez). Sem push antes da sua resposta.
