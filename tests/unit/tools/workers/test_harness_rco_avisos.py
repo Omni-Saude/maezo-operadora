@@ -178,7 +178,7 @@ def test_registrar_acrescenta_sinais_so_as_entradas_do_grupo(pin: rco_pin.RcoRul
     sem_chave = {k: v for k, v in versoes["rco_sint_d"].items() if k != "sinaisAuditoria"}
     assert sem_chave == antes["rco_sint_d"]  # chave aditiva, nada mais muda
     assert composicoes["grupo_restritivo"] == _audit_ctx.ComposicaoRegistrada(
-        "grupo_restritivo", (sint.SINAL,), "efeito"
+        "grupo_restritivo", (sint.SINAL,), "efeito", ("rco_sint_d", "rco_sint_c")
     )
 
 
@@ -415,3 +415,125 @@ async def test_ponta_a_ponta_sintetico_ate_o_relay(pin: rco_pin.RcoRulesPin) -> 
             "chave_idempotencia": payload["chave_idempotencia"],
         }
     assert "CONTA-amh-guia-1" not in str(payloads)
+
+
+# --- revisao: contrato de ligacao, conclusao incerta, destinos e "ultima vence" ------------------------
+
+
+def _fonte_da_composicao() -> str:
+    return Path(rco_composicao.__file__).read_text(encoding="utf-8")
+
+
+async def test_compor_e_puro_e_nao_registra_nada(pin: rco_pin.RcoRulesPin) -> None:
+    """Contrato: `compor`/`compor_async` nao chamam `registrar_composicao`. Quem liga o aviso e o WORKER que
+    compoe; sem essa chamada, nada vai ao coletor nem a auditoria (a ligacao nunca e presumida)."""
+    respostas = {"rco_sint_d": [LINHA_D], "rco_sint_c": [LINHA_C]}
+
+    async def assincrono(decisao: str, entradas: Mapping[str, Any]) -> Any:
+        return copy.deepcopy(respostas[decisao])
+
+    with collect_dmn_versions() as versoes, collect_rco_composicoes() as composicoes:
+        sinc = rco_composicao.compor(
+            _grupo(pin),
+            lambda d, e: copy.deepcopy(respostas[d]),
+            {},
+            sinais_auditoria=pin.sinais_auditoria,
+            ordem_restricao=pin.ordem_restricao,
+        )
+        assinc = await rco_composicao.compor_async(
+            _grupo(pin),
+            assincrono,
+            {},
+            sinais_auditoria=pin.sinais_auditoria,
+            ordem_restricao=pin.ordem_restricao,
+        )
+    assert sinc.sinais == assinc.sinais == (sint.SINAL,)
+    assert composicoes == {} and versoes == {}
+    fonte = _fonte_da_composicao()
+    assert "registrar_composicao" not in fonte and "_audit_ctx" not in fonte
+
+
+async def test_harness_sem_registrar_nao_enfileira(pin: rco_pin.RcoRulesPin) -> None:
+    outbox = OutboxEmMemoria()
+    harness, transport, sink = _montar(pin, outbox=outbox, registrar=False)
+    await harness._handle(_task())
+    assert len(transport.completed) == 1 and outbox.linhas == {}
+    assert all("sinaisAuditoria" not in e for e in sink.emitted[0][0].dmn_versions.values())
+
+
+class _CompleteQueFalha(FakeWorkerTransport):
+    async def complete(self, task_id: str, worker_id: str, variables: dict[str, Any]) -> None:
+        raise TimeoutError("resposta perdida")
+
+
+async def test_complete_que_levanta_nao_enfileira_e_torna_observavel(
+    pin: rco_pin.RcoRulesPin, contados: list[tuple[str, int]]
+) -> None:
+    outbox = OutboxEmMemoria()
+    harness, transport, sink = _montar(pin, outbox=outbox)
+    harness._transport = _CompleteQueFalha()
+    with structlog.testing.capture_logs() as logs:
+        await harness._handle(_task())
+    assert outbox.linhas == {}  # nada enfileirado: a tarefa pode ser re-entregue
+    perdidos = [e for e in logs if e["event"] == "rco_aviso_nao_enfileirado"]
+    assert [(e["composicao"], e["sinal"], e["motivo"]) for e in perdidos] == [
+        ("grupo_restritivo", sint.SINAL, "conclusao_incerta")
+    ]
+    assert contados == [("conclusao_incerta", 1)]
+    assert len(harness._transport.failures) == 1  # o caminho de falha de sempre seguiu
+    assert sink.emitted[0][0].dmn_versions["rco_sint_d"]["sinaisAuditoria"] == [sint.SINAL]
+
+
+async def test_destinos_diferentes_do_pin_sao_os_gravados(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pin sintetico com o aviso apontando para OUTRAS filas: as linhas sao exatamente essas (nada fixo)."""
+    sint.com_formato_2_3(
+        tmp_path,
+        sint.montar(tmp_path),
+        k6=sint.k6_2_3(
+            filas={"fila_x": {"par": "sim"}, "fila_y": {"par": "nao"}},
+            avisos={sint.SINAL: {"filas": ["fila_y", "fila_x"], "prazo_parametro": "SINT-9:prazos.1"}},
+        ),
+    )
+    carregado = rco_pin.load_rco_rules_pin(tmp_path / sint.LOCK_REL, rules_dir=tmp_path / sint.RULES_DIR)
+    monkeypatch.setattr(rco_pin, "rco_rules_pin", lambda: carregado)
+    monkeypatch.setattr(at, "efeito_k1_habilitado", _proibido)
+    monkeypatch.setattr(rco_pin, "efeito_k1_habilitado", _proibido)
+    at.limpar_cache_estados()
+    outbox = OutboxEmMemoria()
+    harness, transport, _ = _montar(carregado, outbox=outbox)  # destinos pelo provedor PADRAO (o pin)
+    await harness._handle(_task())
+    assert len(transport.completed) == 1
+    assert [(r["linha"].fila, r["linha"].prazo_parametro) for r in outbox.linhas.values()] == [
+        ("fila_y", "SINT-9:prazos.1"),
+        ("fila_x", "SINT-9:prazos.1"),
+    ]
+
+
+async def test_reavaliacao_depois_de_registrar_nao_tira_a_chave_da_auditoria(
+    pin: rco_pin.RcoRulesPin,
+) -> None:
+    outbox = OutboxEmMemoria()
+    transport = FakeWorkerTransport()
+    sink = FakeAuditSink()
+    harness = WorkerHarness(transport, worker_id="w", tenant="amh", audit_sink=sink, rco_avisos=outbox)
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        versao = DmnVersion(key="rco_sint_d", id="x", version=1, deployment_id="d")
+        record_dmn_version(versao, row=LINHA_D, sombra=True)
+        registrar_composicao(
+            rco_composicao.ResultadoComposicao(
+                composicao="grupo_restritivo",
+                desfecho="escolhido",
+                avaliadas=("rco_sint_d",),
+                sinais=(sint.SINAL,),
+            ),
+            modo="sombra",
+        )
+        record_dmn_version(versao, row=LINHA_D, sombra=True)  # reescreve a entrada ("ultima vence")
+        return {}
+
+    harness.register(TOPICO, handler)
+    await harness._handle(_task())
+    assert sink.emitted[0][0].dmn_versions["rco_sint_d"]["sinaisAuditoria"] == [sint.SINAL]

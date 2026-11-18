@@ -228,7 +228,7 @@ class OutboxEmMemoria:
     async def reprocessar_falhas(self) -> int:
         rs = [r for r in self.linhas.values() if r["status"] == "falhou"]
         for r in rs:
-            r.update(status="pendente")
+            r.update(status="pendente", ultimo_erro=None)
         return len(rs)
 
     def status(self) -> list[str]:
@@ -332,3 +332,115 @@ def test_relay_recusa_subir_sem_banco_ou_broker() -> None:
 
 def test_avisos_do_pin_sao_imutaveis_no_recorte() -> None:
     assert isinstance(avisos_do_recorte(), MappingProxyType)
+
+
+# --- CLI: codigos de saida, `--once` drena tudo, modo continuo sobrevive ao banco fora ----------------
+
+
+class OutboxFora(OutboxEmMemoria):
+    """Outbox cujo banco nao responde nas `falhas` primeiras reivindicacoes."""
+
+    def __init__(self, falhas: int = 10**6) -> None:
+        super().__init__()
+        self.falhas = falhas
+        self.reivindicacoes = 0
+
+    async def reivindicar(self, **kw: Any) -> list[AvisoReivindicado]:
+        self.reivindicacoes += 1
+        if self.falhas > 0:
+            self.falhas -= 1
+            raise rco_avisos.OutboxAvisosIndisponivelError("rco_aviso_auditoria indisponivel: OSError")
+        return await super().reivindicar(**kw)
+
+    async def reprocessar_falhas(self) -> int:
+        if self.falhas > 0:
+            raise rco_avisos.OutboxAvisosIndisponivelError("rco_aviso_auditoria indisponivel: OSError")
+        return await super().reprocessar_falhas()
+
+
+def _args(*argv: str) -> Any:
+    return rco_avisos_relay.build_arg_parser().parse_args(list(argv))
+
+
+async def test_once_drena_ate_nao_sobrar_linha_e_sai_zero() -> None:
+    outbox = OutboxEmMemoria()
+    for i in range(5):
+        await outbox.enfileirar(_linhas(f"task-{i}"))
+    produtor = ProdutorFalso()
+    codigo = await rco_avisos_relay.executar(_args("--once"), outbox, produtor, reivindicada_por="r", lote=3)
+    assert codigo == 0
+    assert outbox.status() == ["entregue"] * 10  # 4 lotes de ate 3, nao um so
+    assert len(produtor.publicadas) == 10
+
+
+async def test_once_com_falha_de_publicacao_sai_um() -> None:
+    outbox = OutboxEmMemoria()
+    await outbox.enfileirar(_linhas())
+    assert (
+        await rco_avisos_relay.executar(
+            _args("--once"), outbox, ProdutorFalso(falhas=1), reivindicada_por="r"
+        )
+        == 1
+    )
+    assert outbox.status() == ["falhou", "pendente"]
+
+
+async def test_once_respeita_o_limite_de_lotes() -> None:
+    outbox = OutboxEmMemoria()
+    for i in range(3):
+        await outbox.enfileirar(_linhas(f"task-{i}"))
+    codigo = await rco_avisos_relay.drenar(outbox, ProdutorFalso(), reivindicada_por="r", lote=1, max_lotes=2)
+    assert codigo == 1 and outbox.status().count("pendente") == 4
+
+
+async def test_reprocessar_limpa_o_erro_drena_e_sai_zero() -> None:
+    outbox = OutboxEmMemoria()
+    await outbox.enfileirar(_linhas())
+    await rco_avisos_relay.drain_once(outbox, ProdutorFalso(falhas=1), reivindicada_por="r")
+    assert outbox.linhas[1]["ultimo_erro"] == "publicacao_falhou"
+    assert await rco_avisos_relay.reprocessar(outbox) == 1
+    assert (outbox.linhas[1]["status"], outbox.linhas[1]["ultimo_erro"]) == ("pendente", None)
+    outbox2 = OutboxEmMemoria()
+    await outbox2.enfileirar(_linhas())
+    await rco_avisos_relay.drain_once(outbox2, ProdutorFalso(falhas=1), reivindicada_por="r")
+    assert (
+        await rco_avisos_relay.executar(
+            _args("--reprocessar"), outbox2, ProdutorFalso(), reivindicada_por="r"
+        )
+        == 0
+    )
+    assert outbox2.status() == ["entregue", "entregue"]
+    outbox3 = OutboxEmMemoria()
+    await outbox3.enfileirar(_linhas())
+    await rco_avisos_relay.drain_once(outbox3, ProdutorFalso(falhas=1), reivindicada_por="r")
+    assert (
+        await rco_avisos_relay.executar(
+            _args("--reprocessar"), outbox3, ProdutorFalso(falhas=1), reivindicada_por="r"
+        )
+        == 1
+    )
+
+
+@pytest.mark.parametrize("argv", [("--once",), ("--reprocessar",)])
+async def test_banco_fora_sai_dois(argv: tuple[str, ...], monkeypatch: pytest.MonkeyPatch) -> None:
+    contados: list[str] = []
+    monkeypatch.setattr(rco_avisos_relay, "record_rco_aviso", lambda d, q=1: contados.append(d))
+    assert (
+        await rco_avisos_relay.executar(_args(*argv), OutboxFora(), ProdutorFalso(), reivindicada_por="r")
+        == 2
+    )
+    assert contados == ["outbox_indisponivel"]
+
+
+async def test_modo_continuo_sobrevive_ao_banco_fora_e_continua(monkeypatch: pytest.MonkeyPatch) -> None:
+    contados: list[str] = []
+    monkeypatch.setattr(rco_avisos_relay, "record_rco_aviso", lambda d, q=1: contados.append(d))
+    outbox = OutboxFora(falhas=2)
+    await OutboxEmMemoria.enfileirar(outbox, _linhas())
+    produtor = ProdutorFalso()
+    relatorios = await rco_avisos_relay.run_relay_loop(
+        outbox, produtor, reivindicada_por="r", intervalo_s=0.0, max_varreduras=3
+    )
+    assert [r.erro for r in relatorios] == ["outbox_indisponivel", "outbox_indisponivel", None]
+    assert outbox.status() == ["entregue", "entregue"]
+    assert contados.count("outbox_indisponivel") == 2

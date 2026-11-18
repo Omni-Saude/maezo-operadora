@@ -59,6 +59,8 @@ DESFECHOS: Final[frozenset[str]] = frozenset(
         "entregue",
         "falha_publicar",
         "reprocessado",
+        "conclusao_incerta",
+        "outbox_indisponivel",
     }
 )
 
@@ -257,9 +259,9 @@ _LIBERAR_SQL: Final[str] = (
     "atualizado_em = clock_timestamp() "
     "WHERE id = ANY($1::bigint[]) AND status = 'reivindicada' AND reivindicada_por = $2 RETURNING id"
 )
-#: `--reprocessar`: as que falharam voltam a `pendente` (o codigo e as tentativas ficam, como historico).
+#: `--reprocessar`: as que falharam voltam a `pendente` com `ultimo_erro` limpo (as tentativas ficam).
 _REPROCESSAR_SQL: Final[str] = (
-    f"UPDATE {TABELA} SET status = 'pendente', atualizado_em = clock_timestamp() "
+    f"UPDATE {TABELA} SET status = 'pendente', ultimo_erro = NULL, atualizado_em = clock_timestamp() "
     "WHERE status = 'falhou' RETURNING id"
 )
 _CONTAR_SQL: Final[str] = f"SELECT status, count(*) AS n FROM {TABELA} GROUP BY status"

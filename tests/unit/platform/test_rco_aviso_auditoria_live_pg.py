@@ -150,6 +150,13 @@ async def test_outbox_relay_falha_reprocessar_lease_e_downgrade_ao_vivo() -> Non
         await rco_avisos_relay.drain_once(store, produtor, reivindicada_por="relay-1")
         assert await store.contar_por_status() == {"falhou": 1, "entregue": 1}
         assert await rco_avisos_relay.reprocessar(store) == 1
+        rows = await _sql(
+            dsn,
+            tenant,
+            "SELECT status, ultimo_erro FROM rco_aviso_auditoria WHERE fila = $1",
+            "auditoria_medica",
+        )
+        assert [tuple(r) for r in rows] == [("pendente", None)]  # reprocessar limpa o codigo (CHECK aceita)
         await rco_avisos_relay.drain_once(store, produtor, reivindicada_por="relay-1")
         rows = await _sql(
             dsn, tenant, "SELECT status, tentativas, entregue_em FROM rco_aviso_auditoria ORDER BY id"

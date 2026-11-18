@@ -3,9 +3,14 @@
 Metade de entrega do outbox de `maezo.platform.rco_avisos`: o harness grava uma linha por (aviso, fila)
 depois de completar a tarefa; este relay as publica, at-least-once, como `type="rco.aviso_auditoria"`.
 
-    python -m maezo.platform.rco_avisos_relay --once          # uma varredura e sai
-    python -m maezo.platform.rco_avisos_relay --reprocessar   # as `falhou` voltam a `pendente`; uma varredura
+    python -m maezo.platform.rco_avisos_relay --once          # drena ate nao sobrar linha e sai
+    python -m maezo.platform.rco_avisos_relay --reprocessar   # as `falhou` voltam a `pendente`; drena e sai
     python -m maezo.platform.rco_avisos_relay                 # varre ate SIGTERM/SIGINT
+
+SAIDA DO PROCESSO (`--once`/`--reprocessar`): 0 = drenou sem falha; 1 = alguma publicacao falhou
+(`publicacao_falhou`) ou o limite de lotes (`MAX_LOTES_ONCE`) foi atingido com linhas restantes; 2 = outbox
+indisponivel. No modo continuo, outbox indisponivel vira log, metrica (`outbox_indisponivel`) e espera do
+intervalo, e a varredura continua.
 
 INVOCADO EXPLICITAMENTE, nunca iniciado pelos daemons (mesmo motivo de `maezo.a2a.outbox_relay`): ligar
 trafego real num topico e decisao de implantacao, e o consumidor das mensagens e de unidade posterior (2b).
@@ -32,6 +37,7 @@ import contextlib
 import os
 import signal
 import socket
+import sys
 from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
@@ -46,6 +52,7 @@ from maezo.platform.rco_avisos import (
     ERRO_PUBLICACAO,
     TOPICO,
     AvisoReivindicado,
+    OutboxAvisosIndisponivelError,
     PostgresAvisosRco,
     chave_de_particao,
     montar_payload,
@@ -54,6 +61,13 @@ from maezo.platform.rco_avisos import (
 logger = structlog.get_logger(__name__)
 
 DEFAULT_INTERVALO_S: Final[float] = 2.0
+#: `--once`: teto de lotes de uma execucao (um outbox que nunca esvazia nao prende o processo).
+MAX_LOTES_ONCE: Final[int] = 1000
+#: Codigo do relatorio quando o outbox nao respondeu no modo continuo (nunca gravado na linha).
+ERRO_OUTBOX_INDISPONIVEL: Final[str] = "outbox_indisponivel"
+SAIDA_OK: Final[int] = 0
+SAIDA_FALHA_PUBLICACAO: Final[int] = 1
+SAIDA_OUTBOX_INDISPONIVEL: Final[int] = 2
 
 
 class OutboxAvisos(Protocol):
@@ -147,7 +161,7 @@ async def drain_once(
 
 
 async def reprocessar(outbox: OutboxAvisos) -> int:
-    """Devolve as linhas `falhou` a `pendente` (o codigo e as tentativas ficam como historico)."""
+    """Devolve as linhas `falhou` a `pendente` com `ultimo_erro` limpo (as tentativas ficam)."""
     devolvidas = await outbox.reprocessar_falhas()
     record_rco_aviso("reprocessado", devolvidas)
     logger.info("rco_aviso_relay_reprocessadas", linhas=devolvidas)
@@ -168,9 +182,15 @@ async def run_relay_loop(
     """Varre ate `parar` (ou `max_varreduras`). Dorme so quando a varredura nao achou nada ou falhou."""
     relatorios: list[RelatorioVarredura] = []
     while parar is None or not parar.is_set():
-        relatorio = await drain_once(
-            outbox, publicador, reivindicada_por=reivindicada_por, lote=lote, lease_s=lease_s
-        )
+        try:
+            relatorio = await drain_once(
+                outbox, publicador, reivindicada_por=reivindicada_por, lote=lote, lease_s=lease_s
+            )
+        except OutboxAvisosIndisponivelError as exc:
+            # Banco fora: o processo continua e tenta de novo depois do intervalo (nada se perde).
+            logger.error("rco_aviso_relay_outbox_indisponivel", erro=str(exc))
+            record_rco_aviso("outbox_indisponivel")
+            relatorio = RelatorioVarredura(erro=ERRO_OUTBOX_INDISPONIVEL)
         relatorios.append(relatorio)
         if max_varreduras is not None and len(relatorios) >= max_varreduras:
             break
@@ -181,6 +201,67 @@ async def run_relay_loop(
             else:
                 await asyncio.sleep(intervalo_s)
     return relatorios
+
+
+async def drenar(
+    outbox: OutboxAvisos,
+    publicador: Publicador,
+    *,
+    reivindicada_por: str,
+    lote: int = DEFAULT_LOTE,
+    lease_s: float = DEFAULT_LEASE_S,
+    max_lotes: int = MAX_LOTES_ONCE,
+) -> int:
+    """`--once`: varre ate nao sobrar linha reivindicavel, no maximo `max_lotes` lotes; devolve o codigo de
+    saida (docstring do modulo). `OutboxAvisosIndisponivelError` vira 2, nunca pilha."""
+    try:
+        for _ in range(max_lotes):
+            relatorio = await drain_once(
+                outbox, publicador, reivindicada_por=reivindicada_por, lote=lote, lease_s=lease_s
+            )
+            if relatorio.erro is not None:
+                return SAIDA_FALHA_PUBLICACAO
+            if relatorio.reivindicadas == 0:
+                return SAIDA_OK
+        logger.error("rco_aviso_relay_limite_de_lotes", max_lotes=max_lotes)
+        return SAIDA_FALHA_PUBLICACAO
+    except OutboxAvisosIndisponivelError as exc:
+        logger.error("rco_aviso_relay_outbox_indisponivel", erro=str(exc))
+        record_rco_aviso("outbox_indisponivel")
+        return SAIDA_OUTBOX_INDISPONIVEL
+
+
+async def executar(
+    args: argparse.Namespace,
+    outbox: OutboxAvisos,
+    publicador: Publicador,
+    *,
+    reivindicada_por: str,
+    lote: int = DEFAULT_LOTE,
+    lease_s: float = DEFAULT_LEASE_S,
+    intervalo_s: float = DEFAULT_INTERVALO_S,
+    parar: asyncio.Event | None = None,
+) -> int:
+    """O que a CLI faz depois de compor o relay; devolve o codigo de saida do processo."""
+    if args.reprocessar:
+        try:
+            await reprocessar(outbox)
+        except OutboxAvisosIndisponivelError as exc:
+            logger.error("rco_aviso_relay_outbox_indisponivel", erro=str(exc))
+            record_rco_aviso("outbox_indisponivel")
+            return SAIDA_OUTBOX_INDISPONIVEL
+    if args.once or args.reprocessar:
+        return await drenar(outbox, publicador, reivindicada_por=reivindicada_por, lote=lote, lease_s=lease_s)
+    await run_relay_loop(
+        outbox,
+        publicador,
+        reivindicada_por=reivindicada_por,
+        lote=lote,
+        lease_s=lease_s,
+        intervalo_s=intervalo_s,
+        parar=parar,
+    )
+    return SAIDA_OK
 
 
 class RelaySettings(BaseSettings):
@@ -218,16 +299,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "Invocado explicitamente; nenhum daemon o inicia."
         ),
     )
-    parser.add_argument("--once", action="store_true", help="uma varredura e sai")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="drena ate nao sobrar linha reivindicavel e sai (codigo de saida na docstring)",
+    )
     parser.add_argument(
         "--reprocessar",
         action="store_true",
-        help="devolve as linhas `falhou` a `pendente` e faz uma varredura",
+        help="devolve as linhas `falhou` a `pendente` e drena como `--once`",
     )
     return parser
 
 
-async def main(argv: list[str] | None = None) -> None:
+async def main(argv: list[str] | None = None) -> int:
     """Entrada: `python -m maezo.platform.rco_avisos_relay [--once | --reprocessar]`."""
     args = build_arg_parser().parse_args(argv)
     settings = RelaySettings()
@@ -240,9 +325,8 @@ async def main(argv: list[str] | None = None) -> None:
             loop.add_signal_handler(sig, parar.set)
     await publicador.start()
     try:
-        if args.reprocessar:
-            await reprocessar(outbox)
-        await run_relay_loop(
+        return await executar(
+            args,
             outbox,
             publicador,
             reivindicada_por=reivindicada_por,
@@ -250,14 +334,13 @@ async def main(argv: list[str] | None = None) -> None:
             lease_s=settings.lease_s,
             intervalo_s=settings.intervalo_s,
             parar=parar,
-            max_varreduras=1 if (args.once or args.reprocessar) else None,
         )
     finally:
         await publicador.close()
 
 
 if __name__ == "__main__":  # pragma: no cover - entrada do processo
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))
 
 
 __all__ = [
@@ -268,6 +351,8 @@ __all__ = [
     "build_arg_parser",
     "build_relay",
     "drain_once",
+    "drenar",
+    "executar",
     "main",
     "reivindicador_padrao",
     "reprocessar",

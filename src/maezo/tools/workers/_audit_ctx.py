@@ -66,12 +66,14 @@ class ComposicaoRegistrada:
     """O que o harness precisa de uma composicao K1 da tarefa para enfileirar os avisos (DL-0184).
 
     So ids e codigos: o nome da composicao do manifesto, a uniao dos `sinalAuditoria` nao vazios (na ordem
-    do grupo) e o modo. Nenhuma linha da DMN, nenhuma entrada do caso.
+    do grupo), o modo e as decisoes avaliadas (para reaplicar `sinaisAuditoria` na auditoria,
+    `reaplicar_sinais_auditoria`). Nenhuma linha da DMN, nenhuma entrada do caso.
     """
 
     composicao: str
     sinais: tuple[str, ...]
     modo: str
+    avaliadas: tuple[str, ...] = ()
 
 
 # Module-level collector. `None` means "not inside an audited dispatch" — see module docstring.
@@ -159,9 +161,12 @@ def collect_rco_avaliacoes() -> Iterator[dict[str, AvaliacaoRegra]]:
 def registrar_composicao(resultado: ResultadoComposicao, *, modo: str) -> None:
     """Registra uma composicao K1 avaliada nesta tarefa (DL-0184). NUNCA levanta.
 
-    Quem compoe (`rco_composicao.compor`/`compor_async`) chama isto com o resultado e o modo
-    (`MODOS_COMPOSICAO`): `sombra` quando a avaliacao nao muda o caso, `efeito` quando pode mudar. Faz duas
-    coisas, ambas sem efeito fora do coletor:
+    CONTRATO DE LIGACAO: `rco_composicao.compor`/`compor_async` sao PUROS e NAO chamam isto (nem devem:
+    `test_compor_e_puro_e_nao_registra_nada`). E o WORKER que compoe quem chama
+    `registrar_composicao(resultado, modo=...)` logo depois de compor, com o modo (`MODOS_COMPOSICAO`):
+    `sombra` quando a avaliacao nao muda o caso, `efeito` quando pode mudar. Enquanto nenhum worker de
+    producao compoe (hoje: nenhum), nada e registrado nem enfileirado em producao. Faz duas coisas, ambas
+    sem efeito fora do coletor:
 
     1. guarda `ComposicaoRegistrada` no coletor de `collect_rco_composicoes` (o harness enfileira os avisos
        DEPOIS de completar a tarefa);
@@ -180,16 +185,18 @@ def registrar_composicao(resultado: ResultadoComposicao, *, modo: str) -> None:
         sinais = tuple(dict.fromkeys(str(s) for s in resultado.sinais if isinstance(s, str) and s.strip()))
         if len(sinais) != len(tuple(resultado.sinais)):
             raise ValueError("sinal_invalido")
-        registrada = ComposicaoRegistrada(composicao=str(resultado.composicao), sinais=sinais, modo=modo)
+        registrada = ComposicaoRegistrada(
+            composicao=str(resultado.composicao),
+            sinais=sinais,
+            modo=modo,
+            avaliadas=tuple(str(d) for d in resultado.avaliadas),
+        )
         composicoes = _RCO_COMPOSICOES.get()
         if composicoes is not None:
             composicoes[registrada.composicao] = registrada
         collector = _DMN_AUDIT_COLLECTOR.get()
-        if collector is not None and sinais:
-            for decisao in resultado.avaliadas:
-                entrada = collector.get(decisao)
-                if isinstance(entrada, dict):
-                    entrada[CHAVE_SINAIS_AUDITORIA] = list(sinais)
+        if collector is not None:
+            _aplicar(collector, registrada)
     except Exception as exc:  # fail-open: o aviso nunca muda a decisao.
         _logger.error("rco_aviso_composicao_nao_registrada", erro=type(exc).__name__)
         try:
@@ -198,6 +205,32 @@ def registrar_composicao(resultado: ResultadoComposicao, *, modo: str) -> None:
             record_rco_aviso("invalido")
         except Exception:  # pragma: no cover - a telemetria nunca derruba o chamador
             _logger.debug("rco_aviso_metric_emit_failed", exc_info=True)
+
+
+def _aplicar(collector: Mapping[str, Any], registrada: ComposicaoRegistrada) -> None:
+    if not registrada.sinais:
+        return
+    for decisao in registrada.avaliadas:
+        entrada = collector.get(decisao)
+        if isinstance(entrada, dict):
+            entrada[CHAVE_SINAIS_AUDITORIA] = list(registrada.sinais)
+
+
+def reaplicar_sinais_auditoria(
+    collector: Mapping[str, Any], composicoes: Mapping[str, ComposicaoRegistrada]
+) -> None:
+    """Reaplica `sinaisAuditoria` as entradas do grupo logo antes de montar a auditoria (DL-0184). NUNCA
+    levanta.
+
+    `record_dmn_version` e "ultima vence": se uma decisao do grupo for reavaliada DEPOIS de
+    `registrar_composicao`, a entrada nova perderia a chave. O harness chama isto com o coletor e as
+    composicoes da tarefa antes de `_build_audit_record`, entao a auditoria duravel sempre leva os sinais.
+    """
+    try:
+        for registrada in composicoes.values():
+            _aplicar(collector, registrada)
+    except Exception as exc:  # fail-open: o aviso nunca muda a decisao.
+        _logger.error("rco_aviso_sinais_nao_reaplicados", erro=type(exc).__name__)
 
 
 @contextmanager

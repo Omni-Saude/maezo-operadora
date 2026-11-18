@@ -89,6 +89,7 @@ from maezo.tools.workers._audit_ctx import (
     collect_dmn_versions,
     collect_rco_avaliacoes,
     collect_rco_composicoes,
+    reaplicar_sinais_auditoria,
 )
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
 from maezo.tools.workers.dmn_transport import (
@@ -1942,6 +1943,30 @@ class WorkerHarness:
             )
             record_rco_aviso("falha_enfileirar")
 
+    def _avisos_rco_nao_enfileirados(
+        self, task: ExternalTask, composicoes: Mapping[str, ComposicaoRegistrada], motivo: str
+    ) -> None:
+        """Log `rco_aviso_nao_enfileirado` por (composicao, sinal) e a metrica com `motivo` (DL-0184).
+
+        Chamado quando `complete` levantou do lado do cliente: a conclusao e incerta, entao nada e
+        enfileirado (a re-entrega enfileira com a mesma chave); a reconciliacao e pela auditoria. NUNCA
+        levanta: a excecao original de `complete` segue o caminho de sempre.
+        """
+        try:
+            pares = [(c.composicao, s) for c in composicoes.values() for s in c.sinais]
+            for composicao, sinal in pares:
+                logger.warning(
+                    "rco_aviso_nao_enfileirado",
+                    task_id=task.task_id,
+                    topic=task.topic,
+                    composicao=composicao,
+                    sinal=sinal,
+                    motivo=motivo,
+                )
+            record_rco_aviso(motivo, len(pares))
+        except Exception:  # pragma: no cover - cinto e suspensorio
+            _stdlib_logger.debug("rco_aviso_nao_enfileirado_log_failed", exc_info=True)
+
     async def _gravar_avisos_rco(
         self, store: OutboxAvisosRco, task: ExternalTask, composicoes: Sequence[ComposicaoRegistrada]
     ) -> None:
@@ -2224,14 +2249,23 @@ class WorkerHarness:
                 # is classified transient below -> `complete` NEVER runs -> engine re-delivery.
                 # The forbidden direction (an engine effect with no audit row) is structurally
                 # impossible (design §4.2).
+                # DL-0184: `sinaisAuditoria` de novo nas entradas do grupo (uma reavaliacao depois de
+                # `registrar_composicao` reescreveria a entrada sem a chave: "ultima vence").
+                reaplicar_sinais_auditoria(dmn_versions, rco_composicoes)
                 record = self._build_audit_record(task, out_vars, dict(dmn_versions))
                 audit_record_hash = await self._emit_audit(record, task)
                 await self._registrar_decisoes_rco(task, rco_avaliacoes)
-                await self._transport.complete(
-                    task.task_id,
-                    self._worker_id,
-                    dict(out_vars) if out_vars else {},
-                )
+                try:
+                    await self._transport.complete(
+                        task.task_id,
+                        self._worker_id,
+                        dict(out_vars) if out_vars else {},
+                    )
+                except Exception:
+                    # DL-0184: o motor pode ter gravado a conclusao (resposta perdida, timeout). Nao se
+                    # enfileira aqui (a tarefa pode ser re-entregue); so se torna o aviso observavel.
+                    self._avisos_rco_nao_enfileirados(task, rco_composicoes, "conclusao_incerta")
+                    raise
                 outcome = "completed"
                 logger.info(
                     "worker_task_completed",
