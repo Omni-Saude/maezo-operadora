@@ -58,7 +58,8 @@ def pin_com_prazos(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> rco_pin.R
     tabela = rco_pin.RcoPinnedTable(
         CHAVE, "spec/processes/dmn/rco/geral_prazos_conta.dmn", SHA, decisao=decisao
     )
-    manifesto = cast(Any, SimpleNamespace(dicionario_entradas_sha256="sha256:" + "b" * 64))
+    # `composicoes=()`: a guarda de DL-0173 (`exigir_avaliacao_isolada`) le o grupo do manifesto pinado.
+    manifesto = cast(Any, SimpleNamespace(dicionario_entradas_sha256="sha256:" + "b" * 64, composicoes=()))
     pin = rco_pin.RcoRulesPin(
         estado="fixado", tables=MappingProxyType({CHAVE: tabela}), manifesto=manifesto, k1_dir=tmp_path
     )

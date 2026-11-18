@@ -55,8 +55,8 @@ FAIL-CLOSED: o desfecho nunca e glosa nem negativa, e sempre `revisao_humana`, q
 - vencedora adversa (`adversas`) sem algum campo de `adversa_exige_preenchidos` (`resultado_invalido`,
   `adversa_incompleta`), nas duas regras; quem chama passa o `combinacao` do pin, senao vale o piso;
 - o avaliador falha em QUALQUER decisao do grupo (`avaliador_falhou`): nunca se usa resultado parcial.
-Cada caso grava um log estruturado so com os ids das decisoes e o codigo, e conta
-`maezo_rco_composicao_revisao_humana_total{motivo}`.
+Cada caso grava um log estruturado so com os ids das decisoes, o codigo e o `modo` de quem compoe, e conta
+`maezo_rco_composicao_revisao_humana_total{motivo, modo}` (`modo` obrigatorio: `sombra` | `efeito`).
 
 GUARDA. NENHUMA decisao de um grupo e avaliada sozinha, o padrao inclusive: sozinho, o padrao perde os
 pares que as anteriores decidem e erra para o lado de pagar (o rco: "consumidor que avalia so mex_ortop
@@ -95,6 +95,14 @@ Retorno = Linhas | tuple[Linhas, DmnVersion]
 Avaliador = Callable[[str, Mapping[str, Any]], Retorno]
 AvaliadorAsync = Callable[[str, Mapping[str, Any]], Awaitable[Retorno]]
 
+#: Modo de quem compoe, vocabulario fechado (= `MODOS_COMPOSICAO` do registro de composicoes e o rotulo
+#: `modo` de `maezo_rco_composicao_revisao_humana_total`, paridade em teste; definido aqui porque este modulo
+#: e puro e nao importa o registro, `test_compor_e_puro_e_nao_registra_nada`): `sombra` quando a composicao
+#: nao muda o caso (`tools.workers.rco_sombra`), `efeito` quando pode mudar. OBRIGATORIO em `compor` e
+#: `escolher`: sem ele a revisao humana de uma sombra seria indistinguivel da de efeito no log e na metrica.
+MODO_SOMBRA: Final[str] = "sombra"
+MODO_EFEITO: Final[str] = "efeito"
+MODOS: Final[frozenset[str]] = frozenset({MODO_SOMBRA, MODO_EFEITO})
 DESFECHO_ESCOLHIDO: Final[str] = "escolhido"
 DESFECHO_REVISAO_HUMANA: Final[str] = "revisao_humana"
 #: Motivos de `revisao_humana` (= `observability.RCO_COMPOSICAO_MOTIVOS`, paridade em teste).
@@ -186,6 +194,11 @@ def exigir_avaliacao_isolada(pin: _ComComposicoes, decisao_id: str) -> None:
         )
 
 
+def _exigir_modo(modo: object) -> None:
+    if not isinstance(modo, str) or modo not in MODOS:
+        raise ValueError(f"modo de composicao fora do vocabulario fechado {sorted(MODOS)}")
+
+
 def _versoes(versoes: Mapping[str, DmnVersion]) -> Mapping[str, DmnVersion]:
     return MappingProxyType(dict(versoes))
 
@@ -198,17 +211,18 @@ def _revisao(
     avaliadas: Sequence[str],
     versoes: Mapping[str, DmnVersion],
     *,
+    modo: str,
     evento: str | None = None,
     sinais: Sequence[str] = (),
     veredictos: Mapping[str, tuple[Mapping[str, Any], ...]] | None = None,
 ) -> ResultadoComposicao:
-    """Desfecho `revisao_humana`: log so com ids de decisao e codigo, e a metrica. Nunca glosa."""
+    """Desfecho `revisao_humana`: log so com ids de decisao, codigo e modo, e a metrica. Nunca glosa."""
     if evento is None:
         evento = (
             "rco_composicao_violacao_prova" if motivo == MOTIVO_VIOLACAO_PROVA else "rco_composicao_revisao"
         )
-    logger.warning(evento, decisoes=list(decisoes), codigo=codigo)
-    record_rco_composicao_revisao(motivo)
+    logger.warning(evento, decisoes=list(decisoes), codigo=codigo, modo=modo)
+    record_rco_composicao_revisao(motivo, modo=modo)
     return ResultadoComposicao(
         composicao=composicao.nome,
         desfecho=DESFECHO_REVISAO_HUMANA,
@@ -293,6 +307,7 @@ def escolher(
     composicao: ComposicaoK1,
     resultados: Mapping[str, Retorno],
     *,
+    modo: str,
     ordem_restricao: Sequence[str] = (),
     sinais_auditoria: Collection[str] = SINAIS_SO_VAZIO,
     adversas: Collection[str] = ADVERSAS_PISO,
@@ -302,8 +317,10 @@ def escolher(
 
     Cada resultado e `(linhas, DmnVersion)` ou so as linhas. Tem de haver um por decisao do grupo;
     faltar algum e `avaliador_falhou` (nunca resultado parcial). `ordem_restricao` (so `mais_restritiva`)
-    e `sinais_auditoria` vem do `vocabulario.json` pinado (`RcoRulesPin`).
+    e `sinais_auditoria` vem do `vocabulario.json` pinado (`RcoRulesPin`). `modo` (obrigatorio, em `MODOS`)
+    vai ao log e ao rotulo da metrica de revisao humana; fora do vocabulario levanta `ValueError`.
     """
+    _exigir_modo(modo)
     ordem = composicao.decisoes
     avaliadas = tuple(d for d in ordem if d in resultados)
     versoes: dict[str, DmnVersion] = {}
@@ -330,6 +347,7 @@ def escolher(
             decisoes,
             avaliadas,
             versoes,
+            modo=modo,
             sinais=_uniao(sinais, ordem),
             veredictos=veredictos,
         )
@@ -402,6 +420,8 @@ def _falhou(
     exc: Exception,
     resultados: Mapping[str, Retorno],
     sinais_auditoria: Collection[str],
+    *,
+    modo: str,
 ) -> ResultadoComposicao:
     """Falha do avaliador numa decisao: `revisao_humana`, sem resultado parcial. Sobreposicao UNIQUE
     nomeada pelo motor (`DmnHitPolicyViolationError`) e violacao da prova CMP08 do rco. Os veredictos e
@@ -431,6 +451,7 @@ def _falhou(
             [decisao],
             avaliadas,
             versoes,
+            modo=modo,
             sinais=uniao,
             veredictos=veredictos,
         )
@@ -441,6 +462,7 @@ def _falhou(
         [decisao],
         avaliadas,
         versoes,
+        modo=modo,
         evento="rco_composicao_avaliador_falhou",
         sinais=uniao,
         veredictos=veredictos,
@@ -452,6 +474,7 @@ def compor(
     avaliador: Avaliador,
     entradas: Mapping[str, Any],
     *,
+    modo: str,
     ordem_restricao: Sequence[str] = (),
     sinais_auditoria: Collection[str] = SINAIS_SO_VAZIO,
     adversas: Collection[str] = ADVERSAS_PISO,
@@ -461,18 +484,21 @@ def compor(
 
     Falha do avaliador (qualquer `Exception`) em qualquer decisao -> `revisao_humana`, sem avaliar as
     seguintes e sem resultado parcial. `BaseException` (cancelamento, saida) propaga. `ordem_restricao` e
-    `sinais_auditoria`: os do `vocabulario.json` pinado (`RcoRulesPin`); ver `escolher`.
+    `sinais_auditoria`: os do `vocabulario.json` pinado (`RcoRulesPin`); `modo` (obrigatorio): ver
+    `escolher`. Modo fora do vocabulario levanta `ValueError` antes de avaliar qualquer decisao.
     """
+    _exigir_modo(modo)
     instantaneo = copy.deepcopy(dict(entradas))
     resultados: dict[str, Retorno] = {}
     for decisao in composicao.decisoes:
         try:
             resultados[decisao] = avaliador(decisao, copy.deepcopy(instantaneo))
         except Exception as exc:  # qualquer falha do avaliador: revisao humana, nunca parcial.
-            return _falhou(composicao, decisao, exc, resultados, sinais_auditoria)
+            return _falhou(composicao, decisao, exc, resultados, sinais_auditoria, modo=modo)
     return escolher(
         composicao,
         resultados,
+        modo=modo,
         ordem_restricao=ordem_restricao,
         sinais_auditoria=sinais_auditoria,
         adversas=adversas,
@@ -485,6 +511,7 @@ async def compor_async(
     avaliador: AvaliadorAsync,
     entradas: Mapping[str, Any],
     *,
+    modo: str,
     ordem_restricao: Sequence[str] = (),
     sinais_auditoria: Collection[str] = SINAIS_SO_VAZIO,
     adversas: Collection[str] = ADVERSAS_PISO,
@@ -492,16 +519,18 @@ async def compor_async(
 ) -> ResultadoComposicao:
     """`compor` para avaliador assincrono (`DmnTransport.evaluate` serve, com `decision_key` = id da
     decisao). Mesma regra; em serie, na ordem do grupo."""
+    _exigir_modo(modo)
     instantaneo = copy.deepcopy(dict(entradas))
     resultados: dict[str, Retorno] = {}
     for decisao in composicao.decisoes:
         try:
             resultados[decisao] = await avaliador(decisao, copy.deepcopy(instantaneo))
         except Exception as exc:  # qualquer falha do avaliador: revisao humana, nunca parcial.
-            return _falhou(composicao, decisao, exc, resultados, sinais_auditoria)
+            return _falhou(composicao, decisao, exc, resultados, sinais_auditoria, modo=modo)
     return escolher(
         composicao,
         resultados,
+        modo=modo,
         ordem_restricao=ordem_restricao,
         sinais_auditoria=sinais_auditoria,
         adversas=adversas,
@@ -525,6 +554,9 @@ __all__ = [
     "DESFECHO_ESCOLHIDO",
     "DESFECHO_REVISAO_HUMANA",
     "DecisaoSoEmComposicaoError",
+    "MODOS",
+    "MODO_EFEITO",
+    "MODO_SOMBRA",
     "MOTIVOS",
     "MOTIVO_AVALIADOR_FALHOU",
     "MOTIVO_RESULTADO_INVALIDO",

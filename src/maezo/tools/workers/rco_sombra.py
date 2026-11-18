@@ -32,18 +32,36 @@ do dicionario e hashes; nunca chave de negocio, numero de guia ou lote, benefici
 INERTE HOJE: o pin esta em `sem_pacote` (nenhuma tabela `rco_` pinada): a funcao sai antes de montar.
 Com o pacote pinado, os termos de `diasAteApresentacao` ainda nao tem produtor no Maezo (ver
 `contas.fatos_prazo_conta_rco`): as entradas entram nulas, com o motivo, e nulo nunca nega nem glosa.
+
+GUARDA DA COMPOSICAO (DL-0173): `avaliar` chama `rco_composicao.exigir_avaliacao_isolada` antes de montar;
+uma decisao que e membro (ou padrao) de um grupo de `composicoes[]` nunca e avaliada sozinha (desfecho
+`membro_de_composicao`, nada avaliado). O grupo inteiro passa por `avaliar_composicao_em_sombra`: monta as
+entradas de cada membro, faz a UNIAO (o primeiro valor fica; mesmo nome com valor OU tipo diferente, nulo
+contra valor e `True` contra `1` inclusive: `entradas_em_conflito`, nada avaliado), avalia cada membro pelo
+funil (`evaluate_sync(sombra=True)`, com a auditoria do montador DAQUELE membro) e aplica a regra do grupo
+(`rco_composicao.compor`, `modo=sombra`) com o vocabulario do pin. As mesmas razoes 1-4 valem: devolve
+`None`, so codigos fechados no log e na metrica, nenhuma `Exception` sobe. O prazo e UM so para
+o grupo (`PRAZO_SOMBRA_S`), repartido em partes iguais entre os membros: este modulo nao le relogio
+(`test_montador_e_sombra_nao_leem_relogio`), entao a parte de um membro rapido nao passa ao seguinte, mas a
+soma nunca passa do total. O prazo cobre SO as chamadas ao motor (nao a leitura do pin, `montar_fatos` nem o
+montador, que sao locais). `BaseException` (cancelamento, saida) propaga, como em `avaliar_em_sombra`.
+Alem de `maezo_rco_sombra_total`, a composicao conta `maezo_rco_composicao_revisao_humana_total{motivo,
+modo="sombra"}` quando a regra do grupo da revisao humana (o log de `rco_composicao` leva `modo=sombra`):
+nada e encaminhado a humano. A sombra NAO chama `_audit_ctx.registrar_composicao`: nenhum aviso do K6 e
+enfileirado a partir dela (unidade posterior). NADA disto esta ligado a um worker ainda.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Final
 
 import structlog
 
+from maezo.platform import rco_composicao
 from maezo.platform.observability import record_rco_sombra
 from maezo.platform.rco_entradas import DicionarioEntradasK1, carregar_dicionario_entradas
-from maezo.platform.rco_manifesto import ManifestoK1InvalidoError
+from maezo.platform.rco_manifesto import DecisaoK1, ManifestoK1InvalidoError
 from maezo.tools.workers import rco_montador, rco_pin
 from maezo.tools.workers.dmn_transport import (
     DmnEvaluationError,
@@ -67,6 +85,16 @@ AVALIACAO_FALHOU: Final[str] = "avaliacao_falhou"
 PRAZO_ESGOTADO: Final[str] = "prazo_esgotado"
 AVALIADA: Final[str] = "avaliada"
 ERRO_DE_PROGRAMACAO: Final[str] = "erro_de_programacao"
+#: DL-0173: a decisao pedida sozinha e membro (ou padrao) de um grupo de `composicoes[]`: nada avaliado.
+MEMBRO_DE_COMPOSICAO: Final[str] = "membro_de_composicao"
+#: Composicao: o grupo pedido nao esta em `composicoes[]` do pin; nada avaliado.
+COMPOSICAO_AUSENTE: Final[str] = "composicao_ausente"
+#: Composicao: dois membros montaram a mesma entrada com valores diferentes; nada avaliado.
+ENTRADAS_EM_CONFLITO: Final[str] = "entradas_em_conflito"
+#: Composicao avaliada: a regra do grupo escolheu uma decisao (`DESFECHO_ESCOLHIDO`).
+COMPOSICAO_ESCOLHIDA: Final[str] = "composicao_escolhida"
+#: Composicao avaliada: o grupo caiu em `revisao_humana` (o motivo fica na metrica da composicao).
+COMPOSICAO_REVISAO_HUMANA: Final[str] = "composicao_revisao_humana"
 DESFECHOS: Final[frozenset[str]] = frozenset(
     {
         SEM_TRANSPORTE,
@@ -80,6 +108,11 @@ DESFECHOS: Final[frozenset[str]] = frozenset(
         PRAZO_ESGOTADO,
         AVALIADA,
         ERRO_DE_PROGRAMACAO,
+        MEMBRO_DE_COMPOSICAO,
+        COMPOSICAO_AUSENTE,
+        ENTRADAS_EM_CONFLITO,
+        COMPOSICAO_ESCOLHIDA,
+        COMPOSICAO_REVISAO_HUMANA,
     }
 )
 
@@ -157,6 +190,10 @@ def avaliar(
         pin = rco_pin.rco_rules_pin()
     except rco_pin.RcoRulesPinError:
         return PIN_INDISPONIVEL
+    try:
+        rco_composicao.exigir_avaliacao_isolada(pin, decision_key)
+    except rco_composicao.DecisaoSoEmComposicaoError:
+        return MEMBRO_DE_COMPOSICAO  # DL-0173: membro de grupo so com `avaliar_composicao_em_sombra`
     tabela = pin.tables.get(decision_key)
     if tabela is None or tabela.decisao is None:
         return SEM_PACOTE
@@ -222,13 +259,148 @@ def avaliar_em_sombra(
     logger.info("rco_sombra", decision_key=decision_key, desfecho=desfecho, topico=topico)
 
 
+def avaliar_composicao(
+    dmn: DmnTransport | None,
+    nome_composicao: str,
+    montar_fatos: MontarFatos,
+    *,
+    tenant: str | None = None,
+) -> str:
+    """Monta, avalia e compoe o grupo `nome_composicao`; devolve SO o codigo do desfecho.
+
+    Mesma forma de `avaliar`: so as falhas ESPERADAS viram desfecho; qualquer outra excecao sobe (e
+    `avaliar_composicao_em_sombra` a conta como erro de programacao), inclusive a que `compor` absorveu
+    como `avaliador_falhou` (ela e relancada aqui). Os fatos sao montados UMA vez e servem a todos os
+    membros (o montador e puro)."""
+    from maezo.adapters.amh.contract import AmhContractPinError  # preguicoso, como `avaliar`
+
+    if dmn is None:
+        return SEM_TRANSPORTE
+    try:
+        pin = rco_pin.rco_rules_pin()
+    except rco_pin.RcoRulesPinError:
+        return PIN_INDISPONIVEL
+    if pin.manifesto is None:
+        return SEM_PACOTE
+    grupo = next((c for c in pin.composicoes if c.nome == nome_composicao), None)
+    if grupo is None:
+        return COMPOSICAO_AUSENTE
+    decisoes: dict[str, DecisaoK1] = {}
+    for membro in grupo.decisoes:
+        tabela = pin.tables.get(membro)
+        if tabela is None or tabela.decisao is None:
+            return SEM_PACOTE
+        decisoes[membro] = tabela.decisao
+    try:
+        dicionario = _dicionario(pin)
+    except ManifestoK1InvalidoError:
+        return DICIONARIO_RECUSADO
+    if dicionario is None:
+        return SEM_PACOTE
+    try:
+        versao_k3 = _versao_k3_pinada()
+    except AmhContractPinError:
+        return PIN_AMH_INDISPONIVEL
+    fatos = montar_fatos(versao_k3)
+    montadas: dict[str, rco_montador.EntradasMontadas] = {}
+    try:
+        for membro, decisao in decisoes.items():
+            montadas[membro] = rco_montador.montar_entradas(decisao, dicionario, fatos)
+    except rco_montador.DominioNaoSuportadoError:
+        return DOMINIO_NAO_SUPORTADO
+    except rco_montador.MontadorEntradasError:
+        return MONTADOR_RECUSOU
+    uniao: dict[str, Any] = {}
+    for m in montadas.values():
+        for nome, valor in m.variaveis.items():
+            if nome not in uniao:
+                uniao[nome] = valor  # o primeiro valor fica; nunca sobrescrito
+                continue
+            anterior = uniao[nome]
+            # mesmo valor E mesmo tipo: `True == 1` e `None` contra valor sao conflito, nunca uniao
+            if type(anterior) is not type(valor) or anterior != valor:
+                return ENTRADAS_EM_CONFLITO
+    auditorias = {membro: auditoria_das_entradas(m) for membro, m in montadas.items()}
+    prazo_membro = PRAZO_SOMBRA_S / len(grupo.decisoes)
+    falhas: list[Exception] = []
+
+    def avaliador(decisao: str, entradas: Mapping[str, Any]) -> rco_composicao.Retorno:
+        try:
+            return evaluate_sync(
+                dmn,
+                decisao,
+                dict(entradas),
+                tenant=tenant,
+                entradas_rco=auditorias[decisao],
+                sombra=True,
+                prazo_s=prazo_membro,
+            )
+        except Exception as exc:  # guardada para o desfecho; `compor` a trata como `avaliador_falhou`
+            falhas.append(exc)
+            raise
+
+    resultado = rco_composicao.compor(
+        grupo,
+        avaliador,
+        uniao,
+        modo=rco_composicao.MODO_SOMBRA,
+        ordem_restricao=pin.ordem_restricao,
+        sinais_auditoria=pin.sinais_auditoria,
+        adversas=pin.adversas or rco_composicao.ADVERSAS_PISO,
+        adversa_exige_preenchidos=pin.adversa_exige_preenchidos or rco_composicao.ADVERSA_EXIGE_PISO,
+    )
+    if falhas:
+        falha = falhas[0]
+        if isinstance(falha, TimeoutError):
+            return PRAZO_ESGOTADO
+        if isinstance(falha, _FALHAS_DO_MOTOR):
+            return AVALIACAO_FALHOU
+        raise falha  # erro de programacao no avaliador: `compor` nao o esconde da sombra
+    return COMPOSICAO_REVISAO_HUMANA if resultado.revisao_humana else COMPOSICAO_ESCOLHIDA
+
+
+def avaliar_composicao_em_sombra(
+    dmn: DmnTransport | None,
+    nome_composicao: str,
+    montar_fatos: MontarFatos,
+    *,
+    tenant: str | None = None,
+    topico: str | None = None,
+) -> None:
+    """Porta dos workers para um GRUPO de `composicoes[]`: avalia em sombra e devolve `None`.
+
+    Mesmo contrato de `avaliar_em_sombra`: nunca muda o desfecho de quem chama, nao escreve variavel de
+    processo, nao le o indicador de efeito do K1 e nao registra a composicao (`registrar_composicao`):
+    nenhum aviso e enfileirado. Erro de programacao (`Exception` fora das esperadas): log ERROR so com o
+    NOME do tipo e a metrica `erro_de_programacao`, sem subir; `BaseException` propaga. O prazo
+    (`PRAZO_SOMBRA_S`) limita so as chamadas ao motor. `topico`: so rotulo de log."""
+    try:
+        desfecho = avaliar_composicao(dmn, nome_composicao, montar_fatos, tenant=tenant)
+    except Exception as exc:  # razao 3 do modulo: erro de programacao, contado e logado, nunca efeito
+        record_rco_sombra(ERRO_DE_PROGRAMACAO)
+        logger.error(
+            "rco_sombra_composicao_erro_de_programacao",
+            composicao=nome_composicao,
+            erro=type(exc).__name__,
+            topico=topico,
+        )
+        return
+    record_rco_sombra(desfecho)
+    logger.info("rco_sombra_composicao", composicao=nome_composicao, desfecho=desfecho, topico=topico)
+
+
 __all__ = [
     "AVALIACAO_FALHOU",
     "AVALIADA",
+    "COMPOSICAO_AUSENTE",
+    "COMPOSICAO_ESCOLHIDA",
+    "COMPOSICAO_REVISAO_HUMANA",
     "DESFECHOS",
     "DICIONARIO_RECUSADO",
     "DOMINIO_NAO_SUPORTADO",
+    "ENTRADAS_EM_CONFLITO",
     "ERRO_DE_PROGRAMACAO",
+    "MEMBRO_DE_COMPOSICAO",
     "MONTADOR_RECUSOU",
     "ORIGEM_SOMBRA",
     "PIN_AMH_INDISPONIVEL",
@@ -240,5 +412,7 @@ __all__ = [
     "MontarFatos",
     "auditoria_das_entradas",
     "avaliar",
+    "avaliar_composicao",
+    "avaliar_composicao_em_sombra",
     "avaliar_em_sombra",
 ]
