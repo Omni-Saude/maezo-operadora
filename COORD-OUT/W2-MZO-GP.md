@@ -143,3 +143,11 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 - `flip-path-review-gate` RED no head `0ff8d8ca`: o PR toca dois caminhos com dono, `.github/CODEOWNERS` (regra L247) e `Makefile` (L297), ambos `@rodaquino-OMNI` + `@Omni-Saude/security-team`. A porta exige APPROVED de membro VERIFICADO ativo do `security-team` sobre o head atual; o autor do PR é `@rodaquino-OMNI`, que é o único dono-usuário, e autoaprovação não conta. Não há caminho por push: é a separação de revisor que o próprio cabeçalho do CODEOWNERS descreve (item 3).
 - Não é defeito do diff. Não comento no PR. O resto do CI segue; mando o pronto só com todos os checks verdes, então este PR depende de uma aprovação do dono/time de segurança (ou de decisão da coordenação, p.ex. separar CODEOWNERS/Makefile num PR próprio do dono e deixar este só com `spec/health/` + validador, que não exige a porta).
 - Proposta para decisão: (a) o dono aprova o #1308 como membro do `security-team`; ou (b) eu retiro `.github/CODEOWNERS` e `Makefile` deste PR (o validador continua testado; `spec/health` fica fora do `validate-artifacts` até um PR do dono acrescentar o token e a linha), num segundo push. Aguardo CD.
+
+## 2026-11-18 ~03:00Z — #1308: segundo push (CD-104, CD-106, CD-108)
+
+- head `bef2c74586ce19e7ddee56c7c398e3d26b063d1b`, contém a main `a226697d` (merges de `22790308` e `a226697d`, sem rebase).
+- CD-104: aprovação NOMINAL por pergunta no próprio banco (`approval: {medical, legal}`); vazia no sintético; banco real com pergunta sem as duas aprovações → `DS_QUESTION_APPROVAL_MISSING` (teste negativo existe; mutação mostrou 4 testes vermelhos). Lacuna do time médico registrada no corpo do PR. Linha do CODEOWNERS segue só com `security-team`.
+- CD-106: nada retirado; o `flip-path-review-gate` segue vermelho por construção; o pronto vai com a frase dos caminhos.
+- CD-108: contagem do CODEOWNERS fecha em 36 depois do merge. `tests/unit/ci` + `tests/unit/sec` rodados sobre o head com `22790308` (3827 passed; só as falhas de ambiente). O merge seguinte (`a226697d`, só dois arquivos do console do portal, disjuntos) foi coberto por `tests/unit/sec` + validador + CLI + contagem + teste do console (309 passed), não pela rodada inteira de `tests/unit/ci` de novo: digo isso para a coordenação decidir se basta.
+- Consumo de CI: dois pushes neste PR.
