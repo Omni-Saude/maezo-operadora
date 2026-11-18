@@ -259,3 +259,50 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
   - Título e corpo do #1318 descrevem o que entrou (CA_4 novo; CA_1 intocado; histórico da primeira versão).
   - Disco: apaguei os temporários meus das linhas encerradas (scratchpad com 8K). Removi sem `--force` a worktree do `gtm-e-66`, já mesclado; ela só tinha a `.venv` que criei. Restam a worktree do canal e o clone principal. `git status` limpo.
 - Próxima da fila: E-SF-05r (CD-114 item 3). Antes de abrir PR, CAMINHO com os arquivos.
+
+## 2026-11-18 ~13:30Z — CAMINHO E-SF-05r (CD-159 item 2b); sem ramo, sem push
+
+Variante: J1 só a 1ª perna (catálogo com preço que pode ser desconhecido; preço público numérico FECHADO); sem CPF; canal presencial = fato do dono não dado (parâmetro vazio); E1/J4/J28 opção A; registros A1–A4 sem assinatura → nada liga.
+
+**Fatos do código (main `bef44a63`)** que mudam o desenho do plano:
+- Raiz de produção EXISTE (o plano dizia não localizada): `src/maezo/portal/api/production.py:36` chama `create_app(identity)` sem gateway comercial → as duas rotas são 503 hoje em produção. `create_app` (`app.py:242`) recebe gateways prontos e os guarda uma vez (`:407-412`); nenhum `read_*_admission` tem chamador em `src/`.
+- `AuthenticatedSalesAdmission.transport` já recusa `valid_until` vencido e `connection_ref` divergente (`commercial_admission.py:136-143`), mas nenhum teste cobre essas duas condições. Não existe verificador concreto, nem fonte de identidade de máquina em `src/` (só o OIDC humano).
+- O contrato congelado é fechado (`additionalProperties:false`) e não tem `presential_offer`, `signature_mode` nem recibo de plano-referência/aviso prévio. Criar esses campos exige contrato sucessor (todos os pinos A1–A5 movem) e eu não toco `contract-c6-4.json`. Essas pernas ficam FECHADAS por recusa.
+- Nenhum check relaciona `ansRegistry` a `offerState` no catálogo público, e nada mantém o preço público desconhecido. Hoje 6 testes servem como `usable` um produto com `ansRegistry` unknown e preço numérico.
+- Cobertura: `CoverageGatedCodec` (`commercial_admission.py:263-325`) já recusa cobertura não-unknown sem A4, com 7 testes negativos, mas aceita `unknown` sem `unknownReason`.
+- As linhas do plano para CORE-03b não batem: o teste do sha é `test_composition_refuses_a_coverage_admission_off_the_wired_contract` (a4 :832). Achado: com A4 inválida e sem A2, a composição ignora a A4 em silêncio em vez de recusar (`:636-651`).
+- CPF: zero ocorrências no caminho comercial e no contrato.
+
+**Proposta: 3 PRs em série** (o épico inteiro num PR passaria de 15 arquivos e misturaria superfícies).
+
+**05r-a — vitrine pública (TB-E-01-a, J1 1ª perna, REG-G1a, REG-06a).** Arquivos:
+- `src/maezo/gateway/commercial_public_fences.py` (novo): wrapper de codec no padrão de `CollectiveHoldCatalogCodec`. Recusa o catálogo INTEIRO, sem filtrar (filtrar quebraria o digest e a REG-06a), quando:
+  1. algum produto está `usable` com `ansRegistry` ou `operatorAnsRegistry` unknown;
+  2. algum produto traz preço numérico (B2 fechada);
+  3. o fato do canal presencial está ausente (parâmetro vazio por padrão).
+- `src/maezo/gateway/commercial_admission.py`: instalar o wrapper em `compose_public_catalog_gateway` (perto de `:753`) e aceitar o parâmetro do fato presencial (padrão `None`).
+- `tests/unit/gateway/test_esf05r_public_fences.py` (novo): `test_public_catalog_never_usable_with_unknown_ans_registry`, `test_public_price_never_numeric_while_b2_closed`, `test_online_showcase_requires_presential_fact`, `test_online_eligibility_not_hardcoded` (bytes idênticos à fonte; nenhuma lista de produto em `src/`).
+- Fixtures a inverter: `tests/unit/test_commercial_c6.py`, `test_commercial_admission_a1.py`, `test_commercial_admission_a2.py`, `tests/unit/gateway/test_esf20_collective_hold.py`. Os positivos passam a usar registro conhecido, preço unknown e fato presencial injetado. `…preserves_numeric_values` vira a recusa (o preço numérico deixa de ser servido).
+- Fica fechado: com o parâmetro vazio, a vitrine recusa sempre (`source_unavailable`, 503), e é o teste do fato presencial que fecha.
+
+**05r-b — sessão, aceite, cobertura (CORE-02b, REG-17a parcial, TB-E-15-b, CORE-03b).** Arquivos:
+- `src/maezo/gateway/commercial_admission.py`: `CoverageGatedCodec` passa a recusar `unknown` sem `unknownReason`; a composição recusa A4 inválida também no ramo sem A2.
+- `tests/unit/test_commercial_admission_a2.py`: `test_concrete_verifier_with_stale_connection_refuses_before_body` (verificador que devolve `valid_until` vencido ou `connection_ref` alheio → 403 com corpo exato e zero leitura de corpo).
+- `tests/unit/test_commercial_admission_a4.py`: `test_never_issued_to_active` e `test_unknown_without_reason_is_refused`; os testes de CORE-03b ficam como regressão, sem teste novo.
+- `tests/unit/gateway/test_esf05r_acceptance.py` (novo): `test_declarations_never_in_acceptance_payload` (a tela de entrada já recusa chave `declaration*`; aqui fica pinado no `acceptance.record`).
+- Fica fechado: `test_acceptance_refused_without_plano_referencia_receipt` e `test_signature_mode_other_refused_until_ratified` NÃO entram (não há campo no contrato). Hoje todo `accept` já recusa no portão RN 413 (`terms_review_required`), o que é pinado como regressão. Verificador concreto: NÃO entra (sem fonte de identidade de máquina; GAP).
+
+**05r-c — raiz de composição (CORE-00b).** Arquivos:
+- `src/maezo/gateway/commercial_record_resolver.py` (novo): guarda o caminho do registro; a cada chamada faz `read_*_admission` + `compose_*`; `FileNotFoundError` ou recusa → não ligado.
+- `src/maezo/portal/api/app.py` e `src/maezo/portal/api/commercial.py`: as rotas resolvem o gateway por chamada quando há resolvedor.
+- Teste novo `test_composition_root_without_record_file_keeps_both_routes_closed` em `tests/unit/test_commercial_admission_a1.py`, pelo `create_app` real.
+- `production.py` NÃO muda: sem registro assinado e sem transporte de registro (GAP-RECORD-TRANSPORT), a raiz de produção segue sem resolvedor.
+
+**Subperguntas (padrão conservador entre parênteses):**
+1. Dividir em 3 PRs na ordem a → b → c (sim).
+2. Vitrine com preço numérico: recusar o catálogo inteiro (sim) ou rebaixar só o campo para unknown (não: rebaixar reescreve o wire da fonte).
+3. Fato presencial: parâmetro único do dono (`None` = vitrine fechada), nunca lista de produtos local (sim).
+4. Verificador concreto e campos de aceite: ficam fora, como GAP de identidade de máquina e contrato sucessor (sim).
+5. Inverter `…preserves_numeric_values` em `test_commercial_c6.py` (sim; o teste pertence ao fluxo C6 da W2-MZO-GP? confirmar se é de outra janela).
+
+Nada de DMN, migração, DL, `PLANS.md`, CODEOWNERS, workflows ou contrato. Arquivos de contagem: nenhum. Começo 05r-a em ramo local `sf-w2/mzo-gp/esf05r-a`, sem push até a CD.
