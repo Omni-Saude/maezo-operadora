@@ -151,3 +151,11 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 - CD-106: nada retirado; o `flip-path-review-gate` segue vermelho por construção; o pronto vai com a frase dos caminhos.
 - CD-108: contagem do CODEOWNERS fecha em 36 depois do merge. `tests/unit/ci` + `tests/unit/sec` rodados sobre o head com `22790308` (3827 passed; só as falhas de ambiente). O merge seguinte (`a226697d`, só dois arquivos do console do portal, disjuntos) foi coberto por `tests/unit/sec` + validador + CLI + contagem + teste do console (309 passed), não pela rodada inteira de `tests/unit/ci` de novo: digo isso para a coordenação decidir se basta.
 - Consumo de CI: dois pushes neste PR.
+
+## 2026-11-18 ~04:00Z — PRONTO #1308 (E-SF-25)
+
+- head `bef2c74586ce19e7ddee56c7c398e3d26b063d1b`, contém a main `a226697d`; run 44227217199: todos os check runs verdes (2 skipped de matriz/nightly) exceto o `flip-path-review-gate`.
+- Integração (live-pytest PASS): cancel-contas 138, restante 958, recurso-nip 128, cred-ans 129, reembolso 53.
+- flip-path-review-gate vermelho; caminhos que o disparam: `.github/CODEOWNERS` (linha de `/spec/health/` + contagem 35→36) e `Makefile` (token `spec/health` em `validate-artifacts`). (CD-106)
+- A main andou para `fd352899` (#1310 e #1311, nenhum arquivo em comum): simulação de merge sobre ela limpa, 7 arquivos. Não dei terceiro push; faço se a coordenação pedir o ramo com `fd352899`.
+- Pronto enviado. Próxima depois do merge: E-SF-26 + parse dos BPMN CA (toca MAPA/INVENTARIO/baseline: CAMINHO antes de abrir, CD-80).
