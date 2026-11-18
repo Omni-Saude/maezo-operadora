@@ -1198,6 +1198,7 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         # agente, ADR-0067) para a rota de ingresso, a origem A2A (Helena) e o Rafael aplicarem a
         # MESMA regra.
         "carater_atendimento.py",
+        "rn413_contracting_clock.py",  # E-SF-07: relogio-sombra da contratacao, funcao pura
     }
 )
 
@@ -1372,7 +1373,7 @@ def test_domain_modules_discovered() -> None:
     assert set(modules) == _EXPECTED_MODULES, (
         f"maezo.domain module set drifted: found {sorted(modules)}, expected {sorted(_EXPECTED_MODULES)}"
     )
-    assert len(modules) == 21
+    assert len(modules) == 22
 
 
 def test_import_extraction_is_not_vacuous() -> None:
