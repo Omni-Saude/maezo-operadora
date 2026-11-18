@@ -43,6 +43,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import os
 import signal
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -161,6 +162,33 @@ def _helena_model_tiers() -> dict[str, str]:
         return {}
 
 
+#: A autorizacao EXPLICITA da rota global em modo de producao: a env com o rotulo LITERAL da rota
+#: (`experimento_global.ROTA_DE_RESIDENCIA`). Nenhum deploy a define hoje; liga-la e' decisao do dono/DPO.
+ENV_AUTORIZACAO_ROTA_GLOBAL = "MAEZO_ROTA_GLOBAL_AUTORIZACAO"
+_AUTORIZACAO_NAO_PRODUCAO = "nao_producao"
+_AUTORIZACAO_EXPLICITA = "rotulo_da_rota"
+_AUTORIZACAO_EXCECAO_DEV = "excecao_regional_dev"
+
+
+def _autorizacao_da_rota_global() -> str | None:
+    """A autorizacao REGISTRADA que deixa montar a rota global em modo de producao, ou `None`.
+
+    Duas, lidas do ambiente do processo agora: (1) `MAEZO_ROTA_GLOBAL_AUTORIZACAO` igual ao rotulo literal
+    da rota; (2) a excecao regional do DPO de 21/10/2026 ativa (`excecao_regional.excecao_ativa`: o rotulo
+    literal em `MAEZO_PHI_EXCECAO_REGIONAL`). A (2) e' a que o receptor do dev carrega hoje (o dev roda com
+    `RUNTIME_MODE=production`); ela e' so' do dev por construcao (o terraform de prod recusa qualquer valor
+    nao vazio). E' uma ponte: ela autoriza a zona PHI em us-east-1, nao nomeia a rota global; trocar pela (1)
+    no deploy do dev e' pendencia do dono/DPO. Qualquer outro valor = sem autorizacao."""
+    from maezo.runtime.inference.excecao_regional import excecao_ativa
+    from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA
+
+    if os.environ.get(ENV_AUTORIZACAO_ROTA_GLOBAL, "").strip() == ROTA_DE_RESIDENCIA:
+        return _AUTORIZACAO_EXPLICITA
+    if excecao_ativa():
+        return _AUTORIZACAO_EXCECAO_DEV
+    return None
+
+
 def _rota_global(settings: WhatsAppWebhookSettings) -> Any:
     """ROTA GLOBAL DA ALLOWLIST (limpeza da saude, etapa 1, 02/11/2026): o transporte do Haiku 5.5 (rota
     autorizada pelo DPO, ADR-0065/DL-0155) e as conversas autorizadas, SEM depender da base de saude nem da
@@ -169,7 +197,14 @@ def _rota_global(settings: WhatsAppWebhookSettings) -> Any:
     Construcao pura: o cliente Bedrock nao faz rede ate' a primeira chamada.
 
     Etapa 2 da limpeza (dono, 02/11/2026; DPO, 27/10/2026): `MAEZO_HELENA_ROTA_GLOBAL_TODAS` liga a rota para
-    TODAS as conversas keyed, sem lista (o roteador ativo e a porta unica seguem a mesma rota)."""
+    TODAS as conversas keyed, sem lista (o roteador ativo e a porta unica seguem a mesma rota).
+
+    GUARDA "NAO PRODUCAO" (DL-0192), FALHA FECHADA: em modo de producao (`runtime_mode` diferente de `local`,
+    o mesmo discriminador do pseudonimizador e do checkpointer; ausente = producao) a rota so' e' montada com
+    uma AUTORIZACAO REGISTRADA (`_autorizacao_da_rota_global`). Sem ela, nada da rota global existe no
+    processo (`None`, como com a lista vazia): a porta unica e o roteador ativo nao assumem, o `classify` e o
+    roteador ficam no provedor da zona PHI de sempre, e o log `helena_rota_global_recusada_sem_autorizacao`
+    diz so' a rota e as contagens (nunca conteudo). Fora de producao, como antes."""
     from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
     from maezo.runtime.inference.rota_global import RotaGlobal, conversas_autorizadas
 
@@ -177,11 +212,23 @@ def _rota_global(settings: WhatsAppWebhookSettings) -> Any:
     todas = getattr(settings, "helena_rota_global_todas", False) is True
     if not conversas and not todas:
         return None
+    producao = getattr(settings, "runtime_mode", None) != _LOCAL_RUNTIME_MODE
+    autorizacao = _autorizacao_da_rota_global() if producao else _AUTORIZACAO_NAO_PRODUCAO
+    if autorizacao is None:
+        logger.error(
+            "helena_rota_global_recusada_sem_autorizacao",
+            rota=ROTA_DE_RESIDENCIA,
+            conversas_autorizadas=len(conversas),
+            todas_as_conversas=todas,
+            env_da_autorizacao=ENV_AUTORIZACAO_ROTA_GLOBAL,
+        )
+        return None
     logger.warning(
         "helena_rota_global_ligada",
         rota=ROTA_DE_RESIDENCIA,
         conversas_autorizadas=len(conversas),
         todas_as_conversas=todas,
+        autorizacao=autorizacao,
     )
     return RotaGlobal(transporte=TransporteGlobalExperimental(), conversas=conversas, todas=todas)
 

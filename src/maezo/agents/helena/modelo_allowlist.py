@@ -5,12 +5,15 @@ ReadTimeout em ~47% das chamadas: o roteador caiu no caminho de sempre, a escolh
 universal, a leitura da resposta falhou e o classify abriu caso por `falha_tecnica`. O dono, como DPO,
 decidiu passar o ROTEADOR v7, os PASSOS DO PROTOCOLO (escolha, pre_leitura, leitura) e o CLASSIFY antigo para
 o Claude Haiku 5.5 na rota global JA' autorizada para a saude gerativa
-(`experimento_global_autorizado_dpo_2026-10-17`, `runtime/inference/experimento_global.py`), SO' nas
-conversas da allowlist.
+(`experimento_global_autorizado_dpo_2026-10-17`, `runtime/inference/experimento_global.py`), nas conversas
+da allowlist. Desde a etapa 2 da limpeza da saude (02/11/2026), com `MAEZO_HELENA_ROTA_GLOBAL_TODAS` a
+allowlist e' TODA conversa keyed (`todas_as_conversas`), e a LEITURA da porta unica de saude
+(`habilidades/saude_original/fluxo.py`) usa o mesmo transporte e a mesma mascara.
 
 A ALLOWLIST (um predicado so', `na_allowlist`): a conversa esta' na rota global do modelo
 (`rota_global`: o transporte e a lista, sem depender da base nem da saude gerativa desde a etapa 1 da
-limpeza) E na lista de conversas do roteador. Qualquer outra
+limpeza) E na lista de conversas do roteador (com a chave de todas, as duas listas deixam de limitar).
+Qualquer outra
 conversa usa o GLM-5 exatamente como antes (o mesmo objeto de provedor, a mesma chamada).
 
 O INTERRUPTOR (sem codigo). `roteador.modelo_allowlist` no pacote (opcional) vence; senao a env
@@ -26,8 +29,17 @@ O ADAPTADOR tem a MESMA interface do provedor de hoje (`generate(prompt, phi=, a
 task_kind=) -> str`) e o mesmo contrato de JSON no texto: quem chama nao muda. Cada chamada gera uma linha
 `inferencia_chamada` (o mesmo contador da zona PHI: modelo, regiao `global`, resultado ok|falha|prazo, ms) e
 uma `helena_modelo_allowlist_chamada` (papel, modo, modelo, resultado, ms, reserva): a taxa de falha e'
-medida pelos mesmos filtros. Nada de conteudo vai para log. Numeros longos (CPF, telefone, carteirinha) saem
-mascarados do prompt antes da rota global (minimizacao).
+medida pelos mesmos filtros. Nada de conteudo vai para log.
+
+MINIMIZACAO (`minimizar_prompt`, DL-0192). Antes da rota global, o texto passa por uma mascara
+DETERMINISTICA e conservadora: e-mail, nomes conhecidos dos dependentes (so' os que o grafo ja' tem em
+memoria), nome logo depois de uma apresentacao ("meu nome e' ...", "me chamo ..."), numeros longos (8+
+digitos, com ou sem separador: CPF, telefone, carteirinha, protocolo ANS, data) e identificadores curtos
+(codigo de letras e 3+ digitos, como `REE-1A2B-3C4D` ou `hk1_...`; numero solto de 5 a 7 digitos). E' uma
+mascara por padrao de texto, NAO um anonimizador: nome que aparece fora desses dois casos (ex.: "fui com a
+Maria"), endereco, nome de lugar, idade, sintoma e o resto do texto livre SAEM como estao. O `phi=True` de
+quem chama e' IGNORADO pelo adaptador (`ProvedorHaikuGlobal.generate`): esta rota nao recusa conteudo de
+saude; quem decide se ela existe e' a composicao (`platform/webhooks/service.py::_rota_global`).
 """
 
 from __future__ import annotations
@@ -36,7 +48,8 @@ import asyncio
 import os
 import re
 import time
-from collections.abc import Mapping
+import unicodedata
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
 import structlog
@@ -93,6 +106,44 @@ SISTEMA: Final[str] = (
 
 DADO_REMOVIDO: Final[str] = "[dado removido]"
 _NUMERO_LONGO: Final[re.Pattern[str]] = re.compile(r"(?<!\d)\d(?:[\s.\-/]?\d){7,}(?!\d)")
+#: E-mail (forma comum `local@dominio.tld`); o local aceita letras com acento.
+_EMAIL: Final[re.Pattern[str]] = re.compile(r"[\w.+%-]+@[\w-]+(?:\.[\w-]+)+")
+#: Candidato a identificador curto: um "token" de letras, digitos, `_` e `-` (o ponto separa, para que um
+#: CID como `J45.9` nao vire um token so'). `_e_identificador_curto` decide.
+_TOKEN: Final[re.Pattern[str]] = re.compile(r"(?<![\w-])[A-Za-z0-9][A-Za-z0-9_-]*[A-Za-z0-9](?![\w-])")
+#: Letra ANTES de digito no mesmo token: `AB12345` e `REE-1A2B` sim; `500mg`/`1200ml` (dose) nao.
+_LETRA_ANTES_DE_DIGITO: Final[re.Pattern[str]] = re.compile(r"[A-Za-z][A-Za-z0-9_-]*[0-9]")
+#: Numero solto de 5 a 7 digitos (carteirinha parcial, protocolo, matricula), fora de decimal, data, faixa ou
+#: dose com unidade ("50000 UI" fica).
+_NUMERO_CURTO: Final[re.Pattern[str]] = re.compile(
+    r"(?<![\w/-])(?<![0-9][.,])[0-9]{5,7}(?![\w/-]|[.,][0-9]|\s?(?i:ui|mg|mcg|ml|kg|g|mm|cm)\b)"
+)
+#: Referencia de documento do repo nas INSTRUCOES dos prompts (`ADR-0005`, `DL-0101`, `SP-OP-...`): nao e'
+#: dado de pessoa e fica (mascarar mudaria o texto fixo do prompt).
+_REFERENCIA_DO_REPO: Final[re.Pattern[str]] = re.compile(r"(?:ADR|DL|SP-OP|AGJ|HEL)-[0-9]")
+_MINIMO_DE_DIGITOS_DO_ID: Final[int] = 3
+_MINIMO_DE_CARACTERES_DO_ID: Final[int] = 5
+#: Apresentacao: o que vem logo depois e' o nome. A deixa e' sem caixa; o nome e' a primeira palavra (qualquer
+#: caixa) e as seguintes, na MESMA linha, so' com inicial MAIUSCULA (com particula "de/da/do/das/dos/e" entre
+#: elas), para nao engolir o resto da frase ("me chamo ana e estou com febre" mascara so' "ana").
+_MAIUSCULA: Final[str] = "A-ZÀ-ÖØ-Þ"
+_APRESENTACAO: Final[re.Pattern[str]] = re.compile(
+    r"(?P<deixa>(?i:\b(?:meu nome(?: completo)?|o nome (?:dele|dela|d[oa] (?:meu |minha )?[^\W\d_]+))"
+    r"(?:[ \t]+(?:é|e|eh)\b|[ \t]*:)|\bme chamo\b)[ \t]*:?[ \t]*)"
+    r"(?P<nome>[^\W\d_]+(?:[ \t]+(?:(?:de|da|do|das|dos|e)[ \t]+)?[" + _MAIUSCULA + r"][^\W\d_]*)*)"
+)
+_PARTICULAS: Final[frozenset[str]] = frozenset({"de", "da", "do", "das", "dos", "e"})
+_MINIMO_DE_LETRAS_DO_NOME: Final[int] = 3
+#: A vogal (ou o c) sem acento -> a classe com as variantes acentuadas: o nome guardado e o digitado podem
+#: diferir so' no acento.
+_VARIANTES: Final[Mapping[str, str]] = {
+    "a": "aáàâãä",
+    "e": "eéèêë",
+    "i": "iíìîï",
+    "o": "oóòôõö",
+    "u": "uúùûü",
+    "c": "cç",
+}
 
 
 class TransporteGlobal(Protocol):
@@ -124,9 +175,83 @@ def modo_escolhido(valor_do_pacote: object = None, ambiente: Mapping[str, str] |
     return MODO_PADRAO
 
 
-def minimizar_prompt(prompt: str) -> str:
-    """Numeros longos (CPF, telefone, carteirinha, protocolo) nao saem pela rota global."""
-    return _NUMERO_LONGO.sub(DADO_REMOVIDO, prompt)
+def _sem_acento(texto: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", texto) if not unicodedata.combining(c)).lower()
+
+
+def _padrao_de_nomes(nomes: Iterable[str]) -> re.Pattern[str] | None:
+    """Cada palavra (3+ letras, fora as particulas) dos nomes conhecidos, palavra inteira, sem caixa e sem
+    acento. `None` sem palavra nenhuma."""
+    partes: set[str] = set()
+    for nome in nomes:
+        for palavra in re.findall(r"[^\W\d_]+", _sem_acento(str(nome or ""))):
+            if len(palavra) >= _MINIMO_DE_LETRAS_DO_NOME and palavra not in _PARTICULAS:
+                partes.add(palavra)
+    if not partes:
+        return None
+    alternativas = (
+        "".join(f"[{_VARIANTES[c]}]" if c in _VARIANTES else re.escape(c) for c in palavra)
+        for palavra in sorted(partes, key=len, reverse=True)
+    )
+    return re.compile(r"(?<!\w)(?:" + "|".join(alternativas) + r")(?!\w)", re.IGNORECASE)
+
+
+def _e_identificador_curto(token: str) -> bool:
+    return (
+        len(token) >= _MINIMO_DE_CARACTERES_DO_ID
+        and sum(c.isdigit() for c in token) >= _MINIMO_DE_DIGITOS_DO_ID
+        and _LETRA_ANTES_DE_DIGITO.search(token) is not None
+        and _REFERENCIA_DO_REPO.match(token) is None
+    )
+
+
+def minimizar_prompt(prompt: str, *, nomes: Iterable[str] = ()) -> str:
+    """O texto que sai pela rota global, com dados de identificacao trocados por `DADO_REMOVIDO`.
+
+    MASCARA, NESTA ORDEM:
+    (1) e-mail;
+    (2) cada palavra dos `nomes` conhecidos (os nomes dos dependentes que o grafo ja' leu, `nomes_conhecidos`;
+        sem caixa e sem acento, palavra inteira de 3+ letras, fora particulas);
+    (3) o nome logo depois de "meu nome (completo) e'" ou ":", "me chamo", "o nome dele/dela e'" e "o nome do
+        meu filho/da minha mae e'" (a primeira palavra e as seguintes, na mesma linha, com inicial maiuscula);
+    (4) numero de 8+ digitos, com ou sem espaco, ponto, hifen ou barra (CPF, telefone, carteirinha, protocolo
+        ANS, CEP, data);
+    (5) identificador curto: token de 5+ caracteres com 3+ digitos e uma letra antes de um digito
+        (`REE-1A2B-3C4D`, `AB12345`, `hk1_<hex>`), fora referencia de documento do repo (`ADR-0005`);
+    (6) numero solto de 5 a 7 digitos que nao e' decimal, data, faixa nem dose com unidade.
+
+    NAO COBRE (sai como esta'): nome fora de uma apresentacao e fora dos `nomes` ("fui com a Maria"), apelido,
+    sobrenome em minusculas depois do primeiro nome ("me chamo ana souza" mascara so' "ana"), o nome do
+    proprio beneficiario quando ele nao se apresenta (a Helena nao o tem), endereco, cidade, nome de hospital
+    ou medico, idade, sintoma, dose, numero de ate' 4 digitos, codigo com menos de 3 digitos (`COVID19`,
+    `H1N1`), e-mail escrito por extenso ("arroba"). Determinismo de proposito: nada de modelo aqui, e o mesmo
+    texto da' sempre a mesma saida."""
+    texto = _EMAIL.sub(DADO_REMOVIDO, prompt)
+    padrao = _padrao_de_nomes(nomes)
+    if padrao is not None:
+        texto = padrao.sub(DADO_REMOVIDO, texto)
+    texto = _APRESENTACAO.sub(lambda m: m.group("deixa") + DADO_REMOVIDO, texto)
+    texto = _NUMERO_LONGO.sub(DADO_REMOVIDO, texto)
+    texto = _TOKEN.sub(lambda m: DADO_REMOVIDO if _e_identificador_curto(m.group(0)) else m.group(0), texto)
+    return _NUMERO_CURTO.sub(DADO_REMOVIDO, texto)
+
+
+def nomes_conhecidos(self: HelenaGraph, state: Mapping[str, Any]) -> tuple[str, ...]:
+    """Os nomes completos dos dependentes que o grafo ja' leu para a pessoa desta conversa (memoria do
+    processo, `_nomes_em_memoria`, DL-0127/DL-0131), so' para a mascara. Vazio sem identidade, com a chave dos
+    nomes desligada ou sem leitura anterior. A Helena nao tem o nome do proprio beneficiario (a identidade e'
+    pseudonima, DL-0077): ele so' sai mascarado pela apresentacao."""
+    identidade = state.get("identidade_beneficiario")
+    ref = identidade.get("portable_subject_ref") if isinstance(identidade, Mapping) else None
+    memoria = getattr(self, "_nomes_em_memoria", None)
+    if not isinstance(ref, str) or not isinstance(memoria, Mapping):
+        return ()
+    guardado = memoria.get(ref)
+    if not guardado:
+        return ()
+    nomes = guardado[1]
+    completos = getattr(nomes, "para_mascarar", None)
+    return tuple(completos()) if callable(completos) else ()
 
 
 def _registrar(
@@ -161,7 +286,13 @@ class ProvedorHaikuGlobal:
     """`generate(...) -> str` sobre a rota global (Haiku 5.5), com prazo proprio por chamada."""
 
     def __init__(
-        self, transporte: TransporteGlobal, *, papel: str, prazo_s: float, modo: str = MODO_HAIKU
+        self,
+        transporte: TransporteGlobal,
+        *,
+        papel: str,
+        prazo_s: float,
+        modo: str = MODO_HAIKU,
+        nomes: Iterable[str] = (),
     ) -> None:
         derivar = getattr(transporte, "com_campos", None)
         if callable(derivar):
@@ -172,6 +303,8 @@ class ProvedorHaikuGlobal:
         self.prazo_s = float(prazo_s)
         self.modo = modo
         self.modelo = str(getattr(transporte, "modelo", MODELO_HAIKU_GLOBAL) or MODELO_HAIKU_GLOBAL)
+        #: Os nomes conhecidos desta conversa, so' para a mascara (`minimizar_prompt`); nunca vao a log.
+        self._nomes = tuple(nomes)
 
     async def generate(
         self,
@@ -186,7 +319,7 @@ class ProvedorHaikuGlobal:
     ) -> str:
         del phi, agent_id, tenant_id, task_kind  # a rota e' propria; a interface e' a do provedor de hoje
         prazo = self.prazo_s if prazo_s is None else max(0.5, min(self.prazo_s, prazo_s))
-        mensagens = [{"role": "user", "content": [{"text": minimizar_prompt(prompt)}]}]
+        mensagens = [{"role": "user", "content": [{"text": minimizar_prompt(prompt, nomes=self._nomes)}]}]
         inicio = time.monotonic()
         try:
             resposta = await asyncio.wait_for(
@@ -323,7 +456,9 @@ def provedor_para(self: HelenaGraph, state: Mapping[str, Any], papel: str) -> An
         return base
     prazo_curto = min(PRAZO_ROTEADOR_S, float(self._roteador_prazo_s or PRAZO_ROTEADOR_S))
     prazo_haiku = PRAZO_CLASSIFY_S if papel == PAPEL_CLASSIFY else prazo_curto
-    haiku = ProvedorHaikuGlobal(rota.transporte, papel=papel, prazo_s=prazo_haiku, modo=modo)
+    haiku = ProvedorHaikuGlobal(
+        rota.transporte, papel=papel, prazo_s=prazo_haiku, modo=modo, nomes=nomes_conhecidos(self, state)
+    )
     if modo == MODO_HAIKU:
         return haiku
     prazo_total = (
@@ -352,6 +487,7 @@ __all__ = [
     "minimizar_prompt",
     "modo_escolhido",
     "na_allowlist",
+    "nomes_conhecidos",
     "provedor_para",
     "todas_as_conversas",
 ]

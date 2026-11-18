@@ -852,6 +852,11 @@ class NomesDoTurno:
                 saida[ordem] = partes[0]
         return saida
 
+    def para_mascarar(self) -> tuple[str, ...]:
+        """Os nomes completos, SO' para a mascara da rota global (`modelo_allowlist.minimizar_prompt`): o nome
+        sai daqui para ser APAGADO do texto, nunca para ser enviado."""
+        return tuple(self._nomes.values())
+
     def preencher(self, texto: str) -> str:
         """O texto com cada marcador trocado pelo nome completo (ou por "dependente N", sem nome)."""
         return _MARCADOR_DEPENDENTE.sub(

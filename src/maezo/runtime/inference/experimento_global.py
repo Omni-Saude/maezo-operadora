@@ -1,24 +1,29 @@
-"""ROTA DE RESIDENCIA PROPRIA: `experimento_global_autorizado_dpo_2026-10-17` (ADR-0065, DL-0119) — SO' DEV.
+"""ROTA DE RESIDENCIA PROPRIA: `experimento_global_autorizado_dpo_2026-10-17` (ADR-0065, DL-0119, DL-0155).
 
-O QUE E'. O UNICO caminho do repo que manda texto de uma conversa de beneficiario para um modelo pelo perfil
-GLOBAL do Bedrock (`global.anthropic.claude-haiku-5-5`), que PODE PROCESSAR FORA DO BRASIL. Existe porque o
-dono (filipecarmo81, dono do repo, CTO e DPO) AUTORIZOU, como DPO, em 17/10/2026, este desvio de residencia
-SO' para a REDACAO de respostas informativas de saude da Helena, SO' para a conversa DELE (allowlist) e a dos
-telefones sinteticos do simulador, SO' em dev, como teste reversivel.
+O QUE E'. O transporte que manda texto de conversa de beneficiario para um modelo pelo perfil GLOBAL do
+Bedrock (`MODELO_HAIKU_GLOBAL`), que PODE PROCESSAR FORA DO BRASIL. O dono (CTO e DPO) autorizou o desvio de
+residencia em 17/10/2026 para a redacao de saude da Helena, so' em dev e como teste reversivel; depois
+(26/10/2026, DL-0155; 27/10 e 02/11/2026, limpeza da saude) o uso cresceu para o ROTEADOR v7, os passos do
+protocolo, o CLASSIFY e a LEITURA da porta unica de saude (`agents/helena/modelo_allowlist.py`,
+`agents/helena/habilidades/saude_original/fluxo.py`), nas conversas da lista ou, com
+`MAEZO_HELENA_ROTA_GLOBAL_TODAS`, em TODAS as conversas keyed do processo.
 
-O QUE NAO E'. Nao e' uma zona do roteador (`MAEZO_INFERENCE_PROVIDER`/`phi=True`): o roteador de zonas e o
-transporte regional da zona PHI (`br_regional.py`, sa-east-1, atestacao de regiao) NAO mudam e NAO sabem
-desta rota. Nenhum outro agente, no' ou chamada pode usa-la por efeito colateral: ela so' e' construida pela
-raiz de composicao do receptor quando `MAEZO_HELENA_SAUDE_GERATIVA=true`, e so' e' chamada pela Helena para
-uma conversa da allowlist (`maezo.conhecimento.saude_gerativa`). Classificacao, alarme, saude mental,
-identificacao, plano, carteirinha, cobranca, cancelamento e casos continuam na zona PHI (GLM-5, sa-east-1).
+QUEM CONSTROI. So' a raiz de composicao do receptor (`platform/webhooks/service.py::_rota_global`), quando
+ha' lista de conversas (`MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS`) ou a chave de todas. Em modo de producao
+(`runtime_mode` diferente de `local`) ela so' constroi com uma autorizacao registrada
+(`_autorizacao_da_rota_global`, DL-0192); sem ela, nao constroi. Nao e' uma zona do roteador de inferencia
+(`MAEZO_INFERENCE_PROVIDER`/`phi=True`): o transporte regional da zona PHI (`br_regional.py`) nao sabe desta
+rota, e o `phi=True` de quem chama nao a impede (o adaptador `ProvedorHaikuGlobal` o ignora).
 
-O QUE VAI NA CHAMADA. So' o que `saude_gerativa` montou: o prompt de sistema fixo e a pergunta/contexto de
-saude JA MINIMIZADOS (sem CPF, nome, carteirinha, telefone, e-mail, data de nascimento). Nada de cadastro.
-Nada de conteudo vai para log: so' rota, modelo, latencia, tokens e o codigo da falha.
+O QUE VAI NA CHAMADA. O prompt de sistema fixo de quem chama e o texto que ele montou: instrucoes, a
+mensagem da pessoa e, conforme o chamador, o historico curto da conversa. Este modulo NAO minimiza nada; os
+dois chamadores de hoje passam o texto por `modelo_allowlist.minimizar_prompt`, uma mascara por padrao
+(e-mail, nomes conhecidos e de apresentacao, numeros longos, identificadores curtos) que NAO tira todo dado
+pessoal nem o conteudo de saude, que e' justamente o que vai. Nada de conteudo vai para log: so' rota, modelo,
+latencia, tokens e o codigo da falha.
 
-COMO DESLIGAR. `helena_saude_gerativa = false` (tfvars do dev) + apply direcionado; a chave desligada nem
-constroi este transporte. Runbook: `docs/runbooks/helena-base-saude.md` (secao "Saude gerativa").
+COMO DESLIGAR. Lista vazia e `helena_rota_global_todas = false` (tfvars do dev) + apply direcionado: sem
+lista e sem a chave, a composicao nem constroi este transporte. Runbook: `docs/runbooks/helena-base-saude.md`.
 """
 
 from __future__ import annotations
