@@ -54,7 +54,7 @@ validate-artifacts: ## BPMN/DMN/policies/agent-definitions (blocker de CI)
 # src/maezo/processes and src/maezo/policies paths never existed (T0.4). Pointer
 # repair only. Real fail-closed validation since T2.1; orphans governed by
 # spec/processes/dmn/orphans-allowlist.yaml.
-	.venv/bin/python -m maezo.platform.validation.cli validate spec/processes spec/policies spec/agents
+	.venv/bin/python -m maezo.platform.validation.cli validate spec/processes spec/policies spec/agents spec/health
 
 validate-signoff: ## gate de promocao de conteudo: artefato promovivel exige sign-off humano (Track C2)
 	.venv/bin/python -m maezo.platform.validation.cli signoff

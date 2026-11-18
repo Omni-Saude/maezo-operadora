@@ -562,6 +562,18 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # DL-0185: cada aviso de `sinalAuditoria` do K1 do rco, do enfileiramento pelo harness (depois de
+        # completar a tarefa, fail-open) a publicacao pelo relay (`platform.rco_avisos_relay`). Rotulo FECHADO
+        # (`observability.RCO_AVISO_DESFECHOS`, outro valor vira `outro`). Nunca tenant, tarefa, sinal ou
+        # fila: quais avisos vem do log estruturado e da tabela `rco_aviso_auditoria`.
+        self._rco_aviso_total = Counter(
+            "maezo_rco_aviso_total",
+            "rco K1 audit-signal notices (outbox enqueue and relay delivery), by closed outcome "
+            "(COUNTS ONLY; desfecho is a closed vocabulary)",
+            labelnames=["desfecho"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -843,6 +855,11 @@ class MetricsCollector:
     def rco_conferencia_rejeitada_total(self) -> Counter:
         """Counter for rco K1 conferences rejected by a human (DL-0182). Label: ativacao (closed)."""
         return self._rco_conferencia_rejeitada_total
+
+    @property
+    def rco_aviso_total(self) -> Counter:
+        """Counter for rco K1 audit-signal notices (DL-0185). Label: desfecho (closed vocabulary)."""
+        return self._rco_aviso_total
 
     @property
     def rco_composicao_revisao_total(self) -> Counter:

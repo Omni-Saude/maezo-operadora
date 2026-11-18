@@ -1013,3 +1013,18 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: "PENDENTE-BASE-LEGAL-DPO-JURIDICO"
     retencao: "PENDENTE-RETENCAO-DPO-JURIDICO"
+  - camada: aviso_auditoria_regras_k1
+    tabela: rco_aviso_auditoria
+    migracao: "0036_rco_aviso_auditoria.py::upgrade (rco_aviso_auditoria)"
+    identificacao: "Sem coluna de titular: a linha do outbox guarda so' tenant, o id da tarefa externa do motor (`task_id`, o mesmo que a `dedup_key` da auditoria `tenant:task_id` ja' carrega), o nome da composicao do manifesto, o sinal e a fila em token do vocabulario fechado do pacote, o NOME do parametro do prazo publicado no K6, estado/tentativas/codigo fechado de erro/carimbos da entrega e `chave_idempotencia` = sha256(tenant:task_id:composicao:sinal:fila). Sem chave de negocio, linha da DMN ou texto livre. So' se liga a um caso de forma indireta, por `task_id` ate' a tabela de auditoria; a eliminacao segue o regime da auditoria. Escritor: o harness DEPOIS de completar a tarefa (fail-open, DL-0185); entrega pelo relay invocado explicitamente"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 49
+    tensao: null
+    notas: >-
+      Unidade 2a dos avisos de `sinalAuditoria` do K1 2.3.0 (DL-0185): outbox com uma linha por (aviso, fila)
+      do K6 pinado, idempotente por tarefa, publicado em operadora.notifications.internal. Linhas `entregue`
+      acumulam ate' a decisao de retencao. Sem coluna de titular; retencao, base legal e eliminacao pendem
+      do DPO; este artefato e' o DRAFT e nao decide nada.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-BASE-LEGAL-DPO-JURIDICO"
+    retencao: "PENDENTE-RETENCAO-DPO-JURIDICO"
