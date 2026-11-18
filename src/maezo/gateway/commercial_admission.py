@@ -323,6 +323,11 @@ class CoverageGatedCodec(CommercialCodec):
             return result
         if any(journey["coverage"]["coverageState"] != "unknown" for journey in journeys):
             raise CommercialRefusalError("denied", "purpose_denied")
+        # E-SF-05r (b), TB-E-15-b: without A4 every rendering is `unknown` WITH its
+        # `unknownReason`. The frozen arm leaves the reason optional; a reasonless unknown is
+        # refused the same way, so the gate never discloses an unexplained coverage state.
+        if any(not journey["coverage"].get("unknownReason") for journey in journeys):
+            raise CommercialRefusalError("denied", "purpose_denied")
         return result
 
 
@@ -634,6 +639,17 @@ def compose_commercial_gateway(
     codec: CommercialCodec = CoverageGatedCodec(wire, gated=coverage_admission is None)
     codec = SupportGatedCodec(codec, gated=support_admission is None)
     codec = CatalogGatedCodec(codec, gated=catalog_admission is None)
+    # E-SF-05r (b): an off-contract admission is refused on EVERY composition, bound or not.
+    # Checked only on the bound branch, a foreign record was silently accepted whenever A2 was
+    # missing — and it already relaxed its dimension's codec gate above.
+    if catalog_admission is not None and catalog_admission.contract_sha256 != wire.schema_digest:
+        raise ValueError("commercial_catalog_admission_invalid")
+    if acceptance_admission is not None and acceptance_admission.contract_sha256 != wire.schema_digest:
+        raise ValueError("commercial_acceptance_admission_invalid")
+    if coverage_admission is not None and coverage_admission.contract_sha256 != wire.schema_digest:
+        raise ValueError("commercial_coverage_admission_invalid")
+    if support_admission is not None and support_admission.contract_sha256 != wire.schema_digest:
+        raise ValueError("commercial_support_admission_invalid")
     if (
         caller is None
         or scope_authority is None
@@ -644,14 +660,6 @@ def compose_commercial_gateway(
         return CommercialGateway(codec=codec, timeout_seconds=timeout_seconds)
     if sales_admission.contract_sha256 != wire.schema_digest:
         raise ValueError("commercial_sales_admission_invalid")
-    if catalog_admission is not None and catalog_admission.contract_sha256 != wire.schema_digest:
-        raise ValueError("commercial_catalog_admission_invalid")
-    if acceptance_admission is not None and acceptance_admission.contract_sha256 != wire.schema_digest:
-        raise ValueError("commercial_acceptance_admission_invalid")
-    if coverage_admission is not None and coverage_admission.contract_sha256 != wire.schema_digest:
-        raise ValueError("commercial_coverage_admission_invalid")
-    if support_admission is not None and support_admission.contract_sha256 != wire.schema_digest:
-        raise ValueError("commercial_support_admission_invalid")
     executor = HttpCommercialExecutor(
         origin=amh_origin, authority=source_authority, timeout_seconds=timeout_seconds, transport=transport
     )
