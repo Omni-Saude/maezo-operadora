@@ -38,6 +38,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from . import agent_def, bpmn, crossref, dmn, perspective, policy, signoff, vocabulario_saida
+from .question_banks import validate_dir as validate_question_banks
 from .result import Report
 
 
@@ -83,6 +84,10 @@ def _is_processes_root(path: Path) -> bool:
 
 def _is_policies_root(path: Path) -> bool:
     return (path / "autonomy").is_dir()
+
+
+def _is_health_root(path: Path) -> bool:
+    return (path / "question-banks").is_dir()
 
 
 def _is_agents_root(path: Path) -> bool:
@@ -201,13 +206,16 @@ def validate_artifacts(paths: Sequence[str]) -> int:
         if _is_agents_root(resolved):
             matched = True
             _validate_agents_root(resolved, report)
+        if _is_health_root(resolved):
+            matched = True
+            validate_question_banks(resolved / "question-banks", report)
         if not matched:
             report.error(
                 p,
                 "directory structure not recognized as a processes root (bpmn/ or dmn/ "
-                "subdirectory), a policies root (autonomy/ subdirectory), or an agents root "
-                "(subdirectories each containing agent.yaml) — cannot validate what cannot be "
-                "classified",
+                "subdirectory), a policies root (autonomy/ subdirectory), an agents root "
+                "(subdirectories each containing agent.yaml) or a health root (question-banks/ "
+                "subdirectory) — cannot validate what cannot be classified",
             )
 
     for notice in report.notices:
