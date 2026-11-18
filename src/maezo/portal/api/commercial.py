@@ -13,6 +13,7 @@ from maezo.gateway.commercial_admission import (
     AuthenticatedPublicCatalogAdmission,
     AuthenticatedSalesAdmission,
 )
+from maezo.gateway.commercial_record_resolver import CommercialRecordResolver
 from maezo.ports.commercial import CommercialRefusalError, CommercialStatus, SalesTransport
 
 COMMERCIAL_PATH = "/api/v1/sales/commercial"
@@ -45,9 +46,25 @@ def commercial_error(
     )
 
 
+def _commercial_gateway(request: Request) -> object:
+    # E-SF-05r (c): with a record resolver the A2 record is re-read on this very call.
+    resolver = getattr(request.app.state, "commercial_record_resolver", None)
+    if isinstance(resolver, CommercialRecordResolver):
+        return resolver.commercial_gateway()
+    return getattr(request.app.state, "commercial_gateway", None)
+
+
+def _public_catalog_gateway(request: Request) -> object:
+    # E-SF-05r (c): with a record resolver the A1 record is re-read on this very call.
+    resolver = getattr(request.app.state, "commercial_record_resolver", None)
+    if isinstance(resolver, CommercialRecordResolver):
+        return resolver.public_catalog_gateway()
+    return getattr(request.app.state, "public_catalog_gateway", None)
+
+
 @commercial_router.post(COMMERCIAL_PATH)
 async def commercial_command(request: Request) -> Response:
-    gateway = getattr(request.app.state, "commercial_gateway", None)
+    gateway = _commercial_gateway(request)
     if not isinstance(gateway, CommercialGateway):
         return commercial_error()
     try:
@@ -128,7 +145,7 @@ def public_catalog_error() -> JSONResponse:
 
 @commercial_router.get(PUBLIC_CATALOG_PATH)
 async def public_catalog(request: Request) -> Response:
-    gateway = getattr(request.app.state, "public_catalog_gateway", None)
+    gateway = _public_catalog_gateway(request)
     if not isinstance(gateway, PublicCatalogGateway) or not isinstance(
         gateway.admission, AuthenticatedPublicCatalogAdmission
     ):
