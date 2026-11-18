@@ -399,7 +399,12 @@ async def test_ponta_a_ponta_sintetico_ate_o_relay(pin: rco_pin.RcoRulesPin) -> 
     await harness._handle(_task())
     assert len(transport.completed) == 1
     produtor = ProdutorFalso()
-    rel = await rco_avisos_relay.drain_once(outbox, produtor, reivindicada_por="relay-1")
+    rel = await rco_avisos_relay.drain_once(
+        outbox,
+        produtor,
+        reivindicada_por="relay-1",
+        grupos_do_pin=lambda: {"auditoria_medica": "grupo-sint-a", "cadastro": "grupo-sint-b"},  # DL-0186
+    )
     assert rel.entregues == 2
     payloads = [p[1] for p in produtor.publicadas]
     assert payloads == [montar_payload(r["linha"]) for r in outbox.linhas.values()]

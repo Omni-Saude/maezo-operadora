@@ -51,7 +51,9 @@ FAIL-CLOSED (contrato §4 e §5):
   `sinalAuditoria` (vocabulario fechado da saida opcional, com o vazio `""`; `sinal-auditoria-invalido`),
   fora de `saidas_obrigatorias`; `k6-filas.json` traz `avisos` (pode faltar so sem sinal nao vazio), um
   item por sinal nao vazio, com as chaves
-  EXATAS `filas` e `prazo_parametro`, filas existentes no K6 (`avisos-k6-invalido`); celula de
+  EXATAS `filas` e `prazo_parametro`, filas existentes no K6 (`avisos-k6-invalido`);
+  `filas.<f>.grupo_principal` (DL-0186), quando presente, e token (`[A-Za-z0-9._-]{1,64}`; senao
+  `grupos-k6-invalido`), e a fila sem ele nao tem grupo; celula de
   `sinalAuditoria` fora do vocabulario ou nao literal recusa o pin (`sinal-auditoria-fora-do-vocabulario`);
   linha de decisao de grupo `mais_restritiva` com `decisao` fora da ordem tambem
   (`composicao-decisao-fora-da-ordem`). Abaixo de 2.3.0 a saida `sinalAuditoria` e recusada
@@ -127,6 +129,9 @@ SAIDA_DECISAO: Final[str] = "decisao"
 SAIDA_SINAL_AUDITORIA: Final[str] = "sinalAuditoria"
 #: Chaves EXATAS de cada item de `avisos` do K6 (K6 1.1.0, formato 2.3.0).
 CAMPOS_AVISO_K6: Final[frozenset[str]] = frozenset({"filas", "prazo_parametro"})
+#: DL-0186: chave do grupo principal de uma fila do K6 e a forma aceita (a mesma do token de fila do outbox).
+CAMPO_GRUPO_PRINCIPAL_K6: Final[str] = "grupo_principal"
+_GRUPO_PRINCIPAL: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9._-]{1,64}")
 _SINAL: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 #: Vocabulario do sinal abaixo de 2.3.0 (e sem pacote): so o vazio.
 SINAIS_SO_VAZIO: Final[tuple[str, ...]] = ("",)
@@ -1246,6 +1251,55 @@ def _ler_avisos_k6(raw: bytes, sinais: tuple[str, ...], problemas: list[str]) ->
     return lidos if len(lidos) == len(avisos) else None
 
 
+def _ler_grupos_k6(raw: bytes, problemas: list[str]) -> dict[str, str] | None:
+    """`filas.<f>.grupo_principal` de `k6-filas.json` (DL-0186), por fila. Codigo `grupos-k6-invalido`.
+
+    Estrito na forma: `filas` e objeto nao vazio; quando a fila e objeto e traz `grupo_principal`, o valor e
+    texto no formato de token (`[A-Za-z0-9._-]{1,64}`). AUSENTE e permitido: a fila fica sem grupo (fora do
+    mapa) e quem entrega o aviso dessa fila o encerra como falha, nunca o manda a outro grupo. So dado do
+    pacote: nenhum nome de grupo e escrito no codigo.
+    """
+    onde = "k6-filas.json: grupos-k6-invalido"
+    k6 = _carregar_json(raw, "k6-filas.json", problemas)
+    if not isinstance(k6, dict):
+        if k6 is not None:
+            problemas.append(f"{onde}: tem de ser objeto")
+        return None
+    filas = k6.get("filas")
+    if not isinstance(filas, dict) or not filas:
+        problemas.append(f"{onde}: 'filas' tem de ser objeto nao vazio (os nomes das filas do K6)")
+        return None
+    grupos: dict[str, str] = {}
+    invalidas: list[str] = []
+    for fila in sorted(filas):
+        item = filas[fila]
+        if not isinstance(item, dict) or CAMPO_GRUPO_PRINCIPAL_K6 not in item:
+            continue
+        grupo = item[CAMPO_GRUPO_PRINCIPAL_K6]
+        if not isinstance(grupo, str) or _GRUPO_PRINCIPAL.fullmatch(grupo) is None:
+            invalidas.append(fila)
+            continue
+        grupos[fila] = grupo
+    if invalidas:
+        problemas.append(f"{onde}: 'grupo_principal' fora da forma de token nas filas {invalidas}")
+        return None
+    return grupos
+
+
+def carregar_grupos_k6(manifesto: ManifestoK1, *, k1_dir: Path) -> Mapping[str, str]:
+    """`grupo_principal` de cada fila do K6 pinado (formato 2.3.0, DL-0186), so as filas que o declaram.
+
+    Vazio abaixo de 2.3.0 (o K6 nao e lido para isso, como `avisos`). Levanta `ManifestoK1InvalidoError`."""
+    if manifesto.major_minor < FORMATO_COM_MAIS_RESTRITIVA:
+        return MappingProxyType({})
+    problemas: list[str] = []
+    raw = _anexo_raw(manifesto, "k6", k1_dir, problemas)
+    grupos = _ler_grupos_k6(raw, problemas) if raw is not None else None
+    if grupos is None or problemas:
+        raise ManifestoK1InvalidoError(problemas or ["k6-filas.json invalido"])
+    return MappingProxyType(grupos)
+
+
 def carregar_avisos_k6(
     manifesto: ManifestoK1, vocab: VocabularioPacoteK1, *, k1_dir: Path
 ) -> Mapping[str, AvisoK6]:
@@ -1815,8 +1869,13 @@ def verificar_pacote(manifesto: ManifestoK1, *, k1_dir: Path, rules_dir: Path) -
     formato = manifesto.major_minor
     if "vocabulario" in anexos_raw:
         vocab = _ler_vocabulario(anexos_raw["vocabulario"], manifesto.major, problemas, formato)
-        if vocab is not None and formato >= FORMATO_COM_MAIS_RESTRITIVA and "k6" in anexos_raw:
-            _ler_avisos_k6(anexos_raw["k6"], vocab.sinais_auditoria, problemas)
+        if (
+            vocab is not None
+            and formato >= FORMATO_COM_MAIS_RESTRITIVA
+            and "k6" in anexos_raw
+            and _ler_avisos_k6(anexos_raw["k6"], vocab.sinais_auditoria, problemas) is not None
+        ):
+            _ler_grupos_k6(anexos_raw["k6"], problemas)  # DL-0186 (JSON ilegivel ja foi dito acima)
         if vocab is not None:
             obrigatorias = vocab.saidas_obrigatorias
             if vocab.ativacoes is not None:
@@ -1878,6 +1937,7 @@ __all__ = [
     "ATIVACOES",
     "AvisoK6",
     "CAMPOS_AVISO_K6",
+    "CAMPO_GRUPO_PRINCIPAL_K6",
     "FORMATO_COM_MAIS_RESTRITIVA",
     "REGRA_MAIS_RESTRITIVA",
     "REGRAS_COMPOSICAO_2_2",
@@ -1885,6 +1945,7 @@ __all__ = [
     "SAIDA_SINAL_AUDITORIA",
     "SINAIS_SO_VAZIO",
     "carregar_avisos_k6",
+    "carregar_grupos_k6",
     "PARAMETROS_ATIVACAO",
     "ParametrosAtivacao",
     "VocabularioPacoteK1",

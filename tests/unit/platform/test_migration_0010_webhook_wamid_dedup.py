@@ -154,7 +154,9 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     # after 0033; still linear.
     # MZO-5c-2 (ADR-0077 §4, 16/11/2026) appends 0035 (registro append-only das decisoes K1, escuro).
     # DL-0185 (18/11/2026) appends 0036 (outbox dos avisos de sinalAuditoria do K1, escuro).
-    assert script.get_heads() == ["0036"]
+    # DL-0186 (18/11/2026) appends 0037 (linha de grupo dos avisos rco + `fila_sem_grupo`, escura).
+    assert script.get_heads() == ["0037"]
+    assert script.get_revision("0037").down_revision == "0036"
     assert script.get_revision("0036").down_revision == "0035"
     assert script.get_revision("0035").down_revision == "0034"
     assert script.get_revision("0034").down_revision == "0033"

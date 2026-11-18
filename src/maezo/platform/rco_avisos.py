@@ -14,8 +14,8 @@ exposto como `rco_pin.RcoRulesPin.avisos`). Este modulo:
 
 QUEM ESCREVE. Um unico escritor: `WorkerHarness._enfileirar_avisos_rco`, DEPOIS de completar a tarefa, com
 teto de tempo proprio e FAIL-OPEN (nunca levanta, nunca atrasa nem muda a decisao). Quem publica: o relay
-`maezo.platform.rco_avisos_relay` (`--once`, `--reprocessar`). O consumidor das mensagens e' de unidade
-posterior (2b).
+`maezo.platform.rco_avisos_relay` (`--once`, `--reprocessar`). Quem consome: `notifications_inbox` (DL-0186,
+unidade 2b), que confere a mensagem por `linha_da_mensagem` e a endereca ao `grupo_principal` da fila no pin.
 
 O QUE VIAJA. Linha e mensagem levam so ids que a auditoria ja usa (`tenant`, `task_id`), o nome da
 composicao, o sinal, a fila e o `prazo_parametro` do pin (`montar_payload`). Nunca dado de beneficiario,
@@ -44,9 +44,12 @@ TABELA: Final[str] = "rco_aviso_auditoria"
 
 #: Estados da linha (CHECK da 0036).
 STATUS: Final[frozenset[str]] = frozenset({"pendente", "reivindicada", "entregue", "falhou"})
-#: Codigos fechados de `ultimo_erro` (CHECK da 0036).
+#: Codigos fechados de `ultimo_erro` (CHECK da 0036, alargado pela 0037 com `fila_sem_grupo`, DL-0186).
 ERRO_PUBLICACAO: Final[str] = "publicacao_falhou"
-ERROS: Final[frozenset[str]] = frozenset({ERRO_PUBLICACAO})
+#: DL-0186: o K6 pinado nao declara `grupo_principal` para a fila da linha; o relay a marca ANTES de publicar
+#: (nada sai para o topico) e nao conta tentativa (nada foi publicado).
+ERRO_FILA_SEM_GRUPO: Final[str] = "fila_sem_grupo"
+ERROS: Final[frozenset[str]] = frozenset({ERRO_PUBLICACAO, ERRO_FILA_SEM_GRUPO})
 #: Desfechos de `maezo_rco_aviso_total` (= `observability.RCO_AVISO_DESFECHOS`, paridade em teste).
 DESFECHOS: Final[frozenset[str]] = frozenset(
     {
@@ -61,6 +64,8 @@ DESFECHOS: Final[frozenset[str]] = frozenset(
         "reprocessado",
         "conclusao_incerta",
         "outbox_indisponivel",
+        "fila_sem_grupo",
+        "pin_indisponivel",
     }
 )
 
@@ -207,6 +212,54 @@ def montar_payload(linha: LinhaAviso) -> dict[str, str]:
     }
 
 
+#: Chaves EXATAS da mensagem (`montar_payload`); o consumidor recusa mensagem com outra forma (DL-0186).
+CAMPOS_MENSAGEM: Final[frozenset[str]] = frozenset(
+    {"type", "tenant_id", "task_id", "composicao", "sinal", "fila", "prazo_parametro", "chave_idempotencia"}
+)
+_CHAVE: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}")
+
+
+def linha_da_mensagem(payload: Mapping[str, Any]) -> LinhaAviso:
+    """O inverso conferido de `montar_payload`, para o consumidor (DL-0186). Levanta `AvisoInvalidoError`.
+
+    Chaves EXATAS (`CAMPOS_MENSAGEM`, `type` = `TIPO_NOTIFICACAO`), cada campo na forma dos CHECKs da 0036, e
+    `chave_idempotencia` igual a recalculada de `tenant:task_id:composicao:sinal:fila`: uma mensagem cuja
+    chave nao bate com o proprio conteudo nao e o aviso que o relay publicou e e recusada. A mensagem do erro
+    e so o NOME do campo (`type`, `campos`, `tenant`, ..., `chave_idempotencia`), nunca o valor.
+    """
+    if not isinstance(payload, Mapping) or set(payload) != CAMPOS_MENSAGEM:
+        raise AvisoInvalidoError("campos")
+    if payload["type"] != TIPO_NOTIFICACAO:
+        raise AvisoInvalidoError("type")
+    tenant = payload["tenant_id"]
+    if not isinstance(tenant, str) or not tenant or len(tenant) > 512 or _TENANT_PROIBIDO.search(tenant):
+        raise AvisoInvalidoError("tenant")
+    campos = (
+        ("task_id", _TASK_ID),
+        ("composicao", _COMPOSICAO),
+        ("sinal", _TOKEN),
+        ("fila", _TOKEN),
+        ("prazo_parametro", _PRAZO),
+        ("chave_idempotencia", _CHAVE),
+    )
+    for campo, forma in campos:
+        _conferir(campo, payload[campo], forma)
+    linha = LinhaAviso(
+        tenant=tenant,
+        chave_idempotencia=payload["chave_idempotencia"],
+        task_id=payload["task_id"],
+        composicao=payload["composicao"],
+        sinal=payload["sinal"],
+        fila=payload["fila"],
+        prazo_parametro=payload["prazo_parametro"],
+    )
+    if linha.chave_idempotencia != chave_idempotencia(
+        linha.tenant, linha.task_id, linha.composicao, linha.sinal, linha.fila
+    ):
+        raise AvisoInvalidoError("chave_idempotencia")
+    return linha
+
+
 def chave_de_particao(linha: LinhaAviso) -> str:
     """`{tenant}|{task_id}`: os avisos de uma tarefa na mesma particao (forma de `partition_key`)."""
     return f"{linha.tenant}|{linha.task_id}"
@@ -250,6 +303,13 @@ _MARCAR_ENTREGUE_SQL: Final[str] = (
 )
 _MARCAR_FALHOU_SQL: Final[str] = (
     f"UPDATE {TABELA} SET status = 'falhou', ultimo_erro = $3, tentativas = tentativas + 1, "
+    "reivindicada_por = NULL, reivindicacao_expira_em = NULL, atualizado_em = clock_timestamp() "
+    "WHERE id = ANY($1::bigint[]) AND status = 'reivindicada' AND reivindicada_por = $2 RETURNING id"
+)
+#: DL-0186: `fila_sem_grupo` e' marcado ANTES de publicar, entao nao conta tentativa (`tentativas` conta as
+#: publicacoes tentadas).
+_MARCAR_SEM_GRUPO_SQL: Final[str] = (
+    f"UPDATE {TABELA} SET status = 'falhou', ultimo_erro = $3, "
     "reivindicada_por = NULL, reivindicacao_expira_em = NULL, atualizado_em = clock_timestamp() "
     "WHERE id = ANY($1::bigint[]) AND status = 'reivindicada' AND reivindicada_por = $2 RETURNING id"
 )
@@ -377,9 +437,11 @@ class PostgresAvisosRco:
         return await self._marcar(_MARCAR_ENTREGUE_SQL, ids, reivindicada_por)
 
     async def marcar_falhou(self, ids: Sequence[int], *, reivindicada_por: str, erro: str) -> int:
+        """`falhou` com o codigo fechado; `fila_sem_grupo` (DL-0186) nao conta tentativa (nada publicado)."""
         if erro not in ERROS:
             raise ValueError("erro fora do vocabulario fechado")
-        return await self._marcar(_MARCAR_FALHOU_SQL, ids, reivindicada_por, erro)
+        sql = _MARCAR_SEM_GRUPO_SQL if erro == ERRO_FILA_SEM_GRUPO else _MARCAR_FALHOU_SQL
+        return await self._marcar(sql, ids, reivindicada_por, erro)
 
     async def liberar(self, ids: Sequence[int], *, reivindicada_por: str) -> int:
         return await self._marcar(_LIBERAR_SQL, ids, reivindicada_por)
@@ -402,11 +464,13 @@ __all__ = [
     "COLUNAS",
     "DESFECHOS",
     "ERROS",
+    "ERRO_FILA_SEM_GRUPO",
     "ERRO_PUBLICACAO",
     "STATUS",
     "TABELA",
     "TIPO_NOTIFICACAO",
     "TOPICO",
+    "CAMPOS_MENSAGEM",
     "AvisoInvalidoError",
     "AvisoReivindicado",
     "ItemAviso",
@@ -418,6 +482,7 @@ __all__ = [
     "avisos_para",
     "chave_de_particao",
     "chave_idempotencia",
+    "linha_da_mensagem",
     "linhas_de_aviso",
     "montar_payload",
 ]

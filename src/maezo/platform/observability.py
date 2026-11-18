@@ -1285,6 +1285,31 @@ def record_bridge_dlq(*, topic: str, reason: str) -> None:
     collector.bridge_dlq.labels(topic=topic, reason=reason).inc()
 
 
+#: DL-0186: vocabulario FECHADO do rotulo `tipo` de `maezo_notifications_inbox_dlq_total` (=
+#: `notifications_inbox.INBOX_DLQ_TIPOS`, paridade em teste): os tres tipos que o inbox consome, a mensagem
+#: que nem e objeto JSON e `outro` (tipo alheio ou ausente; o valor lido nunca vira rotulo).
+INBOX_DLQ_TIPOS: Final[frozenset[str]] = frozenset(
+    {"escalation.notify_team", "escalation.notify_supervisor", "rco.aviso_auditoria", "nao_json", "outro"}
+)
+
+
+def record_inbox_dlq(*, tipo: str, reason: str) -> None:
+    """Count ONE notifications-inbox dead-letter shunt — `maezo_notifications_inbox_dlq_total` (DL-0186).
+
+    Sitio de chamada unico: `notifications_inbox.run_inbox_loop`, DEPOIS de `BridgeDlqShunt.shunt` voltar
+    (publicado + fato na cadeia). `tipo` fora de `INBOX_DLQ_TIPOS` e `reason` fora de
+    `notifications_bridge.BRIDGE_DLQ_REASONS` viram `outro`. Best-effort: nunca muda o shunt nem o commit.
+    """
+    from maezo.platform.integrations.notifications_bridge import BRIDGE_DLQ_REASONS
+
+    rotulo_tipo = tipo if tipo in INBOX_DLQ_TIPOS else "outro"
+    rotulo_reason = reason if reason in BRIDGE_DLQ_REASONS else "outro"
+    try:
+        _get_metrics_collector().inbox_dlq_total.labels(tipo=rotulo_tipo, reason=rotulo_reason).inc()
+    except Exception:  # never let telemetry disturb the caller.
+        logger.debug("inbox_dlq_metric_emit_failed", exc_info=True)
+
+
 def record_sla_alert_human_task(*, alert_domain: str, outcome: str) -> None:
     """Record what became of ONE SLA-risk alert on the notifications bridge (R-104/
     WP-ALERTA-SLA-CANAL). Increments `maezo_sla_alert_human_task_total{alert_domain,outcome}`.
@@ -1444,6 +1469,8 @@ RCO_AVISO_DESFECHOS: Final[frozenset[str]] = frozenset(
         "reprocessado",
         "conclusao_incerta",
         "outbox_indisponivel",
+        "fila_sem_grupo",
+        "pin_indisponivel",
     }
 )
 
@@ -1462,6 +1489,34 @@ def record_rco_aviso(desfecho: str, quantidade: int = 1) -> None:
         _get_metrics_collector().rco_aviso_total.labels(desfecho=rotulo).inc(quantidade)
     except Exception:  # never let telemetry disturb the caller.
         logger.debug("rco_aviso_metric_emit_failed", exc_info=True)
+
+
+#: DL-0186: vocabulario FECHADO de `maezo_rco_aviso_consumo_total` (= `notifications_inbox.RCO_AVISO_CONSUMO`,
+#: paridade fixada em teste). Valor fora do conjunto vira `outro`.
+RCO_AVISO_CONSUMO_DESFECHOS: Final[frozenset[str]] = frozenset(
+    {
+        "registrado",
+        "repetido",
+        "fila_sem_grupo",
+        "invalido",
+        "nao_configurado",
+        "pin_indisponivel",
+    }
+)
+
+
+def record_rco_aviso_consumo(desfecho: str) -> None:
+    """Count rco K1 audit-signal notices consumed by the inbox — `maezo_rco_aviso_consumo_total` (DL-0186).
+
+    Sitio de chamada unico: `platform.integrations.notifications_inbox` (mensagem `rco.aviso_auditoria`).
+    Rotulo fechado; nunca tenant, tarefa, sinal, fila ou grupo. Best-effort: a telemetria nunca muda o que o
+    inbox grava nem o avanco do offset.
+    """
+    rotulo = desfecho if desfecho in RCO_AVISO_CONSUMO_DESFECHOS else "outro"
+    try:
+        _get_metrics_collector().rco_aviso_consumo_total.labels(desfecho=rotulo).inc()
+    except Exception:  # never let telemetry disturb the caller.
+        logger.debug("rco_aviso_consumo_metric_emit_failed", exc_info=True)
 
 
 #: DL-0182: vocabulario FECHADO de `maezo_rco_conferencia_rejeitada_total` (as ativacoes efetivas em que

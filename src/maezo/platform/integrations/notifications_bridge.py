@@ -223,6 +223,15 @@ REASON_RESUME_UNKNOWN_RESULTADO: Final[str] = "resume_unknown_resultado"
 REASON_RESUME_PHI_IN_EVENT: Final[str] = "resume_phi_in_event"
 REASON_RESUME_HISTORY_MISMATCH: Final[str] = "resume_history_mismatch"
 REASON_RESUME_RECIPIENT_UNAVAILABLE: Final[str] = "resume_recipient_unavailable"
+#: DL-0186 — raised by `notifications_inbox` for a `rco.aviso_auditoria` message (the K1 audit-signal
+#: notice the outbox relay publishes, DL-0185). Same reason as the codes above for living HERE. Both are
+#: DETERMINISTIC for the same bytes under the same pin:
+#:   * `rco_aviso_invalido`    — keys not exactly the relay's payload, a field outside the 0036 shapes, or a
+#:                               `chave_idempotencia` that does not match the message's own content;
+#:   * `rco_fila_sem_grupo`    — the pinned K6 declares no `grupo_principal` for the notice's `fila`: the
+#:                               notice ends here as a recorded failure, NEVER delivered to some other group.
+REASON_RCO_AVISO_INVALIDO: Final[str] = "rco_aviso_invalido"
+REASON_RCO_FILA_SEM_GRUPO: Final[str] = "rco_fila_sem_grupo"
 
 BRIDGE_DLQ_REASONS: Final[frozenset[str]] = frozenset(
     {
@@ -236,6 +245,8 @@ BRIDGE_DLQ_REASONS: Final[frozenset[str]] = frozenset(
         REASON_RESUME_PHI_IN_EVENT,
         REASON_RESUME_HISTORY_MISMATCH,
         REASON_RESUME_RECIPIENT_UNAVAILABLE,
+        REASON_RCO_AVISO_INVALIDO,
+        REASON_RCO_FILA_SEM_GRUPO,
     }
 )
 
@@ -1084,10 +1095,25 @@ def build_dlq_shunt(
     that most needs it. The seam that CAN be `None` is `run_consumer_loop(dlq=...)`, and its only
     user is the unit suite proving the pre-GAP-SC-04-a behaviour is unchanged when no shunt exists.
     """
-    return BridgeDlqShunt(
-        publisher=AioKafkaDlqPublisher(bootstrap_servers=settings.kafka_bootstrap_servers),
+    return make_dlq_shunt(
+        bootstrap_servers=settings.kafka_bootstrap_servers,
         audit_sink=audit_sink,
         tenant_id=settings.tenant_id,
+    )
+
+
+def make_dlq_shunt(
+    *, bootstrap_servers: str, audit_sink: DedupReportingAuditSink, tenant_id: str
+) -> BridgeDlqShunt:
+    """The ONE place the production shunt is assembled (real Kafka DLQ publisher + the caller's audit sink).
+
+    Shared by `build_dlq_shunt` (this daemon) and `notifications_inbox.build_inbox_dlq` (DL-0186), so the two
+    consumers of `operadora.notifications.internal` quarantine the same way.
+    """
+    return BridgeDlqShunt(
+        publisher=AioKafkaDlqPublisher(bootstrap_servers=bootstrap_servers),
+        audit_sink=audit_sink,
+        tenant_id=tenant_id,
     )
 
 

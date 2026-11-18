@@ -54,6 +54,25 @@ worked" branch, and a duplicate is never reported as fresh — the two are disti
 while a genuinely NEW notification about the same escalation (a re-notify after a channel
 fallback, a later SLA cycle) is a different row the human still sees.
 
+**DL-0186 — `rco.aviso_auditoria` (unidade 2b).** The same topic carries the K1 audit-signal notices the
+outbox relay publishes (`platform/rco_avisos_relay.py`, DL-0185). When an `InboxAvisosRco` sink is wired
+(`avisos_rco=`), each one is checked by `rco_avisos.linha_da_mensagem` (exact keys, the 0036 shapes, a
+`chave_idempotencia` that matches the message's own content) and addressed to the `grupo_principal` the
+PINNED K6 declares for its `fila` (`rco_pin.RcoRulesPin.grupos_principais`) — data from the pin, never a
+name written here. One message = one fila = one group = one row; `notice_ref` digests
+`(type, tenant, chave_idempotencia, grupo, audience)`, so a redelivery converges on one row. A fila with no
+`grupo_principal` ends as a closed-code failure (`rco_fila_sem_grupo`, dead-lettered like any deterministic
+refusal), never delivered to another group; the relay already marks such a row `fila_sem_grupo` before
+publishing, so this refusal is the SECOND barrier (a consumer pin that differs from the relay's). Without a
+sink the type is skipped as before (counted as `nao_configurado`). The durable sink is
+`PostgresInboxAvisosRco` over its own immutable table `rco_aviso_grupo` (migration 0037; NOT
+`escalation_team_notice`, which has no column for the notice kind, `sinal`, `fila` or `prazo_parametro`),
+wired by `main()` with the same DSN and tenant as the escalation inbox. `main()` also wires the dead-letter
+shunt (`build_inbox_dlq`, the bridge's `make_dlq_shunt`; mandatory, so a deterministic refusal is quarantined
+instead of crash-looping the daemon and blocking escalation notices behind it) and reads the on-board pin's
+groups ONCE at startup (`carregar_grupos_de_bordo`; unreadable pin = the daemon refuses to start). Counted
+by `maezo_rco_aviso_consumo_total{desfecho}`.
+
 **HONEST EXTERNAL-VALIDATION BOUNDARY** (same convention as `notifications_bridge`'s own
 docstring). Unit-provable here: parsing, fail-closed refusal, the receipt/ordering contract, the
 loop's dispatch/commit behaviour against the fake consumer, and the SQL this repository issues.
@@ -68,9 +87,11 @@ import asyncio
 import hashlib
 import json
 import signal
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any, Final, Protocol, runtime_checkable
 
 import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
@@ -78,15 +99,20 @@ import structlog
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from maezo.gateway.audit_postgres import normalize_dsn, schema_for_tenant
+from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn, schema_for_tenant
+from maezo.platform import rco_avisos
 from maezo.platform.integrations.notifications_bridge import (
     REASON_MISSING_ESCALATION_ANCHOR,
     REASON_NOT_A_JSON_OBJECT,
+    REASON_RCO_AVISO_INVALIDO,
+    REASON_RCO_FILA_SEM_GRUPO,
     AioKafkaBridgeConsumer,
     BridgeDlqShunt,
     BridgeKafkaConsumer,
     MalformedBridgeMessageError,
+    make_dlq_shunt,
 )
+from maezo.platform.topic_registry import dlq_topic_for
 from maezo.tools.workers.escalation import (
     NOTIFY_SUPERVISOR_NOTIFICATION_TYPE,
     NOTIFY_TEAM_NOTIFICATION_TYPE,
@@ -358,6 +384,190 @@ def _parse_supervisor_notice(value: dict[str, Any]) -> TeamNotice:
     )
 
 
+# ---------------------------------------------------------------------------------------------------
+# DL-0186: `rco.aviso_auditoria` — o aviso de `sinalAuditoria` do K1, enderecado ao grupo da fila no pin
+# ---------------------------------------------------------------------------------------------------
+
+#: O `type` publicado pelo relay do outbox (DL-0185); definido em `rco_avisos`, nao repetido aqui.
+RCO_AVISO_TYPE: Final[str] = rco_avisos.TIPO_NOTIFICACAO
+
+#: Desfechos de `maezo_rco_aviso_consumo_total` (= `observability.RCO_AVISO_CONSUMO_DESFECHOS`, paridade em
+#: teste): linha nova, re-entrega, fila sem grupo no pin, mensagem fora da forma, sem inbox ligado, pin
+#: ilegivel.
+RCO_AVISO_CONSUMO: Final[frozenset[str]] = frozenset(
+    {"registrado", "repetido", "fila_sem_grupo", "invalido", "nao_configurado", "pin_indisponivel"}
+)
+
+
+class MalformedRcoAvisoError(MalformedTeamNoticeError):
+    """Uma mensagem `rco.aviso_auditoria` que nao pode virar linha de grupo. Recusa DETERMINISTICA.
+
+    Subclasse de `MalformedTeamNoticeError` de proposito: o laco a manda para a fila morta pelo MESMO
+    `BridgeDlqShunt` (publicacao confirmada + fato duravel na cadeia de auditoria com o `reason_code`), que e
+    o registro duravel da falha sem mudanca de schema. Dois codigos fechados (`BRIDGE_DLQ_REASONS`):
+    `rco_aviso_invalido` (forma, chaves ou `chave_idempotencia` que nao bate com o conteudo) e
+    `rco_fila_sem_grupo` (o K6 pinado nao declara `grupo_principal` para a fila). Nos dois casos o aviso
+    TERMINA aqui como falha: nunca e entregue a outro grupo. `reason` e texto fixo mais, no maximo, o NOME de
+    um campo; nunca um valor da mensagem.
+    """
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AvisoRcoGrupo:
+    """Um aviso `rco.aviso_auditoria` conferido e enderecado a UM grupo (o `grupo_principal` da fila no pin).
+
+    So ids e tokens fechados: os da linha do outbox (`rco_avisos.LinhaAviso`: tenant, task_id, composicao,
+    sinal, fila, prazo_parametro, chave_idempotencia) e o grupo. Nenhum dado de beneficiario, nenhum texto
+    livre: a mensagem nao os traz e este tipo nao tem onde po-los.
+    """
+
+    linha: rco_avisos.LinhaAviso
+    grupo: str
+
+    @property
+    def tenant_id(self) -> str:
+        return self.linha.tenant
+
+    @property
+    def audience(self) -> str:
+        """Sempre `staff`: o grupo de uma fila do K6 e fila de equipe, como o grupo de escalonamento."""
+        return NOTICE_AUDIENCE
+
+    @property
+    def notice_ref(self) -> str:
+        """sha256 canonico de `(type, tenant, chave_idempotencia, grupo, audience)`: a identidade da linha.
+
+        Idempotente na `chave_idempotencia` do outbox: a re-entrega (do relay ou do broker) cai na MESMA
+        linha.
+        O grupo entra no digest porque e ele o endereco da linha: se um pin novo mudar o grupo da fila, a
+        re-entrega vira uma linha do grupo novo (a direcao nao adversa), nunca reescreve a antiga.
+        """
+        content = {
+            "type": RCO_AVISO_TYPE,
+            "tenant_id": self.linha.tenant,
+            "chave_idempotencia": self.linha.chave_idempotencia,
+            "grupo": self.grupo,
+            "audience": self.audience,
+        }
+        canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def parse_aviso_rco(value: Any) -> rco_avisos.LinhaAviso | None:
+    """`None` se a mensagem nao e `rco.aviso_auditoria`; a linha conferida; ou `MalformedRcoAvisoError`."""
+    if not isinstance(value, dict) or value.get("type") != RCO_AVISO_TYPE:
+        return None
+    try:
+        return rco_avisos.linha_da_mensagem(value)
+    except rco_avisos.AvisoInvalidoError as exc:
+        raise MalformedRcoAvisoError(
+            f"{RCO_AVISO_TYPE}: campo fora da forma ({exc})", value, code=REASON_RCO_AVISO_INVALIDO
+        ) from None
+
+
+def resolver_grupo(linha: rco_avisos.LinhaAviso, grupos: Mapping[str, str]) -> AvisoRcoGrupo:
+    """O grupo da fila e DADO do pin (`grupos`); sem grupo -> `MalformedRcoAvisoError` (`rco_fila_sem_grupo`).
+
+    Nunca ha grupo padrao, grupo "parecido" nem outro destino: sem `grupo_principal` o aviso termina como
+    falha com codigo fechado.
+    """
+    grupo = grupos.get(linha.fila)
+    if not isinstance(grupo, str) or not grupo:
+        raise MalformedRcoAvisoError(
+            f"{RCO_AVISO_TYPE}: a fila nao tem grupo_principal no K6 pinado",
+            rco_avisos.montar_payload(linha),
+            code=REASON_RCO_FILA_SEM_GRUPO,
+        )
+    return AvisoRcoGrupo(linha=linha, grupo=grupo)
+
+
+@runtime_checkable
+class InboxAvisosRco(Protocol):
+    """O destino duravel da linha de grupo de um aviso `rco.aviso_auditoria` (DL-0186).
+
+    Mesmo contrato de `EscalationTeamNoticeInbox.record`: devolve o recibo SO depois de a linha estar
+    commitada (`RECORDED`) ou de achar a mesma linha ja gravada (`DUPLICATE`); qualquer falha levanta e o
+    offset nao avanca. Implementacao Postgres: `PostgresInboxAvisosRco` (tabela `rco_aviso_grupo`, 0037).
+    """
+
+    async def registrar(self, aviso: AvisoRcoGrupo) -> TeamNoticeReceipt: ...
+
+
+GruposDoPin = Callable[[], Mapping[str, str]]
+
+
+def _grupos_do_pin_de_bordo() -> Mapping[str, str]:
+    """`grupo_principal` por fila do pin de bordo (import tardio: o inbox nao carrega o pin sem aviso rco)."""
+    from maezo.tools.workers import rco_pin
+
+    return rco_pin.rco_rules_pin().grupos_principais
+
+
+def _contar_consumo(desfecho: str) -> None:
+    try:
+        from maezo.platform.observability import record_rco_aviso_consumo
+
+        record_rco_aviso_consumo(desfecho)
+    except Exception:  # pragma: no cover - a telemetria nunca muda o que o inbox grava
+        logger.debug("notifications_inbox.rco_aviso_metric_failed", desfecho=desfecho)
+
+
+async def handle_aviso_rco(
+    inbox: InboxAvisosRco, value: Any, *, grupos_do_pin: GruposDoPin | None = None
+) -> TeamNoticeReceipt | None:
+    """Confere, endereca e grava UM aviso `rco.aviso_auditoria`. `None` se a mensagem nao e desse tipo.
+
+    Ordem: forma (`rco_aviso_invalido`) -> grupo da fila no pin (`rco_fila_sem_grupo`; pin ilegivel levanta e
+    o offset fica) -> `inbox.registrar` -> recibo. Toda falha sai levantando, como em `handle_inbox_message`.
+    """
+    try:
+        linha = parse_aviso_rco(value)
+    except MalformedRcoAvisoError:
+        _contar_consumo("invalido")
+        logger.warning("notifications_inbox.rco_aviso_recusado", codigo=REASON_RCO_AVISO_INVALIDO)
+        raise
+    if linha is None:
+        return None
+    try:
+        grupos = (grupos_do_pin or _grupos_do_pin_de_bordo)()
+    except Exception as exc:
+        # Pin ilegivel e transitorio/configuracao: o offset NAO avanca (re-entrega), nada vai a fila morta.
+        _contar_consumo("pin_indisponivel")
+        logger.error(
+            "notifications_inbox.rco_aviso_pin_indisponivel", task_id=linha.task_id, erro=type(exc).__name__
+        )
+        raise
+    try:
+        aviso = resolver_grupo(linha, grupos)
+    except MalformedRcoAvisoError:
+        _contar_consumo("fila_sem_grupo")
+        logger.warning(
+            "notifications_inbox.rco_aviso_recusado",
+            codigo=REASON_RCO_FILA_SEM_GRUPO,
+            tenant_id=linha.tenant,
+            task_id=linha.task_id,
+            composicao=linha.composicao,
+            sinal=linha.sinal,
+            fila=linha.fila,
+        )
+        raise
+    receipt = await inbox.registrar(aviso)
+    _contar_consumo("registrado" if receipt.outcome is NoticeRecordOutcome.RECORDED else "repetido")
+    logger.info(
+        "notifications_inbox.rco_aviso_registrado",
+        tenant_id=linha.tenant,
+        task_id=linha.task_id,
+        composicao=linha.composicao,
+        sinal=linha.sinal,
+        fila=linha.fila,
+        grupo=aviso.grupo,
+        prazo_parametro=linha.prazo_parametro,
+        outcome=str(receipt.outcome),
+        notice_ref=receipt.notice_ref,
+    )
+    return receipt
+
+
 @runtime_checkable
 class EscalationTeamNoticeInbox(Protocol):
     """The durable sink a notice must reach before any offset advances.
@@ -384,8 +594,8 @@ _SELECT_RECORDED_AT_SQL: Final[str] = (
 )
 
 
-class PostgresEscalationTeamNoticeInbox:
-    """The real durable inbox over Postgres (satisfies `EscalationTeamNoticeInbox`).
+class _PostgresTenantInbox:
+    """O pool por tenant dos inboxes Postgres deste modulo (escalonamento e, DL-0186, avisos rco).
 
     Lazy asyncpg pool with `search_path` pinned to the tenant's schema on EVERY acquire via
     `setup=` — NOT `init=`: asyncpg resets session state on release, so an `init`-only search_path
@@ -420,6 +630,14 @@ class PostgresEscalationTeamNoticeInbox:
     async def _set_search_path(self, conn: asyncpg.Connection) -> None:
         # `self._schema` was validated by `schema_for_tenant()` in `__init__` (anti-injection).
         await conn.execute(f'SET search_path TO "{self._schema}"')
+
+
+class PostgresEscalationTeamNoticeInbox(_PostgresTenantInbox):
+    """The real durable inbox over Postgres (satisfies `EscalationTeamNoticeInbox`).
+
+    The pool (lazy, `search_path` pinned on EVERY acquire via `setup=`, tenant validated by
+    `schema_for_tenant`) is `_PostgresTenantInbox`'s, shared with `PostgresInboxAvisosRco` (DL-0186).
+    """
 
     async def record(self, notice: TeamNotice) -> TeamNoticeReceipt:
         """Idempotently commit the notice's row and return the receipt that licenses an ack.
@@ -477,13 +695,98 @@ class PostgresEscalationTeamNoticeInbox:
         )
 
 
-async def handle_inbox_message(inbox: EscalationTeamNoticeInbox, value: Any) -> TeamNoticeReceipt | None:
+_INSERT_AVISO_RCO_SQL: Final[str] = (
+    "INSERT INTO rco_aviso_grupo "
+    "(tenant, notice_ref, chave_idempotencia, task_id, composicao, sinal, fila, prazo_parametro, grupo, "
+    "audience) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
+    "ON CONFLICT (tenant, notice_ref) DO NOTHING "
+    "RETURNING registrado_em"
+)
+
+_SELECT_AVISO_RCO_SQL: Final[str] = (
+    "SELECT registrado_em FROM rco_aviso_grupo WHERE tenant = $1 AND notice_ref = $2"
+)
+
+
+class PostgresInboxAvisosRco(_PostgresTenantInbox):
+    """O destino duravel dos avisos `rco.aviso_auditoria` sobre a tabela imutavel `rco_aviso_grupo` (0037).
+
+    Satisfaz `InboxAvisosRco` (e so ela: nao tem `record`). O pool e' o mesmo de
+    `PostgresEscalationTeamNoticeInbox` (`_PostgresTenantInbox`: lazy, `search_path` fixado no schema do
+    tenant a CADA acquire por `setup=`, tenant validado por `schema_for_tenant`). Mesma semantica de recibo
+    de `record`: `ON CONFLICT DO NOTHING` + releitura distingue `RECORDED` (esta chamada inseriu) de
+    `DUPLICATE` (a mesma linha ja estava commitada; o recibo leva o `registrado_em` ORIGINAL); releitura
+    vazia so' com um removedor de fora (o trigger recusa `DELETE`) e levanta. Aviso de outro tenant e'
+    recusado: gravaria no schema errado.
+    """
+
+    async def registrar(self, aviso: AvisoRcoGrupo) -> TeamNoticeReceipt:
+        if aviso.tenant_id != self._tenant:
+            raise ValueError(
+                f"PostgresInboxAvisosRco is bound to tenant {self._tenant!r} and was handed a notice for "
+                f"{aviso.tenant_id!r} — refusing to write it into the wrong tenant schema"
+            )
+        linha = aviso.linha
+        notice_ref = aviso.notice_ref
+        pool = await self._ensure_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            inserted = await conn.fetchrow(
+                _INSERT_AVISO_RCO_SQL,
+                linha.tenant,
+                notice_ref,
+                linha.chave_idempotencia,
+                linha.task_id,
+                linha.composicao,
+                linha.sinal,
+                linha.fila,
+                linha.prazo_parametro,
+                aviso.grupo,
+                aviso.audience,
+            )
+            if inserted is not None:
+                return TeamNoticeReceipt(
+                    notice_ref=notice_ref,
+                    outcome=NoticeRecordOutcome.RECORDED,
+                    recorded_at=inserted["registrado_em"],
+                )
+            existing = await conn.fetchrow(_SELECT_AVISO_RCO_SQL, linha.tenant, notice_ref)
+        if existing is None:
+            raise RuntimeError(
+                "rco_aviso_grupo: the insert conflicted but the conflicting row could not be read back "
+                f"(tenant={self._tenant!r}, notice_ref={notice_ref!r}) — the table refuses DELETE by "
+                "trigger, so this means an outside writer removed it; refusing to report a delivery this "
+                "process cannot evidence"
+            )
+        return TeamNoticeReceipt(
+            notice_ref=notice_ref,
+            outcome=NoticeRecordOutcome.DUPLICATE,
+            recorded_at=existing["registrado_em"],
+        )
+
+
+async def handle_inbox_message(
+    inbox: EscalationTeamNoticeInbox,
+    value: Any,
+    *,
+    avisos_rco: InboxAvisosRco | None = None,
+    grupos_do_pin: GruposDoPin | None = None,
+) -> TeamNoticeReceipt | None:
     """Parse ONE message and, when it is ours, record it. `None` means the message was not ours.
 
     The whole unit of "delivery" lives here: this coroutine returns only after `record` has
     committed a row and handed back a receipt. Every failure — a malformed notice, a database
     fault, a tenant mismatch — leaves by raising, so the caller cannot reach its commit.
+
+    DL-0186: a `rco.aviso_auditoria` message goes to `handle_aviso_rco` when `avisos_rco` is wired; without
+    it the type stays foreign (skipped, as before) and is counted as `nao_configurado`.
     """
+    if isinstance(value, dict) and value.get("type") == RCO_AVISO_TYPE:
+        if avisos_rco is None:
+            _contar_consumo("nao_configurado")
+            logger.debug("notifications_inbox.rco_aviso_sem_inbox")
+            return None
+        return await handle_aviso_rco(avisos_rco, value, grupos_do_pin=grupos_do_pin)
     notice = parse_team_notice(value)
     if notice is None:
         return None
@@ -505,6 +808,8 @@ async def run_inbox_loop(
     *,
     stop_event: asyncio.Event | None = None,
     dlq: BridgeDlqShunt | None = None,
+    avisos_rco: InboxAvisosRco | None = None,
+    grupos_do_pin: GruposDoPin | None = None,
 ) -> None:
     """Drive `handle_inbox_message` over every message `consumer` yields.
 
@@ -521,13 +826,20 @@ async def run_inbox_loop(
     `dlq=None` a malformed notice re-raises and nothing is committed.
 
     The collaborator is checked ONCE, before the first message: an inbox that cannot `record`
-    would otherwise be discovered mid-stream, with a message already consumed.
+    would otherwise be discovered mid-stream, with a message already consumed. The same holds for
+    `avisos_rco` (DL-0186): when given it must implement `registrar` (`InboxAvisosRco`), and a
+    `MalformedRcoAvisoError` (`rco_aviso_invalido` / `rco_fila_sem_grupo`) takes the same DLQ arm.
     """
     if not isinstance(inbox, EscalationTeamNoticeInbox):
         raise TypeError(
             "run_inbox_loop: `inbox` must implement `record` (EscalationTeamNoticeInbox) — a sink "
             "that cannot durably record a notice could never license a commit, and refusing here "
             "keeps that from being discovered with a message already in flight"
+        )
+    if avisos_rco is not None and not isinstance(avisos_rco, InboxAvisosRco):
+        raise TypeError(
+            "run_inbox_loop: `avisos_rco` must implement `registrar` (InboxAvisosRco) — refused before the "
+            "first message, like `inbox`"
         )
     async for message in consumer:
         try:
@@ -537,18 +849,66 @@ async def run_inbox_loop(
                     message.raw,
                     code=message.parse_code or REASON_NOT_A_JSON_OBJECT,
                 )
-            receipt = await handle_inbox_message(inbox, message.value)
+            receipt = await handle_inbox_message(
+                inbox, message.value, avisos_rco=avisos_rco, grupos_do_pin=grupos_do_pin
+            )
         except MalformedTeamNoticeError as exc:
             if dlq is None:
                 raise
             # Raises on a failed publish / failed audit -> the commit below is never reached.
-            await dlq.shunt(message, exc)
+            dlq_topic = await dlq.shunt(message, exc)
+            _registrar_quarentena(message, exc, dlq_topic)
         else:
             if receipt is None:
                 logger.debug("notifications_inbox.skipped_foreign_type")
         await consumer.commit()
         if stop_event is not None and stop_event.is_set():
             break
+
+
+#: DL-0186: rotulo `tipo` de `maezo_notifications_inbox_dlq_total` (= `observability.INBOX_DLQ_TIPOS`).
+INBOX_DLQ_TIPO_NAO_JSON: Final[str] = "nao_json"
+INBOX_DLQ_TIPO_OUTRO: Final[str] = "outro"
+INBOX_DLQ_TIPOS: Final[frozenset[str]] = frozenset(
+    {
+        NOTIFY_TEAM_NOTIFICATION_TYPE,
+        NOTIFY_SUPERVISOR_NOTIFICATION_TYPE,
+        RCO_AVISO_TYPE,
+        INBOX_DLQ_TIPO_NAO_JSON,
+        INBOX_DLQ_TIPO_OUTRO,
+    }
+)
+
+
+def tipo_para_dlq(message: Any) -> str:
+    """O tipo FECHADO de uma mensagem quarentenada: um dos tres consumidos, `nao_json` ou `outro`."""
+    if getattr(message, "parse_error", None):
+        return INBOX_DLQ_TIPO_NAO_JSON
+    value = getattr(message, "value", None)
+    tipo = value.get("type") if isinstance(value, dict) else None
+    return tipo if isinstance(tipo, str) and tipo in INBOX_DLQ_TIPOS else INBOX_DLQ_TIPO_OUTRO
+
+
+def _registrar_quarentena(message: Any, exc: MalformedTeamNoticeError, dlq_topic: str) -> None:
+    """Uma quarentena do inbox NUNCA e silenciosa (DL-0186): alem do fato na cadeia e do
+    `maezo_bridge_dlq_total{topic,reason}` que o `BridgeDlqShunt` ja grava, conta por TIPO e codigo e loga so
+    coordenadas e codigos (nunca o payload). Best-effort: a telemetria nao muda o commit."""
+    tipo = tipo_para_dlq(message)
+    try:
+        from maezo.platform.observability import record_inbox_dlq
+
+        record_inbox_dlq(tipo=tipo, reason=exc.code)
+    except Exception:  # pragma: no cover - a telemetria nunca muda o que o inbox faz
+        logger.debug("notifications_inbox.dlq_metric_failed", reason=exc.code)
+    logger.warning(
+        "notifications_inbox.dlq_shunted",
+        tipo=tipo,
+        reason=exc.code,
+        dlq_topic=dlq_topic,
+        source_topic=getattr(message, "topic", None),
+        partition=getattr(message, "partition", None),
+        offset=getattr(message, "offset", None),
+    )
 
 
 class NotificationsInboxSettings(BaseSettings):
@@ -579,10 +939,69 @@ def build_inbox(settings: NotificationsInboxSettings) -> PostgresEscalationTeamN
     return PostgresEscalationTeamNoticeInbox(dsn=settings.database_url, tenant=settings.tenant_id)
 
 
-async def main() -> None:  # pragma: no cover - composition root, exercised by its parts
-    """Run the consume loop until SIGTERM/SIGINT. Mirrors `notifications_bridge.main()`."""
+def build_avisos_rco(settings: NotificationsInboxSettings) -> PostgresInboxAvisosRco:
+    """Raiz de composicao do destino dos avisos `rco.aviso_auditoria` (DL-0186): mesmo DSN e tenant do inbox.
+
+    Fail-closed como `build_inbox`: sem `DATABASE_URL` nao ha linha duravel que licencie o commit.
+    """
+    if not settings.database_url:
+        raise RuntimeError(
+            "notifications_inbox: DATABASE_URL is required — a rco.aviso_auditoria notice is delivered only "
+            "by a durable rco_aviso_grupo row"
+        )
+    return PostgresInboxAvisosRco(dsn=settings.database_url, tenant=settings.tenant_id)
+
+
+def build_inbox_dlq(settings: NotificationsInboxSettings) -> BridgeDlqShunt:
+    """A fila morta do inbox (DL-0186), montada como a da ponte (`notifications_bridge.make_dlq_shunt`).
+
+    Publicador Kafka real no `{topico}.dlq` + `PostgresAuditSink` do tenant (o fato duravel da recusa com
+    o `reason_code`). FAIL-CLOSED como `build_inbox`: sem `DATABASE_URL` nao ha cadeia de auditoria para o
+    fato da recusa, e o daemon NAO sobe. Nao existe ajuste "sem fila morta": com o consumidor dos avisos rco
+    ligado, uma recusa deterministica (`rco_aviso_invalido`, `rco_fila_sem_grupo`, aviso de equipe sem
+    ancora) sem fila morta re-levantaria em laco e bloquearia a particao para os avisos de escalonamento.
+    """
+    if not settings.database_url:
+        raise RuntimeError(
+            "notifications_inbox: DATABASE_URL is required — the dead-letter shunt records each refusal in "
+            "the tenant's durable audit chain, and without it a poison message would block the partition"
+        )
+    return make_dlq_shunt(
+        bootstrap_servers=settings.kafka_bootstrap_servers,
+        audit_sink=PostgresAuditSink(settings.database_url, settings.tenant_id),
+        tenant_id=settings.tenant_id,
+    )
+
+
+def carregar_grupos_de_bordo() -> Mapping[str, str]:
+    """`grupo_principal` por fila do pin de BORDO, lido UMA vez na subida do daemon (DL-0186).
+
+    O pin e' estatico por imagem: ilegivel e' falha de implantacao, visivel na subida, nunca um laco de
+    re-entrega no meio do fluxo. Levanta `RuntimeError` (so o tipo do erro original) e o daemon nao sobe.
+    Pin sem pacote ou abaixo de 2.3.0 devolve vazio: todo aviso rco vai a fila morta (`rco_fila_sem_grupo`),
+    nunca a outro grupo.
+    """
+    try:
+        return MappingProxyType(dict(_grupos_do_pin_de_bordo()))
+    except Exception as exc:
+        raise RuntimeError(
+            f"notifications_inbox: o pin rco de bordo e' ilegivel ({type(exc).__name__}) — recusando subir "
+            "com o consumidor dos avisos rco.aviso_auditoria ligado"
+        ) from None
+
+
+async def main() -> None:
+    """Run the consume loop until SIGTERM/SIGINT. Mirrors `notifications_bridge.main()`.
+
+    DL-0186: compoe o inbox de escalonamento, o destino dos avisos rco (`build_avisos_rco`), a fila morta
+    (`build_inbox_dlq`, obrigatoria) e os grupos do pin lidos uma vez (`carregar_grupos_de_bordo`). Qualquer
+    um deles indisponivel = o daemon recusa subir.
+    """
     settings = NotificationsInboxSettings()
     inbox = build_inbox(settings)
+    avisos_rco = build_avisos_rco(settings)
+    dlq = build_inbox_dlq(settings)
+    grupos = carregar_grupos_de_bordo()
     consumer: BridgeKafkaConsumer = AioKafkaBridgeConsumer(
         bootstrap_servers=settings.kafka_bootstrap_servers,
         topic=settings.kafka_topic,
@@ -593,16 +1012,32 @@ async def main() -> None:  # pragma: no cover - composition root, exercised by i
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop_event.set)
     await consumer.start()
+    # Antes do laco (molde da ponte): broker da fila morta inalcancavel e' falha de subida, nao surpresa da
+    # primeira mensagem envenenada.
+    await dlq.publisher.start()
     logger.info(
         "notifications_inbox.started",
         topic=settings.kafka_topic,
         group_id=settings.kafka_group_id,
         tenant_id=settings.tenant_id,
+        dlq_topic=dlq_topic_for(settings.kafka_topic),
+        filas_com_grupo=len(grupos),
     )
     try:
-        await run_inbox_loop(consumer, inbox, stop_event=stop_event)
+        await run_inbox_loop(
+            consumer,
+            inbox,
+            stop_event=stop_event,
+            dlq=dlq,
+            avisos_rco=avisos_rco,
+            grupos_do_pin=lambda: grupos,
+        )
     finally:
         await consumer.stop()
+        try:
+            await dlq.publisher.stop()
+        except Exception:  # higiene de saida: nunca mascara a falha do laco
+            logger.debug("notifications_inbox.dlq_stop_failed")
         logger.info("notifications_inbox.stopped")
 
 

@@ -1054,6 +1054,26 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         # No probe: no titular column; a count would say nothing about a subject.
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="aviso_grupo_regras_k1",
+        tabela="rco_aviso_grupo",
+        migracao="0037_rco_aviso_grupo.py::upgrade (rco_aviso_grupo)",
+        identificacao=(
+            "No titular column: the immutable group row holds only what the relay's `rco.aviso_auditoria` "
+            "message already carries (tenant, the engine external-task id `task_id`, the manifest "
+            "composition name, the closed-vocabulary `sinalAuditoria` and K6 queue tokens, the published "
+            "prazo parameter NAME, `chave_idempotencia`), the pinned K6 `grupo_principal` token, the fixed "
+            "`staff` audience, `notice_ref` (sha256 of the canonical notice content) and the record "
+            "timestamp. No business key, no DMN row, no free text. Linkable to a case only indirectly, via "
+            "`task_id` to the audit table; elimination follows the audit regime. Writer: the notifications "
+            "inbox BEFORE the offset advances (DL-0186)"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=50,
+        subject_column=None,
+        # No probe: no titular column; a count would say nothing about a subject.
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)

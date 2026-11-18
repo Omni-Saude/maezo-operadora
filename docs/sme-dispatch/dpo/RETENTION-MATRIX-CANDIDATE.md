@@ -388,6 +388,17 @@ escopo_b:
         coluna de titular e sem ponte DSR; o vinculo com o caso e' so indireto, por task_id ate' a
         auditoria. Sem sonda (count_statement: None). Retencao e base legal a ratificar pelo DPO, sem prazo
         escolhido aqui
+    - camada: aviso_grupo_regras_k1
+      tabelas: [rco_aviso_grupo]
+      motivo: >-
+        fora do escopo B; 0037 (linha imutavel de grupo dos avisos rco.aviso_auditoria, DL-0186, unidade 2b)
+        guarda so' o que a mensagem do relay ja' leva (tenant, o id da tarefa externa do motor, o nome da
+        composicao, o sinal e a fila em token fechado, o nome do parametro do prazo do K6, a chave de
+        idempotencia do outbox), o grupo_principal do K6 pinado em token, a audiencia fixa staff, o
+        notice_ref (sha256 do conteudo canonico) e o carimbo do registro. Sem chave de negocio, linha da DMN
+        ou texto livre; sem coluna de titular e sem ponte DSR; o vinculo com o caso e' so indireto, por
+        task_id ate' a auditoria. Sem sonda (count_statement: None). Retencao e base legal a ratificar pelo
+        DPO, sem prazo escolhido aqui
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

@@ -845,9 +845,11 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     # `SEM_COLUNA_DE_TITULAR` (token outputs, closed enums, keyed business-key pseudonym only).
     # DL-0185 (18/11/2026) grew it by one (`rco_aviso_auditoria`, migration 0036) — the outbox of the K1
     # `sinalAuditoria` notices, `SEM_COLUNA_DE_TITULAR` (task id, closed tokens, prazo parameter name).
-    assert len(camadas) == 49, [entry["tabela"] for entry in camadas]
+    # DL-0186 (18/11/2026) grew it by one (`rco_aviso_grupo`, migration 0037) — the immutable group row of
+    # each consumed notice, `SEM_COLUNA_DE_TITULAR` (the same ids and tokens plus the pinned group token).
+    assert len(camadas) == 50, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 49, pendentes
+    assert len(pendentes) == 50, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

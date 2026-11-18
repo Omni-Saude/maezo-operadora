@@ -49,7 +49,9 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # PAGTO PR-E (01/11/2026) adds the dark append-only payment-obligation ledger as 0034 after 0033.
     # MZO-5c-2 (16/11/2026) adds the dark append-only K1 rule-decision record as 0035 after 0034.
     # DL-0185 (18/11/2026) adds the dark outbox of the K1 audit-signal notices as 0036 after 0035.
-    assert heads == {"0036"}, f"expected 0036 to be the sole head, got {heads}"
+    # DL-0186 (18/11/2026) adds the dark group row of the rco notices (+ `fila_sem_grupo`) as 0037 after 0036.
+    assert heads == {"0037"}, f"expected 0037 to be the sole head, got {heads}"
+    assert revisions["0037"] == "0036"
     assert revisions["0036"] == "0035"
     assert revisions["0035"] == "0034"
     assert revisions["0034"] == "0033"
@@ -74,7 +76,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0036"
+    current = "0037"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

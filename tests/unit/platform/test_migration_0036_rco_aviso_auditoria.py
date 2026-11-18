@@ -23,11 +23,12 @@ _SOURCE = (_VERSIONS / "0036_rco_aviso_auditoria.py").read_text(encoding="utf-8"
 _CODE = _SOURCE.split('"""', 2)[2]
 
 
-def test_cadeia_0036_revisa_a_0035_e_e_a_head() -> None:
+def test_cadeia_0036_revisa_a_0035() -> None:
     script = ScriptDirectory.from_config(Config(str(_ROOT / "alembic.ini")))
     rev = script.get_revision("0036")
     assert rev is not None and rev.down_revision == "0035"
-    assert script.get_heads() == ["0036"]
+    # DL-0186: a 0037 (linha de grupo dos avisos rco + `fila_sem_grupo`) empilha sobre esta.
+    assert script.get_heads() == ["0037"]
     # a 0031 ficou vaga (reservada ao PR #1074, que entrou como 0033); nada a reaproveitar
     assert "0031" not in {r.revision for r in script.walk_revisions()}
 
@@ -51,7 +52,10 @@ def test_estados_e_erro_fechados_no_ddl_e_no_codigo() -> None:
     assert {s.strip().strip("'") for s in estados.group(1).split(",")} == rco_avisos.STATUS
     erros = re.search(r"ultimo_erro IN \(([^)]*)\)", _CODE)
     assert erros is not None
-    assert {s.strip().strip("'") for s in erros.group(1).split(",")} == rco_avisos.ERROS
+    # A 0036 nasceu com `publicacao_falhou`; a 0037 (DL-0186) troca o CHECK e acrescenta `fila_sem_grupo`
+    # (`ERROS` inteiro e' conferido contra a 0037 em `test_migration_0037_rco_aviso_grupo.py`).
+    assert {s.strip().strip("'") for s in erros.group(1).split(",")} == {rco_avisos.ERRO_PUBLICACAO}
+    assert rco_avisos.ERRO_PUBLICACAO in rco_avisos.ERROS
 
 
 def test_idempotencia_lease_e_entrega_declarados() -> None:

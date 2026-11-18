@@ -1028,3 +1028,18 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: "PENDENTE-BASE-LEGAL-DPO-JURIDICO"
     retencao: "PENDENTE-RETENCAO-DPO-JURIDICO"
+  - camada: aviso_grupo_regras_k1
+    tabela: rco_aviso_grupo
+    migracao: "0037_rco_aviso_grupo.py::upgrade (rco_aviso_grupo)"
+    identificacao: "Sem coluna de titular: a linha imutavel do grupo guarda so' o que a mensagem `rco.aviso_auditoria` do relay ja' leva (tenant, o id da tarefa externa do motor `task_id`, o nome da composicao do manifesto, o sinal e a fila em token do vocabulario fechado do pacote, o NOME do parametro do prazo publicado no K6, `chave_idempotencia`), o `grupo_principal` do K6 pinado em token, a audiencia fixa `staff`, `notice_ref` (sha256 do conteudo canonico do aviso) e o carimbo do registro. Sem chave de negocio, linha da DMN ou texto livre. So' se liga a um caso de forma indireta, por `task_id` ate' a tabela de auditoria; a eliminacao segue o regime da auditoria. Escritor: o notifications_inbox ANTES de o offset avancar (DL-0186)"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 50
+    tensao: null
+    notas: >-
+      Unidade 2b dos avisos de `sinalAuditoria` do K1 2.3.0 (DL-0186): uma linha imutavel por (aviso, grupo),
+      enderecada ao `grupo_principal` da fila no K6 pinado, idempotente por (tenant, notice_ref). Linhas
+      acumulam ate' a decisao de retencao. Sem coluna de titular; retencao, base legal e eliminacao pendem do
+      DPO; este artefato e' o DRAFT e nao decide nada.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-BASE-LEGAL-DPO-JURIDICO"
+    retencao: "PENDENTE-RETENCAO-DPO-JURIDICO"
