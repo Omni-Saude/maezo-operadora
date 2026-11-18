@@ -238,3 +238,11 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 ## 2026-11-18 ~12:20Z — CD-155 lida; estado do #1318
 
 - Push da correção feito (~11:50Z), head `ca609e7d`. CI desse head: 37 success, 2 skipped, 0 vermelho (`bpmn-gates` incluído); 4 shards de integração em curso. Main em `7fefa48d`: 0 merges atrás. Sem push novo até o CI terminar (CD-155: um push por rodada).
+
+## 2026-11-18 ~12:50Z — PRONTO #1318 (E-SF-26, CA_4)
+
+- **PRONTO** enviado ao ROOT: maezo-operadora #1318, head `ca609e7da24b7cd91ab5e6d7ef15cf0af90e7ff4`. 42 success, 2 skipped, 0 vermelho; `live-pytest] PASS` em cred-ans 129, restante 965, recurso-nip 128, cancel-contas 138, reembolso 53. mergeable=true, clean.
+- Arquivos: CA_4 (novo), INVENTARIO, MAPA, `tests/processes/test_esf26_ca4_declaracao_saude.py` (novo), `tests/processes/test_mapa_elementos_v4_sync.py`. CA_1, baseline e pino fora do diff.
+- Gates do diff e suítes: ver a entrada das ~12:00Z.
+- 1 merge atrás: #1322 (`211db979`, E-SF-07), disjunto, não trazido (CD-155/156). Simulação de merge sobre ele limpa, mesmos 5 arquivos.
+- Depois do merge: LIMPEZA #1318 (CD-149), depois E-SF-05r (CAMINHO antes).
