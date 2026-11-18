@@ -1,4 +1,4 @@
-"""DL-0184 — migracao 0036 e o outbox dos avisos K1 AO VIVO (Postgres real, nunca DDL simulado).
+"""DL-0185 — migracao 0036 e o outbox dos avisos K1 AO VIVO (Postgres real, nunca DDL simulado).
 
 Cadeia alembic REAL sobre um schema de tenant descartavel (molde `test_rco_decisao_regra_live_pg.py`).
 Provas:
@@ -61,7 +61,7 @@ def _skip_if_postgres_unreachable() -> None:
     if not asyncio.run(_postgres_reachable(dsn)):
         pytest.skip(
             f"Postgres not reachable at {dsn!r} (override with MAEZO_TEST_DATABASE_URL / "
-            "MAEZO_PG_HOST_PORT) — DL-0184 rco_aviso_auditoria live tests SKIPPED (visible, not silent)."
+            "MAEZO_PG_HOST_PORT) — DL-0185 rco_aviso_auditoria live tests SKIPPED (visible, not silent)."
         )
 
 

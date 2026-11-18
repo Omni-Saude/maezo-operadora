@@ -1429,7 +1429,7 @@ def record_agent_turn(
         logger.debug("agent_turn_telemetry_emit_failed", exc_info=True)
 
 
-#: DL-0184: vocabulario FECHADO de `maezo_rco_aviso_total` (= `platform.rco_avisos.DESFECHOS`, paridade
+#: DL-0185: vocabulario FECHADO de `maezo_rco_aviso_total` (= `platform.rco_avisos.DESFECHOS`, paridade
 #: fixada em teste). Valor fora do conjunto vira `outro`.
 RCO_AVISO_DESFECHOS: Final[frozenset[str]] = frozenset(
     {
@@ -1449,7 +1449,7 @@ RCO_AVISO_DESFECHOS: Final[frozenset[str]] = frozenset(
 
 
 def record_rco_aviso(desfecho: str, quantidade: int = 1) -> None:
-    """Count rco K1 audit-signal notices by outcome — `maezo_rco_aviso_total` (DL-0184).
+    """Count rco K1 audit-signal notices by outcome — `maezo_rco_aviso_total` (DL-0185).
 
     Sitios de chamada: o harness (enfileirar, depois de completar a tarefa), `_audit_ctx.registrar_composicao`
     e o relay `platform.rco_avisos_relay`. Rotulo fechado; nunca tenant, tarefa, sinal ou fila. Best-effort:

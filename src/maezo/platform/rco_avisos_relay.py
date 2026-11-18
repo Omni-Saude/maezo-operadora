@@ -1,4 +1,4 @@
-"""Relay do outbox `rco_aviso_auditoria` (0036) para `operadora.notifications.internal` (DL-0184, unidade 2a).
+"""Relay do outbox `rco_aviso_auditoria` (0036) para `operadora.notifications.internal` (DL-0185, unidade 2a).
 
 Metade de entrega do outbox de `maezo.platform.rco_avisos`: o harness grava uma linha por (aviso, fila)
 depois de completar a tarefa; este relay as publica, at-least-once, como `type="rco.aviso_auditoria"`.

@@ -12,7 +12,7 @@ Provas:
   o desfecho e' LINHA NOVA ligada por FK; CHECKs recusam vocabulario fechado violado e chave bruta;
 - banco fora -> `RegistroRcoIndisponivelError`;
 - `downgrade 0034` apaga as duas tabelas e as funcoes, e um segundo `upgrade head` as restaura (alvo
-  explicito: a 0036, DL-0184, empilha sobre a 0035).
+  explicito: a 0036, DL-0185, empilha sobre a 0035).
 """
 
 from __future__ import annotations

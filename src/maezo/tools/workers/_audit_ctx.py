@@ -54,16 +54,16 @@ if TYPE_CHECKING:
 
 _logger = structlog.get_logger(__name__)
 
-#: DL-0184: modos de uma composicao registrada. `sombra` = a avaliacao nao muda o caso; `efeito` = a
+#: DL-0185: modos de uma composicao registrada. `sombra` = a avaliacao nao muda o caso; `efeito` = a
 #: decisao pode ter efeito. Os dois enfileiram o aviso: o modo so vai para o log.
 MODOS_COMPOSICAO: Final[frozenset[str]] = frozenset({"sombra", "efeito"})
-#: DL-0184: a chave acrescentada a entrada de `dmn_versions` de cada decisao avaliada do grupo.
+#: DL-0185: a chave acrescentada a entrada de `dmn_versions` de cada decisao avaliada do grupo.
 CHAVE_SINAIS_AUDITORIA: Final[str] = "sinaisAuditoria"
 
 
 @dataclass(frozen=True, slots=True)
 class ComposicaoRegistrada:
-    """O que o harness precisa de uma composicao K1 da tarefa para enfileirar os avisos (DL-0184).
+    """O que o harness precisa de uma composicao K1 da tarefa para enfileirar os avisos (DL-0185).
 
     So ids e codigos: o nome da composicao do manifesto, a uniao dos `sinalAuditoria` nao vazios (na ordem
     do grupo), o modo e as decisoes avaliadas (para reaplicar `sinaisAuditoria` na auditoria,
@@ -82,7 +82,7 @@ _DMN_AUDIT_COLLECTOR: ContextVar[dict[str, Any] | None] = ContextVar("dmn_audit_
 # MZO-5c-2 (ADR-0077 §4): as avaliacoes de regra K1 da mesma tarefa, por decision key (ultima vence, como
 # `dmn_versions`). Mesmo desenho: container mutavel que sobrevive a copia de contexto do `to_thread`.
 _RCO_AVALIACOES: ContextVar[dict[str, AvaliacaoRegra] | None] = ContextVar("rco_avaliacoes", default=None)
-# DL-0184: as composicoes K1 da mesma tarefa, por nome da composicao (ultima vence). Mesmo desenho.
+# DL-0185: as composicoes K1 da mesma tarefa, por nome da composicao (ultima vence). Mesmo desenho.
 _RCO_COMPOSICOES: ContextVar[dict[str, ComposicaoRegistrada] | None] = ContextVar(
     "rco_composicoes", default=None
 )
@@ -159,7 +159,7 @@ def collect_rco_avaliacoes() -> Iterator[dict[str, AvaliacaoRegra]]:
 
 
 def registrar_composicao(resultado: ResultadoComposicao, *, modo: str) -> None:
-    """Registra uma composicao K1 avaliada nesta tarefa (DL-0184). NUNCA levanta.
+    """Registra uma composicao K1 avaliada nesta tarefa (DL-0185). NUNCA levanta.
 
     CONTRATO DE LIGACAO: `rco_composicao.compor`/`compor_async` sao PUROS e NAO chamam isto (nem devem:
     `test_compor_e_puro_e_nao_registra_nada`). E o WORKER que compoe quem chama
@@ -219,7 +219,7 @@ def _aplicar(collector: Mapping[str, Any], registrada: ComposicaoRegistrada) -> 
 def reaplicar_sinais_auditoria(
     collector: Mapping[str, Any], composicoes: Mapping[str, ComposicaoRegistrada]
 ) -> None:
-    """Reaplica `sinaisAuditoria` as entradas do grupo logo antes de montar a auditoria (DL-0184). NUNCA
+    """Reaplica `sinaisAuditoria` as entradas do grupo logo antes de montar a auditoria (DL-0185). NUNCA
     levanta.
 
     `record_dmn_version` e "ultima vence": se uma decisao do grupo for reavaliada DEPOIS de
@@ -235,7 +235,7 @@ def reaplicar_sinais_auditoria(
 
 @contextmanager
 def collect_rco_composicoes() -> Iterator[dict[str, ComposicaoRegistrada]]:
-    """Liga um coletor novo das composicoes K1 da tarefa (DL-0184); o harness o le depois de completar a
+    """Liga um coletor novo das composicoes K1 da tarefa (DL-0185); o harness o le depois de completar a
     tarefa para enfileirar os avisos. Reset por tarefa, como `collect_dmn_versions`."""
     composicoes: dict[str, ComposicaoRegistrada] = {}
     token = _RCO_COMPOSICOES.set(composicoes)

@@ -1,4 +1,4 @@
-"""Outbox dos avisos de `sinalAuditoria` do K1 do rco (DL-0184, unidade 2a) — escuro.
+"""Outbox dos avisos de `sinalAuditoria` do K1 do rco (DL-0185, unidade 2a) — escuro.
 
 **Por que existe.** O pacote K1 2.3.0 (DL-0183) pode devolver, numa composicao, um `sinalAuditoria` nao
 vazio (ex.: `aviso_urgencia_carencia`), e o K6 pinado declara para cada sinal as filas que precisam ser
@@ -104,7 +104,7 @@ def upgrade() -> None:
     op.execute("REVOKE ALL ON TABLE rco_aviso_auditoria FROM PUBLIC")
     op.execute(
         "COMMENT ON TABLE rco_aviso_auditoria IS 'Outbox dos avisos de sinalAuditoria do K1 do rco "
-        "(DL-0184): uma linha por (aviso, fila) do K6 pinado, gravada pelo harness depois de completar a "
+        "(DL-0185): uma linha por (aviso, fila) do K6 pinado, gravada pelo harness depois de completar a "
         "tarefa (fail-open) e publicada pelo relay em operadora.notifications.internal. Idempotente por "
         "(tenant, chave_idempotencia). Sem dado de beneficiario nem texto livre'"
     )

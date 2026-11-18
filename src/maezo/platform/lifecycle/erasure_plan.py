@@ -1046,7 +1046,7 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
             "`chave_idempotencia` = sha256(tenant:task_id:composicao:sinal:fila). No business key, no "
             "DMN row, no free text. Linkable to a case only indirectly, via `task_id` to the audit table; "
             "elimination follows the audit regime. Writer: the worker harness AFTER task completion "
-            "(fail-open, DL-0184); delivery by the explicitly invoked relay"
+            "(fail-open, DL-0185); delivery by the explicitly invoked relay"
         ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ordem=49,

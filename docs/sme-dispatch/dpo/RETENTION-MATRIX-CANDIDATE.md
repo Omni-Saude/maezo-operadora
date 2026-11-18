@@ -380,7 +380,7 @@ escopo_b:
     - camada: aviso_auditoria_regras_k1
       tabelas: [rco_aviso_auditoria]
       motivo: >-
-        fora do escopo B; 0036 (outbox dos avisos de sinalAuditoria do K1 do rco, DL-0184, unidade 2a)
+        fora do escopo B; 0036 (outbox dos avisos de sinalAuditoria do K1 do rco, DL-0185, unidade 2a)
         guarda so' tenant, o id da tarefa externa do motor (o mesmo da dedup_key da auditoria), o nome da
         composicao, o sinal e a fila em token fechado, o nome do parametro do prazo do K6, o estado da
         entrega com codigo de erro fechado e a chave de idempotencia (sha256 de

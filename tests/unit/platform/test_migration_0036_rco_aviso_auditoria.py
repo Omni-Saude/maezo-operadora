@@ -1,4 +1,4 @@
-"""Estrutura da migracao 0036 (`rco_aviso_auditoria`, DL-0184) — sem banco.
+"""Estrutura da migracao 0036 (`rco_aviso_auditoria`, DL-0185) — sem banco.
 
 A execucao real (cadeia alembic, idempotencia, CHECKs, lease, downgrade) e' provada ao vivo em
 `test_rco_aviso_auditoria_live_pg.py`. Aqui ficam as invariantes anti-regressao: cadeia, nenhuma coluna de

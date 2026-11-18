@@ -175,13 +175,13 @@ _ACTION_GATE_REFUSAL_CODE: str = "ERR_ACTION_GATEWAY_NOT_HUMAN"
 #: Teto TOTAL do registro de decisoes K1 de uma tarefa (5c-2): em sombra (fail-open) nao segura a tarefa;
 #: com efeito possivel (DL-0182) estourar o teto faz a tarefa ser re-entregue.
 _RCO_REGISTRO_TIMEOUT_S: float = 5.0
-#: Teto TOTAL do enfileiramento dos avisos de `sinalAuditoria` de uma tarefa (DL-0184). Roda DEPOIS de
+#: Teto TOTAL do enfileiramento dos avisos de `sinalAuditoria` de uma tarefa (DL-0185). Roda DEPOIS de
 #: completar a tarefa e e fail-open: estourar o teto so perde o aviso no outbox (a auditoria o guarda).
 _RCO_AVISO_TIMEOUT_S: float = 3.0
 
 
 def _avisos_do_pin_de_bordo() -> Mapping[str, AvisoK6]:
-    """`avisos` do K6 do pin de bordo (DL-0184). Import tardio: o harness nao carrega o pin sem aviso."""
+    """`avisos` do K6 do pin de bordo (DL-0185). Import tardio: o harness nao carrega o pin sem aviso."""
     from maezo.tools.workers.rco_pin import rco_rules_pin
 
     return rco_rules_pin().avisos
@@ -1417,7 +1417,7 @@ class WorkerHarness:
         # MZO-5c-2 (ADR-0077 §4): registro append-only das decisoes das regras K1 (migracao 0035).
         # `None` = sem registro (testes, daemon sem DATABASE_URL); nunca afeta o desfecho da tarefa.
         self._rco_decisoes = rco_decisoes
-        # DL-0184: outbox dos avisos de `sinalAuditoria` (migracao 0036) e a fonte dos destinos (os `avisos`
+        # DL-0185: outbox dos avisos de `sinalAuditoria` (migracao 0036) e a fonte dos destinos (os `avisos`
         # do K6 pinado; padrao: o pin de bordo). `None` = sem outbox; nunca afeta o desfecho da tarefa.
         self._rco_avisos = rco_avisos
         self._rco_avisos_do_pin = rco_avisos_do_pin or _avisos_do_pin_de_bordo
@@ -1886,7 +1886,7 @@ class WorkerHarness:
     async def _enfileirar_avisos_rco(
         self, task: ExternalTask, composicoes: Mapping[str, ComposicaoRegistrada]
     ) -> None:
-        """Enfileira os avisos de `sinalAuditoria` das composicoes K1 desta tarefa (DL-0184). NUNCA levanta.
+        """Enfileira os avisos de `sinalAuditoria` das composicoes K1 desta tarefa (DL-0185). NUNCA levanta.
 
         Por que aqui e por que DEPOIS de completar: o aviso nao tem tarefa BPMN propria; e o harness quem
         conhece a tarefa e o tenant. Rodar depois de `complete` garante que nada no caminho do aviso bloqueia,
@@ -1946,7 +1946,7 @@ class WorkerHarness:
     def _avisos_rco_nao_enfileirados(
         self, task: ExternalTask, composicoes: Mapping[str, ComposicaoRegistrada], motivo: str
     ) -> None:
-        """Log `rco_aviso_nao_enfileirado` por (composicao, sinal) e a metrica com `motivo` (DL-0184).
+        """Log `rco_aviso_nao_enfileirado` por (composicao, sinal) e a metrica com `motivo` (DL-0185).
 
         Chamado quando `complete` levantou do lado do cliente: a conclusao e incerta, entao nada e
         enfileirado (a re-entrega enfileira com a mesma chave); a reconciliacao e pela auditoria. NUNCA
@@ -2249,7 +2249,7 @@ class WorkerHarness:
                 # is classified transient below -> `complete` NEVER runs -> engine re-delivery.
                 # The forbidden direction (an engine effect with no audit row) is structurally
                 # impossible (design §4.2).
-                # DL-0184: `sinaisAuditoria` de novo nas entradas do grupo (uma reavaliacao depois de
+                # DL-0185: `sinaisAuditoria` de novo nas entradas do grupo (uma reavaliacao depois de
                 # `registrar_composicao` reescreveria a entrada sem a chave: "ultima vence").
                 reaplicar_sinais_auditoria(dmn_versions, rco_composicoes)
                 record = self._build_audit_record(task, out_vars, dict(dmn_versions))
@@ -2262,7 +2262,7 @@ class WorkerHarness:
                         dict(out_vars) if out_vars else {},
                     )
                 except Exception:
-                    # DL-0184: o motor pode ter gravado a conclusao (resposta perdida, timeout). Nao se
+                    # DL-0185: o motor pode ter gravado a conclusao (resposta perdida, timeout). Nao se
                     # enfileira aqui (a tarefa pode ser re-entregue); so se torna o aviso observavel.
                     self._avisos_rco_nao_enfileirados(task, rco_composicoes, "conclusao_incerta")
                     raise
@@ -2274,7 +2274,7 @@ class WorkerHarness:
                     business_key=task.business_key,
                     audit_record_hash=audit_record_hash,
                 )
-                # DL-0184: os avisos de `sinalAuditoria` so DEPOIS de completar; fail-open, nunca levanta.
+                # DL-0185: os avisos de `sinalAuditoria` so DEPOIS de completar; fail-open, nunca levanta.
                 await self._enfileirar_avisos_rco(task, rco_composicoes)
             except WorkerBpmnError as exc:
                 error_type = type(exc).__name__

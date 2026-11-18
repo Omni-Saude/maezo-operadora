@@ -1,4 +1,4 @@
-"""DL-0184 (unidade 2a): captura da composicao na tarefa, `sinaisAuditoria` na auditoria e o enfileiramento
+"""DL-0185 (unidade 2a): captura da composicao na tarefa, `sinaisAuditoria` na auditoria e o enfileiramento
 dos avisos no harness DEPOIS de completar — FAIL-OPEN, idempotente, sem ler o indicador de efeito.
 
 Sem engine, Postgres nem broker: `FakeWorkerTransport` + `FakeAuditSink` + o outbox em memoria e o produtor

@@ -1,4 +1,4 @@
-"""Avisos de `sinalAuditoria` do K1 do rco: expansao pelas filas do K6 e o outbox duravel (DL-0184, 2a).
+"""Avisos de `sinalAuditoria` do K1 do rco: expansao pelas filas do K6 e o outbox duravel (DL-0185, 2a).
 
 O QUE ISTO E. O pacote K1 2.3.0 (DL-0183) pode devolver, numa composicao, `sinalAuditoria` nao vazio; o K6
 pinado declara, por sinal, as filas a avisar e o NOME do parametro do prazo (`rco_manifesto.AvisoK6`,

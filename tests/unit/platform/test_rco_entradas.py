@@ -309,7 +309,7 @@ _FORA = object()
     [
         (_mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade=_FORA), "exatamente um de"),
         (_mudar_termo("horasMinimasUrgencia", lacuna="L-x"), "exatamente um de"),
-        (_mudar_termo("horasMinimasUrgencia", unidade=_FORA), "`unidade` so"),
+        (_mudar_termo("horasMinimasUrgencia", unidade=_FORA), "com `unidade` em"),
         (_mudar_termo("janelaDias", valor=_FORA, lacuna="L-x"), "`unidade` so"),
         (_mudar_termo("horasMinimasUrgencia", valor=True), "tem de ser numero"),
         (_mudar_termo("horasMinimasUrgencia", valor="24"), "tem de ser numero"),
@@ -318,8 +318,14 @@ _FORA = object()
             _mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade=_FORA, referencia="sem-chave"),
             "referencia",
         ),
-        (_mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade=_FORA, referencia=[]), "referencia"),
-        (_mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade=_FORA, valor_por_contrato=""), "texto"),
+        # chave com "" e AUSENTE, como no publicador (DL-0184): nenhum campo de valor presente
+        (
+            _mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade=_FORA, valor_por_contrato=""),
+            "exatamente um de",
+        ),
+        (_mudar_termo("horasMinimasUrgencia", valor=None, unidade=None), "exatamente um de"),
+        (_mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade=None, lacuna="  "), "texto"),
+        (_mudar_termo("horasMinimasUrgencia", valor=_FORA, unidade="", lacuna="L-x"), "`unidade` so"),
         (_mudar_termo("horasMinimasUrgencia", extra=1), "desconhecidos"),
         (_mudar_termo("dataInicioCobertura", valor=1, unidade="dias"), "desconhecidos"),
         (_mudar_referencia(0, extra=1), "desconhecidos"),
@@ -336,6 +342,38 @@ def test_forma_invalida_da_15_reprova(mutar: Any, trecho: str) -> None:
     with pytest.raises(ManifestoK1InvalidoError) as erro:
         _ler(dados)
     assert any(trecho in p for p in erro.value.problemas), erro.value.problemas
+
+
+def test_chave_com_none_ou_vazio_e_ausente_como_no_publicador() -> None:
+    # `scripts/k1_entradas.py::erros_parametro` (rco aed187d4, linha 135) conta so
+    # `t.get(k) not in (None, "")`;
+    # `unidade` fora do `valor` so pode ser `None` (linha 145); lacuna `None` com data e ausente (linha 183).
+    dados = _dados_15()
+    alvo = _termo(dados, URGENCIA, "horasMinimasUrgencia")
+    alvo.update(lacuna=None, referencia="", valor_por_contrato=None)
+    lacuna = _termo(dados, "procedimentoAlcancadoCpt", "diariaLeitoAltaTecnologia")
+    lacuna.update(valor=None, unidade=None)
+    _formula(dados, URGENCIA)["referencia_por_tipo_guia"][0]["lacuna"] = None
+    dic = _ler(dados)
+    termos = {t.nome: t for e in dic.entradas.values() if e.formula is not None for t in e.formula.termos}
+    assert (termos["horasMinimasUrgencia"].valor, termos["horasMinimasUrgencia"].unidade) == (24, "horas")
+    assert termos["diariaLeitoAltaTecnologia"].lacuna == "L-prog-rco-04"
+    formula = dic.entradas[URGENCIA].formula
+    assert formula is not None and formula.referencia_por_tipo_guia[0].lacuna is None
+
+
+def test_referencia_vazia_e_aceita_como_no_publicador_e_fica_sem_valor() -> None:
+    # O rco aceita `referencia: []` (o laco de `erros_parametro` nao confere item nenhum): o termo fica sem
+    # valor, e o montador le o parametro nulo (nulo nunca nega).
+    dados = _dados_15()
+    alvo = _termo(dados, URGENCIA, "horasMinimasUrgencia")
+    alvo.pop("valor")
+    alvo.pop("unidade")
+    alvo["referencia"] = []
+    formula = _ler(dados).entradas[URGENCIA].formula
+    assert formula is not None
+    termo = next(t for t in formula.termos if t.origem == "parametro")
+    assert (termo.valor, termo.referencia, termo.lacuna, termo.valor_por_contrato) == (None, (), None, None)
 
 
 def test_referencia_por_tipo_guia_vazia_reprova() -> None:

@@ -562,7 +562,7 @@ class MetricsCollector:
             registry=self._registry,
         )
 
-        # DL-0184: cada aviso de `sinalAuditoria` do K1 do rco, do enfileiramento pelo harness (depois de
+        # DL-0185: cada aviso de `sinalAuditoria` do K1 do rco, do enfileiramento pelo harness (depois de
         # completar a tarefa, fail-open) a publicacao pelo relay (`platform.rco_avisos_relay`). Rotulo FECHADO
         # (`observability.RCO_AVISO_DESFECHOS`, outro valor vira `outro`). Nunca tenant, tarefa, sinal ou
         # fila: quais avisos vem do log estruturado e da tabela `rco_aviso_auditoria`.
@@ -858,7 +858,7 @@ class MetricsCollector:
 
     @property
     def rco_aviso_total(self) -> Counter:
-        """Counter for rco K1 audit-signal notices (DL-0184). Label: desfecho (closed vocabulary)."""
+        """Counter for rco K1 audit-signal notices (DL-0185). Label: desfecho (closed vocabulary)."""
         return self._rco_aviso_total
 
     @property

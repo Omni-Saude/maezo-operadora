@@ -1,4 +1,4 @@
-"""DL-0184 (unidade 2a): expansao dos avisos de `sinalAuditoria` pelas filas do K6, o outbox e o relay — sem
+"""DL-0185 (unidade 2a): expansao dos avisos de `sinalAuditoria` pelas filas do K6, o outbox e o relay — sem
 banco nem broker (um outbox em memoria com a semantica da 0036 e um produtor falso).
 
 Os destinos vem do PIN: o recorte REAL do K1 2.3.0 do rco (`tests/fixtures/rco/k1-2.3.0-recorte/`) declara

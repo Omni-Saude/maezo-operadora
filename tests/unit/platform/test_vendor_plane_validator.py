@@ -68,7 +68,7 @@ def test_a_cadeia_local_e_head_linear_0036_revisando_0035() -> None:
     01/11/2026 — revisa 0030; 0034 = razao append-only das obrigacoes de pagamento, PAGTO PR-E,
     escura, 01/11/2026 — revisa 0033, a coleta do reembolso do PR #1074, DL-0162; 0035 = registro
     append-only das decisoes das regras K1, MZO-5c-2, escuro, 16/11/2026 — revisa 0034; 0036 = outbox dos
-    avisos de `sinalAuditoria` do K1, DL-0184, escuro, 18/11/2026 — revisa 0035)."""
+    avisos de `sinalAuditoria` do K1, DL-0185, escuro, 18/11/2026 — revisa 0035)."""
     heads, edges = local_migration_chain()
     assert heads == ("0036",)
     assert edges["0036"] == "0035"

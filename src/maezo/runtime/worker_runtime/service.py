@@ -1142,7 +1142,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                     if settings.database_url
                     else None
                 ),
-                # DL-0184: outbox dos avisos de `sinalAuditoria` do K1 (migracao 0036), gravado DEPOIS de
+                # DL-0185: outbox dos avisos de `sinalAuditoria` do K1 (migracao 0036), gravado DEPOIS de
                 # completar a tarefa e fail-open; o relay `maezo.platform.rco_avisos_relay` publica.
                 rco_avisos=(
                     PostgresAvisosRco(dsn=settings.database_url, tenant=settings.tenant_id)

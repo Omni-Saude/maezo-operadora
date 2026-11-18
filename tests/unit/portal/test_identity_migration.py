@@ -48,7 +48,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # DL-0162 (reembolso pelo WhatsApp) adds `reembolso_coleta` as 0033 after 0032.
     # PAGTO PR-E (01/11/2026) adds the dark append-only payment-obligation ledger as 0034 after 0033.
     # MZO-5c-2 (16/11/2026) adds the dark append-only K1 rule-decision record as 0035 after 0034.
-    # DL-0184 (18/11/2026) adds the dark outbox of the K1 audit-signal notices as 0036 after 0035.
+    # DL-0185 (18/11/2026) adds the dark outbox of the K1 audit-signal notices as 0036 after 0035.
     assert heads == {"0036"}, f"expected 0036 to be the sole head, got {heads}"
     assert revisions["0036"] == "0035"
     assert revisions["0035"] == "0034"
