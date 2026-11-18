@@ -133,3 +133,11 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
 - maezo-operadora #1306 aberto (`sf-w2/mzo-ca/primeiro-nome`), head `d3bd8a1e8191207575c5a12eeb02490458a3ac88`, contém a main `4826d014`. Revisão independente PASS (observações de texto aplicadas). Local sem falha exclusiva do ramo.
 - O corpo do PR traz a lista de CD-95 item 2 e declara este PR e o #1304 como pré-condição de D20–D22.
 - Falha de processo minha: limpei `/tmp/pytest-of-root` durante a suíte local da GTM-E-63 (resultado inválido, 1541 erros espúrios). Passo a usar `--basetemp` próprio em cada rodada; a suíte da GTM-E-63 roda de novo antes do PR dela.
+
+## 2026-11-18 ~01:30Z — PRONTO #1306 e estado das linhas seguintes
+
+- PRONTO: maezo-operadora #1306, head `847f3543b979490b3bb3a4c232250ebb737949c9`, checks verdes (43: 41 success, 2 skipped; integração 1411 testes, 0 falhas, 0 erros). Contém a main `6520e4a1`; simulação de merge sobre ela limpa e abortada.
+- Atendido CD-99 item 2 neste PR: teste do conjunto fechado de doze meses em `competencia_mes_ano` (detector desligado; prova de guarda em cópia isolada: palavra extra no conjunto deixa o teste vermelho).
+- Visão do console (CD-94 item 2), ramo `sf-w2/mzo-ca/console-valores`: revisão independente deu FAIL (prefixo livre de letras na referência opaca permitia escrever palavra, ex. termo clínico + hex, e os seis valores ficam fora da varredura). Reparo literal aplicado: prefixo em conjunto fechado (`jrn_`, `pro_`, `acc_`, `pty_`) e caso no teste. Local sem falha exclusiva do ramo. PR depois do merge do #1306.
+- GTM-E-63: suíte local refeita com `--basetemp` próprio sobre a main `6520e4a1`; sem falha exclusiva do ramo. PR na vez dela.
+- Pedido de linha (CD-99 item 3): veracidade do valor das classes só por formato (data e valor do fato) é propriedade do produtor de lembretes, posse da W2-MZO-GP; não tocado.
