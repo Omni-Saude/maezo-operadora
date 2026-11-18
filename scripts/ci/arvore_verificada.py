@@ -166,7 +166,8 @@ def _decidir_no_runner(workflow: str, artefato: str) -> Decisao:
             ).get("workflow_runs", []),
             arvore_da_run=lambda run_id: _ler_artefato(repo, run_id, artefato),
         )
-    except Exception as erro:  # noqa: BLE001 — qualquer falha de consulta vira "roda tudo", nunca vermelho
+    # Qualquer falha de consulta vira "roda tudo", nunca vermelho.
+    except Exception as erro:
         return _roda_tudo(f"erro ao consultar ({type(erro).__name__}: {erro})")
 
 
