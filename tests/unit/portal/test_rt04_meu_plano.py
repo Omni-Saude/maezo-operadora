@@ -17,9 +17,7 @@ from maezo.portal.api import meu_plano as mp
 from maezo.portal.api.meu_plano import (
     ACOES_DA_VISAO,
     ACOES_DO_CANCELAMENTO,
-    LINHA_ALTERNATIVA_EXIBIDA,
     MEU_PLANO_LIGADO,
-    TEXTO_LINHA_ALTERNATIVA,
     TEXTO_PEDIDO_DE_CANCELAMENTO,
     AvisoDeReajuste,
     MeuPlanoRecusado,
@@ -98,7 +96,7 @@ def test_superficie_desligada_recusa() -> None:
         lambda: abrir_cancelamento(None),  # type: ignore[arg-type]
         lambda: asyncio.run(
             confirmar_cancelamento(
-                TelaDeCancelamento(acoes=ACOES_DO_CANCELAMENTO, linha_alternativa=None),
+                TelaDeCancelamento(acoes=ACOES_DO_CANCELAMENTO),
                 custodia,
                 titular_ref=TITULAR,
             )
@@ -111,24 +109,27 @@ def test_superficie_desligada_recusa() -> None:
     assert custodia.chamadas == []
 
 
-def test_linha_alternativa_desligada(ligado: None) -> None:
-    assert LINHA_ALTERNATIVA_EXIBIDA is False and TEXTO_LINHA_ALTERNATIVA is None
+def test_linha_alternativa_ausente_do_cancelamento(ligado: None) -> None:
+    # Pela FORMA do tipo: a tela de cancelamento tem so' a acao de confirmar; qualquer campo novo falha.
+    assert TelaDeCancelamento.__slots__ == ("acoes",)
     tela = abrir_cancelamento(_visao())
-    assert tela.linha_alternativa is None
-    assert tela.acoes == ("confirmar_cancelamento",)
-    assert "LINHA_ALTERNATIVA_EXIBIDA" not in _usos_fora_da_definicao("LINHA_ALTERNATIVA_EXIBIDA")
-
-
-def _usos_fora_da_definicao(nome: str) -> set[str]:
-    """Funcoes que leem `nome`: vazio prova que nenhuma tela consulta a linha (nada a ligar por flag)."""
+    assert tela.acoes == ("confirmar_cancelamento",) == ACOES_DO_CANCELAMENTO
+    # Nenhum nome, campo, constante ou texto de alternativa ou retencao no modulo, nem desligado.
     arvore = ast.parse(_FONTE_DO_MODULO)
-    return {
-        f.name
-        for f in ast.walk(arvore)
-        if isinstance(f, ast.FunctionDef | ast.AsyncFunctionDef)
-        for n in ast.walk(f)
-        if isinstance(n, ast.Name) and n.id == nome
+    nomes = {n.id for n in ast.walk(arvore) if isinstance(n, ast.Name)}
+    nomes |= {n.attr for n in ast.walk(arvore) if isinstance(n, ast.Attribute)}
+    nomes |= {
+        n.target.id
+        for n in ast.walk(arvore)
+        if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name)
     }
+    textos = [n.value for n in ast.walk(arvore) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    for vedado in ("alternativ", "retenc", "retencao", "oferta", "desconto"):
+        assert not any(vedado in x.lower() for x in nomes)
+    for texto in (TEXTO_PEDIDO_DE_CANCELAMENTO, *ACOES_DO_CANCELAMENTO):
+        for vedado in ("alternativ", "mudar de plano", "retirar", "oferta", "desconto"):
+            assert vedado not in texto.lower()
+    assert textos  # nao-vacuidade da varredura
 
 
 def test_modulo_nao_montado_e_sem_importador() -> None:
@@ -239,7 +240,7 @@ def test_sem_botao_renovar(ligado: None) -> None:
         projetar_meu_plano(_Fonte(_fatos(recibo_renovacao_ref="rec_0123456789abcdef")), titular_ref=TITULAR)
     )
     assert com_recibo.recibo_renovacao_ref == "rec_0123456789abcdef"
-    assert not any(re.search(r"def\s+\w*renov", _FONTE_DO_MODULO) for _ in [0])
+    assert re.search(r"def\s+\w*renov", _FONTE_DO_MODULO) is None
 
 
 # ------------------------------------------------------------------------------- cancelar

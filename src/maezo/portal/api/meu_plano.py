@@ -14,8 +14,8 @@ O que existe, tudo atras da chave `MEU_PLANO_LIGADO` (desligada: toda leitura re
   vem so' da custodia. Nenhum prazo nem dispositivo normativo e' exibido.
 * Opcoes so' a pedido, com o catalogo que a fonte der (sem preco, sem comparacao, sem ordenacao ou filtro por
   idade, uso ou saude). Troca de plano so' ASSISTIDA: vira pedido para pessoa, com protocolo da custodia.
-* Linha de alternativa no "quero cancelar": estrutura com exibicao DESLIGADA e sem texto. Liga-la exige ato
-  do dono e redacao do juridico.
+* Fluxo de cancelamento SEM linha de alternativa: nenhum campo, texto ou passo de retencao no caminho do
+  cancelamento, nem desligado. A linha depende de redacao do juridico e de ato do dono.
 
 Nenhum envio, nenhum evento de medicao, zero dado de saude. Erros com `code` fixo; nunca ecoam valor.
 """
@@ -32,9 +32,6 @@ from maezo.gateway.communications.whatsapp_templates import contem_dado_de_saude
 
 #: Chave da superficie. Ligar e' PR proprio, depois dos atos de que a superficie depende.
 MEU_PLANO_LIGADO: Final[bool] = False
-#: Linha de alternativa no cancelamento: construida desligada e sem texto (redacao nao aprovada).
-LINHA_ALTERNATIVA_EXIBIDA: Final[bool] = False
-TEXTO_LINHA_ALTERNATIVA: Final[None] = None
 
 #: Acoes da visao do plano. `cancelar` vem sempre primeiro; nao existe acao de renovar.
 ACOES_DA_VISAO: Final[tuple[str, ...]] = ("cancelar", "ver_opcoes")
@@ -172,10 +169,9 @@ async def projetar_meu_plano(fonte: FonteDosFatosDoPlano, *, titular_ref: str) -
 # ------------------------------------------------------------------------------------------- cancelar
 @dataclass(frozen=True, slots=True)
 class TelaDeCancelamento:
-    """Toque 1. Sem linha de alternativa enquanto a exibicao estiver desligada; nenhum passo extra."""
+    """Toque 1. So' a acao de confirmar; nenhum passo extra e nenhuma linha de alternativa."""
 
     acoes: tuple[str, ...]
-    linha_alternativa: None
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,7 +184,7 @@ def abrir_cancelamento(visao: VisaoMeuPlano) -> TelaDeCancelamento:
     _exigir_ligado()
     if type(visao) is not VisaoMeuPlano or visao.acoes[:1] != ("cancelar",):
         raise MeuPlanoRecusado("meu_plano_visao_invalida")
-    return TelaDeCancelamento(acoes=ACOES_DO_CANCELAMENTO, linha_alternativa=None)
+    return TelaDeCancelamento(acoes=ACOES_DO_CANCELAMENTO)
 
 
 async def confirmar_cancelamento(
