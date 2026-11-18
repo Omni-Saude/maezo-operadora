@@ -73,6 +73,7 @@ from maezo.platform.observability import (
     get_metrics_collector,
 )
 from maezo.platform.pagto_obrigacao.ledger import PostgresRazaoObrigacoesPagamento, RazaoObrigacoesPagamento
+from maezo.platform.rco_avisos import PostgresAvisosRco
 from maezo.platform.rco_registro import PostgresRegistroDecisoesRco
 from maezo.runtime.worker_runtime.denial_notices import assert_single_owner, refuse_retired_second_owner
 from maezo.runtime.worker_runtime.engine_metrics import EngineMetricsPoller
@@ -1138,6 +1139,13 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # no harness; sem DATABASE_URL nao ha registro (a auditoria `dmn_versions` segue valendo).
                 rco_decisoes=(
                     PostgresRegistroDecisoesRco(dsn=settings.database_url, tenant=settings.tenant_id)
+                    if settings.database_url
+                    else None
+                ),
+                # DL-0184: outbox dos avisos de `sinalAuditoria` do K1 (migracao 0036), gravado DEPOIS de
+                # completar a tarefa e fail-open; o relay `maezo.platform.rco_avisos_relay` publica.
+                rco_avisos=(
+                    PostgresAvisosRco(dsn=settings.database_url, tenant=settings.tenant_id)
                     if settings.database_url
                     else None
                 ),

@@ -28,7 +28,8 @@ def test_cadeia_0035_revisa_a_0034() -> None:
     script = ScriptDirectory.from_config(Config(str(_ROOT / "alembic.ini")))
     rev = script.get_revision("0035")
     assert rev is not None and rev.down_revision == "0034"
-    assert script.get_heads() == ["0035"]
+    # DL-0184: a 0036 (outbox dos avisos de sinalAuditoria) empilha sobre esta.
+    assert script.get_heads() == ["0036"]
 
 
 @pytest.mark.parametrize(

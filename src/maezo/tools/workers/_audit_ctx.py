@@ -42,11 +42,37 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Final
+
+import structlog
 
 if TYPE_CHECKING:
+    from maezo.platform.rco_composicao import ResultadoComposicao
     from maezo.platform.rco_registro import AvaliacaoRegra
     from maezo.tools.workers.dmn_transport import DmnVersion
+
+_logger = structlog.get_logger(__name__)
+
+#: DL-0184: modos de uma composicao registrada. `sombra` = a avaliacao nao muda o caso; `efeito` = a
+#: decisao pode ter efeito. Os dois enfileiram o aviso: o modo so vai para o log.
+MODOS_COMPOSICAO: Final[frozenset[str]] = frozenset({"sombra", "efeito"})
+#: DL-0184: a chave acrescentada a entrada de `dmn_versions` de cada decisao avaliada do grupo.
+CHAVE_SINAIS_AUDITORIA: Final[str] = "sinaisAuditoria"
+
+
+@dataclass(frozen=True, slots=True)
+class ComposicaoRegistrada:
+    """O que o harness precisa de uma composicao K1 da tarefa para enfileirar os avisos (DL-0184).
+
+    So ids e codigos: o nome da composicao do manifesto, a uniao dos `sinalAuditoria` nao vazios (na ordem
+    do grupo) e o modo. Nenhuma linha da DMN, nenhuma entrada do caso.
+    """
+
+    composicao: str
+    sinais: tuple[str, ...]
+    modo: str
+
 
 # Module-level collector. `None` means "not inside an audited dispatch" — see module docstring.
 # The value is a MUTABLE dict deliberately (the container survives the to_thread context copy).
@@ -54,6 +80,10 @@ _DMN_AUDIT_COLLECTOR: ContextVar[dict[str, Any] | None] = ContextVar("dmn_audit_
 # MZO-5c-2 (ADR-0077 §4): as avaliacoes de regra K1 da mesma tarefa, por decision key (ultima vence, como
 # `dmn_versions`). Mesmo desenho: container mutavel que sobrevive a copia de contexto do `to_thread`.
 _RCO_AVALIACOES: ContextVar[dict[str, AvaliacaoRegra] | None] = ContextVar("rco_avaliacoes", default=None)
+# DL-0184: as composicoes K1 da mesma tarefa, por nome da composicao (ultima vence). Mesmo desenho.
+_RCO_COMPOSICOES: ContextVar[dict[str, ComposicaoRegistrada] | None] = ContextVar(
+    "rco_composicoes", default=None
+)
 
 
 def record_dmn_version(
@@ -124,3 +154,59 @@ def collect_rco_avaliacoes() -> Iterator[dict[str, AvaliacaoRegra]]:
         yield avaliacoes
     finally:
         _RCO_AVALIACOES.reset(token)
+
+
+def registrar_composicao(resultado: ResultadoComposicao, *, modo: str) -> None:
+    """Registra uma composicao K1 avaliada nesta tarefa (DL-0184). NUNCA levanta.
+
+    Quem compoe (`rco_composicao.compor`/`compor_async`) chama isto com o resultado e o modo
+    (`MODOS_COMPOSICAO`): `sombra` quando a avaliacao nao muda o caso, `efeito` quando pode mudar. Faz duas
+    coisas, ambas sem efeito fora do coletor:
+
+    1. guarda `ComposicaoRegistrada` no coletor de `collect_rco_composicoes` (o harness enfileira os avisos
+       DEPOIS de completar a tarefa);
+    2. com sinal nao vazio, acrescenta `sinaisAuditoria` (a uniao, na ordem do grupo) a entrada de
+       `dmn_versions` de cada decisao avaliada do grupo que ja esta no coletor de `collect_dmn_versions`.
+       Essa entrada vai na auditoria duravel, gravada ANTES de completar: um aviso que nao chegou ao outbox
+       pode ser reconciliado pela auditoria. Chave aditiva; sem sinal, a entrada fica byte a byte igual.
+
+    Fora de um despacho auditado (sem coletor) e' no-op. Modo fora do vocabulario ou resultado sem a forma
+    esperada: log e metrica `maezo_rco_aviso_total{desfecho="invalido"}`, nada registrado. Nunca levanta,
+    porque uma falha do caminho do aviso nao pode mudar a decisao da tarefa.
+    """
+    try:
+        if modo not in MODOS_COMPOSICAO:
+            raise ValueError("modo_invalido")
+        sinais = tuple(dict.fromkeys(str(s) for s in resultado.sinais if isinstance(s, str) and s.strip()))
+        if len(sinais) != len(tuple(resultado.sinais)):
+            raise ValueError("sinal_invalido")
+        registrada = ComposicaoRegistrada(composicao=str(resultado.composicao), sinais=sinais, modo=modo)
+        composicoes = _RCO_COMPOSICOES.get()
+        if composicoes is not None:
+            composicoes[registrada.composicao] = registrada
+        collector = _DMN_AUDIT_COLLECTOR.get()
+        if collector is not None and sinais:
+            for decisao in resultado.avaliadas:
+                entrada = collector.get(decisao)
+                if isinstance(entrada, dict):
+                    entrada[CHAVE_SINAIS_AUDITORIA] = list(sinais)
+    except Exception as exc:  # fail-open: o aviso nunca muda a decisao.
+        _logger.error("rco_aviso_composicao_nao_registrada", erro=type(exc).__name__)
+        try:
+            from maezo.platform.observability import record_rco_aviso
+
+            record_rco_aviso("invalido")
+        except Exception:  # pragma: no cover - a telemetria nunca derruba o chamador
+            _logger.debug("rco_aviso_metric_emit_failed", exc_info=True)
+
+
+@contextmanager
+def collect_rco_composicoes() -> Iterator[dict[str, ComposicaoRegistrada]]:
+    """Liga um coletor novo das composicoes K1 da tarefa (DL-0184); o harness o le depois de completar a
+    tarefa para enfileirar os avisos. Reset por tarefa, como `collect_dmn_versions`."""
+    composicoes: dict[str, ComposicaoRegistrada] = {}
+    token = _RCO_COMPOSICOES.set(composicoes)
+    try:
+        yield composicoes
+    finally:
+        _RCO_COMPOSICOES.reset(token)

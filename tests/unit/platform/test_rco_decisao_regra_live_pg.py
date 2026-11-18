@@ -11,7 +11,8 @@ Provas:
 - APPEND-ONLY nas DUAS tabelas: UPDATE, DELETE e TRUNCATE direto no banco levantam a excecao do trigger;
   o desfecho e' LINHA NOVA ligada por FK; CHECKs recusam vocabulario fechado violado e chave bruta;
 - banco fora -> `RegistroRcoIndisponivelError`;
-- `downgrade -1` apaga as duas tabelas e as funcoes, e um segundo `upgrade head` as restaura.
+- `downgrade 0034` apaga as duas tabelas e as funcoes, e um segundo `upgrade head` as restaura (alvo
+  explicito: a 0036, DL-0184, empilha sobre a 0035).
 """
 
 from __future__ import annotations
@@ -265,7 +266,7 @@ async def test_ordinal_idempotencia_append_only_e_downgrade_ao_vivo() -> None:
         finally:
             await raw.close()
 
-        await _migrate(dsn, tenant, "downgrade", "-1")
+        await _migrate(dsn, tenant, "downgrade", "0034")
         raw = await asyncpg.connect(dsn)
         try:
             for tabela in ("rco_decisao_regra", "rco_decisao_regra_desfecho"):

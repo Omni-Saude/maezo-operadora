@@ -1034,6 +1034,26 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         subject_column=None,
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="aviso_auditoria_regras_k1",
+        tabela="rco_aviso_auditoria",
+        migracao="0036_rco_aviso_auditoria.py::upgrade (rco_aviso_auditoria)",
+        identificacao=(
+            "No titular column: the outbox row holds only tenant, the engine external-task id (`task_id`, "
+            "the same id the audit row's dedup key `tenant:task_id` already carries), the manifest "
+            "composition name, the closed-vocabulary `sinalAuditoria` and K6 queue tokens, the published "
+            "prazo parameter NAME, delivery status/attempts/closed error code/timestamps and "
+            "`chave_idempotencia` = sha256(tenant:task_id:composicao:sinal:fila). No business key, no "
+            "DMN row, no free text. Linkable to a case only indirectly, via `task_id` to the audit table; "
+            "elimination follows the audit regime. Writer: the worker harness AFTER task completion "
+            "(fail-open, DL-0184); delivery by the explicitly invoked relay"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=49,
+        subject_column=None,
+        # No probe: no titular column; a count would say nothing about a subject.
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)
