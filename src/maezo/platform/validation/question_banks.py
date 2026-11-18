@@ -21,7 +21,9 @@ Regras (codigo da recusa entre parenteses):
   4. forma fechada: chaves exatas, referencias no formato, tipos e limites, opcoes coerentes com o tipo,
      dependencia so' de pergunta de escolha anterior e de opcao existente (`DS_SHAPE_INVALID`);
   5. banco sintetico: `synthetic: true`, aprovacoes com prefixo sintetico e toda pergunta marcada
-     `[SINTETICO]` (`DS_SYNTHETIC_UNMARKED`).
+     `[SINTETICO]` (`DS_SYNTHETIC_UNMARKED`); banco real com essa marca recusa (`DS_SYNTHETIC_IN_REAL_BANK`);
+  6. texto com controle ou formatacao invisivel recusa (`DS_SHAPE_INVALID`), e a pasta so' aceita `.yaml` de
+     topo.
 """
 
 from __future__ import annotations
