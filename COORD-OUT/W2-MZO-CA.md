@@ -254,3 +254,43 @@ Suíte local antes do push: `tests/unit/portal`, `tests/unit/processes`, `tests/
 - PRONTO: maezo-operadora #1319, head `4e462f5f33fe8556f98c2ea21dfc122cc357238a`, checks verdes (42: 40 success, 2 skipped; integração 1419 testes, 0 falhas, 0 erros). Contém `ee1ac446`; main atual `c06620f0` um merge à frente (#1317), arquivos disjuntos (CD-131). Simulação de merge limpa; nela os testes do módulo e do console passam (76).
 - Estado da fila: todas as linhas executáveis com PR mesclado ou pronto. E-SF-16 e 16r seguem à espera da E-SF-07 (W2-MZO-GP); sem `DONE` (CD-121).
 - Acréscimo ao relatório parcial: linha 11, E-SF-RT-04, #1319 com PRONTO. Revisão em duas passadas, ambas FAIL e reparadas. Portões fechados: superfície desligada e não montada, linha de alternativa não construída, opções recusadas até haver catálogo publicado. Pedidos de linha: fonte dos fatos do plano, custódia de protocolo de atendimento, catálogo publicado, casa definitiva da superfície. Ramo para apagar depois do merge: `sf-w2/mzo-ca/rt04`.
+
+## 2026-11-18 ~10:45Z — CAMINHO E-SF-07 (relógio de contratação: sombra, alarmes, 26º dia; variante executável; sem push de código)
+
+Base: main `b2540f9b`. Ramo previsto: `sf-w2/mzo-ca/esf07`. Base normativa citada só pelo arquivo `docs/compliance/legal/textos-base/RN-413-2016.md` (art. 5º e §§; art. 6º). Nada da 07r: nem orquestração do aceite à cobrança, nem processo humano, nem marca de contrato efetivado, nem marcador de início legal, nem suspensão que pause a contagem.
+
+Arquivos (todos novos; nenhum existente é editado):
+- `src/maezo/gateway/commercial_t0_ledger.py` (EP-REG-32a): registro append-only dos eventos-candidatos a T0 por `prospect_ref` opaco. Grava só o tipo do evento e o instante do servidor, zero conteúdo: primeiro `prospect.save` com valores, primeiro `party.submit`, `acceptance.record`, e pedidos de documentação ou perícia (§5º/§7º) com a causa em classe fechada. Porta de persistência mais implementação em memória para teste. Reescrita recusa com `t0_ledger_immutable`.
+- `src/maezo/tools/workers/rn413_contracting_clock.py` (TB-E-09-a, EP-REG-32b, EP-REG-23c e TB-E-14-a num relógio só). É função pura sobre o registro, sem timer próprio, sem BPMN e sem DMN, e não é registrada no runtime de workers (nada montado).
+  - Início = o evento mais cedo com dados.
+  - Contagem em dias corridos, sem pausa: as suspensões só ficam registradas.
+  - Alarmes internos em D+15, D+20 e D+23 viram item de escalonamento para pessoa, com grupo responsável obrigatório.
+  - Em D+25: flag `possivel_vigencia_automatica` e fila humana.
+  - Nenhum comando adverso, nunca: sem rescisão, negativa, cobrança ou bloqueio.
+- `src/maezo/gateway/commercial_pos_dia_25.py` (EP-REG-09a): para caso com a flag, recusa bloqueio de uso por falta de pagamento (`human_review_required`) e alegação de DLP (`dlp_barred_rn413_5_6`). Rescisão autônoma recusada. Não toca a pasta de autonomia; só recusa no próprio módulo.
+- Testes:
+  - `tests/unit/gateway/test_esf07_t0_ledger.py`
+  - `tests/unit/tools/workers/test_rn413_contracting_clock.py`
+  - `tests/unit/gateway/test_esf07_pos_dia_25.py`
+  - `tests/unit/commercial/test_contracting_overrun.py`
+
+O que fica fechado, e por qual teste:
+1. Registro imutável e sem conteúdo: `test_t0_ledger_records_first_prospect_save` (segundo `prospect.save` não sobrescreve o primeiro); `test_t0_ledger_sem_conteudo` (esquema fechado: só tipo, referência opaca e instante; valor fora da classe recusa sem eco).
+2. Wire C6-4 inalterado: `test_wire_unchanged` (nenhum arquivo do contrato candidato tocado; nenhum campo de instante no payload).
+3. Relógio: `test_shadow_clock_starts_at_first_prospect_save`, `test_clock_not_suspended_by_marketing_reminder`, `test_clock_alerts_before_day_25`, `test_rn413_monitor_ignores_suspension_until_ratified`, `test_rn413_monitor_alerts_on_shadow_clock_without_anchor` (nunca silêncio) e `test_rn413_monitor_never_adverse`.
+4. Um relógio só: `overrun_alarm_reads_canonical_clock` (`SECOND_CLOCK_FORBIDDEN`); `overrun_requires_responsible_group` (`RESPONSIBLE_QUEUE_REQUIRED`); `overrun_requires_named_ceiling` (`OVERRUN_WITHOUT_NAMED_CEILING`).
+5. Pós-D+25: `test_no_autonomous_termination_after_day25`, `test_no_dlp_allegation_after_day25`, `test_auto_effectivated_contract_never_blocked_for_payment`.
+6. Nenhum prazo ao cliente: os três módulos sem importador em `src/` (nada montado); o estado do relógio não tem campo de data-limite exibível; varredura de que nenhuma projeção do comprador (`journey.get`, portal) os importa.
+7. Zero dado de saúde, nenhum envio, nenhum evento de medição, sem nome `ret.*`, sem `assert` em `src/`.
+
+Fora do meu limite, pedindo decisão:
+- NUMERO / persistência (S1): o registro durável pede migração (a próxima livre do funil é `0038`) e, com dado pessoal pseudonimizado por `prospect_ref`, uma categoria na matriz de retenção. Isso toca arquivo de contagem (`spec/policies/retention/`) e o ato do encarregado (CD-109). Proponho que ESTE PR fique sem migração: porta de persistência mais implementação em memória, nada ligado à admissão viva. A migração `0038`, a categoria de retenção e a ligação aos comandos de admissão vão para linha própria, com `NUMERO` e `CAMINHO`. Se a coordenação preferir a migração já neste PR, peço `NUMERO 0038` e o `CAMINHO` da retenção antes do push.
+- Limiares (S2): TB-E-14-a pede o limiar em DMN. DMN nova pede linha em CODEOWNERS, que o funil não edita. Proponho: os alarmes D+15/D+20/D+23 e o corte D+25 ficam como constantes operacionais da decisão já tomada (relógio-sombra, não relógio legal), marcados "operacional, não legal". O DMN do limiar vai para a linha que ligar o relógio, com a linha de CODEOWNERS pela coordenação do programa.
+
+Subperguntas sem item na cédula, com o padrão conservador proposto:
+- S3. Início legal: o relógio-sombra começa no evento mais cedo com dados. O início legal não é marcado (07r); quando ratificado, só pode relaxar os tetos, nunca antecipar.
+- S4. Suspensões (§5º/§7º): registradas com causa, sem pausar a contagem até a ratificação; lembrete de recuperação nunca suspende.
+- S5. Recuperação de abandono depois de D+20: o relógio expõe `recuperacao_bloqueada` a partir de D+20. A E-SF-16 vai lê-lo; aqui não se envia nada.
+- S6. Fila e grupo: o item vai para o grupo responsável da fila comercial, só pelo nome de papel; sem grupo, recusa. Não toca `SP-OP-ESCALATION-001`: rotear o item ao processo é linha de quem ligar o relógio.
+
+Suíte local antes do push: `tests/unit/gateway`, `tests/unit/tools`, `tests/unit/commercial`, `tests/unit/processes`, `tests/unit/sec`, `tests/unit/ci`, com `--basetemp` próprio apagado a cada rodada. Revisão independente e mutações antes do push.
