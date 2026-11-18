@@ -1,0 +1,39 @@
+# Banco SINTETICO da declaracao de saude (E-SF-25). Nao e' conteudo clinico: so' exercita a forma e o lint.
+# Nunca carrega para uso (`carregar_para_uso` recusa banco sintetico).
+schema: maezo.health.question-bank.v0
+ref: ds-sintetico
+version: "0"
+mode: declaration
+synthetic: true
+title: Banco sintetico de forma
+clinicalApprovalRef: SINTETICO-aprovacao-clinica
+regulatoryApprovalRef: SINTETICO-aprovacao-regulatoria
+guidanceRef: SINTETICO-orientacao
+guidanceText: |
+  Texto sintetico de estrutura. O texto real de cada secao e' do juridico.
+  ## Cobertura parcial temporaria (CPT)
+  Secao sintetica.
+  ## Consequencias da omissao
+  Secao sintetica.
+sections:
+  - ref: secao-1
+    title: Secao sintetica
+    questions:
+      - ref: q-1
+        prompt: "[SINTETICO] Pergunta de escolha"
+        help: "Ajuda sintetica"
+        kind: choice
+        concept: known_condition
+        options:
+          - {value: "sim", label: "Sim"}
+          - {value: "nao", label: "Nao"}
+        required: true
+        dependsOn: null
+      - ref: q-2
+        prompt: "[SINTETICO] Pergunta dependente"
+        help: "Ajuda sintetica"
+        kind: text
+        concept: known_condition
+        options: []
+        required: false
+        dependsOn: {questionRef: q-1, value: sim}

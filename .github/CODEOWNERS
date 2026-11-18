@@ -23,14 +23,15 @@
 #      linha 33 produziu DOIS erros independentes), entao a linha continua valida pelo
 #      dono-usuario. Esse erro residual e o SEMAFORO desta migracao: enquanto ele existir, a
 #      separacao de revisor nao esta pronta.
-#      CONTAGEM ESPERADA hoje: 35 erros — exatamente UM por linha de regra que carrega o token do
+#      CONTAGEM ESPERADA hoje: 36 erros — exatamente UM por linha de regra que carrega o token do
 #      time (eram 27 antes das duas linhas de integridade de CI que esta auditoria acrescentou,
 #      `/Makefile` e `/scripts/ci/`; 29 ate 2026-09-04, quando entraram
 #      `/.github/production-approvers.yaml` (R-021) e `/deploy/` (R-053) — ver a secao de
 #      autoprotecao; 32 desde 2026-09-06, quando entrou `/spec/policies/phi/` pela decisao do
 #      dono R-199; 34 desde 2026-11-15, quando entraram `/spec/processes/dmn/rco/` e
 #      `/config/integrations/rco/` pelo ADR-0075; 35 desde 2026-11-16, quando entrou
-#      `/spec/processes/dmn/rco-regras-estado.yaml` pelo ADR-0077). Derive sempre assim, nao decore o numero: se a contagem divergir de "linhas
+#      `/spec/processes/dmn/rco-regras-estado.yaml` pelo ADR-0077; 36 desde 2026-11-18, quando
+#      entrou `/spec/health/` pela linha E-SF-25). Derive sempre assim, nao decore o numero: se a contagem divergir de "linhas
 #      de regra com `@Omni-Saude/security-team`", ha um erro de OUTRA natureza escondido no meio, e
 #      e ele que interessa. `tests/unit/ci/test_codeowners_rules.py` mantem este numero preso a
 #      derivacao: acrescentar uma regra sem atualizar esta linha fica VERMELHO, nao silencioso.
@@ -146,6 +147,9 @@
 # `@lucasreisEvah` aqui pela mesma nota PENDENTE-DE-CONFIRMACAO da linha de privacy acima (o
 # `decisao_dpo` que esta trilha exige e literalmente o campo do papel dele).
 /spec/policies/retention/  @rodaquino-OMNI @Omni-Saude/security-team @lucasreisEvah
+# E-SF-25: bancos de perguntas da declaracao de saude. Banco real so' carrega com aprovacao clinica e
+# regulatoria resolvida; mudar banco, schema ou orientacao precisa do revisor que o caminho de codigo teria.
+/spec/health/  @rodaquino-OMNI @Omni-Saude/security-team
 # Listado explicitamente (nao so pela linha de diretorio) porque CODEOWNERS resolve por
 # ULTIMO-match: se a linha de diretorio for algum dia estreitada, este arquivo nao pode perder
 # o revisor em silencio. Mesmo precedente de action-approvals.yaml acima.
