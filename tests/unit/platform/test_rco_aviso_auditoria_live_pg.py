@@ -223,7 +223,7 @@ async def test_harness_com_store_real_grava_depois_de_completar() -> None:
                 ResultadoComposicao(
                     composicao="composicao_carencia_cpt", desfecho="escolhido", sinais=(SINAL,)
                 ),
-                modo="sombra",
+                modo="efeito",
             )
             return {"ok": True}
 

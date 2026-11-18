@@ -87,6 +87,7 @@ from maezo.platform.calendario.dias_uteis import (
 )
 from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.platform.observability import record_worker_error
+from maezo.tools.workers import auth_rco
 from maezo.tools.workers.auth_criteria import CriteriaSources, criteria_sources
 from maezo.tools.workers.base import (
     ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED,
@@ -767,9 +768,18 @@ class ValidateAutoCriteriaWorker(WorkerBase):
             `auto_criteria_falhas` / `auto_criteria_shadow` lists and the single bounded
             `motivo_bloqueio_criterios` audit token. NEVER raises, NEVER emits a `bpmnError`,
             and NEVER produces a denial.
+
+        RCO K1 SHADOW (DL-0187). After `result` is fully built — on the normal AND the degraded path,
+        OUTSIDE the degradation try/except — `auth_rco.adiar_sombra_auth` only DEFERS the shadow (the
+        composition `composicao_carencia_cpt` and the decision `rco_geral_elegibilidade`) to AFTER the
+        harness completes the task (`_audit_ctx.adiar_pos_conclusao`): nothing of it runs inside `execute`,
+        so it costs the real case nothing (no engine call, no time inside the task lock). It never raises
+        and never touches `result`. Its traces, written after completion, are a separate `SHADOW` audit
+        fact, the observational K1 decision record (`modo=sombra`) and closed-label metrics; no K6 notice is
+        enqueued. Outside an audited dispatch nothing is deferred. Inert while the rco pin is `sem_pacote`.
         """
         try:
-            return self._evaluate_criteria(process_vars)
+            result = self._evaluate_criteria(process_vars)
         except Exception as exc:  # degradation (design §6): fail-safe AND visible
             # Fail-safe, not an incident: an incident stalls a care-authorization request, which
             # is worse for the beneficiary than routing it to a human auditor (mirrors DL-0037's
@@ -786,13 +796,19 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                 ),
             )
             self._record_unavailability(_VALIDADOR_INDISPONIVEL)
-            return _criteria_result(
+            result = _criteria_result(
                 tecnico=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
                 financeiro=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
                 regulatorio=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
                 contratual=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
                 status="validator_unavailable",
             )
+        # DL-0187: tem de ser a ULTIMA coisa antes do `return`. `WorkerBase.run` pode repetir `execute` numa
+        # nova tentativa (aqui `max_retries=1`, e `execute` nunca levanta); se algum dia isso mudar, um
+        # adiamento feito antes de uma excecao ficaria na lista da tarefa junto com o da tentativa seguinte
+        # (a lista de trabalho adiado vale para a TAREFA, nao para a tentativa).
+        auth_rco.adiar_sombra_auth(self._dmn, process_vars, topico=self.topic)
+        return result
 
     def _record_unavailability(self, token: str) -> None:
         """Increment the worker-error metric for a MECHANISM failure (never a business "no").

@@ -97,7 +97,7 @@ def _montar(
     outbox: Any | None,
     respostas: Mapping[str, list[dict[str, Any]]] | None = None,
     registrar: bool = True,
-    modo: str = "sombra",
+    modo: str = "efeito",
     avisos_do_pin: Any | None = None,
 ) -> tuple[WorkerHarness, FakeWorkerTransport, FakeAuditSink]:
     transport = FakeWorkerTransport()
@@ -176,14 +176,23 @@ def test_registrar_acrescenta_sinais_so_as_entradas_do_grupo(pin: rco_pin.RcoRul
         registrar_composicao(resultado, modo="efeito")
     assert versoes["rco_sint_d"]["sinaisAuditoria"] == [sint.SINAL]
     assert versoes["auth_sla"] == antes["auth_sla"]  # tabela fora do grupo intacta
-    sem_chave = {k: v for k, v in versoes["rco_sint_d"].items() if k != "sinaisAuditoria"}
-    assert sem_chave == antes["rco_sint_d"]  # chave aditiva, nada mais muda
+    assert versoes["rco_sint_d"]["composicaoK1"] == {
+        "nome": "grupo_restritivo",
+        "modo": "efeito",
+        "desfecho": "escolhido",
+        "decisaoVencedora": None,
+        "motivo": None,
+        "peloPadrao": False,
+    }
+    aditivas = {"sinaisAuditoria", "composicaoK1"}
+    sem_chave = {k: v for k, v in versoes["rco_sint_d"].items() if k not in aditivas}
+    assert sem_chave == antes["rco_sint_d"]  # chaves aditivas, nada mais muda
     assert composicoes["grupo_restritivo"] == _audit_ctx.ComposicaoRegistrada(
         "grupo_restritivo", (sint.SINAL,), "efeito", ("rco_sint_d", "rco_sint_c")
     )
 
 
-def test_sem_sinal_a_entrada_fica_igual(pin: rco_pin.RcoRulesPin) -> None:
+def test_sem_sinal_so_a_chave_composicao_k1_e_acrescentada(pin: rco_pin.RcoRulesPin) -> None:
     with collect_dmn_versions() as versoes, collect_rco_composicoes() as composicoes:
         record_dmn_version(
             DmnVersion(key="rco_sint_d", id="x", version=1, deployment_id="d"), row=LINHA_D, sombra=True
@@ -195,6 +204,8 @@ def test_sem_sinal_a_entrada_fica_igual(pin: rco_pin.RcoRulesPin) -> None:
             ),
             modo="sombra",
         )
+    assert "sinaisAuditoria" not in versoes["rco_sint_d"]
+    assert versoes["rco_sint_d"].pop("composicaoK1")["modo"] == "sombra"  # DL-0187: o modo fica duravel
     assert versoes == antes
     assert composicoes["g"].sinais == ()
 
@@ -211,7 +222,7 @@ def test_modo_invalido_nunca_levanta(pin: rco_pin.RcoRulesPin, contados: list[tu
 # --- harness ----------------------------------------------------------------------------------------
 
 
-async def test_sombra_enfileira_uma_linha_por_fila_depois_de_completar(
+async def test_efeito_enfileira_uma_linha_por_fila_depois_de_completar(
     pin: rco_pin.RcoRulesPin, contados: list[tuple[str, int]]
 ) -> None:
     outbox = OutboxEmMemoria()
@@ -237,6 +248,69 @@ async def test_sombra_enfileira_uma_linha_por_fila_depois_de_completar(
     assert dmn["rco_sint_d"]["sinaisAuditoria"] == [sint.SINAL]
     assert dmn["rco_sint_c"]["sinaisAuditoria"] == [sint.SINAL]
     assert contados == [("enfileirado", 2)]
+
+
+async def test_sombra_audita_nao_enfileira_e_conta_suprimido(
+    pin: rco_pin.RcoRulesPin, contados: list[tuple[str, int]]
+) -> None:
+    """DL-0187 (emenda ao DL-0185): `modo=sombra` grava `sinaisAuditoria` e `composicaoK1` na auditoria, NADA
+    vai ao outbox e cada (composicao, sinal) conta `suprimido_sombra`. O harness nao le o indicador."""
+    outbox = OutboxEmMemoria()
+    harness, transport, sink = _montar(pin, outbox=outbox, modo="sombra")
+    with structlog.testing.capture_logs() as logs:
+        await harness._handle(_task())
+    assert transport.completed == [("task-1", {"decisaoK1": "glosar"})] and transport.failures == []
+    assert outbox.linhas == {}
+    dmn = sink.emitted[0][0].dmn_versions
+    for decisao in ("rco_sint_d", "rco_sint_c"):
+        assert dmn[decisao]["sinaisAuditoria"] == [sint.SINAL]
+        assert dmn[decisao]["composicaoK1"]["modo"] == "sombra"
+    assert contados == [("suprimido_sombra", 1)]
+    [log] = [e for e in logs if e["event"] == "rco_aviso_suprimido_sombra"]
+    assert set(log) == {"event", "log_level", "task_id", "topic", "composicao", "sinal"}
+    assert (log["composicao"], log["sinal"]) == ("grupo_restritivo", sint.SINAL)
+
+
+async def test_sombra_e_efeito_na_mesma_tarefa_so_efeito_enfileira(
+    pin: rco_pin.RcoRulesPin, contados: list[tuple[str, int]]
+) -> None:
+    outbox = OutboxEmMemoria()
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(
+        transport, worker_id="w", tenant="amh", audit_sink=FakeAuditSink(), rco_avisos=outbox
+    )
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        for nome, modo in (("grupo_sombra", "sombra"), ("grupo_restritivo", "efeito")):
+            registrar_composicao(
+                rco_composicao.ResultadoComposicao(
+                    composicao=nome, desfecho="escolhido", sinais=(sint.SINAL,)
+                ),
+                modo=modo,
+            )
+        return {}
+
+    harness.register(TOPICO, handler)
+    await harness._handle(_task())
+    assert {r["linha"].composicao for r in outbox.linhas.values()} == {"grupo_restritivo"}
+    assert ("suprimido_sombra", 1) in contados and ("enfileirado", 2) in contados
+
+
+def test_harness_nao_le_o_indicador_de_efeito() -> None:
+    """O modo vem do registro: o harness nunca le `efeito_k1_habilitado` nem `MAEZO_RCO_EFEITO_K1`."""
+    import ast
+    import inspect
+
+    from maezo.tools.workers import harness as h
+
+    nomes = {
+        n.id if isinstance(n, ast.Name) else n.attr
+        for n in ast.walk(ast.parse(inspect.getsource(h)))
+        if isinstance(n, ast.Name | ast.Attribute)
+    }
+    textos = {n.value for n in ast.walk(ast.parse(inspect.getsource(h))) if isinstance(n, ast.Constant)}
+    assert "efeito_k1_habilitado" not in nomes
+    assert not any(isinstance(t, str) and "MAEZO_RCO_EFEITO_K1" in t for t in textos)
 
 
 async def test_sinal_vazio_nao_enfileira_nem_toca_a_auditoria(pin: rco_pin.RcoRulesPin) -> None:
@@ -383,7 +457,7 @@ async def test_destinos_do_recorte_real_no_harness(pin: rco_pin.RcoRulesPin) -> 
             rco_composicao.ResultadoComposicao(
                 composicao=rec.COMPOSICAO, desfecho="escolhido", sinais=(SINAL_REAL,)
             ),
-            modo="sombra",
+            modo="efeito",
         )
         return {}
 
@@ -490,6 +564,25 @@ async def test_complete_que_levanta_nao_enfileira_e_torna_observavel(
     assert contados == [("conclusao_incerta", 1)]
     assert len(harness._transport.failures) == 1  # o caminho de falha de sempre seguiu
     assert sink.emitted[0][0].dmn_versions["rco_sint_d"]["sinaisAuditoria"] == [sint.SINAL]
+
+
+async def test_complete_que_levanta_conta_a_sombra_como_suprimida(
+    pin: rco_pin.RcoRulesPin, contados: list[tuple[str, int]]
+) -> None:
+    """DL-0187: na conclusao incerta, a composicao de sombra conta `suprimido_sombra` (nunca
+    `conclusao_incerta`, que e so de efeito) e nada vai ao outbox."""
+    outbox = OutboxEmMemoria()
+    harness, transport, sink = _montar(pin, outbox=outbox, modo="sombra")
+    harness._transport = _CompleteQueFalha()
+    with structlog.testing.capture_logs() as logs:
+        await harness._handle(_task())
+    assert outbox.linhas == {}
+    assert contados == [("suprimido_sombra", 1)]
+    assert [e for e in logs if e["event"] == "rco_aviso_nao_enfileirado"] == []
+    assert [e["composicao"] for e in logs if e["event"] == "rco_aviso_suprimido_sombra"] == [
+        "grupo_restritivo"
+    ]
+    assert len(harness._transport.failures) == 1
 
 
 async def test_destinos_diferentes_do_pin_sao_os_gravados(

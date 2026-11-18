@@ -104,6 +104,11 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         # (the injected dmn= seam it receives from the worker). Returns None, swallows every exception,
         # registers no worker and writes no process variable; consumed by `contas.identify_glosa_entry`.
         "rco_sombra",
+        # DL-0187: the AUTH facts builder for the rco K1 shadow (`fatos_carencia_cpt_auth`) and its one
+        # entry (`avaliar_em_sombra_auth`), a thin call into `rco_sombra` with the dmn= seam the AUTH worker
+        # receives. No engine client of its own, no worker registration, no process variable; consumed by
+        # `auth.ValidateAutoCriteriaWorker.execute` only, after the criteria result is built.
+        "auth_rco",
         # T-D (merged in the T1.10 wave alongside this arch-test): the fresh-client-per-call
         # CibSevenTransport SEAM (GAP-INAD-1) — an engine transport like dmn_transport, reached
         # by workers ONLY via the engine= param; registers no workers, legitimately owns httpx.

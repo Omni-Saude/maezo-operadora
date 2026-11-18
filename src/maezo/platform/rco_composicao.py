@@ -61,8 +61,10 @@ Cada caso grava um log estruturado so com os ids das decisoes, o codigo e o `mod
 GUARDA. NENHUMA decisao de um grupo e avaliada sozinha, o padrao inclusive: sozinho, o padrao perde os
 pares que as anteriores decidem e erra para o lado de pagar (o rco: "consumidor que avalia so mex_ortop
 deixa de glosar os pares"). Quem avalia uma decisao `rco_` chama `exigir_avaliacao_isolada(pin, id)`
-antes e, se a decisao for de um grupo, `compor`. NADA aqui esta ligado a um worker ainda: ortopedia nao
-tem dominio no montador, e a ligacao vem com ele (DL-0173).
+antes e, se a decisao for de um grupo, `compor`. Ligacao a worker (DL-0187): so em SOMBRA,
+`composicao_carencia_cpt` no portao de criterios do AUTH (`tools.workers.auth_rco` ->
+`tools.workers.rco_sombra.avaliar_composicao_em_sombra`, que registra o resultado com `modo=sombra`); a
+ortopedia nao tem dominio no montador, e a ligacao dela vem com ele (DL-0173).
 """
 
 from __future__ import annotations

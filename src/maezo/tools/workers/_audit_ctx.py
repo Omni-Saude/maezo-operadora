@@ -39,7 +39,7 @@ consult none).
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -54,29 +54,58 @@ if TYPE_CHECKING:
 
 _logger = structlog.get_logger(__name__)
 
-#: DL-0185: modos de uma composicao registrada. `sombra` = a avaliacao nao muda o caso; `efeito` = a
-#: decisao pode ter efeito. Os dois enfileiram o aviso: o modo so vai para o log. A composicao GENERICA em
-#: sombra (`rco_sombra.avaliar_composicao_em_sombra`) de proposito NAO registra (decisao da coordenacao; o
-#: "sombra nao enfileira" no registro/outbox vem com a emenda ao DL-0185). Tambem e o rotulo `modo` de
+#: DL-0185/DL-0187: modos de uma composicao registrada. `sombra` = a avaliacao nao muda o caso; `efeito` = a
+#: decisao pode ter efeito. DL-0187 (emenda ao DL-0185): SO `efeito` enfileira o aviso; `sombra` grava a
+#: auditoria (`sinaisAuditoria` e `composicaoK1`) e conta
+#: `maezo_rco_aviso_total{desfecho="suprimido_sombra"}`.
+#: O modo vem de quem registra (a avaliacao), nunca do indicador de efeito do K1. Tambem e o rotulo `modo` de
 #: `rco_composicao.compor` e de `maezo_rco_composicao_revisao_humana_total`.
 MODOS_COMPOSICAO: Final[frozenset[str]] = frozenset({"sombra", "efeito"})
+MODO_SOMBRA: Final[str] = "sombra"
+MODO_EFEITO: Final[str] = "efeito"
 #: DL-0185: a chave acrescentada a entrada de `dmn_versions` de cada decisao avaliada do grupo.
 CHAVE_SINAIS_AUDITORIA: Final[str] = "sinaisAuditoria"
+#: DL-0187 (PR-4): a chave aditiva com o resumo da composicao na entrada de cada decisao avaliada do grupo:
+#: `{nome, modo, desfecho, decisaoVencedora, motivo, peloPadrao}`, so tokens fechados, ids e booleano. E por
+#: ela que a reconciliacao sabe o modo pelo registro DURAVEL (so `efeito` espera linha no outbox).
+CHAVE_COMPOSICAO_K1: Final[str] = "composicaoK1"
+#: Desfechos e motivos de `rco_composicao.ResultadoComposicao` (paridade em teste; literais aqui porque
+#: `rco_composicao` importa `dmn_transport`, que importa este modulo).
+DESFECHOS_COMPOSICAO: Final[frozenset[str]] = frozenset({"escolhido", "revisao_humana"})
+MOTIVOS_COMPOSICAO: Final[frozenset[str]] = frozenset(
+    {"violacao_prova_rco", "avaliador_falhou", "resultado_invalido"}
+)
 
 
 @dataclass(frozen=True, slots=True)
 class ComposicaoRegistrada:
-    """O que o harness precisa de uma composicao K1 da tarefa para enfileirar os avisos (DL-0185).
+    """O que o harness precisa de uma composicao K1 da tarefa para enfileirar os avisos (DL-0185/DL-0187).
 
     So ids e codigos: o nome da composicao do manifesto, a uniao dos `sinalAuditoria` nao vazios (na ordem
-    do grupo), o modo e as decisoes avaliadas (para reaplicar `sinaisAuditoria` na auditoria,
-    `reaplicar_sinais_auditoria`). Nenhuma linha da DMN, nenhuma entrada do caso.
+    do grupo), o modo, as decisoes avaliadas (para reaplicar as chaves na auditoria,
+    `reaplicar_sinais_auditoria`) e o resumo do desfecho (`composicaoK1`). Nenhuma linha da DMN, nenhuma
+    entrada do caso.
     """
 
     composicao: str
     sinais: tuple[str, ...]
     modo: str
     avaliadas: tuple[str, ...] = ()
+    desfecho: str = "escolhido"
+    decisao_vencedora: str | None = None
+    motivo: str | None = None
+    pelo_padrao: bool = False
+
+    def composicao_k1(self) -> dict[str, Any]:
+        """A chave `composicaoK1` (DL-0187): so tokens, ids e booleano."""
+        return {
+            "nome": self.composicao,
+            "modo": self.modo,
+            "desfecho": self.desfecho,
+            "decisaoVencedora": self.decisao_vencedora,
+            "motivo": self.motivo,
+            "peloPadrao": self.pelo_padrao,
+        }
 
 
 # Module-level collector. `None` means "not inside an audited dispatch" — see module docstring.
@@ -89,6 +118,37 @@ _RCO_AVALIACOES: ContextVar[dict[str, AvaliacaoRegra] | None] = ContextVar("rco_
 _RCO_COMPOSICOES: ContextVar[dict[str, ComposicaoRegistrada] | None] = ContextVar(
     "rco_composicoes", default=None
 )
+
+# DL-0187: trabalho de SOMBRA que o worker adia para DEPOIS de completar a tarefa (lista de chamaveis sem
+# argumento, na ordem). Mesmo desenho dos coletores acima: container mutavel que sobrevive a copia de
+# contexto.
+_POS_CONCLUSAO: ContextVar[list[Callable[[], None]] | None] = ContextVar("pos_conclusao", default=None)
+
+
+def adiar_pos_conclusao(trabalho: Callable[[], None]) -> bool:
+    """Adia `trabalho` (sincrono, sem argumentos) para DEPOIS de completar a tarefa (DL-0187). NUNCA levanta.
+
+    So para trabalho de SOMBRA, que nao pode custar nada ao caso: o harness o roda depois de `complete`, fora
+    do bloqueio da tarefa, com coletores proprios, e grava o que ele auditar num fato separado da cadeia
+    (`WorkerHarness._executar_pos_conclusao`). Devolve `False` (e nada roda) fora de um despacho auditado;
+    o mesmo fail-open de `record_dmn_version`. Numa tarefa que nao completa, o trabalho adiado e descartado.
+    """
+    adiados = _POS_CONCLUSAO.get()
+    if adiados is None:
+        return False
+    adiados.append(trabalho)
+    return True
+
+
+@contextmanager
+def collect_pos_conclusao() -> Iterator[list[Callable[[], None]]]:
+    """Liga a lista do trabalho adiado da tarefa (DL-0187). Reset por tarefa, como `collect_dmn_versions`."""
+    adiados: list[Callable[[], None]] = []
+    token = _POS_CONCLUSAO.set(adiados)
+    try:
+        yield adiados
+    finally:
+        _POS_CONCLUSAO.reset(token)
 
 
 def record_dmn_version(
@@ -162,27 +222,27 @@ def collect_rco_avaliacoes() -> Iterator[dict[str, AvaliacaoRegra]]:
 
 
 def registrar_composicao(resultado: ResultadoComposicao, *, modo: str) -> None:
-    """Registra uma composicao K1 avaliada nesta tarefa (DL-0185). NUNCA levanta.
+    """Registra uma composicao K1 avaliada nesta tarefa (DL-0185/DL-0187). NUNCA levanta.
 
     CONTRATO DE LIGACAO: `rco_composicao.compor`/`compor_async` sao PUROS e NAO chamam isto (nem devem:
-    `test_compor_e_puro_e_nao_registra_nada`). E o WORKER que compoe quem chama
-    `registrar_composicao(resultado, modo=...)` logo depois de compor, com o modo (`MODOS_COMPOSICAO`):
-    `sombra` quando a avaliacao nao muda o caso, `efeito` quando pode mudar. Enquanto nenhum worker de
-    producao compoe (hoje: nenhum), nada e registrado nem enfileirado em producao. A composicao generica
-    em sombra (`rco_sombra.avaliar_composicao_em_sombra`) de proposito NAO chama isto (decisao da
-    coordenacao; a regra "sombra nao enfileira" no registro vem com a emenda ao DL-0185). Faz duas coisas,
-    ambas sem efeito fora do coletor:
+    `test_compor_e_puro_e_nao_registra_nada`). Quem compoe chama `registrar_composicao(resultado, modo=...)`
+    logo depois de compor, com o modo (`MODOS_COMPOSICAO`): `sombra` quando a avaliacao nao muda o caso,
+    `efeito` quando pode mudar. A composicao em sombra (`rco_sombra.avaliar_composicao`, ligada ao AUTH por
+    `auth_rco`) registra com `modo=sombra` (DL-0187). Faz tres coisas, todas sem efeito fora do coletor:
 
     1. guarda `ComposicaoRegistrada` no coletor de `collect_rco_composicoes` (o harness enfileira os avisos
-       DEPOIS de completar a tarefa);
-    2. com sinal nao vazio, acrescenta `sinaisAuditoria` (a uniao, na ordem do grupo) a entrada de
-       `dmn_versions` de cada decisao avaliada do grupo que ja esta no coletor de `collect_dmn_versions`.
-       Essa entrada vai na auditoria duravel, gravada ANTES de completar: um aviso que nao chegou ao outbox
-       pode ser reconciliado pela auditoria. Chave aditiva; sem sinal, a entrada fica byte a byte igual.
+       DEPOIS de completar a tarefa, SO os de `modo=efeito`; os de `sombra` sao contados como
+       `suprimido_sombra`, DL-0187);
+    2. acrescenta `composicaoK1` (DL-0187: nome, modo, desfecho, decisao vencedora, motivo, pelo padrao) a
+       entrada de `dmn_versions` de cada decisao avaliada do grupo que ja esta no coletor de
+       `collect_dmn_versions`: o modo fica no registro DURAVEL, que a reconciliacao le;
+    3. com sinal nao vazio, acrescenta `sinaisAuditoria` (a uniao, na ordem do grupo) as mesmas entradas.
+       Essas entradas vao na auditoria duravel, gravada ANTES de completar: um aviso de `efeito` que nao
+       chegou ao outbox pode ser reconciliado pela auditoria. Chaves aditivas.
 
-    Fora de um despacho auditado (sem coletor) e' no-op. Modo fora do vocabulario ou resultado sem a forma
-    esperada: log e metrica `maezo_rco_aviso_total{desfecho="invalido"}`, nada registrado. Nunca levanta,
-    porque uma falha do caminho do aviso nao pode mudar a decisao da tarefa.
+    Fora de um despacho auditado (sem coletor) e' no-op. Modo, desfecho ou motivo fora do vocabulario ou
+    resultado sem a forma esperada: log e metrica `maezo_rco_aviso_total{desfecho="invalido"}`, nada
+    registrado. Nunca levanta, porque uma falha do caminho do aviso nao pode mudar a decisao da tarefa.
     """
     try:
         if modo not in MODOS_COMPOSICAO:
@@ -190,11 +250,25 @@ def registrar_composicao(resultado: ResultadoComposicao, *, modo: str) -> None:
         sinais = tuple(dict.fromkeys(str(s) for s in resultado.sinais if isinstance(s, str) and s.strip()))
         if len(sinais) != len(tuple(resultado.sinais)):
             raise ValueError("sinal_invalido")
+        if resultado.desfecho not in DESFECHOS_COMPOSICAO:
+            raise ValueError("desfecho_invalido")
+        if resultado.motivo is not None and resultado.motivo not in MOTIVOS_COMPOSICAO:
+            raise ValueError("motivo_invalido")
+        avaliadas = tuple(str(d) for d in resultado.avaliadas)
+        vencedora = resultado.decisao_vencedora
+        if vencedora is not None and vencedora not in avaliadas:
+            raise ValueError("vencedora_invalida")
+        if not isinstance(resultado.pelo_padrao, bool):
+            raise ValueError("pelo_padrao_invalido")
         registrada = ComposicaoRegistrada(
             composicao=str(resultado.composicao),
             sinais=sinais,
             modo=modo,
-            avaliadas=tuple(str(d) for d in resultado.avaliadas),
+            avaliadas=avaliadas,
+            desfecho=resultado.desfecho,
+            decisao_vencedora=vencedora,
+            motivo=resultado.motivo,
+            pelo_padrao=resultado.pelo_padrao,
         )
         composicoes = _RCO_COMPOSICOES.get()
         if composicoes is not None:
@@ -213,23 +287,24 @@ def registrar_composicao(resultado: ResultadoComposicao, *, modo: str) -> None:
 
 
 def _aplicar(collector: Mapping[str, Any], registrada: ComposicaoRegistrada) -> None:
-    if not registrada.sinais:
-        return
     for decisao in registrada.avaliadas:
         entrada = collector.get(decisao)
         if isinstance(entrada, dict):
-            entrada[CHAVE_SINAIS_AUDITORIA] = list(registrada.sinais)
+            entrada[CHAVE_COMPOSICAO_K1] = registrada.composicao_k1()
+            if registrada.sinais:
+                entrada[CHAVE_SINAIS_AUDITORIA] = list(registrada.sinais)
 
 
 def reaplicar_sinais_auditoria(
     collector: Mapping[str, Any], composicoes: Mapping[str, ComposicaoRegistrada]
 ) -> None:
-    """Reaplica `sinaisAuditoria` as entradas do grupo logo antes de montar a auditoria (DL-0185). NUNCA
-    levanta.
+    """Reaplica `composicaoK1` e `sinaisAuditoria` as entradas do grupo logo antes de montar a auditoria
+    (DL-0185/DL-0187). NUNCA levanta.
 
     `record_dmn_version` e "ultima vence": se uma decisao do grupo for reavaliada DEPOIS de
-    `registrar_composicao`, a entrada nova perderia a chave. O harness chama isto com o coletor e as
-    composicoes da tarefa antes de `_build_audit_record`, entao a auditoria duravel sempre leva os sinais.
+    `registrar_composicao`, a entrada nova perderia as chaves. O harness chama isto com o coletor e as
+    composicoes da tarefa antes de `_build_audit_record`, entao a auditoria duravel sempre leva o modo e os
+    sinais.
     """
     try:
         for registrada in composicoes.values():

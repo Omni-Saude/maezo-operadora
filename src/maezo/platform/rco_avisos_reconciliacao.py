@@ -9,16 +9,25 @@ ferramenta para a unidade 2b; e esta.
 O QUE FAZ, SO LEITURA. Para uma janela `[desde, ate)` de um tenant:
 
 1. le da cadeia de auditoria (`audit_chain` x `audit_emit_dedup`, migracoes 0002/0005) os registros de
-   conclusao (`decision = 'COMPLETE'`) cuja `dmn_versions` tem alguma `sinaisAuditoria`, com a `dedup_key`
-   `{tenant}:{task_id}` do harness (`WorkerHarness._audit_dedup_key`);
+   conclusao (`decision = 'COMPLETE'`, `dedup_key` `{tenant}:{task_id}` do harness,
+   `WorkerHarness._audit_dedup_key`) e os FATOS de sombra gravados depois de completar (DL-0187:
+   `decision = 'SHADOW'`, `dedup_key` `{tenant}:sombra:{task_id}`) cuja `dmn_versions` tem alguma
+   `sinaisAuditoria`;
 2. recalcula, com o manifesto e os `avisos` do PIN de bordo, as linhas que o harness teria gravado: a
    composicao de cada decisao (`ManifestoK1.composicao_de`), `rco_avisos.avisos_para` e a
-   `chave_idempotencia` de `tenant:task_id:composicao:sinal:fila`;
+   `chave_idempotencia` de `tenant:task_id:composicao:sinal:fila`. DL-0187: SO a composicao em
+   `modo=efeito` espera linha; o modo e lido do registro DURAVEL, a chave `composicaoK1.modo` da mesma entrada
+   de `dmn_versions` (gravada por `_audit_ctx.registrar_composicao`), lida ANTES do manifesto do pin de agora.
+   `modo=sombra` nao espera nada e entra na contagem `suprimidos_sombra` (pelo nome gravado, mesmo com o pin
+   rodado); entrada sem `composicaoK1` (auditoria anterior ao DL-0187, quando os dois
+   modos enfileiravam) segue esperada; `composicaoK1` com modo fora de `MODOS` vira `modo_fora_do_vocabulario`
+   e nao espera linha (nunca palpite);
 3. le do outbox as chaves que existem (`SELECT`, nunca escreve) e devolve o relatorio.
 
 O RELATORIO e so ids e codigos fechados (`CODIGOS`): `ausente_no_outbox` (o aviso esperado nao tem linha),
 `composicao_desconhecida` (decisao com `sinaisAuditoria` fora de toda composicao do manifesto pinado),
-`sinal_sem_aviso` (sinal que o K6 pinado nao endereca), `chave_auditoria_fora_da_forma` (registro cuja
+`sinal_sem_aviso` (sinal que o K6 pinado nao endereca), `modo_fora_do_vocabulario` (DL-0187: `composicaoK1`
+sem modo valido), `chave_auditoria_fora_da_forma` (registro cuja
 `dedup_key` nao e `{tenant}:{task_id}`), `aviso_falhou` (a linha esperada existe mas terminou `falhou`; leva o
 `ultimo_erro` fechado do outbox, `publicacao_falhou` ou `fila_sem_grupo`: o aviso NAO saiu e espera o
 operador). Mais as contagens por `status` das linhas encontradas. Nada do caso, nenhuma linha da DMN, nenhum
@@ -61,6 +70,16 @@ from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
 CHAVE_SINAIS: Final[str] = "sinaisAuditoria"
 #: `harness.AUDIT_DECISION_COMPLETE` (paridade em teste): so conclusoes enfileiram aviso.
 DECISAO_CONCLUSAO: Final[str] = "COMPLETE"
+#: DL-0187: `harness.AUDIT_DECISION_SOMBRA` (paridade em teste): o FATO de sombra gravado DEPOIS de completar
+#: a tarefa, com dedup `{tenant}:sombra:{task_id}`. Tambem e lido: as entradas dele estao em `modo=sombra`.
+DECISAO_SOMBRA: Final[str] = "SHADOW"
+NAMESPACE_SOMBRA: Final[str] = "sombra:"
+#: DL-0187: a chave com o resumo da composicao (= `_audit_ctx.CHAVE_COMPOSICAO_K1`, paridade em teste) e os
+#: modos (= `_audit_ctx.MODOS_COMPOSICAO`). So `efeito` espera linha no outbox.
+CHAVE_COMPOSICAO: Final[str] = "composicaoK1"
+MODO_SOMBRA: Final[str] = "sombra"
+MODO_EFEITO: Final[str] = "efeito"
+MODOS: Final[frozenset[str]] = frozenset({MODO_SOMBRA, MODO_EFEITO})
 
 AUSENTE_NO_OUTBOX: Final[str] = "ausente_no_outbox"
 COMPOSICAO_DESCONHECIDA: Final[str] = "composicao_desconhecida"
@@ -68,9 +87,18 @@ SINAL_SEM_AVISO: Final[str] = "sinal_sem_aviso"
 CHAVE_AUDITORIA_FORA_DA_FORMA: Final[str] = "chave_auditoria_fora_da_forma"
 #: DL-0186: a linha esperada existe mas terminou `falhou` (o aviso nao saiu); leva o `ultimo_erro` fechado.
 AVISO_FALHOU: Final[str] = "aviso_falhou"
+#: DL-0187: `composicaoK1` presente sem modo do vocabulario: nada esperado, a divergencia aparece.
+MODO_FORA_DO_VOCABULARIO: Final[str] = "modo_fora_do_vocabulario"
 #: Codigos FECHADOS do relatorio.
 CODIGOS: Final[frozenset[str]] = frozenset(
-    {AUSENTE_NO_OUTBOX, COMPOSICAO_DESCONHECIDA, SINAL_SEM_AVISO, CHAVE_AUDITORIA_FORA_DA_FORMA, AVISO_FALHOU}
+    {
+        AUSENTE_NO_OUTBOX,
+        COMPOSICAO_DESCONHECIDA,
+        SINAL_SEM_AVISO,
+        CHAVE_AUDITORIA_FORA_DA_FORMA,
+        AVISO_FALHOU,
+        MODO_FORA_DO_VOCABULARIO,
+    }
 )
 
 
@@ -80,6 +108,13 @@ class RegistroAuditado:
 
     dedup_key: str
     dmn_versions: Mapping[str, Any]
+    #: A `decision` da linha da cadeia (`COMPLETE` ou, DL-0187, `SHADOW`).
+    decisao: str = DECISAO_CONCLUSAO
+
+    def de_sombra(self, tenant: str) -> bool:
+        """DL-0187: fato de sombra (decisao `SHADOW` ou namespace `sombra:`): TODA entrada dele e de sombra,
+        qualquer que seja o `composicaoK1.modo` gravado; nunca espera linha no outbox."""
+        return self.decisao == DECISAO_SOMBRA or self.dedup_key.startswith(f"{tenant}:{NAMESPACE_SOMBRA}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +167,8 @@ class Relatorio:
     esperados: int
     encontrados_por_status: Mapping[str, int]
     divergencias: tuple[Divergencia, ...] = field(default_factory=tuple)
+    #: DL-0187: (tarefa, composicao) auditadas em `modo=sombra` com sinal: nenhuma linha esperada.
+    suprimidos_sombra: int = 0
 
     @property
     def ok(self) -> bool:
@@ -147,6 +184,7 @@ class Relatorio:
             "encontrados_por_status": dict(sorted(self.encontrados_por_status.items())),
             "divergencias_por_codigo": dict(sorted(por_codigo.items())),
             "divergencias": [d.como_dict() for d in self.divergencias],
+            "suprimidos_sombra": self.suprimidos_sombra,
         }
 
 
@@ -158,7 +196,28 @@ def _task_id(tenant: str, dedup_key: str) -> str | None:
     # `{tenant}:refuse:{task_id}` e outro namespace (recusa), nao conclusao.
     if not task_id or task_id.startswith("refuse:"):
         return None
+    # DL-0187: `{tenant}:sombra:{task_id}` e o fato de sombra da MESMA tarefa (depois de completar).
+    if task_id.startswith(NAMESPACE_SOMBRA):
+        task_id = task_id[len(NAMESPACE_SOMBRA) :]
+        return task_id or None
     return task_id
+
+
+def _modo(entrada: Mapping[str, Any]) -> str | None:
+    """O modo de `composicaoK1` da entrada; `efeito` quando a chave falta (auditoria anterior ao DL-0187, em
+    que os dois modos enfileiravam); `None` quando a chave existe sem modo do vocabulario."""
+    resumo = entrada.get(CHAVE_COMPOSICAO)
+    if resumo is None:
+        return MODO_EFEITO
+    modo = resumo.get("modo") if isinstance(resumo, Mapping) else None
+    return modo if isinstance(modo, str) and modo in MODOS else None
+
+
+def _nome_duravel(entrada: Mapping[str, Any]) -> str:
+    """O nome da composicao gravado em `composicaoK1` (DL-0187); vazio se ausente ou fora da forma."""
+    resumo = entrada.get(CHAVE_COMPOSICAO)
+    nome = resumo.get("nome") if isinstance(resumo, Mapping) else None
+    return nome if isinstance(nome, str) and nome.strip() else ""
 
 
 def esperados_da_auditoria(
@@ -171,13 +230,30 @@ def esperados_da_auditoria(
     """Funcao pura: as linhas esperadas (sem repeticao) e as divergencias de auditoria (codigo fechado).
 
     Cada decisao com `sinaisAuditoria` da a composicao pelo manifesto; como o harness grava a UNIAO dos sinais
-    em cada decisao do grupo, a mesma (tarefa, composicao) aparece uma vez so no esperado.
+    em cada decisao do grupo, a mesma (tarefa, composicao) aparece uma vez so no esperado. DL-0187: so
+    `modo=efeito` (ou entrada sem `composicaoK1`) espera linha; ver `suprimidos_sombra`.
     """
+    esperados, divergencias, _ = _esperados(
+        registros, tenant=tenant, composicoes=composicoes, avisos_do_pin=avisos_do_pin
+    )
+    return esperados, divergencias
+
+
+def _esperados(
+    registros: Iterable[RegistroAuditado],
+    *,
+    tenant: str,
+    composicoes: Sequence[ComposicaoK1],
+    avisos_do_pin: Mapping[str, AvisoK6],
+) -> tuple[list[AvisoEsperado], list[Divergencia], int]:
     por_decisao = {d: c for c in composicoes for d in c.decisoes}
     esperados: dict[str, AvisoEsperado] = {}
     divergencias: list[Divergencia] = []
     vistos: set[tuple[str, str, str]] = set()
+    suprimidos: set[tuple[str, str]] = set()
+    fora_do_vocabulario: set[tuple[str, str]] = set()
     for registro in registros:
+        de_sombra = registro.de_sombra(tenant)
         task_id = _task_id(tenant, registro.dedup_key)
         if task_id is None:
             divergencias.append(Divergencia(CHAVE_AUDITORIA_FORA_DA_FORMA))
@@ -189,7 +265,23 @@ def esperados_da_auditoria(
             sinais = entrada.get(CHAVE_SINAIS)
             if not isinstance(sinais, list) or not sinais:
                 continue
+            # DL-0187: o modo e o nome vem do registro DURAVEL, ANTES do pin de agora: uma entrada de sombra
+            # nunca espera linha, mesmo que o pin tenha mudado e a decisao nao esteja mais em grupo algum.
             grupo = por_decisao.get(decisao)
+            modo = MODO_SOMBRA if de_sombra else _modo(entrada)
+            nome = _nome_duravel(entrada) or (grupo.nome if grupo is not None else "")
+            if modo is None:
+                if (task_id, nome) not in fora_do_vocabulario:
+                    fora_do_vocabulario.add((task_id, nome))
+                    divergencias.append(
+                        Divergencia(
+                            MODO_FORA_DO_VOCABULARIO, task_id=task_id, composicao=nome, decisao=decisao
+                        )
+                    )
+                continue
+            if modo == MODO_SOMBRA:
+                suprimidos.add((task_id, nome or decisao))
+                continue
             if grupo is None:
                 divergencias.append(Divergencia(COMPOSICAO_DESCONHECIDA, task_id=task_id, decisao=decisao))
                 continue
@@ -209,7 +301,7 @@ def esperados_da_auditoria(
                     esperados.setdefault(
                         chave, AvisoEsperado(task_id, grupo.nome, item.sinal, item.fila, chave)
                     )
-    return list(esperados.values()), divergencias
+    return list(esperados.values()), divergencias, len(suprimidos)
 
 
 def reconciliar(
@@ -227,7 +319,7 @@ def reconciliar(
     codigo fora de `rco_avisos.ERROS` (ou ausente) vai vazio, nunca o texto lido.
     """
     erros = erros_no_outbox or {}
-    esperados, divergencias = esperados_da_auditoria(
+    esperados, divergencias, suprimidos = _esperados(
         registros, tenant=tenant, composicoes=composicoes, avisos_do_pin=avisos_do_pin
     )
     por_status: dict[str, int] = {}
@@ -264,6 +356,7 @@ def reconciliar(
         esperados=len(esperados),
         encontrados_por_status=por_status,
         divergencias=tuple(divergencias),
+        suprimidos_sombra=suprimidos,
     )
 
 
@@ -273,9 +366,9 @@ def reconciliar(
 
 #: Conclusoes da janela com `sinaisAuditoria` em alguma entrada; a `dedup_key` vem da reivindicacao (0005).
 _AUDITORIA_SQL: Final[str] = (
-    "SELECT d.dedup_key, c.dmn_versions FROM audit_chain c "
+    "SELECT d.dedup_key, c.dmn_versions, c.decision FROM audit_chain c "
     "JOIN audit_emit_dedup d ON d.tenant = c.tenant_id AND d.record_hash = c.record_hash "
-    "WHERE c.tenant_id = $1 AND c.timestamp >= $2 AND c.timestamp < $3 AND c.decision = $4 "
+    "WHERE c.tenant_id = $1 AND c.timestamp >= $2 AND c.timestamp < $3 AND c.decision = ANY($4::text[]) "
     "AND jsonb_path_exists(c.dmn_versions, '$.*.sinaisAuditoria') "
     "ORDER BY c.timestamp, d.dedup_key"
 )
@@ -346,8 +439,10 @@ class PostgresFonteReconciliacao:
             ) from None
 
     async def ler_auditoria(self, desde: datetime, ate: datetime) -> list[RegistroAuditado]:
-        rows = await self._ler(_AUDITORIA_SQL, self._tenant, desde, ate, DECISAO_CONCLUSAO)
-        return [RegistroAuditado(str(r["dedup_key"]), _jsonb(r["dmn_versions"])) for r in rows]
+        rows = await self._ler(_AUDITORIA_SQL, self._tenant, desde, ate, [DECISAO_CONCLUSAO, DECISAO_SOMBRA])
+        return [
+            RegistroAuditado(str(r["dedup_key"]), _jsonb(r["dmn_versions"]), str(r["decision"])) for r in rows
+        ]
 
     async def status_no_outbox(self, chaves: Sequence[str]) -> dict[str, str]:
         if not chaves:
@@ -457,10 +552,16 @@ if __name__ == "__main__":  # pragma: no cover - entrada do processo
 __all__ = [
     "AUSENTE_NO_OUTBOX",
     "CHAVE_AUDITORIA_FORA_DA_FORMA",
+    "CHAVE_COMPOSICAO",
     "CHAVE_SINAIS",
     "CODIGOS",
     "COMPOSICAO_DESCONHECIDA",
     "DECISAO_CONCLUSAO",
+    "DECISAO_SOMBRA",
+    "MODOS",
+    "MODO_EFEITO",
+    "MODO_FORA_DO_VOCABULARIO",
+    "MODO_SOMBRA",
     "SINAL_SEM_AVISO",
     "AvisoEsperado",
     "Divergencia",
