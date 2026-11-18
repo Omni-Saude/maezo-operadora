@@ -13,7 +13,6 @@ em `tests/unit/gateway/test_esf36_disclosure_wiring.py`, nos testes
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 
 import pytest
 
@@ -51,12 +50,10 @@ def test_declarations_never_in_acceptance_payload(schema_bytes, key, decision) -
     top["payload"][key] = {"value": True}
     with pytest.raises(CommercialRefusalError):
         codec.parse_command(_encode(top))
-    nested = acceptance_command(decision)
-    nested["payload"]["terms_review_ref"] = "SYN-REVIEW"
-    nested_with_key = deepcopy(nested)
-    nested_with_key[key] = True  # também fora do payload, no envelope
+    envelope = acceptance_command(decision)
+    envelope[key] = True  # também fora do payload, no envelope
     with pytest.raises(CommercialRefusalError):
-        codec.parse_command(_encode(nested_with_key))
+        codec.parse_command(_encode(envelope))
 
 
 def test_no_declaration_slot_exists_in_the_frozen_acceptance_payload(schema_bytes) -> None:

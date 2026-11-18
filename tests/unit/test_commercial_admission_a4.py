@@ -951,3 +951,12 @@ def test_off_contract_admission_is_refused_even_without_a2(schema_bytes, dimensi
         compose_commercial_gateway(
             schema_bytes=schema_bytes, **{dimension: SimpleNamespace(contract_sha256="0" * 64)}
         )
+
+
+def test_recovered_unknown_without_reason_is_refused(schema_bytes):
+    # E-SF-05r (b): the reasonless-unknown refusal holds on the `operation.get` recovery
+    # carrier too, with the same exact reason code as a recovered source-asserted fact.
+    codec = CoverageGatedCodec(CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins()), gated=True)
+    with pytest.raises(CommercialRefusalError) as err:
+        codec.parse_result(recovered_payload("unknown"), operation_request(codec))
+    assert err.value.status == "denied" and err.value.reason_code == "purpose_denied"
