@@ -69,13 +69,46 @@ jobs:
     name: trilha (plataforma x agente)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # `actions: read` + `pull-requests: read`: so' para a decisao da arvore verificada (abaixo) — ler a run do
+    # PR e o artefato dela. Nada aqui escreve.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       plataforma: ${{ steps.classificar.outputs.plataforma }}
       agentes: ${{ steps.classificar.outputs.agentes }}
+      # 'true' SO' no push em main cuja arvore e' identica a testada pela run verde do PR (L1a). Em qualquer
+      # outro evento, ou em qualquer duvida, fica 'false' e o workflow roda inteiro.
+      verificado: ${{ github.event_name == 'push' && steps.arvore.outputs.verificado == 'true' && 'true' || 'false' }}
+      run_verificadora: ${{ steps.arvore.outputs.run_verificadora }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
+      # ARVORE VERIFICADA (L1a, custo de Actions, 18/11/2026). No PR, grava a arvore do merge de teste que esta
+      # run verifica; no push em main, `scripts/ci/arvore_verificada.py` compara a arvore do merge com a da
+      # ULTIMA run em pull_request do head final do PR, que precisa estar `success`. Iguais = os mesmos bytes ja
+      # verdes: as lanes pesadas (shards de unit e o que depende delas, portal-web, terraform, java, helm) nao
+      # repetem e o `portao` aponta a run verificadora. Qualquer duvida = roda tudo. Medido em 11-18/11: 41%
+      # dos merges, ~100 min de runner cada.
+      - name: Grava a arvore testada (pull_request)
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/ci/arvore_verificada.py --gravar "$RUNNER_TEMP/arvore-testada"
+      - name: Publica a arvore testada (pull_request)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: arvore-testada-ci
+          path: ${{ runner.temp }}/arvore-testada/arvore.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Arvore ja verificada pelo PR? (push em main)
+        id: arvore
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/arvore_verificada.py --decidir --workflow ci.yml --artefato arvore-testada-ci
       - name: Classifica o diff
         id: classificar
         env:
@@ -204,11 +237,22 @@ jobs:
           PLATAFORMA: ${{ needs.trilha.outputs.plataforma }}
           QUALIDADE: ${{ needs.quality.result }}
           AGENTES: ${{ needs.agentes.result }}
+          EVENTO: ${{ github.event_name }}
+          VERIFICADO: ${{ needs.trilha.outputs.verificado }}
+          RUN_VERIFICADORA: ${{ needs.trilha.outputs.run_verificadora }}
         run: |
           set -e
-          echo "trilha=${TRILHA} plataforma=${PLATAFORMA} quality=${QUALIDADE} agentes=${AGENTES}"
+          echo "trilha=${TRILHA} plataforma=${PLATAFORMA} quality=${QUALIDADE} agentes=${AGENTES} evento=${EVENTO} verificado=${VERIFICADO}"
           if [ "${TRILHA}" != "success" ]; then
             echo "::error::a classificacao da trilha falhou (${TRILHA}) — sem ela nada e' verde"; exit 1
+          fi
+          # L1a: so' no PUSH, e so' quando a trilha provou que a arvore e' identica a de uma run verde do PR.
+          # A suite pesada pulada e' esperada; qualquer outro resultado dela (falha, cancelamento) segue vermelho.
+          if [ "${EVENTO}" = "push" ] && [ "${VERIFICADO}" = "true" ] && [ "${PLATAFORMA}" = "true" ]; then
+            [ "${QUALIDADE}" = "skipped" ] || { echo "::error::arvore verificada, mas a suite da plataforma terminou ${QUALIDADE}"; exit 1; }
+            [ -n "${RUN_VERIFICADORA}" ] || { echo "::error::arvore verificada sem run verificadora"; exit 1; }
+            echo "## lint / type / unit: arvore identica a verificada pela run ${RUN_VERIFICADORA} (verde) — suite nao repetida" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           if [ "${PLATAFORMA}" = "true" ]; then
             [ "${QUALIDADE}" = "success" ] || { echo "::error::trilha PLATAFORMA: lint / type / unit (plataforma) = ${QUALIDADE}"; exit 1; }
@@ -226,7 +270,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: [trilha]
-    if: needs.trilha.outputs.plataforma == 'true'
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -587,7 +631,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [trilha]
-    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
     defaults:
       run:
         working-directory: src/maezo/portal/web
@@ -1285,7 +1329,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [trilha]
-    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1361,7 +1405,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [trilha]
-    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
     services:
       postgres:
         # postgres:17 (indice multi-arch resolvido em 23/09/2026 no Docker Hub).
@@ -1419,7 +1463,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [trilha]
-    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
