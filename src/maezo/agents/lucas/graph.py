@@ -3329,6 +3329,23 @@ class RespostaRecusadaError(RuntimeError):
         self.response_kind = response_kind
 
 
+#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
+#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
+#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
+#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
+_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+    {
+        "tipo_solicitacao",
+        "competencia",
+        "numero_boleto",
+        "status_conciliado",
+        "admissibilidade",
+        "dmn_refs",
+        "vencimento",
+    }
+)
+
+
 class LucasGraph:
     """Wires Lucas's injected dependencies into a compilable `StateGraph[LucasState]`."""
 
@@ -4374,10 +4391,10 @@ class LucasGraph:
         fatos_do_prompt = dict(facts)
         if isinstance(facts.get("numero_boleto"), str):
             fatos_do_prompt["numero_boleto"] = _boleto_do_rascunho_sem_asterisco(facts["numero_boleto"])
-        prompt = (
-            f"{message_prompt()}\n\n"
-            f"{render_fatos_para_prompt(fatos_do_prompt, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
+        fatos_txt = render_fatos_para_prompt(
+            fatos_do_prompt, booleanos=_FATOS_BOOLEANOS_MENSAGEM, permitidos=_PERMITIDOS_LEGADO_U1C
         )
+        prompt = f"{message_prompt()}\n\n{fatos_txt}"
         try:
             texto = await self._llm.generate(
                 prompt,

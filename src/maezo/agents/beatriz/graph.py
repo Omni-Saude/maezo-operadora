@@ -478,6 +478,33 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
 }
 
 
+#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
+#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
+#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
+#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
+_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+    {
+        "numero_caso",
+        "tenant_id",
+        "origem_encaminhamento",
+        "entidade_tipo",
+        "entidade_pseudo_id",
+        "prestador_id",
+        "beneficiario_pseudo_id",
+        "numero_contrato",
+        "competencia",
+        "n_evidencia",
+        "indicadores_presentes",
+        "score_indicadores",
+        "intensidade_investigacao",
+        "indicio_fraude_sinalizado",
+        "feature_snapshot_ref",
+        "resumo_fhir",
+        "lacunas",
+    }
+)
+
+
 class BeatrizGraph:
     """Wires Beatriz's injected dependencies into a compilable `StateGraph[BeatrizState]`."""
 
@@ -618,7 +645,10 @@ class BeatrizGraph:
         if score_lacuna:
             lacunas.append(score_lacuna)
 
-        prompt = f"{dossier_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS)}"
+        fatos_txt = render_fatos_para_prompt(
+            facts, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_LEGADO_U1C
+        )
+        prompt = f"{dossier_prompt()}\n\n{fatos_txt}"
         try:
             narrativa = await self._llm.generate(
                 prompt,

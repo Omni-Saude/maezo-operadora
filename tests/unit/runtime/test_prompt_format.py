@@ -14,6 +14,7 @@ refactor, not a silent prompt change).
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
 
@@ -233,6 +234,25 @@ def test_a_directly_constructed_formatted_prompt_needs_no_separator() -> None:
 # =============================================================================================
 
 
+def _render_tudo_permitido(
+    facts: Mapping[str, Any],
+    *,
+    booleanos: Mapping[str, str],
+    linhas_extra: Sequence[str] = (),
+) -> str:
+    """`render_fatos_para_prompt` com `permitidos` = toda chave de topo que o teste usa.
+
+    Os testes desta secao sao anteriores a lista fechada (DL-0191) e provam a FORMA da saida
+    (tres estados, poda, ordem, bytes congelados). Com a lista igual as chaves do proprio caso,
+    o recorte e' identidade e os bytes congelados continuam valendo. O recorte em si e' provado
+    em `test_prompt_format_permitidos.py`.
+    """
+    permitidos = frozenset(facts) | {caminho.split(".", 1)[0] for caminho in booleanos}
+    return render_fatos_para_prompt(
+        facts, booleanos=booleanos, permitidos=permitidos, linhas_extra=linhas_extra
+    )
+
+
 def _fatos_aninhados(profundidade: int) -> dict[str, Any]:
     """Fatos com `profundidade` niveis: o booleano na folha, com vizinhos em cada nivel.
 
@@ -262,7 +282,7 @@ def test_o_render_nao_muta_o_dicionario_de_fatos_do_chamador(profundidade: int) 
     caminho = _caminho_do_fato(profundidade)
     antes = copy.deepcopy(facts)
 
-    saida = render_fatos_para_prompt(facts, booleanos={caminho: "rotulo do fato"})
+    saida = _render_tudo_permitido(facts, booleanos={caminho: "rotulo do fato"})
 
     assert facts == antes, f"o dicionario do chamador foi mutado: {facts!r} != {antes!r}"
     assert "NAO       rotulo do fato" in saida
@@ -279,7 +299,7 @@ def test_dois_booleanos_irmaos_no_mesmo_pai_nao_mutam_o_chamador() -> None:
     facts = {"a": {"b": {"c": False, "d": True, "resto": 9}}}
     antes = copy.deepcopy(facts)
 
-    saida = render_fatos_para_prompt(facts, booleanos={"a.b.c": "rc", "a.b.d": "rd"})
+    saida = _render_tudo_permitido(facts, booleanos={"a.b.c": "rc", "a.b.d": "rd"})
 
     assert facts == antes, f"o dicionario do chamador foi mutado: {facts!r}"
     assert saida.endswith("demais dados do caso: {'a': {'b': {'resto': 9}}}")
@@ -290,7 +310,7 @@ def test_um_intermediario_que_nao_e_mapping_nao_muta_o_chamador() -> None:
     facts = {"a": {"b": "texto"}, "z": 1}
     antes = copy.deepcopy(facts)
 
-    saida = render_fatos_para_prompt(facts, booleanos={"a.b.c": "rc"})
+    saida = _render_tudo_permitido(facts, booleanos={"a.b.c": "rc"})
 
     assert facts == antes, f"o dicionario do chamador foi mutado: {facts!r}"
     assert "SEM DADO  rc" in saida
@@ -301,7 +321,7 @@ def test_um_caminho_inexistente_nao_muta_o_chamador() -> None:
     facts = {"a": {"b": {}}, "z": 1}
     antes = copy.deepcopy(facts)
 
-    saida = render_fatos_para_prompt(facts, booleanos={"a.b.c": "rc"})
+    saida = _render_tudo_permitido(facts, booleanos={"a.b.c": "rc"})
 
     assert facts == antes, f"o dicionario do chamador foi mutado: {facts!r}"
     assert saida.endswith("demais dados do caso: {'a': {'b': {}}, 'z': 1}")
@@ -428,7 +448,7 @@ def test_o_reparo_da_copia_por_nivel_nao_muda_um_byte_da_saida(
     linhas_extra: tuple[str, ...],
 ) -> None:
     """Byte a byte contra a saida capturada antes do reparo F1, em 13 formas de entrada."""
-    saida = render_fatos_para_prompt(copy.deepcopy(facts), booleanos=booleanos, linhas_extra=linhas_extra)
+    saida = _render_tudo_permitido(copy.deepcopy(facts), booleanos=booleanos, linhas_extra=linhas_extra)
 
     assert saida == _SAIDAS_ANTES_DO_REPARO_F1[nome]
 
@@ -475,14 +495,14 @@ def test_cada_estado_de_um_booleano_tem_sua_propria_forma(valor: object, marcado
     da chave liam-se como a mesma coisa — "vazio" — e o dossie escreveu "nao ha registro de
     verificacao" sobre uma rede que TINHA sido verificada e dado falso.
     """
-    saida = render_fatos_para_prompt({"fato": valor}, booleanos={"fato": "rotulo"})
+    saida = _render_tudo_permitido({"fato": valor}, booleanos={"fato": "rotulo"})
 
     assert _linhas_de_fatos(saida) == [f"  {marcador:<10}rotulo"]
 
 
 def test_uma_chave_ausente_le_se_como_sem_dado_e_nao_como_negativa() -> None:
     """Ausencia nao e' negacao. O default seguro e' "nao apurado", nunca "nao"."""
-    saida = render_fatos_para_prompt({}, booleanos={"fato": "rotulo"})
+    saida = _render_tudo_permitido({}, booleanos={"fato": "rotulo"})
 
     assert _linhas_de_fatos(saida) == [f"  {SEM_DADO:<10}rotulo"]
     assert "NAO" not in saida
@@ -497,7 +517,7 @@ def test_um_valor_que_nao_e_booleano_nunca_vira_afirmacao(valor: object) -> None
     partir de um dado que ninguem verificou. Note `1.0` e `0.0`: em Python `1 == True`, entao um
     teste escrito com `==` passaria enquanto o codigo afirmava.
     """
-    saida = render_fatos_para_prompt({"fato": valor}, booleanos={"fato": "rotulo"})
+    saida = _render_tudo_permitido({"fato": valor}, booleanos={"fato": "rotulo"})
 
     assert _linhas_de_fatos(saida) == [f"  {SEM_DADO:<10}rotulo"]
 
@@ -509,7 +529,7 @@ def test_a_ordem_das_linhas_e_a_ordem_do_mapa_do_chamador_e_nunca_alfabetica() -
     campo pode importar para o modelo (`agents/helena/prompts.py`).
     """
     facts = {"zulu": True, "alpha": False}
-    saida = render_fatos_para_prompt(facts, booleanos={"zulu": "z", "alpha": "a"})
+    saida = _render_tudo_permitido(facts, booleanos={"zulu": "z", "alpha": "a"})
 
     assert _linhas_de_fatos(saida) == ["  SIM       z", "  NAO       a"]
 
@@ -517,7 +537,7 @@ def test_a_ordem_das_linhas_e_a_ordem_do_mapa_do_chamador_e_nunca_alfabetica() -
 def test_a_chave_ja_nomeada_sai_do_contexto_e_o_resto_do_caso_fica() -> None:
     """Sem isto o modelo leria o mesmo fato duas vezes, uma delas no repr que colapsa os estados."""
     facts = {"fato": False, "procedimento": "X", "valor": 1234.5}
-    saida = render_fatos_para_prompt(facts, booleanos={"fato": "rotulo"})
+    saida = _render_tudo_permitido(facts, booleanos={"fato": "rotulo"})
 
     assert _contexto_de(saida) == "{'procedimento': 'X', 'valor': 1234.5}"
 
@@ -528,7 +548,7 @@ def test_a_chave_ja_nomeada_sai_do_contexto_e_o_resto_do_caso_fica() -> None:
 def test_um_caminho_pontilhado_le_e_poda_um_fato_aninhado() -> None:
     """O caso do andre: os fatos de adequacao de rede moram num sub-dicionario."""
     facts = {"adequacao": {"cobertura_geo_suficiente": False, "prazo_maximo_dias": 7}}
-    saida = render_fatos_para_prompt(
+    saida = _render_tudo_permitido(
         facts, booleanos={"adequacao.cobertura_geo_suficiente": "cobertura geografica"}
     )
 
@@ -555,7 +575,7 @@ def test_um_intermediario_que_nao_e_mapping_le_se_como_sem_dado_e_nao_poda_nada(
     Levantar aqui transformaria um mapa de fatos mal-casado num prompt que nao sai — e o helper
     NAO DECIDE NADA sobre o caso, entao a leitura segura e' a unica resposta honesta.
     """
-    saida = render_fatos_para_prompt(facts, booleanos={caminho: "rotulo"})
+    saida = _render_tudo_permitido(facts, booleanos={caminho: "rotulo"})
 
     assert _linhas_de_fatos(saida) == [f"  {SEM_DADO:<10}rotulo"]
     assert _contexto_de(saida) == contexto_esperado
@@ -563,7 +583,7 @@ def test_um_intermediario_que_nao_e_mapping_le_se_como_sem_dado_e_nao_poda_nada(
 
 def test_um_pai_ausente_le_se_como_sem_dado() -> None:
     facts = {"outro": 1}
-    saida = render_fatos_para_prompt(facts, booleanos={"nao.existe.aqui": "rotulo"})
+    saida = _render_tudo_permitido(facts, booleanos={"nao.existe.aqui": "rotulo"})
 
     assert _linhas_de_fatos(saida) == [f"  {SEM_DADO:<10}rotulo"]
     assert _contexto_de(saida) == "{'outro': 1}"
@@ -581,7 +601,7 @@ def test_um_mapping_que_nao_e_dict_no_meio_do_caminho_tambem_e_podado() -> None:
     tem de funcionar.
     """
     facts = {"a": MappingProxyType({"b": {"c": False, "resto": 1}})}
-    saida = render_fatos_para_prompt(facts, booleanos={"a.b.c": "rotulo"})
+    saida = _render_tudo_permitido(facts, booleanos={"a.b.c": "rotulo"})
 
     assert _linhas_de_fatos(saida) == ["  NAO       rotulo"]
     assert _contexto_de(saida) == "{'a': {'b': {'resto': 1}}}"
@@ -599,7 +619,7 @@ def test_linhas_extra_saem_verbatim_depois_dos_booleanos() -> None:
     booleanos.
     """
     extra = "  APURADO PELO MOTOR  teto de aprovacao"
-    saida = render_fatos_para_prompt(
+    saida = _render_tudo_permitido(
         {"fato": True, "resto": 1}, booleanos={"fato": "rotulo"}, linhas_extra=(extra,)
     )
 
@@ -609,7 +629,7 @@ def test_linhas_extra_saem_verbatim_depois_dos_booleanos() -> None:
 
 def test_linhas_extra_sem_nenhum_booleano_ainda_produz_um_bloco_bem_formado() -> None:
     """Borda: um fluxo que so' tem fatos de terceiros nao pode gerar linha em branco no prompt."""
-    saida = render_fatos_para_prompt({"resto": 1}, booleanos={}, linhas_extra=("  X  y",))
+    saida = _render_tudo_permitido({"resto": 1}, booleanos={}, linhas_extra=("  X  y",))
 
     assert saida == f"{FATOS_CABECALHO}\n  X  y\n\n{FATOS_CONTEXTO_ROTULO}{{'resto': 1}}"
 
@@ -622,7 +642,7 @@ def test_o_helper_e_deterministico() -> None:
     facts = {"a": False, "n": {"m": {"k": None}}, "resto": [1, 2]}
     booleanos = {"a": "ra", "n.m.k": "rk"}
 
-    primeira = render_fatos_para_prompt(facts, booleanos=booleanos)
-    segunda = render_fatos_para_prompt(facts, booleanos=booleanos)
+    primeira = _render_tudo_permitido(facts, booleanos=booleanos)
+    segunda = _render_tudo_permitido(facts, booleanos=booleanos)
 
     assert primeira == segunda

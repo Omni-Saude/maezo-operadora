@@ -445,6 +445,13 @@ _CHAVES_FATOS_PROMPT: Final[tuple[str, ...]] = (
 )
 
 
+#: A mesma lista como `frozenset`, que e' o tipo que o renderizador do runtime exige em
+#: `permitidos` (DL-0191). O recorte de `fatos_para_prompt` continua: e' ele que fixa a ordem e
+#: que deixa o descarte do renderizador valer como alarme (chave inesperada), e nao como rotina
+#: a cada dossie.
+_PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(_CHAVES_FATOS_PROMPT)
+
+
 def fatos_para_prompt(facts: dict[str, Any]) -> dict[str, Any]:
     """Recorta `fatos` pela lista fechada `_CHAVES_FATOS_PROMPT` (DL-0190).
 
@@ -464,7 +471,12 @@ def render_fatos_para_prompt(facts: dict[str, Any]) -> str:
     A saida e' byte-identica a de antes da promocao — congelada em
     `tests/unit/agents/test_prompt_facts_rendering.py`.
     """
-    return render_fatos(facts, booleanos=_FATOS_BOOLEANOS, linhas_extra=(_LINHA_TETO_DO_MOTOR,))
+    return render_fatos(
+        facts,
+        booleanos=_FATOS_BOOLEANOS,
+        permitidos=_PERMITIDOS_PROMPT,
+        linhas_extra=(_LINHA_TETO_DO_MOTOR,),
+    )
 
 
 class RafaelGraph:

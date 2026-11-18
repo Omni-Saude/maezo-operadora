@@ -498,6 +498,54 @@ _FATOS_BOOLEANOS_NIP: Final[dict[str, str]] = {
 }
 
 
+#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
+#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
+#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
+#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
+_PERMITIDOS_LEGADO_U1C_ANS_SUBMIT: Final[frozenset[str]] = frozenset(
+    {
+        "fluxo",
+        "report_type",
+        "competencia",
+        "periodicidade",
+        "origem_envio",
+        "dataset_complete",
+        "schema_valid",
+        "lgpd_anonimizado",
+        "dataset_ref",
+        "admissibilidade_envio",
+        "due_date",
+        "sla_alerta_data",
+        "periodicidade_calendario",
+        "fonte_regulatoria",
+        "dmn_refs",
+    }
+)
+
+_PERMITIDOS_LEGADO_U1C_NIP: Final[frozenset[str]] = frozenset(
+    {
+        "fluxo",
+        "numero_nip_ans",
+        "protocolo_ans",
+        "classificacao_nip",
+        "classificacao",
+        "prazo_dias",
+        "grupo_revisor",
+        "contesta_negativa",
+        "documentacao_suficiente",
+        "roteamento_nip",
+        "grupo_humano",
+        "data_recebimento_nip_iso",
+        "prazo_resposta_iso",
+        "prazo_resposta_absoluto_iso",
+        "sla_alerta_absoluto_iso",
+        "fonte_regulatoria",
+        "dmn_refs",
+        "lacunas_enriquecimento",
+    }
+)
+
+
 class GustavoGraph:
     """Wires Gustavo's injected dependencies into a compilable `StateGraph[GustavoState]`."""
 
@@ -931,6 +979,11 @@ class GustavoGraph:
         booleanos = (
             _FATOS_BOOLEANOS_ANS_SUBMIT if state.get("fluxo") == "ans_submit" else _FATOS_BOOLEANOS_NIP
         )
+        permitidos = (
+            _PERMITIDOS_LEGADO_U1C_ANS_SUBMIT
+            if state.get("fluxo") == "ans_submit"
+            else _PERMITIDOS_LEGADO_U1C_NIP
+        )
         # HEL-06: `facts` segue INTACTO para o dossie e para a proveniencia (ADR-0007); so' a
         # COPIA que vai ao modelo perde o texto livre, que reaparece logo abaixo demarcado. Os
         # blocos saem SEMPRE, inclusive no fluxo `ans_submit` (onde nenhum dos dois campos existe e
@@ -943,7 +996,7 @@ class GustavoGraph:
         referencia = facts.get("referencia_negativa_original")
         prompt = (
             f"{dossier_prompt()}\n\nroute={route} motivo_humano={state.get('motivo_humano')}\n"
-            f"{render_fatos_para_prompt(fatos_para_prompt, booleanos=booleanos)}\n"
+            f"{render_fatos_para_prompt(fatos_para_prompt, booleanos=booleanos, permitidos=permitidos)}\n"
             f"{render_untrusted_block('tema_nip', tema_nip)}\n"
             f"{render_untrusted_block('referencia_negativa_original', referencia)}"
         )

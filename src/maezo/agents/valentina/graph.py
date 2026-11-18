@@ -427,6 +427,29 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
 }
 
 
+#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
+#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
+#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
+#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
+_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+    {
+        "programa_id",
+        "ciclo",
+        "beneficiario_pseudo_id",
+        "gatilho",
+        "consent_status",
+        "risco_estratificado",
+        "elegibilidade_criterios_atendidos",
+        "criterio_alta_aparente",
+        "elegivel_programa",
+        "motivo_estratificacao",
+        "dmn_refs",
+        "sla_decisao",
+        "lacunas_enriquecimento",
+    }
+)
+
+
 class ValentinaGraph:
     """Wires Valentina's injected dependencies into a compilable `StateGraph[ValentinaState]`."""
 
@@ -921,10 +944,10 @@ class ValentinaGraph:
 
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
-        prompt = (
-            f"{prompt_text}\n\ntask={task} route={route} motivo_humano={motivo_humano}\n"
-            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS)}"
+        fatos_txt = render_fatos_para_prompt(
+            facts, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_LEGADO_U1C
         )
+        prompt = f"{prompt_text}\n\ntask={task} route={route} motivo_humano={motivo_humano}\n{fatos_txt}"
         llm_ok = True
         try:
             # Zona PHI (D10): Valentina reasons in-zone AFTER the consent gate — phi=True on
