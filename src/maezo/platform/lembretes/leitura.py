@@ -23,9 +23,9 @@ from .job import Beneficiario
 #: tempo e' a custodia do telefone (30 dias desde a ultima mensagem: sem telefone, nao ha' envio).
 #:
 #: RT-D4 (ADDENDUM-01 §7 (q); E-SF-13): o consentimento selecionado aqui e' o de ATENDIMENTO (escopo
-#: `atendimento_whatsapp`, texto `wa-consent-v2`, "nesta conversa"). Ele NAO habilita envio proativo: o job
-#: o apresenta ao `OutboundGate` como tal (`job.permissao_do_acesso`) e o gate o recusa
-#: (`recontact_permission_unqualified`). Esta selecao continua sendo so' o universo de candidatos.
+#: `atendimento_whatsapp`, texto `wa-consent-v2`, "nesta conversa"). Ele NAO habilita envio proativo: esta
+#: selecao e' so' o universo de candidatos (conversa verificada). O criterio de selecao e' o aceite do termo
+#: de contato, finalidade 2 (E-SF-21r, `aceite.py`), lido pelo job antes de qualquer fato de cobranca.
 _VERIFICADOS_SQL: Final[str] = """
 SELECT conversation_id, portable_subject_ref, consent_ref
 FROM conversa_acesso_beneficiario

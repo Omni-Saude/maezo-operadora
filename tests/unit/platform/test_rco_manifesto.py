@@ -93,7 +93,7 @@ _HEX_CRU = "a" * 64
         (_mutacao(["origem", "sujo"], True), "origem.sujo"),
         (_mutacao(["origem", "sujo"], False), "origem.sujo"),  # a chave, presente, ja recusa
         (_mutacao(["formato_manifesto"], "3.0.0"), "formato_manifesto 3.0.0"),
-        (_mutacao(["formato_manifesto"], "2.3.0"), "formato_manifesto 2.3.0"),
+        (_mutacao(["formato_manifesto"], "2.4.0"), "formato_manifesto 2.4.0"),
         (_mutacao(["formato_manifesto"], "1.1.0"), "formato_manifesto 1.1.0"),
         (_mutacao(["formato_manifesto"], "1"), "formato_manifesto"),
         (_mutacao(["campo_novo"], 1), "desconhecidos ['campo_novo']"),
@@ -647,7 +647,7 @@ def test_pin_exige_provas_mas_o_leitor_ainda_le_1x_e_20(tmp_path: Path) -> None:
 def test_minor_acima_do_conhecido_reprova(pacote: tuple[Path, dict[str, Any]]) -> None:
     raiz, manifesto = pacote
     _com_provas(raiz, manifesto)
-    manifesto["formato_manifesto"] = "2.3.0"
+    manifesto["formato_manifesto"] = "2.4.0"
     sint.regravar(raiz, manifesto)
     with pytest.raises(k1.ManifestoK1InvalidoError, match="nao suportado"):
         _ler(raiz)

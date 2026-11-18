@@ -18,7 +18,12 @@ Dois gates, um por pasta (`dmn.is_rco_dmn` separa as duas):
     contrato-k1.md §6); `negar`/`glosar`/
     `recomendar_negativa` exigem `classeAdverso` e `fila` preenchidas; `classeAdverso=clinico`
     nunca acompanha `negar`. As tabelas do K1 nao passam por (a): o K1 emite o adverso por desenho,
-    e quem o executa e o worker guardado (ADR-0075 (d)).
+    e quem o executa e o worker guardado (ADR-0075 (d)). A saida OPCIONAL `sinalAuditoria` (K1 formato
+    2.3.0, DL-0183), quando a tabela a declara, so aceita literal do vocabulario fechado
+    `k1.sinalAuditoria` (vazio = sinal vazio); tabela com a coluna e arquivo de dados sem a lista reprova.
+    Com pacote K1 pinado (`k1/vocabulario.json` ao lado deste arquivo de dados) que declara `sinalAuditoria`,
+    os dois vocabularios do sinal tem de ser o MESMO conjunto: sinal do pacote que falta aqui, ou daqui que
+    falta no pacote, reprova (`conferir_sinais_do_pacote`).
 
 O VOCABULARIO NAO MORA AQUI. Ele e lido de `config/integrations/rco/vocabulario-saida.yaml`
 (versionado, com `schema` + `versao`), que a trilha rco congela (PROG-RCO-1). Este modulo so aplica
@@ -40,6 +45,7 @@ Leitura das celulas de saida (`<outputEntry><text>`):
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -133,6 +139,9 @@ class VocabularioK1:
     textos_vazio: frozenset[str]
     exigem_classe_e_fila: frozenset[str]
     classes_proibidas: tuple[ClasseProibida, ...]
+    #: `k1.sinalAuditoria` (opcional; K1 2.3.0): vocabulario fechado da saida opcional, com o vazio `""`.
+    #: None = o arquivo de dados nao o declara (tabela com a coluna reprova).
+    sinais_auditoria: frozenset[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +297,24 @@ def _ler_k1(no: object) -> VocabularioK1:
             f"{sorted(CLASSES_PROIBIDAS_MINIMAS - pares)}"
         )
 
+    sinais: frozenset[str] | None = None
+    if "sinalAuditoria" in mapa:
+        bruto = mapa.get("sinalAuditoria")
+        if (
+            not isinstance(bruto, list)
+            or not all(isinstance(v, str) for v in bruto)
+            or len(set(bruto)) != len(bruto)
+            or "" not in bruto
+        ):
+            raise VocabularioInvalidoError(
+                "k1.sinalAuditoria: esperada lista de textos sem repeticao, com o vazio ''"
+            )
+        if "sinalAuditoria" in saidas:
+            raise VocabularioInvalidoError(
+                "k1.saidas_obrigatorias: 'sinalAuditoria' e saida opcional (contrato-k1.md §6)"
+            )
+        sinais = frozenset(bruto)
+
     return VocabularioK1(
         saidas_obrigatorias=saidas,
         decisoes=decisoes,
@@ -296,6 +323,7 @@ def _ler_k1(no: object) -> VocabularioK1:
         textos_vazio=textos_vazio,
         exigem_classe_e_fila=exigem,
         classes_proibidas=tuple(proibidas),
+        sinais_auditoria=sinais,
     )
 
 
@@ -492,8 +520,25 @@ def _check_k1(path: Path, tabelas: Sequence[_Tabela], k1: VocabularioK1, report:
         i_classe = tabela.saidas.index("classeAdverso")
         i_fila = tabela.saidas.index("fila")
         i_id_regra = tabela.saidas.index("idRegra") if "idRegra" in tabela.saidas else None
+        i_sinal = tabela.saidas.index("sinalAuditoria") if "sinalAuditoria" in tabela.saidas else None
+        if i_sinal is not None and k1.sinais_auditoria is None:
+            erro(
+                did,
+                "saida 'sinalAuditoria' sem vocabulario fechado em k1.sinalAuditoria do arquivo de dados "
+                "(K1 2.3.0; fail-closed)",
+            )
+            i_sinal = None
         for rid, celulas in tabela.regras:
             onde = f"regra '{rid}'"
+            if i_sinal is not None and k1.sinais_auditoria is not None:
+                sinal = celulas[i_sinal]
+                valor_sinal = "" if sinal.tipo is Tipo.AUSENTE else sinal.valor
+                if sinal.tipo is Tipo.EXPRESSAO or valor_sinal not in k1.sinais_auditoria:
+                    erro(
+                        did,
+                        f"{onde}: sinalAuditoria {sinal.texto or '(vazio)'} fora do vocabulario fechado "
+                        f"{sorted(k1.sinais_auditoria)} (K1 2.3.0, contrato-k1.md §6)",
+                    )
             decisao, classe, fila = celulas[i_decisao], celulas[i_classe], celulas[i_fila]
 
             valor_decisao: str | None = None
@@ -557,6 +602,38 @@ def _check_k1(path: Path, tabelas: Sequence[_Tabela], k1: VocabularioK1, report:
 # ---------------------------------------------------------------------------------------------
 
 
+#: `vocabulario.json` do pacote K1 pinado, relativo a pasta do arquivo de dados (`config/integrations/rco/`).
+VOCABULARIO_PACOTE_RELATIVO = Path("k1") / "vocabulario.json"
+
+
+def conferir_sinais_do_pacote(vocab: Vocabulario, vocabulario_path: Path) -> list[str]:
+    """Divergencias entre `k1.sinalAuditoria` deste arquivo de dados e `sinalAuditoria` do `vocabulario.json`
+    do pacote K1 pinado (K1 2.3.0, DL-0183). Sem pacote, ou pacote sem a chave (abaixo de 2.3.0): nada a
+    comparar. `vocabulario.json` ilegivel ou com a chave fora da forma: divergencia (fail-closed; o sha256
+    dele e conferido pelo gate do pin)."""
+    caminho = vocabulario_path.parent / VOCABULARIO_PACOTE_RELATIVO
+    if not caminho.is_file():
+        return []
+    try:
+        pacote = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return [f"{caminho.name} do pacote K1 pinado ilegivel"]
+    if not isinstance(pacote, dict) or "sinalAuditoria" not in pacote:
+        return []
+    bruto = pacote["sinalAuditoria"]
+    if not isinstance(bruto, list) or not all(isinstance(v, str) for v in bruto):
+        return [f"{caminho.name} do pacote K1 pinado: sinalAuditoria fora da forma"]
+    do_pacote = frozenset(bruto)
+    daqui = vocab.k1.sinais_auditoria if vocab.k1.sinais_auditoria is not None else frozenset({""})
+    if do_pacote == daqui:
+        return []
+    return [
+        "k1.sinalAuditoria diverge do vocabulario do sinal do pacote K1 pinado "
+        f"(so no pacote {sorted(do_pacote - daqui)}, so aqui {sorted(daqui - do_pacote)}); "
+        "atualize este arquivo de dados junto com o pin (K1 2.3.0, DL-0183)"
+    ]
+
+
 def check(dmn_files: Iterable[Path], vocabulario_path: Path, report: Report) -> None:
     """Aplica (a) as tabelas do Maezo e (b) as do K1, lendo o vocabulario de `vocabulario_path`.
 
@@ -568,6 +645,9 @@ def check(dmn_files: Iterable[Path], vocabulario_path: Path, report: Report) -> 
     except VocabularioInvalidoError as exc:
         report.error(vocabulario_path, f"vocabulario de saida invalido: {exc}")
         return
+
+    for divergencia in conferir_sinais_do_pacote(vocab, vocabulario_path):
+        report.error(vocabulario_path, f"vocabulario de saida: {divergencia}")
 
     usadas: set[Permissao] = set()
     for path in dmn_files:
