@@ -53,6 +53,7 @@ import structlog
 import yaml
 
 from maezo.agents import resolve_spec_dir
+from maezo.platform.validation._loaders import DuplicateYAMLKeyError, PolicyUniqueKeyLoader
 
 logger = structlog.get_logger(__name__)
 
@@ -138,9 +139,13 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         FileNotFoundError: the file is missing (from ``Path.read_text``).
         yaml.YAMLError: the file exists but is not syntactically valid YAML.
         PolicyError: the file parses but its root is not a mapping (incl. an
-            *empty* file, which parses to ``None``).
+            *empty* file, which parses to ``None``), or any mapping at any depth
+            repeats a key (DL-0193: never YAML's silent last-wins).
     """
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=PolicyUniqueKeyLoader)
+    except DuplicateYAMLKeyError as exc:
+        raise PolicyError(f"invalid policy YAML ({exc}): {path}") from exc
     if not isinstance(data, dict):
         raise PolicyError(f"invalid policy YAML (root is not a mapping): {path}")
     return data

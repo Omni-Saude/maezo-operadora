@@ -1308,7 +1308,12 @@ def check_completeness(src_dir: Path, repo_root: Path) -> tuple[list[str], dict[
 
     # -- item 3: catalogue <-> manifest round-trip + choked:false must be documented ---------------
     manifest_path = repo_root / "spec" / "policies" / "autonomy" / "action-approvals.yaml"
-    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    try:  # DL-0193: the shared strict loader — a repeated key is a finding, never last-wins
+        from maezo.platform.validation._loaders import PolicyUniqueKeyLoader
+
+        manifest = yaml.load(manifest_path.read_text(encoding="utf-8"), Loader=PolicyUniqueKeyLoader) or {}
+    except yaml.YAMLError as exc:
+        return [*violations, f"§8.5 item 3: {manifest_path} refused ({exc})"], counters
     acoes = manifest.get("acoes") or {}
     mapeamento_acoes = manifest.get("mapeamento_acoes") or {}
     mapeamento_topicos = manifest.get("mapeamento_topicos") or {}
