@@ -10,7 +10,9 @@ Formato padrao: `formato_manifesto` 2.1.0 com uma prova sintetica (`com_provas`)
 `provas[]` (decisao da ROOT, 16/11/2026). Regras com `ativacao`/`exige_aditivo` e `vocabulario.json` com
 o bloco `ativacao` (valores + parametros, numeros inventados — nao sao os provisorios do rco).
 `montar(raiz, provas=False)` gera o 2.0.0 e `montar(raiz, major=1)` o 1.0.0: o leitor os le, o pin os
-recusa (`pin-sem-provas`). `com_composicoes` promove a 2.2.0 com `composicoes[]` (DL-0173).
+recusa (`pin-sem-provas`). `com_composicoes` promove a 2.2.0 com `composicoes[]` (DL-0173) e
+`com_formato_2_3` a 2.3.0 (DL-0183: grupo `mais_restritiva`, `ordem_restricao`, `sinalAuditoria` e `avisos`
+do K6, com uma tabela `rco_sint_d` que emite o sinal).
 
 `montar(raiz)` escreve a arvore e o pin em estado `fixado`; `regravar(raiz, manifesto)` reescreve o
 manifesto em bytes canonicos e atualiza `manifest_pin.sha256`, para testar uma mutacao por vez.
@@ -403,4 +405,155 @@ def com_tabela_c(raiz: Path, manifesto: dict[str, Any]) -> dict[str, Any]:
     ]
     gravar_lock(raiz, atual)
     regravar(raiz, manifesto)
+    return manifesto
+
+
+# --- formato 2.3.0 (DL-0183): `mais_restritiva`, `ordem_restricao`, `sinalAuditoria`, `avisos` -------
+#: Vocabulario de `decisao` do contrato (contrato-k1.md §6) e a ordem de restricao acordada (§3), da mais
+#: restritiva para a menos. A ordem e DADO do pacote; aqui so para montar o sintetico.
+DECISOES: list[str] = [
+    "liberar",
+    "exigir_autorizacao",
+    "revisao_humana",
+    "negar",
+    "glosar",
+    "pagar_pacote",
+    "limitar",
+    "exigir_documento",
+    "informar",
+    "prazo",
+    "pagar_referencia",
+    "recomendar_negativa",
+]
+ORDEM_RESTRICAO: list[str] = [
+    "negar",
+    "glosar",
+    "recomendar_negativa",
+    "revisao_humana",
+    "exigir_autorizacao",
+    "exigir_documento",
+    "limitar",
+    "pagar_referencia",
+    "pagar_pacote",
+    "prazo",
+    "informar",
+    "liberar",
+]
+SINAL = "aviso_sintetico"
+SINAIS: list[str] = ["", SINAL]
+K6_FILAS: dict[str, Any] = {
+    "auditoria_medica": {"par": "sim"},
+    "cadastro": {"par": "sim"},
+    "regulacao": {"par": "nao"},
+}
+AVISOS: dict[str, Any] = {
+    SINAL: {"filas": ["auditoria_medica", "cadastro"], "prazo_parametro": "SINT-0001:prazos.0"}
+}
+#: Tabela com a saida opcional `sinalAuditoria` (so a partir de 2.3.0).
+_TABELA_D: tuple[list[str], list[list[str]], list[str]] = (
+    [*SAIDAS_OBRIGATORIAS, "sinalAuditoria"],
+    [
+        ['"liberar"', '""', '"SINT-D-0001"', '""', '""', f'"{SINAL}"'],
+        ['"revisao_humana"', '""', '"SINT-D-0002"', '"regulacao"', '""', '""'],
+    ],
+    ["SINT-D-0001", "SINT-D-0002"],
+)
+COMPOSICAO_RESTRITIVA: dict[str, Any] = {
+    "decisoes": ["rco_sint_d", "rco_sint_c"],
+    "nome": "grupo_restritivo",
+    "padrao": "rco_sint_c",
+    "regra": "mais_restritiva",
+}
+
+
+def vocabulario_2_3(**trocas: Any) -> dict[str, Any]:
+    """`vocabulario.json` 2.3.0 sintetico; `trocas` substitui chaves (valor `None` remove a chave)."""
+    vocab: dict[str, Any] = json.loads(vocabulario_bytes(2))
+    vocab.update(decisao=list(DECISOES), ordem_restricao=list(ORDEM_RESTRICAO), sinalAuditoria=list(SINAIS))
+    for chave, valor in trocas.items():
+        if valor is None:
+            vocab.pop(chave, None)
+        else:
+            vocab[chave] = valor
+    return vocab
+
+
+def k6_2_3(**trocas: Any) -> dict[str, Any]:
+    """`k6-filas.json` 1.1.0 sintetico; `trocas` substitui chaves (valor `None` remove a chave)."""
+    k6: dict[str, Any] = {
+        "avisos": copy.deepcopy(AVISOS),
+        "filas": copy.deepcopy(K6_FILAS),
+        "versao": "1.1.0",
+    }
+    for chave, valor in trocas.items():
+        if valor is None:
+            k6.pop(chave, None)
+        else:
+            k6[chave] = valor
+    return k6
+
+
+def trocar_k6(raiz: Path, manifesto: dict[str, Any], raw: bytes) -> None:
+    """Grava `k6-filas.json` e repina o hash no manifesto e o manifesto no lock."""
+    (raiz / K1_DIR / "k6-filas.json").write_bytes(raw)
+    manifesto["k6"]["sha256"] = sha(raw)
+    regravar(raiz, manifesto)
+
+
+def com_tabela(
+    raiz: Path, manifesto: dict[str, Any], original: str, tabela: tuple[list[str], list[list[str]], list[str]]
+) -> dict[str, Any]:
+    """Acrescenta `rco_<original>` ao pacote (DMN, `decisoes[]` e `artifacts` do lock) e repina."""
+    saidas, linhas, ids = tabela
+    did = f"rco_{original}"
+    raw = dmn_bytes(did, saidas, linhas)
+    (raiz / RULES_DIR / f"{original}.dmn").write_bytes(raw)
+    modelo = copy.deepcopy(manifesto["decisoes"][0])
+    modelo.update(
+        {
+            "arquivo": f"dmn/{original}.dmn",
+            "caminho_consumidor": f"{RULES_DIR}/{original}.dmn",
+            "id": did,
+            "id_original": original,
+            "regras": [_regra(i, f"1.0.{n}", 2, ("plena", False)) for n, i in enumerate(ids)],
+            "saidas": [{"nome": s, "nome_snake": s.lower(), "typeRef": "string"} for s in saidas],
+            "sha256": sha(raw),
+        }
+    )
+    manifesto["decisoes"] = sorted(
+        [*(d for d in manifesto["decisoes"] if d["id"] != did), modelo], key=lambda d: d["id"]
+    )
+    atual = lock(raiz)
+    atual["artifacts"] = [
+        {"path": d["caminho_consumidor"], "sha256": d["sha256"]} for d in manifesto["decisoes"]
+    ]
+    gravar_lock(raiz, atual)
+    regravar(raiz, manifesto)
+    return manifesto
+
+
+def com_formato_2_3(
+    raiz: Path,
+    manifesto: dict[str, Any],
+    composicoes: list[dict[str, Any]] | None = None,
+    *,
+    vocabulario: dict[str, Any] | None = None,
+    k6: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Promove o pacote a `formato_manifesto` 2.3.0: tabelas `rco_sint_c` e `rco_sint_d` (com
+    `sinalAuditoria`), `vocabulario.json` com `decisao`, `ordem_restricao` e `sinalAuditoria`, K6 com
+    `filas` e `avisos`, e `composicoes[]` (padrao: o grupo de ortopedia sintetico `grupo_sint` e o grupo
+    `mais_restritiva` `grupo_restritivo` = [rco_sint_d, rco_sint_c])."""
+    if "provas" not in manifesto:
+        com_provas(raiz, manifesto)
+    com_tabela(raiz, manifesto, "sint_c", _TABELA_C)
+    com_tabela(raiz, manifesto, "sint_d", _TABELA_D)
+    manifesto["formato_manifesto"] = "2.3.0"
+    manifesto["composicoes"] = copy.deepcopy(
+        [COMPOSICAO, COMPOSICAO_RESTRITIVA] if composicoes is None else composicoes
+    )
+    raw_k6 = canonico(k6_2_3() if k6 is None else k6)
+    (raiz / K1_DIR / "k6-filas.json").write_bytes(raw_k6)
+    manifesto["k6"]["sha256"] = sha(raw_k6)
+    trocar_vocabulario(raiz, manifesto, canonico(vocabulario_2_3() if vocabulario is None else vocabulario))
     return manifesto

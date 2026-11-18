@@ -1,0 +1,985 @@
+{
+  "dmn": "dmn/regras-gerais/geral_carencia.dmn",
+  "decisao": "geral_carencia",
+  "casos": [
+    {
+      "id": "C001",
+      "tipo": "positivo",
+      "descricao": "Parto com carência cumprida: segue",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 0
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0001"
+      }
+    },
+    {
+      "id": "C002",
+      "tipo": "negativo",
+      "descricao": "Parto eletivo com 1 dia de saldo: negativa 3171",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 1,
+        "motivoIsencaoCarencia": "nenhuma"
+      },
+      "esperado": {
+        "decisao": "negar",
+        "motivoTab38": "3171",
+        "idRegra": "OMNI-GERAL-CAR-0001",
+        "fila": "cadastro",
+        "classeAdverso": "administrativo"
+      }
+    },
+    {
+      "id": "C003",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Complicação na gravidez (urgência) dentro da carência: regulação",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 120
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao"
+      }
+    },
+    {
+      "id": "C004",
+      "tipo": "borda",
+      "descricao": "Parto com carência contratada de 301 dias (acima do teto): cadastro",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 301,
+        "saldoCarenciaDias": 10
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0001",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C005",
+      "tipo": "borda",
+      "descricao": "Parto com carência de 0 dia e saldo 0: segue",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 0,
+        "saldoCarenciaDias": 0
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0001"
+      }
+    },
+    {
+      "id": "C006",
+      "tipo": "positivo",
+      "descricao": "Demais com carência cumprida: segue",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 0
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002"
+      }
+    },
+    {
+      "id": "C007",
+      "tipo": "positivo",
+      "descricao": "Demais com saldo negativo (cumprida há tempo): segue",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": -3
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002"
+      }
+    },
+    {
+      "id": "C008",
+      "tipo": "negativo",
+      "descricao": "Cirurgia eletiva com 30 dias de saldo: negativa 3171",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 30,
+        "motivoIsencaoCarencia": "nenhuma"
+      },
+      "esperado": {
+        "decisao": "negar",
+        "motivoTab38": "3171",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro",
+        "classeAdverso": "administrativo"
+      }
+    },
+    {
+      "id": "C009",
+      "tipo": "borda",
+      "descricao": "Demais com carência contratada de 181 dias (acima do teto): cadastro",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 181,
+        "saldoCarenciaDias": 30
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C010",
+      "tipo": "borda",
+      "descricao": "Demais com carência no teto de 180 dias e saldo 1: negativa",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 1,
+        "motivoIsencaoCarencia": "nenhuma"
+      },
+      "esperado": {
+        "decisao": "negar",
+        "motivoTab38": "3171",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro",
+        "classeAdverso": "administrativo"
+      }
+    },
+    {
+      "id": "C011",
+      "tipo": "borda",
+      "descricao": "Saldo de carência nulo: cadastro, sem negativa",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C012",
+      "tipo": "borda",
+      "descricao": "Carência contratada negativa: cadastro",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": -1,
+        "saldoCarenciaDias": 5
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C013",
+      "tipo": "borda",
+      "descricao": "Grupo de carência nulo: linha final",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": null,
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 30
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C014",
+      "tipo": "borda",
+      "descricao": "Grupo de carência fora da lista: linha final",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "odontologia",
+        "carenciaContratualDias": 90,
+        "saldoCarenciaDias": 30
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C015",
+      "tipo": "borda",
+      "descricao": "Véspera da vigência: regra não se aplica",
+      "entradas": {
+        "dataAtendimento": "2026-11-02",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 30
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": ""
+      }
+    },
+    {
+      "id": "C016",
+      "tipo": "borda",
+      "descricao": "Dia de início da vigência: negativa no eletivo com saldo",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 90,
+        "motivoIsencaoCarencia": "nenhuma"
+      },
+      "esperado": {
+        "decisao": "negar",
+        "motivoTab38": "3171",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro",
+        "classeAdverso": "administrativo"
+      }
+    },
+    {
+      "id": "C017",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Urgência com saldo de carência: regulação, nunca nega",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 170
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao"
+      }
+    },
+    {
+      "id": "C018",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Caráter ausente com saldo: regulação, nunca nega",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": null,
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 10
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao"
+      }
+    },
+    {
+      "id": "C019",
+      "tipo": "borda",
+      "descricao": "Data nula: cadastro",
+      "entradas": {
+        "dataAtendimento": null,
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 30
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C020",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Carência contratada nula, eletivo com saldo: cadastro, sem negativa",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": null,
+        "saldoCarenciaDias": 30
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0001",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C021",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Demais, eletivo com saldo e portabilidade: sem carência, liberar",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 120,
+        "motivoIsencaoCarencia": "portabilidade"
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002"
+      }
+    },
+    {
+      "id": "C022",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Demais, urgência com saldo e isenção nula: regulação, sem isenção automática pelo caráter 2 (art. 35-C e CONSU 13 em aberto)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao"
+      }
+    },
+    {
+      "id": "C023",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Demais, eletivo com saldo e dispensa contratual de carência: liberar",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 60,
+        "motivoIsencaoCarencia": "dispensa_contratual"
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002"
+      }
+    },
+    {
+      "id": "C024",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Demais, eletivo com saldo e coletivo no prazo da RN 557: liberar",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 60,
+        "motivoIsencaoCarencia": "coletivo_ingresso_30_dias"
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002"
+      }
+    },
+    {
+      "id": "C025",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Demais, eletivo com saldo e recém-nascido inscrito no prazo legal: liberar",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 60,
+        "motivoIsencaoCarencia": "recem_nascido_30_dias"
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002"
+      }
+    },
+    {
+      "id": "C026",
+      "tipo": "borda",
+      "descricao": "Demais, isenção declarada com saldo nulo: a isenção libera antes do saldo",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": null,
+        "motivoIsencaoCarencia": "portabilidade"
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002"
+      }
+    },
+    {
+      "id": "C027",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Demais, eletivo com saldo e isenção ausente do cadastro: cadastro confere, nunca nega",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 30,
+        "motivoIsencaoCarencia": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro",
+        "classeAdverso": ""
+      }
+    },
+    {
+      "id": "C028",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Demais, eletivo com saldo e isenção fora da lista: cadastro confere, nunca nega",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 30,
+        "motivoIsencaoCarencia": "outro"
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro",
+        "classeAdverso": ""
+      }
+    },
+    {
+      "id": "C029",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Demais, urgência dentro das 24 horas com saldo e sem isenção: regulação, nunca nega",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma"
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao",
+        "classeAdverso": ""
+      }
+    },
+    {
+      "id": "C030",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Parto a termo, eletivo com saldo e portabilidade: liberar",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 200,
+        "motivoIsencaoCarencia": "portabilidade"
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0001"
+      }
+    },
+    {
+      "id": "C031",
+      "tipo": "borda",
+      "descricao": "Parto a termo, eletivo com saldo e isenção nula: cadastro confere, nunca nega",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 200,
+        "motivoIsencaoCarencia": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0001",
+        "fila": "cadastro",
+        "classeAdverso": ""
+      }
+    },
+    {
+      "id": "C032",
+      "tipo": "borda",
+      "descricao": "Demais, saldo nulo e isenção nenhuma: cadastro, sem negativa (saldo ausente não vira exigir_documento)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": null,
+        "motivoIsencaoCarencia": "nenhuma"
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro",
+        "classeAdverso": ""
+      }
+    },
+    {
+      "id": "C033",
+      "tipo": "borda",
+      "descricao": "Demais, carência cumprida com isenção nula: libera (nulo da isenção não piora quem já cumpriu)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 0,
+        "motivoIsencaoCarencia": null
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002"
+      }
+    },
+    {
+      "id": "C034",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Parto a termo com caráter 2 e saldo, isenção nenhuma: regulação, nunca zera a carência",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 200,
+        "motivoIsencaoCarencia": "nenhuma"
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao"
+      }
+    },
+    {
+      "id": "C035",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Parto a termo com caráter 2 e saldo, isenção nula: regulação",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 200,
+        "motivoIsencaoCarencia": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao"
+      }
+    },
+    {
+      "id": "C036",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Eletivo declarado urgente (caráter 2) em carência de 180 dias: regulação, não libera sozinho",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 30,
+        "motivoIsencaoCarencia": "nenhuma"
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao"
+      }
+    },
+    {
+      "id": "C037",
+      "tipo": "borda",
+      "descricao": "Valor antigo urgencia_apos_24h (fora da lista) em eletivo com saldo: cadastro confere, nunca libera nem nega",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 30,
+        "motivoIsencaoCarencia": "urgencia_apos_24h"
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "fila": "cadastro"
+      }
+    },
+    {
+      "id": "C038",
+      "tipo": "borda",
+      "descricao": "Parto a termo com caráter 2, saldo e valor antigo urgencia_apos_24h: regulação",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 200,
+        "motivoIsencaoCarencia": "urgencia_apos_24h"
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao"
+      }
+    },
+    {
+      "id": "C039",
+      "tipo": "cobertura_obrigatoria",
+      "descricao": "Parto a termo, eletivo com saldo e recém-nascido inscrito no prazo (cadastro afirma): liberar",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 200,
+        "motivoIsencaoCarencia": "recem_nascido_30_dias"
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0001"
+      }
+    },
+    {
+      "id": "C040",
+      "tipo": "borda",
+      "descricao": "Urgência em carência com 23 horas desde o início da cobertura (derivada falsa): regulação, sem negativa",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": false
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao",
+        "sinalAuditoria": ""
+      }
+    },
+    {
+      "id": "C041",
+      "tipo": "borda",
+      "descricao": "Urgência em carência com 24 horas desde o início da cobertura (derivada verdadeira): libera, com aviso à auditoria médica e ao cadastro (PROG-COORD-26)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "",
+        "classeAdverso": "",
+        "sinalAuditoria": "aviso_urgencia_carencia"
+      }
+    },
+    {
+      "id": "C042",
+      "tipo": "positivo",
+      "descricao": "Urgência em carência, cadastro só com a data de início da cobertura: a derivada conta do fim do dia de início e já é verdadeira no atendimento: libera com aviso",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 120,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "",
+        "classeAdverso": "",
+        "sinalAuditoria": "aviso_urgencia_carencia"
+      }
+    },
+    {
+      "id": "C043",
+      "tipo": "nulo",
+      "descricao": "Urgência em carência sem a hora do atendimento (derivada nula): regulação, como antes da PROG-COORD-26",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao",
+        "sinalAuditoria": ""
+      }
+    },
+    {
+      "id": "C044",
+      "tipo": "nulo",
+      "descricao": "Caráter ausente em carência com a derivada verdadeira: regulação (caráter ausente nunca libera nem nega)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": null,
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao",
+        "sinalAuditoria": ""
+      }
+    },
+    {
+      "id": "C045",
+      "tipo": "borda",
+      "descricao": "Urgência no grupo parto a termo com a derivada verdadeira: regulação (a decisão do dono não se estende ao parto)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "parto_a_termo",
+        "carenciaContratualDias": 300,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao",
+        "sinalAuditoria": ""
+      }
+    },
+    {
+      "id": "C046",
+      "tipo": "negativo",
+      "descricao": "Eletivo em carência com isenção nenhuma e a derivada verdadeira: a negativa 3171 da carência não muda (a derivada só vale na urgência)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "1",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true
+      },
+      "esperado": {
+        "decisao": "negar",
+        "motivoTab38": "3171",
+        "idRegra": "OMNI-GERAL-CAR-0002",
+        "sinalAuditoria": ""
+      }
+    },
+    {
+      "id": "C047",
+      "tipo": "borda",
+      "descricao": "Pedido (solicitação de SP/SADT) no mesmo dia do início da cobertura, só datas: 0 dia, derivada falsa → regulação",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": false
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao",
+        "classeAdverso": "",
+        "sinalAuditoria": ""
+      }
+    },
+    {
+      "id": "C048",
+      "tipo": "borda",
+      "descricao": "Pedido (solicitação de internação) no dia seguinte ao início da cobertura, só datas, sem hora na solicitação: 1 dia sem as duas horas, derivada nula → regulação",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": null
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao",
+        "classeAdverso": "",
+        "sinalAuditoria": ""
+      }
+    },
+    {
+      "id": "C049",
+      "tipo": "borda",
+      "descricao": "Pedido (solicitação de SP/SADT) 2 dias depois do início da cobertura, só datas: derivada verdadeira → libera com aviso (PROG-COORD-26, ajuste da orquestradora)",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "",
+        "classeAdverso": "",
+        "sinalAuditoria": "aviso_urgencia_carencia"
+      }
+    },
+    {
+      "id": "C050",
+      "tipo": "borda",
+      "descricao": "Conta (SP/SADT) no dia seguinte, início da cobertura às 10h e procedimento executado às 11h: 25 horas, derivada verdadeira → libera com aviso",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true
+      },
+      "esperado": {
+        "decisao": "liberar",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "",
+        "classeAdverso": "",
+        "sinalAuditoria": "aviso_urgencia_carencia"
+      }
+    },
+    {
+      "id": "C051",
+      "tipo": "borda",
+      "descricao": "Conta (internação) no dia seguinte, início da cobertura às 10h e procedimento executado às 9h: 23 horas, derivada falsa → regulação",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": false
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "motivoTab38": "",
+        "idRegra": "OMNI-GERAL-CAR-0003",
+        "fila": "regulacao",
+        "classeAdverso": "",
+        "sinalAuditoria": ""
+      }
+    }
+  ]
+}

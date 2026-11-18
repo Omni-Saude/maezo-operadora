@@ -14,9 +14,10 @@ Fechado por construcao:
 * classe de variavel de saude (CPT, DS/DPP, CID, condicao, recusa por saude, utilizacao assistencial) ->
   recusa (`VARIABLE_CLASS_HEALTH`), mesmo que alguem a escreva no vocabulario;
 * corpo de template com termo de saude -> recusa (`BODY_HEALTH_CONTENT`);
-* classe de variavel declarada SEM validador de valor em `VALIDADORES_DE_CLASSE` -> recusa do registro
-  inteiro (`VARIABLE_CLASS_NOT_CLOSED`): nao existe classe de texto livre. A garantia de "zero dado de saude
-  em mensagem proativa" vem daqui (classe fechada + validador de VALOR, aplicado pelo gate); o detector
+* classe de variavel declarada SEM validador de valor em `VALIDADORES_DE_CLASSE` e fora de
+  `CLASSES_RESOLVIDAS_PELA_FONTE` -> recusa do registro inteiro (`VARIABLE_CLASS_NOT_CLOSED`): nao existe
+  classe de texto livre. A garantia de "zero dado de saude em mensagem proativa" vem daqui (classe fechada +
+  validador de VALOR ou resolucao pela fonte, aplicados pelo gate); o detector
   `contem_dado_de_saude` fica como defesa em profundidade, nao como garantia;
 * `meta_status: approved` exige `meta_template_ref`, `content_review_ref`, corpo e `publicity` definidos;
 * `ratified: true` exige `ratification_ref`.
@@ -192,7 +193,6 @@ _RE_LINK: Final[re.Pattern[str]] = re.compile(
 )
 _RE_CENTAVOS: Final[re.Pattern[str]] = re.compile(r"R\$ (?:0|[1-9][0-9]{0,2}(?:\.[0-9]{3})*),[0-9]{2}")
 _RE_PROTOCOLO: Final[re.Pattern[str]] = re.compile(r"[0-9]{4,20}(?:-[0-9]{1,10}){0,3}")
-_RE_PRIMEIRO_NOME: Final[re.Pattern[str]] = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]{2,30}")
 
 
 def _simples(valor: object, tamanho_max: int) -> bool:
@@ -242,10 +242,6 @@ def _v_protocolo(valor: str) -> bool:
     return _simples(valor, 64) and _RE_PROTOCOLO.fullmatch(valor) is not None
 
 
-def _v_primeiro_nome(valor: str) -> bool:
-    return _simples(valor, 30) and _RE_PRIMEIRO_NOME.fullmatch(valor) is not None
-
-
 def validador_produto_catalogo(nomes: Collection[str] = frozenset()) -> Callable[[str], bool]:
     """Validador da classe `produto_catalogo`: so' vale nome que PERTENCE ao conjunto injetado.
 
@@ -261,10 +257,21 @@ def validador_produto_catalogo(nomes: Collection[str] = frozenset()) -> Callable
     return _valido
 
 
+#: Classes cujo VALOR nao e' validado por formato: so' pode ser RESOLVIDO PELA FONTE (CD-94). `primeiro_nome`:
+#: uma palavra latina nao distingue nome de pessoa de nome de medicamento, entao o valor so' vale se vier da
+#: custodia do destinatario, pela referencia opaca do titular; valor informado pelo chamador e' recusado.
+#: GAP: nao existe fonte de primeiro nome (a custodia guarda so' telefone) -> hoje todo modelo que use uma
+#: classe daqui e' recusado pelo gate. A classe e' DECLARADA (nao e' "sem validador"), mas nunca valida valor.
+CLASSES_RESOLVIDAS_PELA_FONTE: Final[frozenset[str]] = frozenset({"primeiro_nome"})
+
 #: Classes FECHADAS de variavel e o validador de VALOR de cada uma. NAO existe classe de texto livre: classe
-#: declarada sem entrada aqui recusa o registro (`VARIABLE_CLASS_NOT_CLOSED`). As seis primeiras sao as do
+#: declarada sem entrada aqui (nem em `CLASSES_RESOLVIDAS_PELA_FONTE`) recusa o registro
+#: (`VARIABLE_CLASS_NOT_CLOSED`). Os validadores abaixo checam so' FORMATO: as classes de data, valor,
+#: contagem, protocolo e link aceitam so' digitos, separadores, hex ou nome de mes fixo, que nao
+#: codificam palavra livre; a resolucao
+#: pela fonte delas e' linha propria, ainda nao feita. As seis primeiras sao as do
 #: YAML publicado (formatos EXATOS do produtor de lembretes, `platform/lembretes/texto.py`; paridade fixada em
-#: `tests/unit/gateway/test_cd87_classes_fechadas.py`); as cinco ultimas sao da decisao CD-87.
+#: `tests/unit/gateway/test_cd87_classes_fechadas.py`); as quatro ultimas sao da decisao CD-87.
 VALIDADORES_DE_CLASSE: Final[Mapping[str, Callable[[str], bool]]] = MappingProxyType(
     {
         "competencia_mes_ano": _v_competencia,  # `outubro de 2026` (modo de teste: prefixo `[TESTE] `)
@@ -278,7 +285,6 @@ VALIDADORES_DE_CLASSE: Final[Mapping[str, Callable[[str], bool]]] = MappingProxy
         "valor_centavos_formatado": _v_centavos,  # `R$ 1.234,56`
         "protocolo_ref": _v_protocolo,  # numerico com hifen, ex.: `2026-10-0001`
         "produto_catalogo": validador_produto_catalogo(),  # GAP: catalogo nao publicado -> recusa tudo
-        "primeiro_nome": _v_primeiro_nome,  # uma palavra, so' letras latinas, 2-30
     }
 )
 
@@ -288,7 +294,10 @@ def valor_valido_para_classe(
     valor: object,
     validadores: Mapping[str, Callable[[str], bool]] = VALIDADORES_DE_CLASSE,
 ) -> bool:
-    """`True` so' se a classe tem validador e o VALOR passa nele. Classe sem validador nunca valida."""
+    """`True` so' se a classe tem validador e o VALOR passa nele. Classe sem validador nunca valida; classe
+    resolvida pela fonte (`primeiro_nome`) tambem nunca valida valor informado."""
+    if classe in CLASSES_RESOLVIDAS_PELA_FONTE:
+        return False  # o valor nao se valida por formato: so' a fonte o fornece
     validador = validadores.get(classe)
     return type(valor) is str and validador is not None and validador(valor)
 
@@ -424,7 +433,7 @@ def _validar_classes(bruto: object, problemas: list[str]) -> dict[str, ClasseDeV
         if cid in CLASSES_DE_SAUDE or contem_dado_de_saude(cid.replace("_", " ")):
             problemas.append(f"VARIABLE_CLASS_HEALTH:variable_classes[{i}]")
             continue
-        if cid not in VALIDADORES_DE_CLASSE:
+        if cid not in VALIDADORES_DE_CLASSE and cid not in CLASSES_RESOLVIDAS_PELA_FONTE:
             problemas.append(f"VARIABLE_CLASS_NOT_CLOSED:variable_classes[{i}]")
             continue
         if cid in classes:
@@ -513,7 +522,7 @@ def _validar_variaveis(
         if classe not in classes:
             problemas.append(f"VARIABLE_CLASS_UNKNOWN:{onde}.variables[{j}]")
             continue
-        if classe not in VALIDADORES_DE_CLASSE:
+        if classe not in VALIDADORES_DE_CLASSE and classe not in CLASSES_RESOLVIDAS_PELA_FONTE:
             problemas.append(f"VARIABLE_CLASS_NOT_CLOSED:{onde}.variables[{j}]")
             continue
         variaveis.append(Variavel(pos=v["pos"], classe=classe))
