@@ -21,7 +21,8 @@
       <input id="in_motivoIsencaoCarencia" label="motivoIsencaoCarencia ← derivado pelo worker (caráter TISS, datas e cadastro do beneficiário): isenção que vale no atendimento: nenhuma | portabilidade | dispensa_contratual | coletivo_ingresso_30_dias | recem_nascido_30_dias; nulo = cadastro não informa">
         <inputExpression id="ie_motivoIsencaoCarencia" typeRef="string"><text>motivoIsencaoCarencia</text></inputExpression>
       </input>
-      <input id="in_urgenciaAposVinteQuatroHorasCobertura" label="urgenciaAposVinteQuatroHorasCobertura ← derivado pelo worker: data e hora do atendimento (TISS) menos o início da cobertura do beneficiário (cadastro) maior ou igual a 24 horas; só com a data de início, conta do fim do dia; sem a hora do atendimento, nulo (nulo vai à regulação)">
+      <input id="in_urgenciaAposVinteQuatroHorasCobertura" label="urgenciaAposVinteQuatroHorasCobertura ← derivado pelo worker de TISS (atendimento) e cadastro (início da cobertura): 24 horas ou mais; nulo vai à regulação">
+        <description>urgenciaAposVinteQuatroHorasCobertura ← derivado pelo worker: data e hora do atendimento (TISS) menos o início da cobertura do beneficiário (cadastro) maior ou igual a 24 horas; só com a data de início, conta do fim do dia; sem a hora do atendimento, nulo (nulo vai à regulação)</description>
         <inputExpression id="ie_urgenciaAposVinteQuatroHorasCobertura" typeRef="boolean"><text>urgenciaAposVinteQuatroHorasCobertura</text></inputExpression>
       </input>
       <output id="out_decisao" name="decisao" typeRef="string"/>

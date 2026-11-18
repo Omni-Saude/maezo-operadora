@@ -980,7 +980,11 @@
      {
       "fonte": "regras/diarias-taxas/dominio.yaml (classes por termo, familias_codigos e temas tema_*)",
       "nome": "tabelaClassificacao",
-      "origem": "parametro"
+      "origem": "parametro",
+      "referencia": [
+       "regras/diarias-taxas/dominio.yaml#classes",
+       "regras/diarias-taxas/dominio.yaml#familias_codigos"
+      ]
      }
     ]
    },
@@ -1122,7 +1126,8 @@
      {
       "fonte": "TUSS 22, grupo 3 (fontes/derivados/tuss-22-202609.csv, id_fonte ANS-TUSS-22-202609)",
       "nome": "procedimentoCirurgico",
-      "origem": "parametro"
+      "origem": "parametro",
+      "referencia": "fontes/derivados/tuss-22-202609.csv#codigo"
      }
     ]
    },
@@ -1225,15 +1230,18 @@
      {
       "fonte": "fontes/derivados/rol-correlacao-tuss.csv (PAC no Rol)",
       "nome": "classificacaoPacRol",
-      "origem": "parametro"
+      "origem": "parametro",
+      "referencia": "fontes/derivados/rol-correlacao-tuss.csv#PAC"
      },
      {
       "fonte": "TUSS 22, grupo 3 (fontes/derivados/tuss-22-202609.csv)",
       "nome": "procedimentoCirurgico",
-      "origem": "parametro"
+      "origem": "parametro",
+      "referencia": "fontes/derivados/tuss-22-202609.csv#codigo"
      },
      {
       "fonte": "TUSS 18 (fontes/derivados/tuss-18-202609.csv): quais códigos são de alta tecnologia não está registrado (LACUNA L-prog-rco-04)",
+      "lacuna": "L-prog-rco-04",
       "nome": "diariaLeitoAltaTecnologia",
       "origem": "parametro"
      }
@@ -1388,7 +1396,9 @@
      {
       "fonte": "30 dias da alta anterior (critério de condicoes.outras das regras de pacote, ex.: regras/cirurgia-bariatrica/OMNI-BARIAT-PAC-0002.yaml)",
       "nome": "janelaDias",
-      "origem": "parametro"
+      "origem": "parametro",
+      "unidade": "dias",
+      "valor": 30
      }
     ]
    },
@@ -1477,6 +1487,39 @@
    "fallback_nulo": "nunca_negar",
    "formula": {
     "formula": "dias = dataReferenciaAtendimento - dataInicioCobertura (dias corridos); verdadeiro se dias >= 2; falso se dias <= 0; se dias = 1, verdadeiro se (dataReferenciaAtendimento + horaReferenciaAtendimento) - (dataInicioCobertura + horaInicioCobertura) >= horasMinimasUrgencia, falso se menor, nulo se faltar uma das duas horas; nulo se faltar dataInicioCobertura ou dataReferenciaAtendimento",
+    "referencia_por_tipo_guia": [
+     {
+      "data": "tissGuiasV4_03_00.xsd#ctm_sp-sadtSolicitacaoGuia/dataSolicitacao",
+      "guia": "solicitação de SP/SADT",
+      "hora": null
+     },
+     {
+      "data": "tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/dataSolicitacao",
+      "guia": "solicitação de internação",
+      "hora": null
+     },
+     {
+      "data": "tissGuiasV4_03_00.xsd#ctm_consultaAtendimento/dataAtendimento",
+      "guia": "consulta",
+      "hora": null
+     },
+     {
+      "data": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao",
+      "guia": "SP/SADT (conta)",
+      "hora": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/horaInicial"
+     },
+     {
+      "data": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/dataExecucao",
+      "guia": "resumo de internação (conta)",
+      "hora": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/horaInicial"
+     },
+     {
+      "data": null,
+      "guia": "honorários, odontologia, prorrogação de internação e anexos",
+      "hora": null,
+      "lacuna": "o XSD tem datas nessas guias (dataExecucao do honorário individual, dataRealizacao da odontologia, dataSolicitacao da prorrogação), mas nenhuma foi adotada como referência do atendimento de urgência; a derivada é nula e o caso vai à regulação (L-prog-rco-urg-01). A guia de consulta não traz caráter de atendimento (ctm_consultaAtendimento só tem regimeAtendimento), então a sua data de referência só vale se o caráter vier de outra guia do mesmo atendimento."
+     }
+    ],
     "termos": [
      {
       "fonte": "cadastro do beneficiário no lago (K3), data de início da cobertura do plano",
@@ -1501,7 +1544,9 @@
      {
       "fonte": "regras/regras-gerais/OMNI-GERAL-CAR-0003.yaml, efeito.prazos (24 horas contadas do início da cobertura, LEI-9656-1998 art. 12, V, c)",
       "nome": "horasMinimasUrgencia",
-      "origem": "parametro"
+      "origem": "parametro",
+      "unidade": "horas",
+      "valor": 24
      }
     ]
    },
@@ -1548,6 +1593,6 @@
    "valores_maezo": null
   }
  ],
- "sha256_conteudo": "sha256:48af5210b4827e7f5b8b36f9fa3898ab016dfe5629921cd81fbbb2bb3ffd4b2e",
- "versao": "1.4.0"
+ "sha256_conteudo": "sha256:0e268f72dab9d07c3bb0f09b4ed9f5e91cb8cbfd5119be0d5b9ed467eb802161",
+ "versao": "1.5.0"
 }

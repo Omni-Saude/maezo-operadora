@@ -61,16 +61,17 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    (`termo_data_invalida`), porque o dia de um instante depende do fuso, que o rco nao publica. Nenhuma
    data tem padrao: em particular, nunca a data de hoje que `contas._normalize_data_recebimento_lote`
    usa quando o lote nao traz o recebimento.
-11. `urgenciaAposVinteQuatroHorasCobertura` (dicionario 1.4.0, K1 2.3.0, DL-0183; rco d9b8adfa,
-   `docs/dicionario/regras-gerais.yaml`): calculada EXATAMENTE pela formula publicada. Decide primeiro
-   pelas DATAS (dias corridos entre a data de referencia do atendimento e o inicio da cobertura): 2 ou
-   mais -> verdadeiro; 0 ou menos -> falso; 1 -> pelas horas so com as DUAS horas (cadastro e guia) e o
-   parametro `horasMinimasUrgencia`, senao nulo. Nenhuma hora e inferida. A data (e a hora) de referencia
-   vem do TIPO DA GUIA (`FatosDoCaso.tipo_guia`, nunca deduzido): `dataSolicitacao` nas solicitacoes de
-   SP/SADT e de internacao, `dataAtendimento` na consulta, `dataExecucao` (+ `horaInicial`) do procedimento
-   executado na conta de SP/SADT e no resumo de internacao; outro tipo ou nenhum = nulo. O parametro
-   `horasMinimasUrgencia` (origem `parametro`) NAO vem no pacote K1: so de `FatosDoCaso.parametros`, sem
-   padrao no codigo; sem ele o caso de 1 dia fica nulo (nulo vai a regulacao, nunca nega).
+11. `urgenciaAposVinteQuatroHorasCobertura` (dicionario 1.4.0, K1 2.3.0, DL-0183; leitura do pacote no
+   dicionario 1.5.0, rco aed187d4): calculada EXATAMENTE pela formula publicada. Decide primeiro pelas
+   DATAS (dias corridos entre a data de referencia do atendimento e o inicio da cobertura): 2 ou mais ->
+   verdadeiro; 0 ou menos -> falso; 1 -> pelas horas so com as DUAS horas (cadastro e guia) e o parametro
+   `horasMinimasUrgencia`, senao nulo. Nenhuma hora e inferida. A data (e a hora) de referencia vem do
+   TIPO DA GUIA (`FatosDoCaso.tipo_guia`, nunca deduzido) pela `formula.referencia_por_tipo_guia` DO PACOTE
+   (`TIPOS_GUIA` liga o tipo do Maezo ao `guia` publicado; `ELEMENTOS_TISS`, o elemento do XSD publicado a
+   chave de `FatosDoCaso.tiss`); tipo sem item publicado, ou item com data nula (lacuna), = nulo; dicionario
+   sem o bloco (1.4.0) = nulo. O valor de `horasMinimasUrgencia` (origem `parametro`) e o `valor` publicado
+   no termo (1.5.0, com `unidade` conferida), nunca numero do codigo nem configuracao; sem `valor` no pacote
+   (1.4.0, ou `lacuna`) o caso de 1 dia fica nulo (nulo vai a regulacao, nunca nega).
 
 ESCOPO DESTA ENTREGA: framework + os dominios `regras-gerais` (transversal: toda guia passa por
 elegibilidade, carencia e CPT) e `diarias-taxas` (maior volume de autorizacao no agregado real do
@@ -93,7 +94,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
-from maezo.platform.rco_entradas import REGIME_SEM_TERMO, DicionarioEntradasK1, EntradaK1, RegimeFormulaK1
+from maezo.platform.rco_entradas import (
+    REGIME_SEM_TERMO,
+    DicionarioEntradasK1,
+    EntradaK1,
+    FormulaK1,
+    RegimeFormulaK1,
+)
 from maezo.platform.rco_manifesto import DecisaoK1, json_estrito
 from maezo.tools.workers import rco_pin
 
@@ -136,6 +143,7 @@ class MotivoNulo(StrEnum):
     TERMO_HORA_INVALIDA = "termo_hora_invalida"
     TERMO_PARAMETRO_INVALIDO = "termo_parametro_invalido"
     TIPO_GUIA_SEM_REFERENCIA = "tipo_guia_sem_data_de_referencia"
+    REFERENCIA_GUIA_NAO_PUBLICADA = "referencia_por_tipo_guia_nao_publicada"
     REGIME_DA_GUIA_AUSENTE = "regime_da_guia_ausente"
     FORMULA_PENDENTE = "formula_publicada_nao_implementada"
     PRAZO_CONTRATUAL_NEGATIVO = "prazo_contratual_negativo"
@@ -191,14 +199,10 @@ class FatosDoCaso:
     #: Termos de formula que nenhum worker do Maezo produz no caminho que chama (nome do termo no
     #: dicionario): entram nulos com `termo_sem_produtor_no_maezo`, mesmo que algum mapa traga a chave.
     termos_sem_produtor: frozenset[str] = frozenset()
-    #: Tipo da guia TISS de onde vem a data de referencia do atendimento
-    #: (`TIPOS_GUIA_REFERENCIA_PROVISORIO`, transcricao provisoria), para a
-    #: formula de `urgenciaAposVinteQuatroHorasCobertura`. Qualquer outro valor ou None = nulo; nunca
-    #: deduzido.
+    #: Tipo da guia TISS de onde vem a data de referencia do atendimento (chave de `TIPOS_GUIA`), para a
+    #: formula de `urgenciaAposVinteQuatroHorasCobertura`: o elemento vem do pacote
+    #: (`formula.referencia_por_tipo_guia`). Qualquer outro valor ou None = nulo; nunca deduzido.
     tipo_guia: str | None = None
-    #: Termos de formula de origem `parametro` (chaves de `CAMPOS_TERMO_PARAMETRO`), entregues por quem chama
-    #: a partir de configuracao versionada. Sem padrao no codigo: ausente = termo nulo.
-    parametros: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,6 +299,13 @@ class _FormulaImplementada:
     #: `formula.regimes` (dicionario 1.4.0) que esta implementacao segue: regime -> termo de data. Regimes
     #: publicados diferentes destes (ou publicados para formula sem este campo) fazem o montador recusar.
     regimes: Mapping[str, str] | None = None
+    #: Termos `parametro` cujo valor vem do pacote (dicionario 1.5.0): termo -> `unidade` que o calculo usa.
+    #: Publicado com outra unidade, por `referencia` ou `valor_por_contrato`: o montador recusa; `lacuna` ou
+    #: dicionario sem o valor: o termo entra nulo.
+    parametros: Mapping[str, str] | None = None
+    #: A formula le `formula.referencia_por_tipo_guia` (1.5.0). Bloco publicado para formula sem este campo,
+    #: ou com tipo de guia ou elemento do XSD que o montador nao conhece, faz o montador recusar.
+    referencia_por_tipo_guia: bool = False
 
 
 # --- tolerancia do prazo de apresentacao da conta (MZO-TOL, decisao do dono PROG-COORD-22) ----------
@@ -523,40 +534,43 @@ def _dias_ate_recurso(termos: Mapping[str, object]) -> tuple[int | None, MotivoN
     return _dias_entre(termos, "dataDemonstrativoAnalise", "dataRecebimentoLoteRecurso")
 
 
-#: PROVISORIO (DL-0183, decisao da coordenacao): TRANSCRICAO a mao de `derivacao.referencia_por_tipo_guia`
-#: de `urgenciaAposVinteQuatroHorasCobertura` em `docs/dicionario/regras-gerais.yaml` do rco no commit
-#: d9b8adfafc0d7cf92db32cf255f61cfc8ae45fa7, porque o pacote K1 (dicionario 1.4.0) NAO publica esse bloco
-#: em `entradas.json` (so o texto da `fonte` do termo). Sera SUBSTITUIDA pela leitura do pacote no
-#: dicionario 1.5.0: enquanto isso, formula da urgencia com bloco estruturado (`regimes` ou outro) no
-#: pacote faz o montador recusar (`conferir_mapeamento`) e o leitor recusa campo desconhecido; o teste
-#: `test_urgencia_sem_bloco_estruturado_no_pacote` falha quando o pacote o trouxer, forcando a troca.
-#: Tipos de guia (`FatosDoCaso.tipo_guia`) -> (chave da data, chave da hora ou None) em `FatosDoCaso.tiss`.
-#: As solicitacoes e a consulta nao tem hora no XSD; honorarios, odontologia, prorrogacao e anexos ficam
-#: fora (lacuna L-prog-rco-urg-01 do rco): nulo.
+#: Tipos de guia do Maezo (`FatosDoCaso.tipo_guia`) -> o `guia` de `formula.referencia_por_tipo_guia`
+#: publicado no pacote (dicionario 1.5.0, rco aed187d4). O ELEMENTO da data e o da hora vem do pacote;
+#: aqui fica so o nome de cada tipo de guia. Item publicado com data (nao lacuna) sem tipo aqui, ou `guia`
+#: daqui que o pacote renomeie, fazem o montador recusar (`conferir_mapeamento`).
 TIPO_GUIA_SOLICITACAO_SP_SADT: Final[str] = "solicitacao_sp_sadt"
 TIPO_GUIA_SOLICITACAO_INTERNACAO: Final[str] = "solicitacao_internacao"
 TIPO_GUIA_CONSULTA: Final[str] = "consulta"
 TIPO_GUIA_CONTA_SP_SADT: Final[str] = "conta_sp_sadt"
 TIPO_GUIA_RESUMO_INTERNACAO: Final[str] = "resumo_internacao"
-TIPOS_GUIA_REFERENCIA_PROVISORIO: Final[Mapping[str, tuple[str, str | None]]] = MappingProxyType(
+TIPOS_GUIA: Final[Mapping[str, str]] = MappingProxyType(
     {
-        # tissGuiasV4_03_00.xsd#ctm_sp-sadtSolicitacaoGuia/dataSolicitacao
-        TIPO_GUIA_SOLICITACAO_SP_SADT: ("data_solicitacao", None),
-        # tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/dataSolicitacao
-        TIPO_GUIA_SOLICITACAO_INTERNACAO: ("data_solicitacao", None),
-        # tissGuiasV4_03_00.xsd#ctm_consultaAtendimento/dataAtendimento
-        TIPO_GUIA_CONSULTA: ("data_atendimento", None),
-        # tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao e /horaInicial
-        TIPO_GUIA_CONTA_SP_SADT: ("data_execucao", "hora_inicial"),
-        # tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/dataExecucao e /horaInicial
-        TIPO_GUIA_RESUMO_INTERNACAO: ("data_execucao", "hora_inicial"),
+        TIPO_GUIA_SOLICITACAO_SP_SADT: "solicitação de SP/SADT",
+        TIPO_GUIA_SOLICITACAO_INTERNACAO: "solicitação de internação",
+        TIPO_GUIA_CONSULTA: "consulta",
+        TIPO_GUIA_CONTA_SP_SADT: "SP/SADT (conta)",
+        TIPO_GUIA_RESUMO_INTERNACAO: "resumo de internação (conta)",
     }
 )
-#: Termos `tiss` cujo elemento depende do tipo da guia: termo -> posicao em
-#: `TIPOS_GUIA_REFERENCIA_PROVISORIO`.
+#: Elemento do XSD TISS publicado (`data`/`hora` de `referencia_por_tipo_guia`) -> chave em `FatosDoCaso.tiss`
+#: em que o worker que leu a guia entrega o valor desse elemento.
+ELEMENTOS_TISS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "tissGuiasV4_03_00.xsd#ctm_sp-sadtSolicitacaoGuia/dataSolicitacao": "data_solicitacao",
+        "tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/dataSolicitacao": "data_solicitacao",
+        "tissGuiasV4_03_00.xsd#ctm_consultaAtendimento/dataAtendimento": "data_atendimento",
+        "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/dataExecucao": "data_execucao",
+        "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/horaInicial": "hora_inicial",
+        "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/dataExecucao": "data_execucao",
+        "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/horaInicial": "hora_inicial",
+    }
+)
+#: Termos `tiss` cujo elemento depende do tipo da guia: termo -> posicao em (chave da data, chave da hora).
 TERMOS_POR_TIPO_GUIA: Final[Mapping[str, int]] = MappingProxyType(
     {"dataReferenciaAtendimento": 0, "horaReferenciaAtendimento": 1}
 )
+#: Condicao de formula com a referencia da guia: (chave da data, chave da hora ou None) ou o motivo do nulo.
+CONDICAO_REFERENCIA_GUIA: Final[str] = "referenciaGuia"
 _HORA: Final[re.Pattern[str]] = re.compile(r"([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?")
 
 
@@ -588,9 +602,11 @@ def _urgencia_apos_vinte_quatro_horas(termos: Mapping[str, object]) -> tuple[obj
     `dias = dataReferenciaAtendimento - dataInicioCobertura` (dias corridos); verdadeiro se `dias >= 2`;
     falso se `dias <= 0`; se `dias = 1`, verdadeiro se `(dataRef + horaRef) - (dataIni + horaIni) >=
     horasMinimasUrgencia`, falso se menor, nulo se faltar uma das duas horas; nulo se faltar uma das datas.
-    A data de referencia vem do tipo da guia (`tipoGuia`); sem tipo com referencia, nulo."""
-    if termos.get("tipoGuia") not in TIPOS_GUIA_REFERENCIA_PROVISORIO:
-        return None, MotivoNulo.TIPO_GUIA_SEM_REFERENCIA
+    A data de referencia vem do tipo da guia pela referencia publicada (`referenciaGuia`); sem ela, nulo. O
+    parametro e o `valor` publicado no pacote, em horas (unidade conferida em `conferir_mapeamento`)."""
+    referencia = termos.get(CONDICAO_REFERENCIA_GUIA)
+    if isinstance(referencia, MotivoNulo):
+        return None, referencia
     dias, motivo = _dias_entre(termos, "dataInicioCobertura", "dataReferenciaAtendimento")
     if dias is None:
         return None, motivo or MotivoNulo.TERMO_AUSENTE
@@ -675,7 +691,9 @@ FORMULAS: Final[Mapping[str, _FormulaImplementada]] = MappingProxyType(
             ),
             calcular=_urgencia_apos_vinte_quatro_horas,
             desde=(1, 4, 0),
-            condicoes=("tipoGuia",),
+            condicoes=(CONDICAO_REFERENCIA_GUIA,),
+            parametros=MappingProxyType({"horasMinimasUrgencia": "horas"}),
+            referencia_por_tipo_guia=True,
         ),
     }
 )
@@ -709,10 +727,6 @@ CAMPOS_TERMO_CADASTRO: Final[Mapping[str, str]] = MappingProxyType(
         "horaInicioCobertura": "hora_inicio_cobertura",
     }
 )
-#: Chave, em `FatosDoCaso.parametros`, dos termos de origem `parametro` (configuracao, nunca codigo).
-CAMPOS_TERMO_PARAMETRO: Final[Mapping[str, str]] = MappingProxyType(
-    {"horasMinimasUrgencia": "horas_minimas_urgencia"}
-)
 #: Chave, em `FatosDoCaso.tiss`, dos termos de origem `tiss` (elementos da guia, nao entradas do dicionario).
 CAMPOS_TERMO_TISS: Final[Mapping[str, str]] = MappingProxyType(
     {"dataFinalFaturamento": "data_final_faturamento", "dataExecucao": "data_execucao"}
@@ -731,8 +745,6 @@ def _condicao(nome: str, fatos: FatosDoCaso) -> object:
     """Os fatos que o texto de uma formula nomeia fora dos termos (`_FormulaImplementada.condicoes`)."""
     if nome == "regimeGuia":
         return fatos.regime_guia
-    if nome == "tipoGuia":
-        return fatos.tipo_guia
     raise MontadorEntradasError(f"condicao de formula {nome!r} sem campo em FatosDoCaso")
 
 
@@ -740,22 +752,47 @@ def _termo(nome: str, origem: str, fatos: FatosDoCaso) -> object:
     """O valor bruto de um termo nao derivado, do mapa da SUA origem; sem chave = MontadorEntradasError."""
     if nome in fatos.termos_sem_produtor:
         return SEM_PRODUTOR
-    if origem == "tiss" and nome in TERMOS_POR_TIPO_GUIA:
-        # O elemento da guia depende do tipo da guia (nunca deduzido): sem tipo com referencia, nulo.
-        referencia = TIPOS_GUIA_REFERENCIA_PROVISORIO.get(str(fatos.tipo_guia))
-        chave_tipo = referencia[TERMOS_POR_TIPO_GUIA[nome]] if referencia is not None else None
-        return fatos.tiss.get(chave_tipo) if chave_tipo is not None else None
     fontes: dict[str, tuple[Mapping[str, str], Mapping[str, object]]] = {
         "cadastro": (CAMPOS_TERMO_CADASTRO, fatos.cadastro),
         "tiss": (CAMPOS_TERMO_TISS, fatos.tiss),
         "fora_tiss": (CAMPOS_TERMO_FORA_TISS, fatos.fora_tiss),
-        "parametro": (CAMPOS_TERMO_PARAMETRO, fatos.parametros),
     }
     campos, mapa = fontes.get(origem, ({}, {}))
     chave = campos.get(nome)
     if chave is None:
         raise MontadorEntradasError(f"termo {nome!r} de origem {origem!r} sem chave no montador")
     return mapa.get(chave)
+
+
+def _referencia_da_guia(formula: FormulaK1, tipo_guia: str | None) -> tuple[str, str | None] | MotivoNulo:
+    """(chave da data, chave da hora ou None) em `FatosDoCaso.tiss` para o tipo da guia, pela
+    `referencia_por_tipo_guia` publicada; sem o bloco, sem item do tipo ou com data nula (lacuna): o motivo
+    do nulo."""
+    if not formula.referencia_por_tipo_guia:
+        return MotivoNulo.REFERENCIA_GUIA_NAO_PUBLICADA
+    rotulo = TIPOS_GUIA.get(tipo_guia) if isinstance(tipo_guia, str) else None
+    item = next((r for r in formula.referencia_por_tipo_guia if r.guia == rotulo), None)
+    chave_data = ELEMENTOS_TISS.get(item.data) if item is not None and item.data is not None else None
+    if item is None or chave_data is None:
+        return MotivoNulo.TIPO_GUIA_SEM_REFERENCIA
+    return chave_data, ELEMENTOS_TISS.get(item.hora) if item.hora is not None else None
+
+
+def _termo_da_guia(nome: str, referencia: object, fatos: FatosDoCaso) -> object:
+    """Termo `tiss` cujo elemento depende do tipo da guia (nunca deduzido): sem referencia, nulo."""
+    if nome in fatos.termos_sem_produtor:
+        return SEM_PRODUTOR
+    if not isinstance(referencia, tuple):
+        return None
+    chave = referencia[TERMOS_POR_TIPO_GUIA[nome]]
+    return fatos.tiss.get(chave) if isinstance(chave, str) else None
+
+
+def _parametro(nome: str, formula: FormulaK1, fatos: FatosDoCaso) -> object:
+    """Termo `parametro`: o `valor` publicado no pacote (1.5.0); sem ele (1.4.0 ou `lacuna`), nulo."""
+    if nome in fatos.termos_sem_produtor:
+        return SEM_PRODUTOR
+    return next((t.valor for t in formula.termos if t.nome == nome), None)
 
 
 # --- mapeamento por dominio ------------------------------------------------------------------------
@@ -922,11 +959,51 @@ def conferir_mapeamento(
                 problemas.append(
                     f"{nome}: regimes do dicionario divergem dos implementados; reveja o montador"
                 )
+            else:
+                problemas.extend(_divergencias_do_valor_publicado(nome, publicada, impl))
         elif mapeamento.fonte is Fonte.FORMULA_PENDENTE:
             if nome not in FORMULAS_PENDENTES or nome in FORMULAS:
                 problemas.append(f"{nome}: formula pendente tem de estar so em FORMULAS_PENDENTES")
         elif mapeamento.fonte is Fonte.NULO_POR_DESENHO and entrada.formula is not None:
             problemas.append(f"{nome}: o dicionario publicou formula; implemente-a em vez de mandar nulo")
+    return problemas
+
+
+def _divergencias_do_valor_publicado(
+    nome: str, publicada: FormulaK1, impl: _FormulaImplementada
+) -> list[str]:
+    """Valor de `parametro` e referencia por tipo de guia publicados (1.5.0) x o que a implementacao le."""
+    problemas: list[str] = []
+    esperadas = impl.parametros or {}
+    for termo in publicada.termos:
+        if termo.origem != "parametro":
+            continue
+        if termo.referencia or termo.valor_por_contrato is not None:
+            problemas.append(f"{nome}: parametro {termo.nome} publicado sem `valor`; reveja o montador")
+        elif termo.valor is not None and (
+            termo.nome not in esperadas or termo.unidade != esperadas[termo.nome]
+        ):
+            problemas.append(
+                f"{nome}: parametro {termo.nome} publicado em {termo.unidade!r}, o montador le "
+                f"{esperadas.get(termo.nome)!r}; reveja o montador"
+            )
+    referencias = publicada.referencia_por_tipo_guia
+    if referencias and not impl.referencia_por_tipo_guia:
+        problemas.append(
+            f"{nome}: referencia_por_tipo_guia publicada para formula que nao a le; reveja o montador"
+        )
+    conhecidas = set(TIPOS_GUIA.values())
+    for r in referencias if impl.referencia_por_tipo_guia else ():
+        elementos = [e for e in (r.data, r.hora) if e is not None]
+        if r.data is not None and (r.guia not in conhecidas or not set(elementos) <= set(ELEMENTOS_TISS)):
+            problemas.append(
+                f"{nome}: referencia da guia {r.guia!r} sem correspondencia no montador; reveja-o"
+            )
+    publicadas = {r.guia for r in referencias if r.data is not None}
+    if referencias and impl.referencia_por_tipo_guia and not conhecidas <= publicadas:
+        problemas.append(
+            f"{nome}: tipos de guia do montador sem referencia publicada ({sorted(conhecidas - publicadas)})"
+        )
     return problemas
 
 
@@ -990,15 +1067,27 @@ def _montar_uma(
         return None, MotivoNulo.FORMULA_PENDENTE
     if fonte is Fonte.FORMULA:
         impl = FORMULAS[nome]
+        publicada = entrada.formula
+        if publicada is None:  # `_fonte_efetiva` ja mandou nulo; defesa para o tipo
+            return None, MotivoNulo.DERIVADA_SEM_FORMULA
+        referencia: object = None
+        if CONDICAO_REFERENCIA_GUIA in impl.condicoes:
+            referencia = _referencia_da_guia(publicada, fatos.tipo_guia)
         termos: dict[str, object] = {}
         for termo, origem in impl.termos:
             if origem == "derivado":
                 montavel = termo in mapa and termo in dicionario.entradas
                 termos[termo] = _montar_uma(termo, dicionario, mapa, fatos, data)[0] if montavel else None
+            elif origem == "parametro":
+                termos[termo] = _parametro(termo, publicada, fatos)
+            elif origem == "tiss" and termo in TERMOS_POR_TIPO_GUIA:
+                termos[termo] = _termo_da_guia(termo, referencia, fatos)
             else:
                 termos[termo] = _termo(termo, origem, fatos)
         for condicao in impl.condicoes:
-            termos[condicao] = _condicao(condicao, fatos)
+            termos[condicao] = (
+                referencia if condicao == CONDICAO_REFERENCIA_GUIA else _condicao(condicao, fatos)
+            )
         calculado, motivo = impl.calcular(termos)
         valor, motivo = (None, motivo) if motivo is not None else _validar(entrada, calculado)
         if impl.ajuste is None:

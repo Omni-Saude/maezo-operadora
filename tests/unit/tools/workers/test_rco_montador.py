@@ -73,7 +73,7 @@ def _k3(**extra: Any) -> mt.FatosK3V116:
 def test_mapeamento_cobre_exatamente_as_entradas_dos_dominios(
     dic: DicionarioEntradasK1, decisoes: dict[str, Any]
 ) -> None:
-    # O mapeamento cobre o pacote MAIS NOVO suportado (K1 2.3.0, dicionario 1.4.0; DL-0183): nem entrada
+    # O mapeamento cobre o pacote MAIS NOVO suportado (K1 2.3.0, dicionario 1.5.0; DL-0183): nem entrada
     # sem fonte, nem mapeamento morto. As decisoes do recorte 1.1.0 continuam cobertas (sem entrada a menos).
     novas = rco_k1_2_3_recorte.manifesto().decisoes.values()
     for dominio, mapa in mt.MAPEAMENTOS.items():

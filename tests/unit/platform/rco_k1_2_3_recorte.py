@@ -1,10 +1,10 @@
-"""Carga do recorte REAL do K1 2.3.0 do rco (`tests/fixtures/rco/k1-2.3.0-recorte/`, d9b8adfa; DL-0183).
+"""Carga do recorte REAL do K1 2.3.0 do rco (`tests/fixtures/rco/k1-2.3.0-recorte/`, aed187d4; DL-0183).
 
 O recorte (procedencia em `ORIGEM.json` e no `README.md` da pasta) traz o manifesto inteiro, sem alteracao,
 `vocabulario.json`, `k6-filas.json`, as duas decisoes da composicao `composicao_carencia_cpt` (regra
 `mais_restritiva`), os casos-teste do rco por decisao e os casos do GRUPO
 (`validacao/composicao/regras-gerais/composicao_carencia_cpt.json`), e o recorte do dicionario de entradas
-1.4.0. Aqui fica so a carga; os testes unitarios e o de integracao (motor real) usam o mesmo codigo.
+1.5.0. Aqui fica so a carga; os testes unitarios e o de integracao (motor real) usam o mesmo codigo.
 
 O `esperado` de um caso do grupo traz `decisao`, `decisao_de` (a decisao vencedora, sem o prefixo do pacote),
 `idRegra`, `motivoTab38` e `fila` quando o rco os declara, e `sinais` (a uniao dos `sinalAuditoria` nao
@@ -26,7 +26,7 @@ from tests.unit.platform.rco_k1_2_2_recorte import iguais
 
 RECORTE = Path(__file__).resolve().parents[2] / "fixtures" / "rco" / "k1-2.3.0-recorte"
 ORIGEM = RECORTE / "ORIGEM.json"
-COMMIT_RCO = "d9b8adfafc0d7cf92db32cf255f61cfc8ae45fa7"
+COMMIT_RCO = "aed187d4bada72e365381b48c6e96921d34c8815"
 COMPOSICAO = "composicao_carencia_cpt"
 #: A ordem documentada (contrato-k1.md §3), com o prefixo do pacote.
 ORDEM = ("rco_geral_carencia", "rco_geral_cpt")

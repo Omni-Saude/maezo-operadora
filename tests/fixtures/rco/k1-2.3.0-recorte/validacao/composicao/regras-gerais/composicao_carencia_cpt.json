@@ -201,6 +201,33 @@
         "fila": "regulacao",
         "sinais": []
       }
+    },
+    {
+      "id": "C009",
+      "tipo": "nulo",
+      "descricao": "Urgência com 24 horas cumpridas e a situação de CPT não informada (cptVigente nula): a carência libera com aviso e a CPT manda ao cadastro (p_cpt_nulo); vale a revisão humana no cadastro, com o aviso junto",
+      "entradas": {
+        "dataAtendimento": "2026-11-03",
+        "caraterAtendimento": "2",
+        "grupoCarencia": "demais",
+        "carenciaContratualDias": 180,
+        "saldoCarenciaDias": 150,
+        "motivoIsencaoCarencia": "nenhuma",
+        "urgenciaAposVinteQuatroHorasCobertura": true,
+        "cptVigente": null,
+        "procedimentoAlcancadoCpt": true,
+        "cidNaDlpDeclarada": true,
+        "cidIgualDlpDeclarada": true
+      },
+      "esperado": {
+        "decisao": "revisao_humana",
+        "decisao_de": "geral_cpt",
+        "idRegra": "OMNI-GERAL-CAR-0004",
+        "fila": "cadastro",
+        "sinais": [
+          "aviso_urgencia_carencia"
+        ]
+      }
     }
   ]
 }

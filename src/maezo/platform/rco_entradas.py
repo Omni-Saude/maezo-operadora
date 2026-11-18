@@ -20,7 +20,10 @@ FAIL-CLOSED (como o leitor do manifesto):
   DL-0183) tem os campos da 1.2.0, acrescenta entradas (entre elas a derivada
   `urgenciaAposVinteQuatroHorasCobertura`) e o campo OPCIONAL `formula.regimes` (`derivacao.regimes` do rco:
   regime -> tipos de guia TISS e o termo de data; `sem_regime` sem termo e com `lacuna`); a 1.3.0 nao foi
-  lida por nenhum pacote pinado aqui;
+  lida por nenhum pacote pinado aqui. A 1.5.0 (rco aed187d4, PR #174) tem os campos da 1.4.0 e publica o
+  valor estruturado de todo termo `parametro` (exatamente um de `valor` com `unidade`, `referencia`,
+  `valor_por_contrato` ou `lacuna`; `scripts/k1_entradas.py::erros_parametro`) e o campo OPCIONAL
+  `formula.referencia_por_tipo_guia` (`{guia, data, hora[, lacuna]}`; `erros_referencia_guia`);
 - `origem` no conjunto fechado; termo de formula tambem aceita `parametro` (contrato §5);
 - `fallback_nulo` tem de ser `nunca_negar` em TODA entrada: o montador manda nulo quando falta o dado
   e so pode fazer isso porque o fornecedor garante que nulo nunca nega. Outra politica = recusa;
@@ -35,6 +38,7 @@ Este modulo NAO decide regra de negocio: so le e confere forma. So biblioteca pa
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -45,7 +49,7 @@ from typing import Any, Final
 from maezo.platform.rco_manifesto import ManifestoK1, ManifestoK1InvalidoError, anexo_pinado, json_estrito
 
 #: Versoes do dicionario de entradas que o montador conhece (k1-entradas-origem.yaml `versao`).
-VERSOES_SUPORTADAS: Final[frozenset[str]] = frozenset({"1.1.0", "1.2.0", "1.4.0"})
+VERSOES_SUPORTADAS: Final[frozenset[str]] = frozenset({"1.1.0", "1.2.0", "1.4.0", "1.5.0"})
 ORIGENS: Final[frozenset[str]] = frozenset({"tiss", "cadastro", "fora_tiss", "derivado"})
 ORIGENS_TERMO: Final[frozenset[str]] = ORIGENS | {"parametro"}
 TIPOS: Final[frozenset[str]] = frozenset({"string", "integer", "boolean", "double"})
@@ -70,18 +74,29 @@ CAMPOS_ENTRADA: Final[frozenset[str]] = frozenset(
     }
 )
 #: Campos exatos de cada entrada por versao do dicionario: a 1.2.0 acrescenta `valores_maezo`; a 1.4.0
-#: mantem os da 1.2.0 (`scripts/k1_entradas.py::linhas` no rco d9b8adfa).
+#: e a 1.5.0 mantem os da 1.2.0 (`scripts/k1_entradas.py::linhas` no rco d9b8adfa e aed187d4).
 CAMPOS_ENTRADA_POR_VERSAO: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
     {
         "1.1.0": CAMPOS_ENTRADA,
         "1.2.0": CAMPOS_ENTRADA | {"valores_maezo"},
         "1.4.0": CAMPOS_ENTRADA | {"valores_maezo"},
+        "1.5.0": CAMPOS_ENTRADA | {"valores_maezo"},
     }
 )
 CAMPOS_FORMULA: Final[frozenset[str]] = frozenset({"formula", "termos"})
 #: Campo opcional de `formula` a partir da 1.4.0 (`scripts/k1_entradas.py::formula_de` no rco d9b8adfa).
 CAMPO_FORMULA_REGIMES: Final[str] = "regimes"
-VERSOES_COM_REGIMES: Final[frozenset[str]] = frozenset({"1.4.0"})
+VERSOES_COM_REGIMES: Final[frozenset[str]] = frozenset({"1.4.0", "1.5.0"})
+#: A partir da 1.5.0 (rco aed187d4): valor estruturado do termo `parametro` e a referencia por tipo de guia.
+VERSOES_COM_VALOR_DE_PARAMETRO: Final[frozenset[str]] = frozenset({"1.5.0"})
+CAMPO_FORMULA_REFERENCIA_GUIA: Final[str] = "referencia_por_tipo_guia"
+CAMPOS_REFERENCIA_GUIA: Final[frozenset[str]] = frozenset({"guia", "data", "hora"})
+#: Exatamente um destes num termo `parametro` (1.5.0; `scripts/k1_entradas.py::CAMPOS_PARAMETRO`).
+CAMPOS_VALOR_PARAMETRO: Final[frozenset[str]] = frozenset(
+    {"valor", "referencia", "valor_por_contrato", "lacuna"}
+)
+#: `unidade` (so com `valor`; `scripts/k1_entradas.py::UNIDADES_PARAMETRO`).
+UNIDADES_PARAMETRO: Final[frozenset[str]] = frozenset({"dias", "dias_uteis", "horas", "meses", "unidades"})
 CAMPOS_REGIME: Final[frozenset[str]] = frozenset({"regime", "tipos_guia", "termo_data", "fonte"})
 #: Regime sem termo de data: exige `lacuna` (o consumidor devolve nulo, nunca chuta a data).
 REGIME_SEM_TERMO: Final[str] = "sem_regime"
@@ -98,6 +113,8 @@ _FAIXA: Final[re.Pattern[str]] = re.compile(
     r"^faixa (-?[0-9]+(?:\.[0-9]+)?|None)\.\.(-?[0-9]+(?:\.[0-9]+)?|None)$"
 )
 _LISTA: Final[re.Pattern[str]] = re.compile(r"^\{(.*)\}$", re.DOTALL)
+#: `arquivo#chave` (referencia de parametro) e `arquivo.xsd#elemento` (referencia por tipo de guia).
+_REFERENCIA: Final[re.Pattern[str]] = re.compile(r"^[^#\s]+#\S.*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +139,24 @@ class TermoFormulaK1:
     nome: str
     origem: str
     fonte: str
+    #: Valor estruturado do termo `parametro` (dicionario 1.5.0): no maximo um preenchido (nenhum antes da
+    #: 1.5.0). `valor` vem com `unidade`; `referencia` e a lista `arquivo#chave` (texto unico: tupla de um).
+    valor: int | float | None = None
+    unidade: str | None = None
+    referencia: tuple[str, ...] = ()
+    valor_por_contrato: str | None = None
+    lacuna: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenciaGuiaK1:
+    """Um item de `formula.referencia_por_tipo_guia` (dicionario 1.5.0): o tipo de guia (texto do rco), o
+    elemento do XSD da data e o da hora (`None` = a guia nao tem), e `lacuna` (obrigatoria com data nula)."""
+
+    guia: str
+    data: str | None
+    hora: str | None
+    lacuna: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +179,8 @@ class FormulaK1:
     termos: tuple[TermoFormulaK1, ...]
     #: `formula.regimes` (dicionario 1.4.0, opcional): vazio quando a entrada nao o declara.
     regimes: tuple[RegimeFormulaK1, ...] = ()
+    #: `formula.referencia_por_tipo_guia` (dicionario 1.5.0, opcional): vazio quando a entrada nao o declara.
+    referencia_por_tipo_guia: tuple[ReferenciaGuiaK1, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,11 +307,93 @@ def _ler_regimes(
     return tuple(lidos)
 
 
+def _ler_valor_parametro(
+    termo: Mapping[str, Any], rotulo: str, problemas: list[str]
+) -> dict[str, Any] | None:
+    """Os campos de valor de um termo `parametro` (1.5.0), como `scripts/k1_entradas.py::erros_parametro`:
+    exatamente um de `CAMPOS_VALOR_PARAMETRO`; `valor` numero (nao booleano, finito) com `unidade` do
+    vocabulario; `referencia` texto `arquivo#chave` ou lista nao vazia deles; `valor_por_contrato` e `lacuna`
+    texto nao vazio. `unidade` so com `valor`."""
+    presentes = sorted(CAMPOS_VALOR_PARAMETRO & set(termo))
+    if len(presentes) != 1:
+        problemas.append(
+            f"{rotulo}: termo parametro com {presentes} (exatamente um de {sorted(CAMPOS_VALOR_PARAMETRO)})"
+        )
+        return None
+    (campo,) = presentes
+    if ("unidade" in termo) != (campo == "valor"):
+        problemas.append(f"{rotulo}: `unidade` so (e sempre) com `valor`")
+        return None
+    bruto = termo[campo]
+    if campo == "valor":
+        if (
+            isinstance(bruto, bool)
+            or not isinstance(bruto, int | float)
+            or not math.isfinite(bruto)
+            or termo["unidade"] not in UNIDADES_PARAMETRO
+        ):
+            problemas.append(
+                f"{rotulo}: `valor` tem de ser numero com `unidade` em {sorted(UNIDADES_PARAMETRO)}"
+            )
+            return None
+        return {"valor": bruto, "unidade": termo["unidade"]}
+    if campo == "referencia":
+        lista = bruto if isinstance(bruto, list) else [bruto]
+        if not lista or not all(isinstance(r, str) and _REFERENCIA.fullmatch(r) for r in lista):
+            problemas.append(f"{rotulo}.referencia: tem de ser `arquivo#chave` ou lista nao vazia deles")
+            return None
+        return {"referencia": tuple(lista)}
+    texto = _texto(bruto, f"{rotulo}.{campo}", problemas)
+    return None if texto is None else {campo: texto}
+
+
+def _ler_referencias_guia(
+    no: object, rotulo: str, problemas: list[str]
+) -> tuple[ReferenciaGuiaK1, ...] | None:
+    """`formula.referencia_por_tipo_guia` estrito (`scripts/k1_entradas.py::erros_referencia_guia`): lista nao
+    vazia; cada item com exatamente `guia`, `data` e `hora` (mais `lacuna`, opcional, e obrigatoria com data
+    nula); `guia` texto sem repeticao; `data` e `hora` elemento do XSD com `#` ou null."""
+    if not isinstance(no, list) or not no:
+        problemas.append(f"{rotulo}: tem de ser lista nao vazia")
+        return None
+    lidos: list[ReferenciaGuiaK1] = []
+    for i, item in enumerate(no):
+        onde = f"{rotulo}[{i}]"
+        com_lacuna = isinstance(item, dict) and "lacuna" in item
+        obj = _objeto(item, CAMPOS_REFERENCIA_GUIA | ({"lacuna"} if com_lacuna else set()), onde, problemas)
+        if obj is None:
+            return None
+        guia = _texto(obj["guia"], f"{onde}.guia", problemas)
+        lacuna = _texto(obj["lacuna"], f"{onde}.lacuna", problemas) if com_lacuna else None
+        elementos = (obj["data"], obj["hora"])
+        if not all(e is None or (isinstance(e, str) and _REFERENCIA.fullmatch(e)) for e in elementos):
+            problemas.append(f"{onde}: `data` e `hora` tem de ser elemento do XSD com `#` ou null")
+            return None
+        if guia is None or (com_lacuna and lacuna is None):
+            return None
+        if obj["data"] is None and lacuna is None:
+            problemas.append(f"{onde}: data nula exige `lacuna`")
+            return None
+        if any(r.guia == guia for r in lidos):
+            problemas.append(f"{onde}.guia: {guia!r} repetida")
+            return None
+        lidos.append(ReferenciaGuiaK1(guia, obj["data"], obj["hora"], lacuna))
+    return tuple(lidos)
+
+
 def _ler_formula(
-    no: object, rotulo: str, problemas: list[str], *, com_regimes: bool = False
+    no: object,
+    rotulo: str,
+    problemas: list[str],
+    *,
+    com_regimes: bool = False,
+    com_valor_de_parametro: bool = False,
 ) -> FormulaK1 | None:
-    tem_regimes = com_regimes and isinstance(no, dict) and CAMPO_FORMULA_REGIMES in no
-    obj = _objeto(no, CAMPOS_FORMULA | ({CAMPO_FORMULA_REGIMES} if tem_regimes else set()), rotulo, problemas)
+    opcionais = {CAMPO_FORMULA_REGIMES} if com_regimes else set()
+    if com_valor_de_parametro:
+        opcionais.add(CAMPO_FORMULA_REFERENCIA_GUIA)
+    presentes = opcionais & set(no) if isinstance(no, dict) else set()
+    obj = _objeto(no, CAMPOS_FORMULA | presentes, rotulo, problemas)
     if obj is None:
         return None
     texto = _texto(obj["formula"], f"{rotulo}.formula", problemas)
@@ -283,28 +402,42 @@ def _ler_formula(
         return None
     termos: list[TermoFormulaK1] = []
     for i, item in enumerate(obj["termos"]):
-        termo = _objeto(item, CAMPOS_TERMO, f"{rotulo}.termos[{i}]", problemas)
+        onde = f"{rotulo}.termos[{i}]"
+        parametro = com_valor_de_parametro and isinstance(item, dict) and item.get("origem") == "parametro"
+        extras = (
+            (CAMPOS_VALOR_PARAMETRO | {"unidade"}) & set(item)
+            if parametro and isinstance(item, dict)
+            else set()
+        )
+        termo = _objeto(item, CAMPOS_TERMO | extras, onde, problemas)
         if termo is None:
             continue
-        nome = _texto(termo["nome"], f"{rotulo}.termos[{i}].nome", problemas, _NOME)
-        fonte = _texto(termo["fonte"], f"{rotulo}.termos[{i}].fonte", problemas)
+        nome = _texto(termo["nome"], f"{onde}.nome", problemas, _NOME)
+        fonte = _texto(termo["fonte"], f"{onde}.fonte", problemas)
+        valor = _ler_valor_parametro(termo, onde, problemas) if parametro else {}
         if termo["origem"] not in ORIGENS_TERMO:
-            problemas.append(
-                f"{rotulo}.termos[{i}].origem: {termo['origem']!r} fora de {sorted(ORIGENS_TERMO)}"
-            )
-        elif nome is not None and fonte is not None:
-            termos.append(TermoFormulaK1(nome, str(termo["origem"]), fonte))
+            problemas.append(f"{onde}.origem: {termo['origem']!r} fora de {sorted(ORIGENS_TERMO)}")
+        elif nome is not None and fonte is not None and valor is not None:
+            termos.append(TermoFormulaK1(nome, str(termo["origem"]), fonte, **valor))
     if texto is None or len(termos) != len(obj["termos"]):
         return None
+    referencias: tuple[ReferenciaGuiaK1, ...] = ()
+    if CAMPO_FORMULA_REFERENCIA_GUIA in presentes:
+        lidas = _ler_referencias_guia(
+            obj[CAMPO_FORMULA_REFERENCIA_GUIA], f"{rotulo}.{CAMPO_FORMULA_REFERENCIA_GUIA}", problemas
+        )
+        if lidas is None:
+            return None
+        referencias = lidas
     regimes: tuple[RegimeFormulaK1, ...] = ()
-    if tem_regimes:
+    if CAMPO_FORMULA_REGIMES in presentes:
         lidos = _ler_regimes(
             obj[CAMPO_FORMULA_REGIMES], {t.nome for t in termos}, f"{rotulo}.regimes", problemas
         )
         if lidos is None:
             return None
         regimes = lidos
-    return FormulaK1(texto, tuple(termos), regimes)
+    return FormulaK1(texto, tuple(termos), regimes, referencias)
 
 
 def _ler_valores_maezo(
@@ -330,6 +463,7 @@ def _ler_entrada(
     campos: frozenset[str] = CAMPOS_ENTRADA,
     *,
     com_regimes: bool = False,
+    com_valor_de_parametro: bool = False,
 ) -> EntradaK1 | None:
     onde = f"entradas[{i}]"
     obj = _objeto(no, campos, onde, problemas)
@@ -358,7 +492,13 @@ def _ler_entrada(
         ok = False
     formula: FormulaK1 | None = None
     if obj["formula"] is not None:
-        formula = _ler_formula(obj["formula"], f"{onde}.formula", problemas, com_regimes=com_regimes)
+        formula = _ler_formula(
+            obj["formula"],
+            f"{onde}.formula",
+            problemas,
+            com_regimes=com_regimes,
+            com_valor_de_parametro=com_valor_de_parametro,
+        )
         if formula is None:
             ok = False
         elif obj["origem"] != "derivado":
@@ -426,7 +566,14 @@ def ler_dicionario_entradas(raw: bytes) -> DicionarioEntradasK1:
         problemas.append("entradas: tem de ser lista nao vazia")
     else:
         for i, item in enumerate(topo["entradas"]):
-            entrada = _ler_entrada(item, i, problemas, campos, com_regimes=versao in VERSOES_COM_REGIMES)
+            entrada = _ler_entrada(
+                item,
+                i,
+                problemas,
+                campos,
+                com_regimes=versao in VERSOES_COM_REGIMES,
+                com_valor_de_parametro=versao in VERSOES_COM_VALOR_DE_PARAMETRO,
+            )
             if entrada is None:
                 continue
             if entrada.nome_dmn in entradas:

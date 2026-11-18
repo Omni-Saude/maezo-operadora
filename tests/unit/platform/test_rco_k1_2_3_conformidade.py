@@ -1,16 +1,16 @@
 """Conformidade do leitor, da composicao e do montador do Maezo com o pacote K1 2.3.0 REAL do rco (DL-0183).
 
-Usa o recorte do pacote gerado pelo `scripts/pacote.py` do proprio rco no commit d9b8adfa (`main` publicada,
-PR #175, unidade PROG-RCO-carencia-urgencia-aviso; `tests/fixtures/rco/k1-2.3.0-recorte/`, procedencia em
-`ORIGEM.json`):
+Usa o recorte do pacote gerado pelo `scripts/pacote.py` do proprio rco no commit aed187d4 (`main` publicada,
+PR #174; `tests/fixtures/rco/k1-2.3.0-recorte/`, procedencia em `ORIGEM.json`):
 - a copia e byte a byte a do rco (sha256 por arquivo, nada sobrando);
 - o manifesto real passa o leitor estrito e, restrito as duas decisoes do grupo, `verificar_pacote` so acusa
   o anexo que o recorte deixa de fora (`entradas.json`): `ordem_restricao`, `sinalAuditoria`, `avisos` do
   K6 e as celulas de sinal e de `decisao` do grupo `mais_restritiva` passam;
 - o pacote tem a FORMA ACORDADA com a trilha rco (ordem, vocabulario do sinal, destino do aviso);
 - a guarda recusa avaliar sozinho qualquer membro do grupo;
-- o dicionario de entradas 1.4.0 passa o leitor, a formula de `urgenciaAposVinteQuatroHorasCobertura` e a
-  implementada e o mapeamento do montador confere com toda decisao de `regras-gerais` e `diarias-taxas`;
+- o dicionario de entradas 1.5.0 passa o leitor, a formula de `urgenciaAposVinteQuatroHorasCobertura` e a
+  implementada (com o valor do parametro e a referencia por tipo de guia lidos do pacote) e o mapeamento do
+  montador confere com toda decisao de `regras-gerais` e `diarias-taxas`;
 - os cenarios C047 a C051 do rco (`geral_carencia`) dao, pelo montador, a derivada que o rco declara no caso.
   As ENTRADAS do montador (datas, horas, tipo de guia) sao TRANSCRITAS da descricao de cada caso, porque o
   caso do rco so traz a derivada pronta; o valor ESPERADO vem do proprio caso do rco, nunca daqui.
@@ -78,27 +78,19 @@ def test_manifesto_real_passa_o_leitor_estrito() -> None:
     assert lido.formato_manifesto == "2.3.0"
     assert lido.commit_sha == rec.COMMIT_RCO
     assert len(lido.decisoes) == 236
-    assert lido.dicionario_entradas_versao == "1.4.0"
+    assert lido.dicionario_entradas_versao == "1.5.0"
     assert [p.id for p in lido.provas] == ["teste-unario-booleano"]
     assert k1.provas_ausentes_no_pin(lido) == []
     assert k1.ativacao_nao_suportada(lido) == []
 
 
-def test_verificar_pacote_no_recorte_acusa_o_anexo_omitido_e_o_label_acima_do_motor() -> None:
-    """O recorte de d9b8adfa traz um label de 278 caracteres que o historico do motor nao aceita (DL-0183).
-
-    O leitor recusa o pacote no pin. Quando o rco republicar com o label curto, a segunda linha sai daqui.
-    """
+def test_verificar_pacote_no_recorte_so_acusa_o_anexo_omitido() -> None:
     lido = rec.manifesto()
     restrito = dataclasses.replace(
         lido, decisoes=MappingProxyType({d: lido.decisoes[d] for d in rec.ORDEM}), provas=()
     )
     problemas = k1.verificar_pacote(restrito, k1_dir=rec.RECORTE, rules_dir=rec.RECORTE / "dmn")
-    assert problemas[0] == f"{k1.K1_DIR}/entradas.json: anexo 'entradas' ausente (ou link simbolico)"
-    assert len(problemas) == 2
-    onde = lido.decisoes["rco_geral_carencia"].caminho_consumidor
-    assert problemas[1].startswith(f"{onde}: input@label de ")
-    assert "tem 278 caracteres, acima do limite de 255" in problemas[1]
+    assert problemas == [f"{k1.K1_DIR}/entradas.json: anexo 'entradas' ausente (ou link simbolico)"]
 
 
 def test_vocabulario_tem_a_forma_acordada() -> None:
@@ -168,7 +160,7 @@ def test_guarda_recusa_avaliar_membro_sozinho(decisao: str) -> None:
 
 def test_casos_do_grupo_declaram_a_vencedora_dentro_do_grupo() -> None:
     casos = rec.casos_do_grupo()
-    assert [c.id for c in casos] == [f"C00{n}" for n in range(1, 9)]
+    assert [c.id for c in casos] == [f"C00{n}" for n in range(1, 10)]
     for caso in casos:
         vencedora = caso.esperado.get("decisao_de")
         assert vencedora is None or f"rco_{vencedora}" in rec.ORDEM, caso.id
@@ -176,14 +168,14 @@ def test_casos_do_grupo_declaram_a_vencedora_dentro_do_grupo() -> None:
         assert set(caso.esperado["sinais"]) <= set(rec.SINAIS_ACORDADOS) - {""}, caso.id
 
 
-# --- dicionario de entradas 1.4.0 e montador ---------------------------------------------------------
+# --- dicionario de entradas 1.5.0 e montador ---------------------------------------------------------
 
 URGENCIA = "urgenciaAposVinteQuatroHorasCobertura"
 
 
-def test_dicionario_14_passa_o_leitor() -> None:
+def test_dicionario_15_passa_o_leitor() -> None:
     dic = rec.dicionario()
-    assert dic.versao == "1.4.0"
+    assert dic.versao == "1.5.0"
     assert len(dic.entradas) == 39
     assert dic.sha256_conteudo == rec.manifesto().dicionario_entradas_sha256
     entrada = dic.entradas[URGENCIA]
@@ -273,9 +265,8 @@ def test_cenarios_do_rco_pela_formula_do_montador(id_caso: str) -> None:
         versao_k3_pinada=(1, 15),
         cadastro=cadastro,
         tiss=cenario["tiss"],
+        # `horasMinimasUrgencia` e a referencia da guia vem do pacote (dicionario 1.5.0), nao daqui.
         tipo_guia=cenario["tipo"],
-        # 24 horas: `efeito.prazos` de OMNI-GERAL-CAR-0003 (fonte do termo no dicionario); NAO vem no K1.
-        parametros={"horas_minimas_urgencia": 24},
     )
     montadas = mt.montar_entradas(rec.manifesto().decisoes["rco_geral_carencia"], rec.dicionario(), fatos)
     assert montadas.variaveis[URGENCIA] == entradas_do_caso[URGENCIA], id_caso

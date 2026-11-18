@@ -2,13 +2,14 @@
 
 Cada limite de `LIMITES_HISTORICO_DMN` foi confirmado no CIB Seven 2.1.0 (Postgres, `history=full`) com um DMN
 que viola so ele. Aqui: no limite passa, um caractere acima e recusado, com o campo e o dono na mensagem. O
-`geral_carencia.dmn` do recorte 2.3.0 (rco main d9b8adfa) e o caso real: label de 278 caracteres que fazia
-toda avaliacao falhar no motor.
+`geral_carencia.dmn` do recorte 2.3.0 era o caso real: no rco main d9b8adfa, label de 278 caracteres que fazia
+toda avaliacao falhar no motor; no rco main aed187d4 (PR #174, recorte atual) cabe nos limites.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from xml.etree import ElementTree
 
 import pytest
 
@@ -86,11 +87,16 @@ def test_dmn_ilegivel_e_problema() -> None:
     assert k1.limites_do_historico_no_dmn(b"<nao-xml", "t.dmn") == ["t.dmn: nao e DMN legivel (ParseError)"]
 
 
-def test_recorte_2_3_0_do_rco_tem_o_label_que_derrubava_o_motor() -> None:
-    """O caso real: so o label de `urgenciaAposVinteQuatroHorasCobertura` (278) passa do limite."""
-    raw = rec.dmn("rco_geral_carencia").read_bytes()
-    carencia = k1.limites_do_historico_no_dmn(raw, "geral_carencia.dmn")
-    assert len(carencia) == 1
-    assert "input@label de rco_geral_carencia/input[" in carencia[0]
-    assert "tem 278 caracteres, acima do limite de 255" in carencia[0]
-    assert k1.limites_do_historico_no_dmn(rec.dmn("rco_geral_cpt").read_bytes(), "geral_cpt.dmn") == []
+def test_recorte_2_3_0_do_rco_cabe_nos_limites_do_motor() -> None:
+    """O caso real: o `geral_carencia.dmn` de d9b8adfa tinha o label de
+    `urgenciaAposVinteQuatroHorasCobertura` com 278 caracteres; o rco main aed187d4 (PR #174) o encurtou (o
+    texto longo foi para a `<description>` da entrada) e acrescentou o lint L15. As duas decisoes do recorte
+    cabem em todos os limites, e o maior label de entrada e de saida fica em ate 255 caracteres."""
+    for decisao in rec.ORDEM:
+        raw = rec.dmn(decisao).read_bytes()
+        assert k1.limites_do_historico_no_dmn(raw, f"{decisao}.dmn") == [], decisao
+        raiz = ElementTree.fromstring(raw)
+        labels = [
+            no.get("label") or "" for no in raiz.iter() if no.tag.rsplit("}", 1)[-1] in {"input", "output"}
+        ]
+        assert labels and max(len(t) for t in labels) <= k1.LIMITES_HISTORICO_DMN["input@label"], decisao
