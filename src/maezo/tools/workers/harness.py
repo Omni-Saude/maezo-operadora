@@ -2298,6 +2298,8 @@ class WorkerHarness:
                     # DL-0185: o motor pode ter gravado a conclusao (resposta perdida, timeout). Nao se
                     # enfileira aqui (a tarefa pode ser re-entregue); so se torna o aviso observavel.
                     self._avisos_rco_nao_enfileirados(task, rco_composicoes, "conclusao_incerta")
+                    # DL-0187: as de sombra nunca seriam enfileiradas; contadas como na conclusao certa.
+                    self._avisos_rco_suprimidos_sombra(task, rco_composicoes)
                     raise
                 outcome = "completed"
                 logger.info(

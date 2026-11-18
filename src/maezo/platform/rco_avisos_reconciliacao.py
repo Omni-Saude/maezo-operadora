@@ -15,8 +15,9 @@ O QUE FAZ, SO LEITURA. Para uma janela `[desde, ate)` de um tenant:
    composicao de cada decisao (`ManifestoK1.composicao_de`), `rco_avisos.avisos_para` e a
    `chave_idempotencia` de `tenant:task_id:composicao:sinal:fila`. DL-0187: SO a composicao em
    `modo=efeito` espera linha; o modo e lido do registro DURAVEL, a chave `composicaoK1.modo` da mesma entrada
-   de `dmn_versions` (gravada por `_audit_ctx.registrar_composicao`). `modo=sombra` nao espera nada e entra
-   na contagem `suprimidos_sombra`; entrada sem `composicaoK1` (auditoria anterior ao DL-0187, quando os dois
+   de `dmn_versions` (gravada por `_audit_ctx.registrar_composicao`), lida ANTES do manifesto do pin de agora.
+   `modo=sombra` nao espera nada e entra na contagem `suprimidos_sombra` (pelo nome gravado, mesmo com o pin
+   rodado); entrada sem `composicaoK1` (auditoria anterior ao DL-0187, quando os dois
    modos enfileiravam) segue esperada; `composicaoK1` com modo fora de `MODOS` vira `modo_fora_do_vocabulario`
    e nao espera linha (nunca palpite);
 3. le do outbox as chaves que existem (`SELECT`, nunca escreve) e devolve o relatorio.
@@ -195,6 +196,13 @@ def _modo(entrada: Mapping[str, Any]) -> str | None:
     return modo if isinstance(modo, str) and modo in MODOS else None
 
 
+def _nome_duravel(entrada: Mapping[str, Any]) -> str:
+    """O nome da composicao gravado em `composicaoK1` (DL-0187); vazio se ausente ou fora da forma."""
+    resumo = entrada.get(CHAVE_COMPOSICAO)
+    nome = resumo.get("nome") if isinstance(resumo, Mapping) else None
+    return nome if isinstance(nome, str) and nome.strip() else ""
+
+
 def esperados_da_auditoria(
     registros: Iterable[RegistroAuditado],
     *,
@@ -239,22 +247,25 @@ def _esperados(
             sinais = entrada.get(CHAVE_SINAIS)
             if not isinstance(sinais, list) or not sinais:
                 continue
+            # DL-0187: o modo e o nome vem do registro DURAVEL, ANTES do pin de agora: uma entrada de sombra
+            # nunca espera linha, mesmo que o pin tenha mudado e a decisao nao esteja mais em grupo algum.
             grupo = por_decisao.get(decisao)
-            if grupo is None:
-                divergencias.append(Divergencia(COMPOSICAO_DESCONHECIDA, task_id=task_id, decisao=decisao))
-                continue
             modo = _modo(entrada)
+            nome = _nome_duravel(entrada) or (grupo.nome if grupo is not None else "")
             if modo is None:
-                if (task_id, grupo.nome) not in fora_do_vocabulario:
-                    fora_do_vocabulario.add((task_id, grupo.nome))
+                if (task_id, nome) not in fora_do_vocabulario:
+                    fora_do_vocabulario.add((task_id, nome))
                     divergencias.append(
                         Divergencia(
-                            MODO_FORA_DO_VOCABULARIO, task_id=task_id, composicao=grupo.nome, decisao=decisao
+                            MODO_FORA_DO_VOCABULARIO, task_id=task_id, composicao=nome, decisao=decisao
                         )
                     )
                 continue
             if modo == MODO_SOMBRA:
-                suprimidos.add((task_id, grupo.nome))
+                suprimidos.add((task_id, nome or decisao))
+                continue
+            if grupo is None:
+                divergencias.append(Divergencia(COMPOSICAO_DESCONHECIDA, task_id=task_id, decisao=decisao))
                 continue
             for sinal in sinais:
                 if not isinstance(sinal, str) or (task_id, grupo.nome, sinal) in vistos:

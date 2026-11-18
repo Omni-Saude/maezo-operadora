@@ -566,6 +566,25 @@ async def test_complete_que_levanta_nao_enfileira_e_torna_observavel(
     assert sink.emitted[0][0].dmn_versions["rco_sint_d"]["sinaisAuditoria"] == [sint.SINAL]
 
 
+async def test_complete_que_levanta_conta_a_sombra_como_suprimida(
+    pin: rco_pin.RcoRulesPin, contados: list[tuple[str, int]]
+) -> None:
+    """DL-0187: na conclusao incerta, a composicao de sombra conta `suprimido_sombra` (nunca
+    `conclusao_incerta`, que e so de efeito) e nada vai ao outbox."""
+    outbox = OutboxEmMemoria()
+    harness, transport, sink = _montar(pin, outbox=outbox, modo="sombra")
+    harness._transport = _CompleteQueFalha()
+    with structlog.testing.capture_logs() as logs:
+        await harness._handle(_task())
+    assert outbox.linhas == {}
+    assert contados == [("suprimido_sombra", 1)]
+    assert [e for e in logs if e["event"] == "rco_aviso_nao_enfileirado"] == []
+    assert [e["composicao"] for e in logs if e["event"] == "rco_aviso_suprimido_sombra"] == [
+        "grupo_restritivo"
+    ]
+    assert len(harness._transport.failures) == 1
+
+
 async def test_destinos_diferentes_do_pin_sao_os_gravados(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

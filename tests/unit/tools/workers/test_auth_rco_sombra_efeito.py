@@ -787,3 +787,86 @@ def test_versao_registrada_da_avaliacao_e_a_do_motor(pin_real: rco_pin.RcoRulesP
     with collect_dmn_versions() as versoes:
         record_dmn_version(versao, row=ROW_CARENCIA, sombra=True)
     assert versoes[CARENCIA]["modo"] == "sombra" and "origemAvaliacao" not in versoes[CARENCIA]
+
+
+# --- orcamento de motor da sombra por tarefa (DL-0187, M1) --------------------------------------------------
+
+
+class _MotorLento(FakeDmnTransport):
+    """Dorme muito mais que qualquer orcamento nas tabelas `rco_`; as do AUTH respondem na hora."""
+
+    async def evaluate(self, decision_key: str, variables: dict[str, Any], **kwargs: Any) -> Any:
+        if decision_key.startswith("rco_"):
+            await asyncio.sleep(30)
+        return await super().evaluate(decision_key, variables, **kwargs)
+
+
+def _motor_lento() -> _MotorLento:
+    dmn = _MotorLento()
+    for chave, (linhas, _versao) in _dmn()._responses.items():
+        dmn.register(chave, linhas)
+    return dmn
+
+
+def test_orcamento_e_repartido_e_nunca_passa_do_teto() -> None:
+    parte = auth_rco.PRAZO_SOMBRA_AUTH_S / auth_rco.AVALIACOES_AUTH
+    assert auth_rco.PRAZO_SOMBRA_AUTH_S == rco_sombra.PRAZO_SOMBRA_S
+    assert parte * auth_rco.MEMBROS_COMPOSICAO_AUTH + parte == pytest.approx(rco_sombra.PRAZO_SOMBRA_S)
+    assert rco_sombra._prazo(None) == rco_sombra.PRAZO_SOMBRA_S
+    assert rco_sombra._prazo(99.0) == rco_sombra.PRAZO_SOMBRA_S and rco_sombra._prazo(-1.0) == 0.0
+
+
+def test_motor_lento_soma_no_maximo_o_orcamento_da_tarefa(
+    pin_real: rco_pin.RcoRulesPin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    orcamento = 0.3
+    monkeypatch.setattr(auth_rco, "PRAZO_SOMBRA_AUTH_S", orcamento)
+    prazos: list[float | None] = []
+    evaluate_sync = rco_sombra.evaluate_sync
+
+    def espiao(*a: Any, **k: Any) -> Any:
+        prazos.append(k.get("prazo_s"))
+        return evaluate_sync(*a, **k)
+
+    monkeypatch.setattr(rco_sombra, "evaluate_sync", espiao)
+    desfechos: list[str] = []
+    monkeypatch.setattr(rco_sombra, "record_rco_sombra", desfechos.append)
+
+    inicio = time.monotonic()
+    ligada = _worker(_motor_lento(), degradado=False, ratificadas=True).execute(_vars())
+    com_sombra = time.monotonic() - inicio
+    desfechos_ligada = list(desfechos)
+    _pinar(monkeypatch, SEM_PACOTE)
+    inicio = time.monotonic()
+    neutra = _worker(_motor_lento(), degradado=False, ratificadas=True).execute(_vars())
+    sem_sombra = time.monotonic() - inicio
+
+    assert ligada == neutra
+    assert desfechos_ligada == [rco_sombra.PRAZO_ESGOTADO, rco_sombra.PRAZO_ESGOTADO]
+    # cada chamada ao motor com a sua parte do orcamento: o primeiro membro esgota e `compor` para (o segundo
+    # nem e chamado), depois a elegibilidade; o que se planejou para a tarefa (3 partes) e o orcamento
+    parte = orcamento / auth_rco.AVALIACOES_AUTH
+    assert prazos == [pytest.approx(parte), pytest.approx(parte)]
+    assert parte * auth_rco.AVALIACOES_AUTH == pytest.approx(orcamento)
+    assert com_sombra - sem_sombra <= orcamento + 0.5
+
+
+# --- cinto e suspensorio do AUTH conta como as portas (DL-0187, L3) ---------------------------------------
+
+
+def test_erro_que_escapa_das_portas_e_contado_e_nao_sobe(monkeypatch: pytest.MonkeyPatch) -> None:
+    contados: list[str] = []
+    monkeypatch.setattr(auth_rco, "record_rco_sombra", contados.append)
+    monkeypatch.setattr(rco_sombra, "avaliar_composicao_em_sombra", _levanta(RuntimeError("bug")))
+    with structlog.testing.capture_logs() as logs:
+        assert auth_rco.avaliar_em_sombra_auth(_dmn(), _vars(), topico=TOPICO) is None
+    assert contados == [rco_sombra.ERRO_DE_PROGRAMACAO]
+    [evento] = [e for e in logs if e["event"] == "rco_sombra_auth_erro_de_programacao"]
+    assert evento == {
+        "event": "rco_sombra_auth_erro_de_programacao",
+        "log_level": "error",
+        "erro": "RuntimeError",
+        "topico": TOPICO,
+    }

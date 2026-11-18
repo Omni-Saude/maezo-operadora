@@ -935,7 +935,9 @@ def record_rco_entrada_cobertura(
 
     Sitio de chamada unico: `tools.workers.rco_sombra` (uma vez por entrada distinta de cada avaliacao
     montada).
-    A fracao de nulos por entrada, por motivo e por origem sai de `sum by (...)`. Os cinco rotulos sao
+    A fracao de nulos por entrada, por motivo e por origem sai de `sum by (...)`. Numa composicao, cada
+    entrada distinta conta uma vez, com o estado do PRIMEIRO membro que a montou, inclusive quando o grupo
+    termina `entradas_em_conflito` (a contagem e anterior a uniao). Os cinco rotulos sao
     FECHADOS (um valor fora vira `outro`): cardinalidade limitada pelo codigo, nunca pelo pin nem pelo caso.
     Nenhum valor de entrada, nenhum dado de caso. Best-effort: a telemetria nunca muda o worker.
     """

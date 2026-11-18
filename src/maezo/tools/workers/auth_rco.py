@@ -42,6 +42,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Final
 
+from maezo.platform.observability import record_rco_sombra
 from maezo.tools.workers import rco_montador, rco_sombra
 from maezo.tools.workers.dmn_transport import DmnTransport
 
@@ -49,6 +50,12 @@ from maezo.tools.workers.dmn_transport import DmnTransport
 COMPOSICAO_CARENCIA_CPT: Final[str] = "composicao_carencia_cpt"
 #: A decisao de elegibilidade, avaliada sozinha (nao e membro de grupo no K1 2.3.0).
 DECISAO_ELEGIBILIDADE: Final[str] = "rco_geral_elegibilidade"
+#: DL-0187: o orcamento de motor da sombra por tarefa do AUTH (o mesmo teto de uma avaliacao isolada) e a sua
+#: reparticao estatica: os dois membros da composicao e a elegibilidade. Se um pin futuro mudar o tamanho do
+#: grupo, a composicao continua limitada a parte dela (`rco_sombra` divide o total dela entre os membros).
+PRAZO_SOMBRA_AUTH_S: Final[float] = rco_sombra.PRAZO_SOMBRA_S
+MEMBROS_COMPOSICAO_AUTH: Final[int] = 2
+AVALIACOES_AUTH: Final[int] = MEMBROS_COMPOSICAO_AUTH + 1
 #: Regra 5 do montador: as UNICAS variaveis de start que entram como guia (nome Maezo do dicionario).
 CAMPOS_GUIA_START: Final[tuple[str, ...]] = ("data_atendimento", "codigo_procedimento_tuss")
 #: Termos de `urgenciaAposVinteQuatroHorasCobertura` sem produtor no AUTH: as datas e horas de inicio da
@@ -88,16 +95,35 @@ def fatos_carencia_cpt_auth(process_vars: Mapping[str, Any]) -> rco_sombra.Monta
 
 def avaliar_em_sombra_auth(dmn: DmnTransport | None, process_vars: Mapping[str, Any], *, topico: str) -> None:
     """Avalia em sombra a composicao de carencia/CPT e a elegibilidade; devolve `None` e nunca levanta
-    `Exception` (as duas portas de `rco_sombra` ja engolem e contam; esta guarda e cinto e suspensorio)."""
+    `Exception` (as duas portas de `rco_sombra` ja engolem e contam; esta guarda e cinto e suspensorio e
+    conta o mesmo `erro_de_programacao`).
+
+    ORCAMENTO (DL-0187): UM so prazo de motor por tarefa, `PRAZO_SOMBRA_AUTH_S`, repartido estaticamente
+    (sem ler relogio) pelas `AVALIACOES_AUTH` avaliacoes: os membros da composicao recebem a parte deles
+    (`rco_sombra` divide o total da composicao entre os membros) e a elegibilidade a sua; a soma nunca passa
+    do orcamento. O orcamento cobre SO as chamadas ao motor: a leitura do pin e do dicionario (em cache) e o
+    montador sao locais e ficam fora; o teto proprio do registro de decisoes K1 do harness nao muda."""
+    orcamento = PRAZO_SOMBRA_AUTH_S
+    parte = orcamento / AVALIACOES_AUTH
     try:
         fatos = fatos_carencia_cpt_auth(process_vars)
-        rco_sombra.avaliar_composicao_em_sombra(dmn, COMPOSICAO_CARENCIA_CPT, fatos, topico=topico)
-        rco_sombra.avaliar_em_sombra(dmn, DECISAO_ELEGIBILIDADE, fatos, topico=topico)
-    except Exception as exc:  # pragma: no cover - as portas ja sao totais
+        rco_sombra.avaliar_composicao_em_sombra(
+            dmn,
+            COMPOSICAO_CARENCIA_CPT,
+            fatos,
+            topico=topico,
+            prazo_total_s=parte * MEMBROS_COMPOSICAO_AUTH,
+        )
+        rco_sombra.avaliar_em_sombra(dmn, DECISAO_ELEGIBILIDADE, fatos, topico=topico, prazo_total_s=parte)
+    except Exception as exc:  # as portas ja sao totais; se algo escapar, conta como elas contam
+        record_rco_sombra(rco_sombra.ERRO_DE_PROGRAMACAO)
         rco_sombra.logger.error("rco_sombra_auth_erro_de_programacao", erro=type(exc).__name__, topico=topico)
 
 
 __all__ = [
+    "AVALIACOES_AUTH",
+    "MEMBROS_COMPOSICAO_AUTH",
+    "PRAZO_SOMBRA_AUTH_S",
     "CAMPOS_GUIA_START",
     "COMPOSICAO_CARENCIA_CPT",
     "DECISAO_ELEGIBILIDADE",

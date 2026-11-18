@@ -23,7 +23,9 @@ POR QUE NADA PRODUZ EFEITO (razoes independentes, como `adequacao._record_gap_sh
    (so o nome do tipo) e a metrica `maezo_rco_sombra_total{desfecho="erro_de_programacao"}`. Ela nao
    sobe porque subir faria o worker falhar (incidente) e mudaria o desfecho dele por causa da sombra;
 4. um prazo total (`PRAZO_SOMBRA_S`) segura a chamada ao motor (`asyncio.wait_for`, como o teto de
-   `harness._registrar_decisoes_rco`). Os demais passos sao locais (pin e dicionario em cache, montador
+   `harness._registrar_decisoes_rco`). Quem chama varias avaliacoes na mesma tarefa passa `prazo_total_s`
+   (DL-0187: o AUTH reparte UM orcamento de `PRAZO_SOMBRA_S` entre composicao e elegibilidade); o valor e
+   limitado a `PRAZO_SOMBRA_S`. Os demais passos sao locais (pin e dicionario em cache, montador
    puro).
 
 MINIMIZACAO (a mesma da migracao 0035): log, auditoria e registro levam so codigos, inteiros, a versao
@@ -190,7 +192,10 @@ def cobertura_das_entradas(
     montadas: Iterable[rco_montador.EntradasMontadas], dicionario: DicionarioEntradasK1
 ) -> list[tuple[str, str, str, str]]:
     """`(entrada, origem, estado, motivo)` por entrada DISTINTA das montagens (a primeira vence; o montador e
-    puro, a mesma entrada sai igual em todo membro). So nomes do dicionario e codigos: nunca o valor."""
+    puro, a mesma entrada sai igual em todo membro). So nomes do dicionario e codigos: nunca o valor.
+
+    A contagem acontece ANTES da uniao da composicao: num grupo que termina `entradas_em_conflito`, a entrada
+    em conflito conta com o estado do PRIMEIRO membro (na ordem do grupo) que a montou."""
     vistas: dict[str, tuple[str, str, str]] = {}
     for m in montadas:
         for nome in m.variaveis:
@@ -224,6 +229,14 @@ def _registrar_cobertura(
         logger.error("rco_sombra_cobertura_falhou", unidade=unidade, erro=type(exc).__name__)
 
 
+def _prazo(prazo_total_s: float | None) -> float:
+    """O prazo total das chamadas ao motor desta avaliacao: o de quem chama (DL-0187: o AUTH reparte UM
+    orcamento entre as suas avaliacoes) ou `PRAZO_SOMBRA_S`. Nunca acima de `PRAZO_SOMBRA_S` nem negativo."""
+    if prazo_total_s is None:
+        return PRAZO_SOMBRA_S
+    return min(max(float(prazo_total_s), 0.0), PRAZO_SOMBRA_S)
+
+
 def _dicionario(pin: rco_pin.RcoRulesPin) -> DicionarioEntradasK1 | None:
     if pin.manifesto is None or pin.k1_dir is None:
         return None
@@ -246,6 +259,7 @@ def avaliar(
     montar_fatos: MontarFatos,
     *,
     tenant: str | None = None,
+    prazo_total_s: float | None = None,
 ) -> str:
     """Monta e avalia; devolve SO o codigo do desfecho (nunca linhas, nunca entradas).
 
@@ -292,7 +306,7 @@ def avaliar(
             tenant=tenant,
             entradas_rco=auditoria_das_entradas(montadas),
             sombra=True,
-            prazo_s=PRAZO_SOMBRA_S,
+            prazo_s=_prazo(prazo_total_s),
         )
     except TimeoutError:
         return PRAZO_ESGOTADO
@@ -307,6 +321,7 @@ def avaliar_em_sombra(
     montar_fatos: MontarFatos,
     *,
     tenant: str | None = None,
+    prazo_total_s: float | None = None,
     topico: str | None = None,
 ) -> None:
     """Porta dos workers: avalia em sombra e devolve `None`; nunca muda o desfecho de quem chama.
@@ -315,7 +330,7 @@ def avaliar_em_sombra(
     (a mensagem pode trazer dado de caso) e a metrica `erro_de_programacao`; nao sobe, porque subir
     faria o worker falhar por causa da sombra. `topico`: so rotulo de log."""
     try:
-        desfecho = avaliar(dmn, decision_key, montar_fatos, tenant=tenant)
+        desfecho = avaliar(dmn, decision_key, montar_fatos, tenant=tenant, prazo_total_s=prazo_total_s)
     except Exception as exc:  # razao 3 do modulo: erro de programacao, contado e logado, nunca efeito
         record_rco_sombra(ERRO_DE_PROGRAMACAO)
         logger.error(
@@ -335,6 +350,7 @@ def avaliar_composicao(
     montar_fatos: MontarFatos,
     *,
     tenant: str | None = None,
+    prazo_total_s: float | None = None,
 ) -> str:
     """Monta, avalia e compoe o grupo `nome_composicao`; devolve SO o codigo do desfecho.
 
@@ -392,7 +408,7 @@ def avaliar_composicao(
             if type(anterior) is not type(valor) or anterior != valor:
                 return ENTRADAS_EM_CONFLITO
     auditorias = {membro: auditoria_das_entradas(m) for membro, m in montadas.items()}
-    prazo_membro = PRAZO_SOMBRA_S / len(grupo.decisoes)
+    prazo_membro = _prazo(prazo_total_s) / len(grupo.decisoes)
     falhas: list[Exception] = []
 
     def avaliador(decisao: str, entradas: Mapping[str, Any]) -> rco_composicao.Retorno:
@@ -439,6 +455,7 @@ def avaliar_composicao_em_sombra(
     montar_fatos: MontarFatos,
     *,
     tenant: str | None = None,
+    prazo_total_s: float | None = None,
     topico: str | None = None,
 ) -> None:
     """Porta dos workers para um GRUPO de `composicoes[]`: avalia em sombra e devolve `None`.
@@ -451,7 +468,9 @@ def avaliar_composicao_em_sombra(
     `BaseException` propaga. O prazo (`PRAZO_SOMBRA_S`) limita so as chamadas ao motor. `topico`: so
     rotulo de log."""
     try:
-        desfecho = avaliar_composicao(dmn, nome_composicao, montar_fatos, tenant=tenant)
+        desfecho = avaliar_composicao(
+            dmn, nome_composicao, montar_fatos, tenant=tenant, prazo_total_s=prazo_total_s
+        )
     except Exception as exc:  # razao 3 do modulo: erro de programacao, contado e logado, nunca efeito
         record_rco_sombra(ERRO_DE_PROGRAMACAO)
         logger.error(

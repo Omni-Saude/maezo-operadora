@@ -120,6 +120,19 @@ def test_auditoria_sem_composicao_k1_segue_esperada() -> None:
     assert rel.esperados == 2 and rel.suprimidos_sombra == 0
 
 
+def test_sombra_depois_de_rodar_o_pin_nao_vira_composicao_desconhecida() -> None:
+    """DL-0187 (L1): o modo e o nome vem do registro duravel ANTES do pin; com um pin novo sem o grupo, a
+    entrada de sombra segue suprimida, nunca `composicao_desconhecida`."""
+    pacote = _pacote() | {"composicoes": ()}
+    rel = rr.reconciliar([_com_modo("sombra")], tenant="amh", status_no_outbox={}, **pacote)
+    assert rel.ok and rel.divergencias == ()
+    assert (rel.esperados, rel.suprimidos_sombra) == (0, 1)
+    # controle: efeito (e auditoria antiga) com o mesmo pin rodado continua `composicao_desconhecida`
+    for registro in (_com_modo("efeito"), _registro()):
+        rel = rr.reconciliar([registro], tenant="amh", status_no_outbox={}, **pacote)
+        assert {d.codigo for d in rel.divergencias} == {rr.COMPOSICAO_DESCONHECIDA}
+
+
 @pytest.mark.parametrize("modo", ["ativa", None, 1, ""])
 def test_modo_fora_do_vocabulario_e_codigo_fechado(modo: object) -> None:
     rel = rr.reconciliar([_com_modo(modo)], tenant="amh", status_no_outbox={}, **_pacote())
