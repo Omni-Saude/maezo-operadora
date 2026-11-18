@@ -1,0 +1,516 @@
+#!/usr/bin/env python3
+"""Dicionário de entradas do contrato K1 (PROG-RCO-3a): docs/programa/k1-entradas.md, derivado de
+docs/dicionario-dados.yaml (consolidado; rode `make derivar`) e de docs/programa/k1-entradas-origem.yaml (à mão).
+
+  python3 scripts/k1_entradas.py --gerar       escreve docs/programa/k1-entradas.md
+  python3 scripts/k1_entradas.py --verificar   exit 1 se a origem é inválida ou o arquivo diverge do gerado
+  python3 scripts/k1_entradas.py --verificar --publicar   idem, e o conjunto de entradas tem de ser o da `versao` registrada
+  python3 scripts/k1_entradas.py --impressao   mostra a impressão do conjunto de entradas (para registrar em `versoes`)
+
+Versão (PROG-RCO-3c, decisão PROG-RCO-15): a impressão do conjunto de entradas (nome, tipo, origem, domínio de valores,
+tabelas e fórmula de cada entrada) é registrada em `versoes[versao]` da origem por quem PUBLICA o pacote, uma vez por
+versão. No CI de PR a diferença é só aviso ("a próxima publicação exige versão nova"): PR de domínio nunca edita
+docs/programa/. Com `--publicar` (geração do pacote) a diferença bloqueia. Sempre bloqueia: `versao` fora de `versoes` ou
+menor que outra; impressão de versão já publicada em `origin/main` trocada ou removida; versão menor que a de main.
+
+Entrada `derivado` nova traz `derivacao.formula` e `derivacao.termos` (nome, origem tiss|cadastro|fora_tiss|derivado|
+parametro, fonte) no fragmento do dicionário do domínio (docs/dicionario/<dominio>.yaml ou comum/). As derivadas
+anteriores ao gate estão em `derivadas_sem_formula_legado` da origem. O legado só encolhe (PROG-RCO-20): entrada que
+ganhou fórmula, que saiu do dicionário ou que não é derivada reprova ("tire do legado"), e nome que não estava no legado
+de `origin/main` reprova (sem o ref, só aviso; no CI, falha). Entrada derivada nova não precisa editar a origem: traz a fórmula.
+`entradas.json` traz também `valores_maezo` (de-para do consumidor, lido do dicionário; null sem de-para).
+
+Saída determinística (sem relógio). O SHA-256 do cabeçalho é o do conteúdo canônico: JSON ordenado das linhas, mais a
+versão do dicionário de entradas. Nunca infere: a origem de cada entrada vem da chave `origem` do dicionário."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+import yaml
+
+RAIZ = Path(__file__).resolve().parents[1]
+DICIONARIO = "docs/dicionario-dados.yaml"
+ORIGEM = "docs/programa/k1-entradas-origem.yaml"
+SAIDA = "docs/programa/k1-entradas.md"
+ORIGENS = {
+    "tiss": "guia TISS",
+    "cadastro": "cadastro",
+    "fora_tiss": "solicitação fora da TISS",
+    "derivado": "cálculo do worker",
+}
+CAMPOS_LAGO = ("classe_lago", "rota", "campo_lago", "derivacao", "ressalva", "fonte")
+# Origem de um termo da fórmula de entrada derivada: as do dicionário mais `parametro` (número contratual ou de tabela).
+ORIGENS_TERMO = (*ORIGENS, "parametro")
+# Termo `parametro` (achado da T-MZO-A, 17/11/2026): o consumidor só calcula a fórmula se o valor vier estruturado. Exatamente
+# um destes campos: `valor` (número, com `unidade` do vocabulário), `referencia` (`arquivo#chave` legível por máquina, para
+# lista ou tabela; o arquivo existe), `valor_por_contrato` (de onde o consumidor tira o valor por prestador ou contrato) ou
+# `lacuna` (id da lacuna registrada: sem fonte, o consumidor devolve nulo).
+CAMPOS_PARAMETRO = ("valor", "referencia", "valor_por_contrato", "lacuna")
+UNIDADES_PARAMETRO = ("dias", "dias_uteis", "horas", "meses", "unidades")
+
+
+def _resumo_dominio(dv: dict | None) -> str:
+    if not dv:
+        return "LACUNA"
+    t = dv.get("tipo")
+    if t == "lista":
+        v = [str(x).lower() if isinstance(x, bool) else str(x) for x in dv.get("valores", [])]
+        return "{" + ", ".join(v[:6]) + (f", … ({len(v)} valores)" if len(v) > 6 else "") + "}"
+    if t == "faixa":
+        return f"faixa {dv.get('minimo')}..{dv.get('maximo')}"
+    if t == "padrao":
+        return f"padrão {dv.get('padrao')}"
+    if t == "tabela":
+        return f"tabela {dv.get('tabela') or dv.get('id_fonte') or ''}".strip()
+    return str(t)
+
+
+def _de_onde(c: dict) -> str:
+    o = c.get("origem")
+    if o not in ORIGENS:
+        return ""
+    base = ORIGENS[o]
+    tiss = c.get("campo_tiss")
+    if o == "tiss" and tiss:
+        return base + ": " + "; ".join(tiss.get("elementos", []))
+    if o == "derivado":
+        d = c.get("derivacao") or {}
+        el = "; ".join(d.get("elementos_tiss", []))
+        txt = d.get("descricao", "")
+        return base + (": " + txt if txt else "") + (f" [elementos TISS: {el}]" if el else "")
+    return base
+
+
+def validar(dic: dict, origem: dict, publicada: dict | None = None) -> list[str]:
+    erros: list[str] = []
+    ent = {c["nome_dmn"]: c for c in dic.get("campos", []) if c.get("direcao") == "entrada"}
+    for n, c in sorted(ent.items()):
+        if c.get("origem") not in ORIGENS:
+            erros.append(f"entrada {n}: origem não classificável ({c.get('origem')!r})")
+    for n, c in sorted(ent.items()):
+        if (c.get("fallback_nulo") or {}).get("politica") != "nunca_negar":
+            erros.append(f"entrada {n}: fallback_nulo.politica não é nunca_negar")
+    voc = origem.get("vocabulario_classe_lago") or {}
+    if not origem.get("versao"):
+        erros.append("origem sem `versao`")
+    for n, d in sorted((origem.get("derivacao_lago") or {}).items()):
+        if n not in ent:
+            erros.append(f"derivacao_lago: {n} não é entrada do dicionário")
+            continue
+        for k in CAMPOS_LAGO:
+            if not str(d.get(k) or "").strip():
+                erros.append(f"derivacao_lago {n}: falta `{k}`")
+        if d.get("classe_lago") not in voc:
+            erros.append(f"derivacao_lago {n}: classe_lago {d.get('classe_lago')!r} fora do vocabulário {sorted(voc)}")
+        if not str(d.get("fonte") or "").startswith("amh-data-platform:"):
+            erros.append(f"derivacao_lago {n}: `fonte` deve citar o relatório do lago")
+    erros += erros_formulas(ent, origem, publicada)
+    return erros
+
+
+# Tipos de guia do lote de cobrança no Padrão TISS 4.03.00 (tissGuiasV4_03_00.xsd#ctm_guiaLote/guiasTISS, choice).
+# `derivacao.regimes` de uma fórmula com regime por tipo de guia tem de cobrir cada um exatamente uma vez.
+TIPOS_GUIA_TISS = ("guiaSP-SADT", "guiaResumoInternacao", "guiaHonorarios", "guiaConsulta", "guiaOdonto")
+
+
+def formula_de(c: dict) -> dict | None:
+    """{formula, termos[, regimes][, referencia_por_tipo_guia]} de `derivacao` no dicionário, ou None se a entrada não traz
+    fórmula. `regimes` e `referencia_por_tipo_guia` só entram quando a entrada os declara (as demais impressões não mudam)."""
+    d = c.get("derivacao") or {}
+    if "formula" not in d and "termos" not in d:
+        return None
+    f = {"formula": d.get("formula"), "termos": d.get("termos")}
+    for k in ("regimes", "referencia_por_tipo_guia"):
+        if k in d:
+            f[k] = d.get(k)
+    return f
+
+
+def erros_parametro(onde: str, t: dict, raiz: Path = RAIZ) -> list[str]:
+    """Termo `parametro`: exatamente um de CAMPOS_PARAMETRO, com a forma de cada um."""
+    presentes = [k for k in CAMPOS_PARAMETRO if t.get(k) not in (None, "")]
+    if len(presentes) != 1:
+        return [f"{onde}: termo parametro {t.get('nome')} precisa de exatamente um de {list(CAMPOS_PARAMETRO)} "
+                f"(tem {presentes or 'nenhum'})"]
+    k = presentes[0]
+    if k == "valor":
+        if isinstance(t["valor"], bool) or not isinstance(t["valor"], (int, float)):
+            return [f"{onde}: termo parametro {t.get('nome')}: `valor` deve ser número"]
+        if t.get("unidade") not in UNIDADES_PARAMETRO:
+            return [f"{onde}: termo parametro {t.get('nome')}: `unidade` {t.get('unidade')!r} fora de {list(UNIDADES_PARAMETRO)}"]
+    elif t.get("unidade") is not None:
+        return [f"{onde}: termo parametro {t.get('nome')}: `unidade` só com `valor`"]
+    if k == "referencia":
+        refs = t["referencia"] if isinstance(t["referencia"], list) else [t["referencia"]]
+        for ref in refs:
+            arq, _, chave = str(ref).partition("#")
+            if not arq or not chave:
+                return [f"{onde}: termo parametro {t.get('nome')}: `referencia` deve ser `arquivo#chave` (ou lista delas)"]
+            if not (raiz / arq).is_file():
+                return [f"{onde}: termo parametro {t.get('nome')}: `referencia` aponta arquivo inexistente {arq}"]
+    return []
+
+
+CAMPOS_REF_GUIA = {"guia", "data", "hora"}
+
+
+def erros_referencia_guia(onde: str, f: dict) -> list[str]:
+    """`derivacao.referencia_por_tipo_guia` (opcional): lista de {guia, data, hora[, lacuna]}; data e hora são elemento do
+    XSD citado com `#` ou null; data null exige `lacuna` (o consumidor devolve nulo, nunca chuta a data)."""
+    refs = f.get("referencia_por_tipo_guia")
+    if refs is None:
+        return []
+    if not isinstance(refs, list) or not refs:
+        return [f"{onde}: `derivacao.referencia_por_tipo_guia` deve ser lista não vazia"]
+    erros: list[str] = []
+    vistos: set[str] = set()
+    for r in refs:
+        if not isinstance(r, dict) or not CAMPOS_REF_GUIA <= set(r) or not set(r) <= CAMPOS_REF_GUIA | {"lacuna"}:
+            erros.append(f"{onde}: item de referencia_por_tipo_guia com chaves fora de guia, data, hora[, lacuna] ({r!r})")
+            continue
+        g = str(r["guia"] or "").strip()
+        if not g or g in vistos:
+            erros.append(f"{onde}: referencia_por_tipo_guia com guia vazia ou repetida ({g!r})")
+        vistos.add(g)
+        for campo in ("data", "hora"):
+            v = r[campo]
+            if v is not None and (not isinstance(v, str) or "#" not in v):
+                erros.append(f"{onde}: referencia_por_tipo_guia {g}: `{campo}` deve ser elemento do XSD com `#` ou null")
+        if r["data"] is None and not str(r.get("lacuna") or "").strip():
+            erros.append(f"{onde}: referencia_por_tipo_guia {g}: data nula exige `lacuna`")
+    return erros
+
+
+def erros_regimes(onde: str, f: dict) -> list[str]:
+    """`derivacao.regimes` (opcional): lista de {regime, tipos_guia, termo_data, fonte}; cada tipo de guia TISS do lote
+    aparece em exatamente um regime; `termo_data` é um termo da fórmula, ou null no regime `sem_regime`, que exige
+    `lacuna` (o consumidor devolve nulo, nunca chuta a data)."""
+    regs = f.get("regimes")
+    if regs is None:
+        return []
+    erros: list[str] = []
+    if not isinstance(regs, list) or not regs:
+        return [f"{onde}: `derivacao.regimes` deve ser lista não vazia"]
+    nomes_termos = {t.get("nome") for t in (f.get("termos") or []) if isinstance(t, dict)}
+    vistos: list[str] = []
+    for r in regs:
+        if not isinstance(r, dict) or not str(r.get("regime") or "").strip() or not str(r.get("fonte") or "").strip():
+            erros.append(f"{onde}: regime sem `regime` ou `fonte` ({r!r})")
+            continue
+        tg = r.get("tipos_guia")
+        if not isinstance(tg, list) or not tg:
+            erros.append(f"{onde}: regime {r['regime']} sem `tipos_guia`")
+            continue
+        for g in tg:
+            if g not in TIPOS_GUIA_TISS:
+                erros.append(f"{onde}: regime {r['regime']}: tipo de guia {g!r} fora de {list(TIPOS_GUIA_TISS)}")
+        vistos += tg
+        if r["regime"] == "sem_regime":
+            if r.get("termo_data") is not None:
+                erros.append(f"{onde}: regime sem_regime não tem `termo_data` (o valor é nulo)")
+            if not str(r.get("lacuna") or "").strip():
+                erros.append(f"{onde}: regime sem_regime exige `lacuna` (o que falta para mapear)")
+        elif r.get("termo_data") not in nomes_termos:
+            erros.append(f"{onde}: regime {r['regime']}: `termo_data` {r.get('termo_data')!r} não é termo da fórmula")
+    rep = sorted({g for g in vistos if vistos.count(g) > 1})
+    falta = [g for g in TIPOS_GUIA_TISS if g not in vistos]
+    if rep:
+        erros.append(f"{onde}: tipo de guia em mais de um regime: {rep}")
+    if falta:
+        erros.append(f"{onde}: tipo de guia TISS sem regime: {falta} (use o regime sem_regime com a lacuna)")
+    return erros
+
+
+def erros_formulas(ent: dict, origem: dict, publicada: dict | None = None) -> list[str]:
+    """Forma da fórmula de entrada derivada e exigência para entrada derivada NOVA (fora do legado). O legado só
+    encolhe (PROG-RCO-20): entrada nele que já tem fórmula, que não existe mais ou que não é derivada sai da lista;
+    nome que não estava no legado de `origin/main` não entra (com `publicada` None a comparação não se faz)."""
+    erros: list[str] = []
+    legado = set(origem.get("derivadas_sem_formula_legado") or [])
+    for n in sorted(legado):
+        if n not in ent:
+            erros.append(f"legado `derivadas_sem_formula_legado`: {n} não existe mais no dicionário; tire do legado")
+        elif ent[n].get("origem") != "derivado":
+            erros.append(f"legado `derivadas_sem_formula_legado`: {n} não é entrada derivada; tire do legado")
+        elif formula_de(ent[n]) is not None:
+            erros.append(f"legado `derivadas_sem_formula_legado`: {n} já tem fórmula no dicionário; tire do legado")
+    if publicada is not None and "derivadas_sem_formula_legado" in publicada:
+        antes = set(publicada.get("derivadas_sem_formula_legado") or [])
+        for n in sorted(legado - antes):
+            erros.append(f"legado `derivadas_sem_formula_legado`: {n} não estava no legado de origin/main; a lista só encolhe "
+                         f"(entrada derivada nova traz a fórmula no fragmento do domínio)")
+    for n, c in sorted(ent.items()):
+        f = formula_de(c)
+        onde = f"entrada {n} (fragmento do dicionário do domínio, `derivacao`)"
+        if f is not None:
+            if c.get("origem") != "derivado":
+                erros.append(f"{onde}: `formula`/`termos` só em entrada de origem derivado")
+            if not str(f.get("formula") or "").strip():
+                erros.append(f"{onde}: falta `derivacao.formula`")
+            termos = f.get("termos")
+            if not isinstance(termos, list) or not termos:
+                erros.append(f"{onde}: `derivacao.termos` deve ser lista não vazia")
+                continue
+            for t in termos:
+                if not isinstance(t, dict) or not str(t.get("nome") or "").strip() or not str(t.get("fonte") or "").strip():
+                    erros.append(f"{onde}: termo sem `nome` ou `fonte` ({t!r})")
+                elif t.get("origem") not in ORIGENS_TERMO:
+                    erros.append(f"{onde}: termo {t['nome']} com origem {t.get('origem')!r} fora de {list(ORIGENS_TERMO)}")
+                elif t.get("origem") == "parametro":
+                    erros += erros_parametro(onde, t)
+            erros += erros_regimes(onde, f)
+            erros += erros_referencia_guia(onde, f)
+        elif c.get("origem") == "derivado" and n not in legado:
+            erros.append(f"{onde}: entrada derivada nova sem fórmula; acrescente `derivacao.formula` e `derivacao.termos` "
+                         f"(cada termo com nome, origem {'|'.join(ORIGENS_TERMO)} e fonte) no fragmento do domínio")
+    return erros
+
+
+def linhas(dic: dict, origem: dict) -> list[dict]:
+    lago = origem.get("derivacao_lago") or {}
+    out = []
+    for c in sorted((c for c in dic["campos"] if c["direcao"] == "entrada"), key=lambda c: c["nome_dmn"]):
+        fb = c.get("fallback_nulo") or {}
+        out.append({
+            "nome_dmn": c["nome_dmn"],
+            "nome_snake": c.get("nome_snake"),
+            "nome_maezo": c.get("nome_maezo"),
+            "tipo": c.get("tipo"),
+            "dominio": _resumo_dominio(c.get("dominio_valores")),
+            "origem": c.get("origem"),
+            "de_onde": _de_onde(c),
+            "formula": formula_de(c),
+            "valores_maezo": c.get("valores_maezo"),
+            "fallback_nulo": fb.get("politica"),
+            "tabelas": sorted(c.get("tabelas") or []),
+            "derivacao_lago": {k: lago[c["nome_dmn"]][k] for k in CAMPOS_LAGO} if c["nome_dmn"] in lago else None,
+            # Entrada sem derivação registrada no relatório do lago: lacuna declarada, nunca inferida.
+            "lacuna_lago": c["nome_dmn"] not in lago,
+        })
+    return out
+
+
+def metadados(dic: dict, origem: dict) -> dict:
+    """Metadados cobertos pelo hash além das linhas (o pacote K1 usa a mesma função: scripts/pacote.py)."""
+    return {"vocabulario_classe_lago": origem.get("vocabulario_classe_lago") or {},
+            "fonte_lago": origem.get("fonte_lago"), "fonte_lago_versao": origem.get("fonte_lago_versao"),
+            "versao_dicionario_dados": (dic.get("metadados") or {}).get("versao")}
+
+
+def hash_canonico(versao: str, ls: list[dict], meta: dict | None = None) -> str:
+    """SHA-256 do JSON canônico (chaves ordenadas, UTF-8, sem espaços) de versão, linhas e metadados que o consumidor
+    pina: vocabulário de classe_lago, fonte e versão do relatório do lago e versão do dicionário de dados."""
+    s = json.dumps({"versao": versao, "entradas": ls, "meta": meta or {}}, ensure_ascii=False, sort_keys=True,
+                   separators=(",", ":"))
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _cel(s) -> str:
+    return str(s if s not in (None, "") else "—").replace("|", "\\|").replace("\n", " ")
+
+
+def montar(dic: dict, origem: dict) -> str:
+    ls = linhas(dic, origem)
+    versao = str(origem["versao"])
+    meta = metadados(dic, origem)
+    politicas = sorted({str(l["fallback_nulo"]) for l in ls})
+    cont: dict[str, int] = {}
+    for l in ls:
+        cont[l["origem"]] = cont.get(l["origem"], 0) + 1
+    o = [
+        "<!-- GERADO por scripts/k1_entradas.py (make derivar). NÃO EDITE: altere docs/programa/k1-entradas-origem.yaml ou o dicionário. -->",
+        "# K1: dicionário de entradas das regras (para o consumidor pinar)",
+        "",
+        f"- Versão do dicionário de entradas: `{versao}`",
+        f"- SHA-256 do conteúdo canônico: `{hash_canonico(versao, ls, meta)}`",
+        f"- Versão do dicionário de dados (metadados): `{dic.get('metadados', {}).get('versao')}`",
+        f"- Entradas: {len(ls)} (" + ", ".join(f"{k}: {cont[k]}" for k in sorted(cont)) + ")",
+        f"- Sem derivação no lago (`lacuna_lago`, coluna \"lago\" = LACUNA): {sum(1 for l in ls if l['lacuna_lago'])}",
+        f"- Fallback de nulo: {', '.join(f'`{p}`' for p in politicas)} em toda entrada: dado ausente vai a revisão humana ou segue sem efeito, nunca nega.",
+        "",
+        "## Entradas",
+        "",
+        "| nome DMN | snake | MAEZO | tipo | domínio de valores | de onde o consumidor obtém | lago | fallback de nulo | tabelas DMN |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for l in ls:
+        tab = ", ".join(t.split("#")[-1] for t in l["tabelas"])
+        o.append("| " + " | ".join(_cel(x) for x in (
+            l["nome_dmn"], l["nome_snake"], l["nome_maezo"], l["tipo"], l["dominio"], l["de_onde"],
+            "LACUNA" if l["lacuna_lago"] else l["derivacao_lago"]["classe_lago"], l["fallback_nulo"], f"{len(l['tabelas'])}: {tab}" if tab else "0")) + " |")
+    o += ["", "## Entradas com derivação no lago (K3)", "",
+          f"Fonte: {origem.get('fonte_lago')}; {origem.get('fonte_lago_versao')}. O que o relatório não traz está como LACUNA.", ""]
+    voc = origem.get("vocabulario_classe_lago") or {}
+    for k in sorted(voc):
+        o.append(f"- `{k}`: {voc[k]}")
+    o.append("")
+    for l in ls:
+        d = l["derivacao_lago"]
+        if not d:
+            continue
+        o += [f"### {l['nome_dmn']}", "",
+              f"- Classe: `{d['classe_lago']}`", f"- Rota: {d['rota']}", f"- Campo do lago: {d['campo_lago']}",
+              f"- Derivação: {' '.join(str(d['derivacao']).split())}",
+              f"- Ressalva: {' '.join(str(d['ressalva']).split())}", f"- Fonte: `{d['fonte']}`", ""]
+    vm = [l for l in ls if l["valores_maezo"]]
+    o += ["## De-para de valores do Maezo", "",
+          "Entradas cujo valor do Maezo difere do código das regras (`valores_maezo` em `entradas.json`; o consumidor converte, o RCO não infere):", ""]
+    for l in vm:
+        mapa = {k: v for k, v in l["valores_maezo"].items() if k != "base"}
+        o.append(f"- `{l['nome_dmn']}`: " + ", ".join(f"{k} → {v}" for k, v in mapa.items())
+                 + (f". Base: {' '.join(str(l['valores_maezo']['base']).split())}" if l["valores_maezo"].get("base") else ""))
+    if not vm:
+        o.append("- nenhuma entrada")
+    o.append("")
+    fs = [l for l in ls if l["formula"]]
+    o += ["## Fórmulas das entradas derivadas", "",
+          f"Entradas `derivado` com fórmula registrada no dicionário: {len(fs)}. As derivadas anteriores ao gate "
+          f"(PROG-RCO-3c) sem fórmula ficam na descrição da coluna \"de onde o consumidor obtém\".", ""]
+    for l in fs:
+        f = l["formula"]
+        o += [f"### {l['nome_dmn']}", "", f"- Fórmula: `{' '.join(str(f['formula']).split())}`"]
+        o += [f"- Termo `{t['nome']}`: origem `{t['origem']}`{_valor_parametro(t)}; fonte: {' '.join(str(t['fonte']).split())}"
+              for t in f["termos"]]
+        for r in f.get("referencia_por_tipo_guia") or []:
+            o.append(f"- Referência da guia {r['guia']}: data {('`' + r['data'] + '`') if r.get('data') else 'nenhuma (o valor é nulo)'}; "
+                     f"hora {('`' + r['hora'] + '`') if r.get('hora') else 'nenhuma'}"
+                     + (f"; lacuna: {' '.join(str(r['lacuna']).split())}" if r.get("lacuna") else ""))
+        for r in f.get("regimes") or []:
+            data = f"`{r['termo_data']}`" if r.get("termo_data") else "nenhuma (o valor é nulo)"
+            o.append(f"- Regime `{r['regime']}`: guias {', '.join(f'`{g}`' for g in r['tipos_guia'])}; data: {data}; "
+                     f"fonte: {' '.join(str(r['fonte']).split())}"
+                     + (f"; lacuna: {' '.join(str(r['lacuna']).split())}" if r.get("lacuna") else ""))
+        o.append("")
+    return "\n".join(o)
+
+
+def _valor_parametro(t: dict) -> str:
+    if t.get("origem") != "parametro":
+        return ""
+    if t.get("valor") is not None:
+        return f"; valor {t['valor']} {str(t.get('unidade')).replace('_', ' ')}"
+    if t.get("referencia"):
+        refs = t["referencia"] if isinstance(t["referencia"], list) else [t["referencia"]]
+        return "; referência " + ", ".join(f"`{r}`" for r in refs)
+    if t.get("valor_por_contrato"):
+        return f"; valor por contrato: {' '.join(str(t['valor_por_contrato']).split())}"
+    if t.get("lacuna"):
+        return f"; sem valor (lacuna {t['lacuna']})"
+    return ""
+
+
+def impressao(dic: dict, origem: dict | None = None) -> str:
+    """`sha256:<hex>` do conjunto de entradas: JSON canônico da lista ordenada de {nome_dmn, tipo, origem, dominio,
+    tabelas, formula}. Não depende da derivação do lago nem de campos descritivos."""
+    ls = [{"nome_dmn": c["nome_dmn"], "tipo": c.get("tipo"), "origem": c.get("origem"),
+           "dominio": _resumo_dominio(c.get("dominio_valores")), "tabelas": sorted(c.get("tabelas") or []),
+           "formula": formula_de(c)}
+          for c in sorted((c for c in dic.get("campos", []) if c.get("direcao") == "entrada"), key=lambda c: c["nome_dmn"])]
+    s = json.dumps(ls, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _semver(v: str) -> tuple[int, int, int] | None:
+    import re
+    m = re.match(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$", str(v))
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def erros_versao(dic: dict, origem: dict, publicada: dict | None = None, publicar: bool = False) -> tuple[list[str], list[str]]:
+    """(bloqueantes, avisos) da versão do dicionário de entradas. `publicada` é a origem em `main` (ou None, sem o ref).
+    Conjunto diferente do registrado para `versao`: aviso no CI de PR, bloqueante com `publicar`."""
+    erros: list[str] = []
+    avisos: list[str] = []
+    versao = str(origem.get("versao"))
+    versoes = {str(k): v for k, v in (origem.get("versoes") or {}).items()}
+    if not versoes:
+        return ["origem sem `versoes` (mapa versão → impressão do conjunto de entradas)"], avisos
+    ruins = [k for k in versoes if _semver(k) is None]
+    if ruins:
+        return [f"`versoes` com chave fora de SemVer: {ruins}"], avisos
+    if versao not in versoes:
+        erros.append(f"`versao` {versao} sem registro em `versoes`")
+    elif max(versoes, key=_semver) != versao:
+        erros.append(f"`versao` {versao} não é a maior de `versoes` ({max(versoes, key=_semver)})")
+    atual = impressao(dic)
+    if versao in versoes and versoes[versao] != atual:
+        msg = (f"o conjunto de entradas mudou em relação à versão publicada {versao} (impressão atual {atual}): "
+               f"a próxima publicação do pacote exige versão nova (suba `versao` e registre em `versoes` a saída de "
+               f"python3 scripts/k1_entradas.py --impressao)")
+        (erros if publicar else avisos).append(msg)
+    if publicada:
+        antes = {str(k): v for k, v in (publicada.get("versoes") or {}).items()}
+        for k, v in sorted(antes.items()):
+            if v and versoes.get(k) != v:
+                erros.append(f"impressão da versão {k}, já publicada em main, foi trocada ou removida: suba a versão em vez disso")
+        va = _semver(str(publicada.get("versao")))
+        if va and _semver(versao) and _semver(versao) < va:
+            erros.append(f"`versao` {versao} menor que a publicada em main ({publicada.get('versao')})")
+    return erros, avisos
+
+
+def _origem_publicada(raiz: Path) -> dict | None:
+    import subprocess
+    r = subprocess.run(["git", "-C", str(raiz), "show", f"origin/main:{ORIGEM}"], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    return yaml.safe_load(r.stdout) or {}
+
+
+def _carregar(raiz: Path):
+    return (yaml.safe_load((raiz / DICIONARIO).read_text(encoding="utf-8")),
+            yaml.safe_load((raiz / ORIGEM).read_text(encoding="utf-8")))
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--gerar", action="store_true")
+    g.add_argument("--verificar", action="store_true")
+    g.add_argument("--impressao", action="store_true")
+    ap.add_argument("--publicar", action="store_true", help="com --verificar ou --gerar: conjunto diferente do da versão bloqueia")
+    ap.add_argument("--raiz", default=str(RAIZ))
+    a = ap.parse_args(argv)
+    raiz = Path(a.raiz)
+    if not (raiz / DICIONARIO).exists():
+        print(f"ERRO: {DICIONARIO} não existe; rode `make derivar`.")
+        return 1
+    dic, origem = _carregar(raiz)
+    if a.impressao:
+        print(impressao(dic))
+        return 0
+    publicada = _origem_publicada(raiz)
+    if publicada is None:
+        import os
+        if os.environ.get("GITHUB_ACTIONS"):
+            # No CI a imutabilidade das versões publicadas não pode se desligar em silêncio por falta do ref.
+            print(f"ERRO: sem origin/main:{ORIGEM} no CI; a imutabilidade das versões publicadas não pode ser conferida "
+                  "(checkout com fetch-depth: 0)")
+            return 1
+        print(f"aviso: sem origin/main:{ORIGEM}; imutabilidade das versões publicadas não conferida")
+    ev, avisos = erros_versao(dic, origem, publicada, a.publicar)
+    for x in avisos:
+        print("aviso: " + x)
+    erros = validar(dic, origem, publicada) + ev
+    if erros:
+        print("\n".join("ERRO: " + e for e in erros))
+        return 1
+    texto = montar(dic, origem) + "\n"
+    alvo = raiz / SAIDA
+    if a.gerar:
+        alvo.write_text(texto, encoding="utf-8")
+        print(f"gravado {SAIDA}")
+        return 0
+    if not alvo.exists() or alvo.read_text(encoding="utf-8") != texto:
+        print(f"ERRO: {SAIDA} diverge das fontes. Rode `python3 scripts/k1_entradas.py --gerar` (ou `make derivar`).")
+        return 1
+    print("k1-entradas em dia")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
