@@ -1,7 +1,7 @@
 <!-- Pagina servida pelo Canal de Teste em /p/autorizacao.html
      Mesma origem do motor (/engine) e do agente (/agente) — sem credencial, sem CORS.
-     Os casos abaixo foram extraidos do lago de dados de producao (Athena) e estao embutidos
-     porque o Canal nao expoe rota para o lago. Sao reais; a extracao esta datada.
+     Os casos abaixo sao SINTETICOS, gerados para o Canal de Teste (padrao fechado FICT-AUT-NNNN,
+     FICT-PRE-NN, FICT-BNF-NNNN). Nenhum vem de dado de beneficiario; DL-0192.
 
      ================================================================================
      QUATRO AJUSTES DO TIME, 19/08/2026 — para a pagina falar com o que existe na AWS
@@ -41,12 +41,12 @@
      4. MOJIBAKE nos nomes de procedimento (`DiÃ¡ria`, `FacoemulsificaÃ§Ã£o`) — UTF-8 lido
         como latin-1 na extracao. Corrigido no JSON embutido; nada mais foi tocado.
 
-     PENDENCIA QUE NAO E' TECNICA: os casos aqui sao dado REAL de beneficiario. Enquanto a
+     ZONA DA NARRATIVA (os casos aqui sao sinteticos, DL-0192). Enquanto a
      narrativa do dossie nao for ratificada (DPO + medico auditor, em
-     `spec/policies/phi/dossier-narrative-zone.yaml`), ela e' servida pela zona PHI — texto
-     sintetico, zero egresso. Esta pagina JA rotula isso sozinha, no painel "O que e real".
-     Com caso ficticio, o modelo real escreve: medido, `llm_token_usage` com
-     claude-opus-5 via Bedrock.
+     `spec/policies/phi/dossier-narrative-zone.yaml`), a chamada da narrativa vai ao provedor
+     configurado como zona PHI. Em dev esse provedor pode ser um modelo real fora do Brasil,
+     sob a excecao regional do DPO: NAO ha garantia de zero egresso. Desde o DL-0192 o prompt
+     nao leva numero da guia nem CID-10, mas leva os demais fatos do caso.
 -->
 <meta charset="utf-8">
 <title>Autorizacao Previa — SP-OP-AUTH-001</title>
@@ -96,13 +96,13 @@ select:focus-visible,input:focus-visible,button:focus-visible{outline:2px solid 
 
 <header>
   <h1>Autorizacao Previa &middot; SP-OP-AUTH-001</h1>
-  <div class="sub">Tudo executa na AWS: motor, agente Rafael e programas de apoio. Caso real do lago de dados.</div>
+  <div class="sub">Tudo executa na AWS: motor, agente Rafael e programas de apoio. Casos sinteticos (ficticios).</div>
 </header>
 
 <div class="wrap">
   <div>
     <div class="card">
-      <h2>1 &middot; Escolha um caso real</h2>
+      <h2>1 &middot; Escolha um caso sintetico</h2>
       <div class="sub" id="proc"></div>
       <div id="casos" style="margin-top:10px"></div>
 
@@ -161,8 +161,8 @@ select:focus-visible,input:focus-visible,button:focus-visible{outline:2px solid 
 </div>
 
 <script>
-var CASOS = [{"guia": "172906", "procedimento": "10102019", "nome_proc": "Visita Hospitalar (Paciente Internado)", "valor": 0.0, "dt": "2022-07-03", "prestador": "1650", "pseudo": "bnf-0b639907183d", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 10.428, "volume_historico": 33745, "gabarito": "APROVADO", "categoria_sugerida": "consulta"}, {"guia": "172906", "procedimento": "60000694", "nome_proc": "Diária de Enfermaria de 3 Leitos com Banheiro Privativo", "valor": 0.0, "dt": "2022-07-03", "prestador": "1650", "pseudo": "bnf-0b639907183d", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": false, "exige_dut": false, "taxa_negativa": 5.743, "volume_historico": 41288, "gabarito": "APROVADO", "categoria_sugerida": "internacao"}, {"guia": "173505", "procedimento": "30306027", "nome_proc": "Facectomia com Lente Intra-Ocular com Facoemulsificação", "valor": 0.0, "dt": "2022-07-15", "prestador": "1036", "pseudo": "bnf-a119fe5f30d6", "beneficiario_ativo": true, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 3.317, "volume_historico": 4281, "gabarito": "APROVADO", "categoria_sugerida": "opme"}, {"guia": "173598", "procedimento": "60001038", "nome_proc": "Diária de UTI Adulto Geral", "valor": 0.0, "dt": "2022-07-18", "prestador": "2027", "pseudo": "bnf-b53fe7645290", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": false, "exige_dut": false, "taxa_negativa": 6.235, "volume_historico": 4459, "gabarito": "APROVADO", "categoria_sugerida": "internacao"}, {"guia": "173598", "procedimento": "30913012", "nome_proc": "Implante de Cateter Venoso Central por Punção, para NPP, QT, Hemodepuração ou Infusão de Soros/Drogas", "valor": 0.0, "dt": "2022-07-18", "prestador": "2027", "pseudo": "bnf-b53fe7645290", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 46.881, "volume_historico": 2020, "gabarito": "APROVADO", "categoria_sugerida": "opme"}];
-var META = {"extraido_em": "2026-08-19T15:00:00", "fonte": "amh_omni_gold (guias_historico, guias_procedimento, rol_procedimento_historico, rede_credenciada, carencia_beneficiario) + amh_omni_fhir.fhir_coverage + amh_omni_mpi.patient_source"};
+var CASOS = [{"guia": "FICT-AUT-0001", "procedimento": "10101012", "nome_proc": "Procedimento ficticio A (consulta)", "valor": 250.0, "dt": "2000-01-01", "prestador": "FICT-PRE-01", "pseudo": "FICT-BNF-0001", "beneficiario_ativo": true, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 0.0, "volume_historico": 0, "gabarito": "sintetico", "categoria_sugerida": "consulta"}, {"guia": "FICT-AUT-0002", "procedimento": "40901114", "nome_proc": "Procedimento ficticio B (exame)", "valor": 480.0, "dt": "2000-01-02", "prestador": "FICT-PRE-02", "pseudo": "FICT-BNF-0002", "beneficiario_ativo": true, "carencia_cumprida": false, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 0.0, "volume_historico": 0, "gabarito": "sintetico", "categoria_sugerida": "exame_simples"}, {"guia": "FICT-AUT-0003", "procedimento": "30306027", "nome_proc": "Procedimento ficticio C (cirurgia)", "valor": 5000.0, "dt": "2000-01-03", "prestador": "FICT-PRE-03", "pseudo": "FICT-BNF-0003", "beneficiario_ativo": true, "carencia_cumprida": true, "rede_credenciada": false, "no_rol": true, "exige_dut": true, "taxa_negativa": 0.0, "volume_historico": 0, "gabarito": "sintetico", "categoria_sugerida": "alta_complexidade"}];
+var META = {"extraido_em": "nao se aplica", "fonte": "sintetico (gerado para o Canal de Teste)"};
 var sel = null, ultimo = null;
 
 // AJUSTE 2: os oito desfechos que SP-OP-AUTH-001 declara. Ler o end event alcancado e' o
@@ -218,7 +218,7 @@ function pintaEtapas(){
 function marca(i, estado){ ETAPAS[i][1] = estado; pintaEtapas(); }
 
 function pintaCasos(){
-  $("proc").textContent = "Extraidos do lago em " + META.extraido_em + ". Identificador do beneficiario e pseudonimo.";
+  $("proc").textContent = "Casos sinteticos: " + META.fonte + ". Nenhum identificador e' real.";
   var h = "";
   for (var i=0;i<CASOS.length;i++){
     var c = CASOS[i];
@@ -232,7 +232,7 @@ function pintaCasos(){
       +  '<span class="pill '+(c.no_rol?"ok":"")+'">'+(c.no_rol?"no Rol":"fora do Rol")+'</span>'
       +  (c.exige_dut?'<span class="pill warn">exige DUT</span>':'')
       +  '</div>'
-      +  '<div class="sub" style="margin-top:6px">No historico este procedimento foi negado em '
+      +  '<div class="sub" style="margin-top:6px">Historico sintetico (sem dado real): negado em '
       +  esc(c.taxa_negativa)+'% de '+esc(c.volume_historico)+' decisoes. Esta guia: <b>'+esc(c.gabarito)+'</b>.</div>'
       +  '</div>';
   }
@@ -249,7 +249,7 @@ function escolher(i){
   $("b1").disabled = false;
   $("honesto").innerHTML =
      '<div class="linha"><span>Ambiente</span><b class="ok">AWS</b></div>'
-   + '<div class="linha"><span>Caso e fatos</span><b class="ok">reais, do lago</b></div>'
+   + '<div class="linha"><span>Caso e fatos</span><b class="warn">sinteticos</b></div>'
    + '<div class="linha"><span>Agente Rafael</span><b class="ok">executa de verdade</b></div>'
    + '<div class="linha"><span>Motor de processos</span><b class="ok">real</b></div>'
    + '<div class="linha"><span>Texto do dossie</span><b id="hnar" class="warn">a confirmar</b></div>'
@@ -336,9 +336,8 @@ function mostrarAgente(r, seg, pedido){
        + '<div class="pp" style="font-size:13.5px;color:#c9d1d9">'+esc(narrativa)+'</div></div></div>';
     if (sintetico){
       h += '<div class="aviso">Este texto foi produzido por um substituto local, nao pelo modelo de linguagem. '
-         + 'Com CASO REAL de beneficiario a narrativa fica na zona PHI (zero egresso) enquanto '
-         + 'spec/policies/phi/dossier-narrative-zone.yaml nao for ratificado por DPO e medico auditor. '
-         + 'Com caso ficticio, o modelo real escreve — ja medido, claude-opus-5 via Bedrock.</div>';
+         + 'Quando o provedor da zona PHI esta configurado, a narrativa e escrita por ele; em dev pode ser '
+         + 'um modelo real fora do Brasil (excecao regional do DPO). Nao ha garantia de zero egresso.</div>';
     }
   }
   var lac = dossie.lacunas_enriquecimento || dossie.lacunas || [];
