@@ -306,3 +306,13 @@ Variante: J1 só a 1ª perna (catálogo com preço que pode ser desconhecido; pr
 5. Inverter `…preserves_numeric_values` em `test_commercial_c6.py` (sim; o teste pertence ao fluxo C6 da W2-MZO-GP? confirmar se é de outra janela).
 
 Nada de DMN, migração, DL, `PLANS.md`, CODEOWNERS, workflows ou contrato. Arquivos de contagem: nenhum. Começo 05r-a em ramo local `sf-w2/mzo-gp/esf05r-a`, sem push até a CD.
+
+## 2026-11-18 ~13:50Z — PR E-SF-05r (a) aberto (CD-162/163)
+
+- PR maezo-operadora #1327, ramo `sf-w2/mzo-gp/esf05r-a`, head `b158b334db1b591194dc0b312ef7ad3b5e7b6fd9`, base `bef44a63`. CI em curso.
+- Arquivos: `src/maezo/gateway/commercial_public_fences.py` (novo), `src/maezo/gateway/commercial_admission.py` (só `compose_public_catalog_gateway` e o import), `tests/unit/gateway/test_esf05r_public_fences.py` (novo, 18 testes), `tests/unit/test_commercial_c6.py`, `tests/unit/test_commercial_admission_a1.py`, `tests/unit/test_commercial_admission_a2.py`, `tests/unit/gateway/test_esf20_collective_hold.py`.
+- O corpo lista cada teste invertido (o que afirmava, o que passa a afirmar). Nenhum passou de recusa para aceite. Também registra as três lacunas (raiz de produção existe e deixa as rotas em 503; A4 inválida ignorada sem A2; cobertura `unknown` sem `unknownReason`).
+- Achado de forma: o wire de fonte traz os dois códigos de registro dentro de `ansRegistry`; não há `operatorAnsRegistry`. A cerca segue o wire.
+- Gates do diff: `make lint type validate-artifacts` verde; comerciais + gateway 7591 passed (1 falha que também ocorre na main); sec+processes+portal 3498 passed (2 falhas, sem Postgres); ci 3403 passed, 28 falhas e 141 erros = lista conhecida (os nomes de partição de shard falham igual na main limpa). Mutação: 4 violações reais vermelhas. Uma primeira mutação de "reescrita" sobreviveu por ser equivalente (o wire já canoniza) e foi trocada por filtro real.
+- 1 merge atrás: #1321 (`98b99c80`), disjunto, não trazido (CD-155); `merge-tree` limpo.
+- Falha de processo: na 1ª versão, a cerca lia um campo que o wire de fonte não tem (`operatorAnsRegistry`) e usava `assert` em src. Os testes pegaram os dois antes do commit.
