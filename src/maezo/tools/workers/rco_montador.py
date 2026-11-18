@@ -729,7 +729,10 @@ def _cid_secundario_informado(termos: Mapping[str, object]) -> tuple[bool | None
     internacao; `None` (ou a chave ausente) = guia nao extraida ou sem o grupo de saida: nulo. Lista vazia
     (o grupo de saida sem nenhum `diagnostico`, que o XSD admite): NULO, nao falso. O texto da formula daria
     falso (0 nao e maior que 1), mas a descricao publicada define falso como "traz so o principal"; sem nem o
-    principal e dado ausente, e falso aqui levaria a glosa (OMNI-GERAL-MEX-0002) por falta de dado. Lista
+    principal e dado ausente, e falso aqui levaria a glosa (OMNI-GERAL-MEX-0002) por falta de dado.
+    PROVISORIO (aprovado pela coordenacao em 18/11/2026, DL-0184): vale ate o rco corrigir o texto da formula
+    no dicionario (pergunta com a trilha rco); quando o texto publicado mudar, `conferir_mapeamento` recusa o
+    pacote e esta regra e revista contra o texto novo. Lista
     fora da forma do XSD (mais de 4 itens, item que nao e texto de 1 a 4 caracteres): nulo, nunca contada."""
     valor = termos.get("diagnostico")
     if valor is None or valor is SEM_PRODUTOR:
