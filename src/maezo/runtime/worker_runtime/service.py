@@ -312,6 +312,7 @@ def register_default_workers(
     lgpd_legal_hold_predicate: bool = False,
     junta_rn424_guard: bool = False,
     auth_prazo_dias_uteis: bool = False,
+    auth_dmn_orcamento_s: float | None = None,
     pagto_resolve_lastro: bool = False,
     pagto_detect_duplicidade: bool = False,
     pagto_obrigacao_ledger: RazaoObrigacoesPagamento | None = None,
@@ -426,6 +427,8 @@ def register_default_workers(
         junta_rn424_guard=junta_rn424_guard,
         # R-005 / F-018: prazo de resposta AUTH em dias uteis (dark; see settings).
         auth_prazo_dias_uteis=auth_prazo_dias_uteis,
+        # DL-0189: orcamento total de motor DMN por tarefa do portao de criterios do AUTH.
+        auth_dmn_orcamento_s=auth_dmn_orcamento_s,
         # PAGTO PR-D: fatos do lastro conferidos no historico do motor (dark; see settings).
         **({"pagto_resolve_lastro": True} if pagto_resolve_lastro is True else {}),
         # PAGTO PR-E: detector de duplicidade + razao append-only (dark; see settings). A razao so'
@@ -1178,6 +1181,9 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 junta_rn424_guard=settings.auth_junta_rn424_guard,
                 # R-005 (RN 623/2024 art. 12), DARK: prazo de resposta em dias uteis so' quando ligada.
                 auth_prazo_dias_uteis=settings.auth_prazo_dias_uteis,
+                # DL-0189: o portao de criterios do AUTH termina as chamadas ao motor dentro do
+                # bloqueio (`WORKER_LOCK_DURATION_MS` menos `WORKER_DMN_COMPLETE_MARGIN_MS`).
+                auth_dmn_orcamento_s=settings.auth_dmn_budget_s,
                 # PAGTO PR-D (analise PAGTO §2 L1-L4), DARK: fatos do lastro so' quando ligada.
                 pagto_resolve_lastro=settings.pagto_resolve_lastro,
                 # PAGTO PR-E (analise PAGTO §4), DARK: detector de duplicidade so' quando ligada; a

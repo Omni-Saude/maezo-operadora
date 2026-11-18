@@ -146,6 +146,21 @@ class WorkerRuntimeSettings(BaseSettings):
     # default (ships OFF; flipping is a ROLL data change, never an agent act).
     extask_publish_dedup: bool = Field(default=False, alias="MAEZO_EXTASK_PUBLISH_DEDUP")
 
+    # DL-0189: margem que o bloqueio da tarefa reserva para DEPOIS das chamadas ao motor DMN do
+    # portao de criterios do AUTH (`operadora.auth.validate_auto_criteria`). O orcamento total de
+    # motor por tarefa desse worker e DERIVADO: `auth_dmn_budget_s` = `lock_duration_ms` menos esta
+    # margem (20 s com os padroes de 30 s e 10 s). Sem ele, as 2 a 4 avaliacoes sequenciais da tarefa
+    # podiam somar mais que o bloqueio (cada uma limitada so pelo `client_timeout_s` de 40 s): o motor
+    # re-entregava a tarefa a outro worker e o `complete` tardio era recusado (medicao na DL-0189).
+    # O que a margem cobre, depois do motor: o resto de `execute` (local), o append da auditoria
+    # (ADR-0007, antes do `complete`), o registro de decisoes K1 do harness (teto proprio de 5 s,
+    # `harness._RCO_REGISTRO_TIMEOUT_S`) e a ida e volta do `complete`; e, antes, a espera da tarefa
+    # pela thread do executor padrao (o orcamento conta do inicio de `execute`, nao do fetch).
+    # Validada abaixo: a partida RECUSA margem que nao deixe orcamento positivo (o padrao da casa,
+    # como `_validate_long_poll_fits_client_timeout`), em vez de corrigir em silencio um valor que a
+    # implantacao escolheu. Derivar do bloqueio mantem o invariante se o bloqueio mudar.
+    dmn_complete_margin_ms: int = Field(default=10_000, alias="WORKER_DMN_COMPLETE_MARGIN_MS")
+
     # Forensic audit F-142 (roadmap R-053): when ON, `operadora.pagto.calculate_facts` writes the
     # FACT `dados_pagamento_validos=False` for an absent/invalid `valor_pagamento_cents`, so the
     # DMN `pagto_admissibility` routes it to PENDENTE_DADOS as SP-OP-PAGTO-001 declares (instead of
@@ -297,6 +312,7 @@ class WorkerRuntimeSettings(BaseSettings):
         "async_response_timeout_ms",
         "max_tasks_per_poll",
         "max_retry_attempts",
+        "dmn_complete_margin_ms",
         mode="after",
     )
     @classmethod
@@ -324,6 +340,31 @@ class WorkerRuntimeSettings(BaseSettings):
                 "before the engine could respond."
             )
         return self
+
+    @model_validator(mode="after")
+    def _validate_dmn_budget_fits_lock(self) -> WorkerRuntimeSettings:
+        """DL-0189, fail-closed na partida: a margem do `complete` tem de deixar orcamento de motor.
+
+        `dmn_complete_margin_ms >= lock_duration_ms` daria orcamento zero ou negativo: toda tarefa do
+        portao de criterios do AUTH iria para a analise humana sem consultar tabela nenhuma. Isso nao e
+        um ajuste que a partida possa adivinhar (encolher a margem gastaria o tempo do `complete`),
+        entao ela recusa, como faz com o long-poll mal configurado.
+        """
+        if self.dmn_complete_margin_ms >= self.lock_duration_ms:
+            raise ValueError(
+                "dmn_complete_margin_ms "
+                f"({self.dmn_complete_margin_ms}ms) must be less than lock_duration_ms "
+                f"({self.lock_duration_ms}ms) — the AUTH criteria gate would have no DMN budget left."
+            )
+        return self
+
+    @property
+    def auth_dmn_budget_s(self) -> float:
+        """DL-0189: orcamento TOTAL de motor DMN por tarefa de `operadora.auth.validate_auto_criteria`.
+
+        Derivado, nunca configurado a parte: o bloqueio da tarefa menos a margem do `complete`
+        (`dmn_complete_margin_ms`). Positivo por construcao (validador acima)."""
+        return (self.lock_duration_ms - self.dmn_complete_margin_ms) / 1000.0
 
     def cibseven_auth_token_value(self) -> str | None:
         """The raw service token, or None if not injected (blocked seam)."""
