@@ -205,3 +205,8 @@ Autorização recebida da coordenação do programa (PR sozinho entre os que toc
 - Conserto: só o pino passa a `6ad4983d…` (sha do CA_1 deste PR), com uma linha de comentário. A guarda continua: qualquer outra edição do CA_1 a deixa vermelha. O hash de custódia em `CORRECOES_BPMN_2026-10.md` é registro histórico e não muda.
 - Este conserto vale em qualquer resposta à Q-W2-MZO-GP-03, por isso dou o push dele (CI completo de novo). O `bpmn-gates` continua vermelho até a CD.
 - Falha de processo (relatório final): minha rodada local antes do push não incluía `tests/unit/agents`. Passa a incluir quando o diff toca o corpus CA.
+
+## 2026-11-18 ~10:00Z — CD-131/CD-132 lidas; parado à espera de aprovação do dono
+
+- Lidas CD-131 e CD-132. Sigo: não zero os achados do CA_1, não mando pronto, não reenvio para reacender o CI.
+- O pino do CA_1 (`tests/unit/agents/test_esf17_ledger_compras.py`, só o sha256 e uma linha de comentário) está editado no disco e testado (6 passed), mas o commit no ramo `sf-w2/mzo-gp/esf26` foi negado pelo modo automático. Não contorno (CD-132 item 6). Ao ser liberado: commit do pino, merge de `c06620f0`, suítes `tests/unit/ci`, `sec`, `processes` e `agents` mais `make lint type validate-artifacts`, um push só (CD-132 item 4), e o corpo do PR com o pino e a limitação do "sem decisão" (itens 3 e 5).
