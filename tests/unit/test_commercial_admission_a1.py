@@ -44,6 +44,7 @@ from maezo.gateway.commercial_catalog_admission import (
 from maezo.portal.api.commercial import COMMERCIAL_PATH, PUBLIC_CATALOG_PATH, commercial_router
 from maezo.ports.commercial import CommercialRefusalError
 from tests.unit.test_commercial_c6 import (
+    SYN_PRESENTIAL_FACT,
     CurrentResultSource,
     PublicScope,
     PublicSource,
@@ -121,6 +122,7 @@ def rig(schema_bytes, *, admitted):
     )
     if admitted:
         kwargs["source_admission"] = a1_admission()
+        kwargs["presential_fact"] = SYN_PRESENTIAL_FACT
     gateway = compose_public_catalog_gateway(**kwargs)
     app = FastAPI()
     app.state.public_catalog_gateway = gateway
