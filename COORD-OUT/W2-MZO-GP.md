@@ -322,3 +322,9 @@ Nada de DMN, migração, DL, `PLANS.md`, CODEOWNERS, workflows ou contrato. Arqu
 - `git diff origin/main...HEAD`: nenhum `# noqa`, `# type: ignore` ou `# pragma` novo. `ruff check` e `ruff format --check` limpos nos 7 arquivos do diff.
 - Testes de `tests/unit/ci` que varrem a árvore (seleção por noqa, import, fence, count, shard, partition, census, inventory, hygiene, scan, boundary, perspective, chokepoint), rodados na main limpa (`bef44a63`, clone isolado) e no ramo, comparando a linha de resumo com a mensagem: nenhuma falha aparece só no ramo, e as comuns têm mensagem idêntica. A main isolada tem erros a mais só nos testes de ledger, que dependem do histórico git do clone.
 - CI do #1327 agora: 35 success, 2 skipped, 4 em curso, 0 vermelho.
+
+## 2026-11-18 ~14:25Z — CORREÇÃO da entrada anterior (CD-170 no #1327)
+
+- A entrada das ~14:15Z dizia que as falhas comuns tinham mensagem idêntica, mas a rodada paralela do ramo não tinha produzido o arquivo de falhas (0 linhas contra 16 da main). Afirmei sem conferir a contagem. Erro meu.
+- Refeito, em série: a seleção dos testes de `tests/unit/ci` que varrem a árvore dá `1 failed, 805 passed, 15 errors` na main limpa (`bef44a63`, clone isolado) e no ramo. As 16 linhas de resumo, com mensagem e caminhos normalizados, são idênticas nos dois lados: 0 só no ramo, 0 só na main.
+- Também não procede o que eu disse sobre "erros a mais na main nos testes de ledger": a diferença vinha da rodada defeituosa. Os 15 erros de ledger aparecem igual nos dois lados.
