@@ -146,3 +146,8 @@ Conferido no código mesclado (`src/maezo/portal/api/specialist_console.py`): a 
 
 - PRONTO: maezo-operadora #1309, head `af729d3fc51e41c005cbb147fcdc04ee6bff6023`, checks verdes (42: 40 success, 2 skipped; integração 1411 testes, 0 falhas, 0 erros). Contém `70c9b97a`; main atual `22790308` um merge à frente (#1301), arquivos disjuntos (CD-80). Simulação de merge limpa e abortada.
 - Próximas, com a main `70c9b97a` incorporada e empurradas sem PR: GTM-E-63 (local sem falha exclusiva do ramo), E-SF-23, E-SF-15, E-SF-22r (suítes locais em curso).
+
+## 2026-11-18 ~03:50Z — PRONTO #1311 (GTM-E-63)
+
+- PRONTO: maezo-operadora #1311, head `c8f8ea65cdb8f42e0892d30295604fafaa054ed5`, checks verdes (42: 40 success, 2 skipped; integração 1413 testes, 0 falhas, 0 erros). Contém `a226697d`; main atual `136444a1` um merge à frente (#1310), arquivos disjuntos (CD-80). Simulação de merge limpa e abortada.
+- E-SF-23, E-SF-15, E-SF-22r: suítes locais sem falha exclusiva do ramo sobre `70c9b97a`; ramos já com `a226697d` incorporada; cada um refaz a suíte local sobre a main da vez antes do PR.
