@@ -85,7 +85,7 @@ def _task(task_id: str = "task-1") -> ExternalTask:
         task_id=task_id,
         topic=TOPICO,
         process_instance_id="proc-1",
-        business_key="CONTA-amh-guia-1",
+        business_key="bk-1",
         worker_id="w-1",
         variables={},
     )
@@ -292,7 +292,7 @@ async def test_falha_do_outbox_loga_conta_e_nao_muda_a_decisao(
     assert t_ruim.failures == []
     erros = [e for e in logs if e["event"] == "rco_aviso_enfileirar_falhou"]
     assert len(erros) == 1 and erros[0]["log_level"] == "error"
-    assert "Failing row" not in str(erros) and "CONTA-amh-guia-1" not in str(erros)
+    assert "Failing row" not in str(erros) and "bk-1" not in str(erros)
     assert contados == [("falha_enfileirar", 2)]
 
 
@@ -414,7 +414,7 @@ async def test_ponta_a_ponta_sintetico_ate_o_relay(pin: rco_pin.RcoRulesPin) -> 
             "prazo_parametro": sint.AVISOS[sint.SINAL]["prazo_parametro"],
             "chave_idempotencia": payload["chave_idempotencia"],
         }
-    assert "CONTA-amh-guia-1" not in str(payloads)
+    assert "bk-1" not in str(payloads)
 
 
 # --- revisao: contrato de ligacao, conclusao incerta, destinos e "ultima vence" ------------------------

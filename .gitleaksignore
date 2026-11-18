@@ -272,3 +272,9 @@ cfe289424e0e56b5b2847070e9c69a13d65fa20d:deploy/aws-ecs/envs/dev-sa-east-1/dev-v
 # imutavel ja publicado (sem force-push). Removiveis quando o ramo sf-w1/doc/E-SF-32 for apagado.
 e6daecd5488ed8dfe88dbf43ba5dac5bec147857:tests/governance/test_normative_pins_e_sf_32.py:generic-api-key:143
 e6daecd5488ed8dfe88dbf43ba5dac5bec147857:tests/governance/test_normative_pins_e_sf_32.py:generic-api-key:177
+
+# Unidade 2a do rco (PR #1312): falso positivo generic-api-key no literal de business key BPM de teste
+# (`business_key="CONTA-amh-guia-1"`, identificador sintetico de instancia, nao credencial) em
+# tests/unit/tools/workers/test_harness_rco_avisos.py. Reparo duravel no commit seguinte (literal `bk-1`, como
+# os demais testes do harness); esta impressao cobre so o commit imutavel ja publicado (sem force-push).
+33096352c6b7f03af2e74365de6fee2c5053efd9:tests/unit/tools/workers/test_harness_rco_avisos.py:generic-api-key:88
