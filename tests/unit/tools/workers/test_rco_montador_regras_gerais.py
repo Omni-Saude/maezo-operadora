@@ -108,11 +108,17 @@ def test_formula_mudada_no_pacote_faz_o_montador_recusar(dic: DicionarioEntradas
         # codigo que nao e texto: nulo
         ({"regime_internacao": 1}, (None, "termo_fora_da_forma_do_elemento")),
         ({"regime_atendimento": True}, (None, "termo_fora_da_forma_do_elemento")),
-        # os dois termos: mesmo regime vale; regimes diferentes (ou um sem regime) e nulo
+        # os dois termos: cada clausula da formula avaliada; uma so satisfeita vale (o OU publicado)
         ({"regime_internacao": "1", "regime_atendimento": "03"}, ("internacao", None)),
+        ({"regime_internacao": "1", "regime_atendimento": "02"}, ("internacao", None)),
+        ({"regime_internacao": "1", "regime_atendimento": "05"}, ("internacao", None)),
+        ({"regime_internacao": "3", "regime_atendimento": "03"}, ("internacao", None)),
+        ({"regime_internacao": "3", "regime_atendimento": "01"}, ("ambulatorial", None)),
+        ({"regime_internacao": "2", "regime_atendimento": "02"}, ("hospital_dia", None)),
+        # duas clausulas com regimes diferentes: so ai a formula e muda sobre qual prevalece -> nulo
         ({"regime_internacao": "1", "regime_atendimento": "01"}, (None, "termos_da_formula_em_conflito")),
         ({"regime_internacao": "2", "regime_atendimento": "03"}, (None, "termos_da_formula_em_conflito")),
-        ({"regime_internacao": "3", "regime_atendimento": "01"}, (None, "termos_da_formula_em_conflito")),
+        ({"regime_internacao": "2", "regime_atendimento": "04"}, (None, "termos_da_formula_em_conflito")),
         ({"regime_internacao": "3", "regime_atendimento": "02"}, (None, "codigo_sem_valor_na_formula")),
         # um termo ausente (None ou vazio) nao conta
         ({"regime_internacao": None, "regime_atendimento": "04"}, ("pronto_socorro", None)),
@@ -157,8 +163,9 @@ def test_regime_nunca_vem_do_tipo_da_guia_nem_do_regime_do_prazo(dic: Dicionario
         (["K409", "T814"], (True, None)),
         (("K409", "T814", "I10"), (True, None)),
         (["K409", "T814", "I10", "E119"], (True, None)),
-        # o XSD admite 0 ocorrencias: quantidade 0 nao e maior que 1
-        ([], (False, None)),
+        # o XSD admite 0 ocorrencias, mas sem nem o principal e dado ausente: nulo (falso levaria a glosa)
+        ([], (None, "grupo_de_saida_sem_diagnostico")),
+        ((), (None, "grupo_de_saida_sem_diagnostico")),
         # fora da forma do XSD (0 a 4 ocorrencias de st_texto4): nulo, nunca contado
         (["K409", "T814", "I10", "E119", "Z00"], (None, "termo_fora_da_forma_do_elemento")),
         (["K409", "T8140"], (None, "termo_fora_da_forma_do_elemento")),

@@ -159,6 +159,7 @@ class MotivoNulo(StrEnum):
     TERMO_INVALIDO = "termo_fora_da_forma_do_elemento"
     CODIGO_FORA_DA_FORMULA = "codigo_sem_valor_na_formula"
     TERMOS_EM_CONFLITO = "termos_da_formula_em_conflito"
+    GRUPO_SAIDA_SEM_DIAGNOSTICO = "grupo_de_saida_sem_diagnostico"
     TIPO_GUIA_SEM_REFERENCIA = "tipo_guia_sem_data_de_referencia"
     REFERENCIA_GUIA_NAO_PUBLICADA = "referencia_por_tipo_guia_nao_publicada"
     REGIME_DA_GUIA_AUSENTE = "regime_da_guia_ausente"
@@ -680,11 +681,14 @@ def _regime(termos: Mapping[str, object]) -> tuple[str | None, MotivoNulo | None
     internacao se `regimeInternacao = 1` OU `regimeAtendimento = 03`; hospital_dia se `regimeInternacao = 2`;
     ambulatorial se `regimeAtendimento = 01`; pronto_socorro se `regimeAtendimento = 04`; nulo nos demais.
 
-    Cada termo presente da o seu regime (ou nenhum, nos demais codigos). Sem termo: nulo. Os dois presentes
-    com regimes diferentes (inclusive um sem regime): nulo, porque a formula nao diz qual prevalece; o mesmo
-    regime pelos dois (`1` e `03`) e esse regime. Codigo que nao e texto: nulo. Nunca deduz o regime do tipo
-    da guia nem de outro elemento."""
-    lidos: list[str | None] = []
+    Cada clausula da formula e avaliada com os termos presentes. Exatamente uma clausula satisfeita: o seu
+    regime (inclusive quando o outro termo traz um dos "demais codigos", como `1` com `02`: a clausula com
+    OU ja vale). Duas clausulas satisfeitas com regimes diferentes (`1` com `01`, `2` com `03`): nulo,
+    porque so ai a formula nao diz qual prevalece. Nenhuma satisfeita: nulo. Sem termo: nulo. Codigo que
+    nao e texto: nulo. Termo sem produtor no Maezo conta como ausente (ele nao pode satisfazer clausula nem
+    entrar em conflito). Nunca deduz o regime do tipo da guia nem de outro elemento."""
+    regimes: set[str] = set()
+    algum_presente = False
     motivo_ausente = MotivoNulo.TERMO_AUSENTE
     for nome, tabela in (
         ("regimeInternacao", REGIME_POR_REGIME_INTERNACAO),
@@ -697,14 +701,17 @@ def _regime(termos: Mapping[str, object]) -> tuple[str | None, MotivoNulo | None
             continue
         if not isinstance(valor, str):
             return None, MotivoNulo.TERMO_INVALIDO
-        lidos.append(tabela.get(valor))
-    if not lidos:
+        algum_presente = True
+        regime = tabela.get(valor)
+        if regime is not None:
+            regimes.add(regime)
+    if not algum_presente:
         return None, motivo_ausente
-    if len(set(lidos)) > 1:
+    if len(regimes) > 1:
         return None, MotivoNulo.TERMOS_EM_CONFLITO
-    if lidos[0] is None:
+    if not regimes:
         return None, MotivoNulo.CODIGO_FORA_DA_FORMULA
-    return lidos[0], None
+    return regimes.pop(), None
 
 
 #: `ctm_internacaoDadosSaida/diagnostico` no XSD TISS 4.03.00: de 0 a 4 ocorrencias de `st_texto4` (a fonte
@@ -719,9 +726,11 @@ def _cid_secundario_informado(termos: Mapping[str, object]) -> tuple[bool | None
     resumo de internacao nao foi extraida.
 
     O termo e a LISTA dos elementos, na ordem da guia, entregue pelo worker que leu a guia de resumo de
-    internacao; `None` (ou a chave ausente) = guia nao extraida ou sem o grupo de saida: nulo. Lista vazia e
-    o grupo sem nenhum `diagnostico` (o XSD admite 0): falso, pela formula. Lista fora da forma do XSD (mais
-    de 4 itens, item que nao e texto de 1 a 4 caracteres): nulo, nunca contada."""
+    internacao; `None` (ou a chave ausente) = guia nao extraida ou sem o grupo de saida: nulo. Lista vazia
+    (o grupo de saida sem nenhum `diagnostico`, que o XSD admite): NULO, nao falso. O texto da formula daria
+    falso (0 nao e maior que 1), mas a descricao publicada define falso como "traz so o principal"; sem nem o
+    principal e dado ausente, e falso aqui levaria a glosa (OMNI-GERAL-MEX-0002) por falta de dado. Lista
+    fora da forma do XSD (mais de 4 itens, item que nao e texto de 1 a 4 caracteres): nulo, nunca contada."""
     valor = termos.get("diagnostico")
     if valor is None or valor is SEM_PRODUTOR:
         return None, _motivo_do_termo(valor)
@@ -731,6 +740,8 @@ def _cid_secundario_informado(termos: Mapping[str, object]) -> tuple[bool | None
         or not all(isinstance(c, str) and c.strip() and len(c) <= TAMANHO_MAXIMO_DIAGNOSTICO for c in valor)
     ):
         return None, MotivoNulo.TERMO_INVALIDO
+    if not valor:
+        return None, MotivoNulo.GRUPO_SAIDA_SEM_DIAGNOSTICO
     return len(valor) > 1, None
 
 
