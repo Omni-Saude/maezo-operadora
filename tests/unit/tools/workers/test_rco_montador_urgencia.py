@@ -399,6 +399,9 @@ def test_parametro_publicado_em_forma_que_o_montador_nao_le_recusa(
         {"guia": "guia nova com data"},  # tipo de guia publicado que o montador nao conhece
         {"data": "tissGuiasV4_03_00.xsd#ctm_consultaAtendimento/outraData"},  # elemento desconhecido
         {"hora": "tissGuiasV4_03_00.xsd#ctm_consultaAtendimento/horaNova"},
+        # elemento de hora publicado como data e elemento de data publicado como hora
+        {"data": "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoSadt/horaInicial"},
+        {"hora": "tissGuiasV4_03_00.xsd#ctm_consultaAtendimento/dataAtendimento"},
     ],
 )
 def test_referencia_publicada_sem_correspondencia_no_montador_recusa(

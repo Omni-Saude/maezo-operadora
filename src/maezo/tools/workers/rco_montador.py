@@ -62,16 +62,19 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    data tem padrao: em particular, nunca a data de hoje que `contas._normalize_data_recebimento_lote`
    usa quando o lote nao traz o recebimento.
 11. `urgenciaAposVinteQuatroHorasCobertura` (dicionario 1.4.0, K1 2.3.0, DL-0183; leitura do pacote no
-   dicionario 1.5.0, rco aed187d4): calculada EXATAMENTE pela formula publicada. Decide primeiro pelas
-   DATAS (dias corridos entre a data de referencia do atendimento e o inicio da cobertura): 2 ou mais ->
+   dicionario 1.5.0, rco aed187d4): calculada EXATAMENTE pela formula publicada. Decide primeiro pelas DATAS
+   (dias corridos entre a data de referencia do atendimento e o inicio da cobertura): 2 ou mais ->
    verdadeiro; 0 ou menos -> falso; 1 -> pelas horas so com as DUAS horas (cadastro e guia) e o parametro
-   `horasMinimasUrgencia`, senao nulo. Nenhuma hora e inferida. A data (e a hora) de referencia vem do
-   TIPO DA GUIA (`FatosDoCaso.tipo_guia`, nunca deduzido) pela `formula.referencia_por_tipo_guia` DO PACOTE
+   `horasMinimasUrgencia`, senao nulo. Nenhuma hora e inferida. A data (e a hora) de referencia vem do TIPO
+   DA GUIA (`FatosDoCaso.tipo_guia`, nunca deduzido) pela `formula.referencia_por_tipo_guia` DO PACOTE
    (`TIPOS_GUIA` liga o tipo do Maezo ao `guia` publicado; `ELEMENTOS_TISS`, o elemento do XSD publicado a
-   chave de `FatosDoCaso.tiss`); tipo sem item publicado, ou item com data nula (lacuna), = nulo; dicionario
-   sem o bloco (1.4.0) = nulo. O valor de `horasMinimasUrgencia` (origem `parametro`) e o `valor` publicado
-   no termo (1.5.0, com `unidade` conferida), nunca numero do codigo nem configuracao; sem `valor` no pacote
-   (1.4.0, ou `lacuna`) o caso de 1 dia fica nulo (nulo vai a regulacao, nunca nega).
+   chave de `FatosDoCaso.tiss`). No pin, `conferir_mapeamento` RECUSA o pacote quando um tipo do Maezo fica
+   sem item publicado com data, quando um item usa guia ou elemento sem correspondencia no montador ou quando
+   um elemento de data aparece como hora (ou o inverso); em execucao, tipo sem item ou item com data nula
+   (lacuna) da nulo, como defesa. Dicionario sem o bloco (1.4.0) = nulo. O valor de `horasMinimasUrgencia`
+   (origem `parametro`) e o `valor` publicado no termo (1.5.0, com `unidade` conferida), nunca numero do
+   codigo nem configuracao; sem `valor` no pacote (1.4.0, ou `lacuna`) o caso de 1 dia fica nulo (nulo vai a
+   regulacao, nunca nega).
 
 ESCOPO DESTA ENTREGA: framework + os dominios `regras-gerais` (transversal: toda guia passa por
 elegibilidade, carencia e CPT) e `diarias-taxas` (maior volume de autorizacao no agregado real do
@@ -565,6 +568,9 @@ ELEMENTOS_TISS: Final[Mapping[str, str]] = MappingProxyType(
         "tissComplexTypesV4_03_00.xsd#ct_procedimentoExecutadoInt/horaInicial": "hora_inicial",
     }
 )
+#: Chaves de `FatosDoCaso.tiss` que levam HORA (as demais de `ELEMENTOS_TISS` levam data): o pin recusa
+#: elemento de data publicado como `hora` e o inverso.
+CHAVES_TISS_HORA: Final[frozenset[str]] = frozenset({"hora_inicial"})
 #: Termos `tiss` cujo elemento depende do tipo da guia: termo -> posicao em (chave da data, chave da hora).
 TERMOS_POR_TIPO_GUIA: Final[Mapping[str, int]] = MappingProxyType(
     {"dataReferenciaAtendimento": 0, "horaReferenciaAtendimento": 1}
@@ -994,8 +1000,10 @@ def _divergencias_do_valor_publicado(
         )
     conhecidas = set(TIPOS_GUIA.values())
     for r in referencias if impl.referencia_por_tipo_guia else ():
-        elementos = [e for e in (r.data, r.hora) if e is not None]
-        if r.data is not None and (r.guia not in conhecidas or not set(elementos) <= set(ELEMENTOS_TISS)):
+        chave_data = ELEMENTOS_TISS.get(r.data) if r.data is not None else None
+        data_ok = chave_data is not None and chave_data not in CHAVES_TISS_HORA
+        hora_ok = r.hora is None or (r.hora in ELEMENTOS_TISS and ELEMENTOS_TISS[r.hora] in CHAVES_TISS_HORA)
+        if r.data is not None and (r.guia not in conhecidas or not data_ok or not hora_ok):
             problemas.append(
                 f"{nome}: referencia da guia {r.guia!r} sem correspondencia no montador; reveja-o"
             )
