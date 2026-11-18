@@ -49,3 +49,24 @@ async def tratar_parar(
         return None
     await store.registrar_optout(conversation_id, agora or datetime.now(UTC))
     return CONFIRMACAO_PARAR
+
+
+class OposicaoPeloParar:
+    """E-SF-21r: a oposicao EXECUTAVEL do beneficiario ao lembrete, pelo PARAR (efeito imediato).
+
+    Implementa `job.PortaDeOposicaoBeneficiario`. A oposicao so' e' executavel quando as duas pontas
+    existem: o gancho de ENTRADA (`tratar_parar` ligado no despachante, antes de qualquer agente) e o store
+    de opt-out respondendo. `gancho_de_entrada_ligado` e' declarado por quem compoe o despachante; sem ele
+    (o padrao), ou com o store fora do ar, a oposicao nao e' executavel e a rodada inteira e' recusada.
+    Nenhuma composicao de `src/` instancia esta classe: ligar o gancho e' ato proprio.
+    """
+
+    def __init__(self, store: LembreteStore, *, gancho_de_entrada_ligado: bool = False) -> None:
+        self._store = store
+        self._gancho = gancho_de_entrada_ligado is True
+
+    async def executavel(self) -> bool:
+        if not self._gancho:
+            return False
+        await self._store.optouts()  # levanta se a fonte nao responde; o job conta como nao executavel
+        return True

@@ -3,9 +3,10 @@
 1. A flag nasce desligada (e o dry-run ligado): afirmado aqui.
 2. Mesmo com a flag ligada e envio REAL, o gate de PRODUCAO (o default de `Dependencias`) recusa com
    PURPOSE_NOT_RATIFIED antes de qualquer leitura: zero envio, zero leitura de acesso/cobranca/supressao.
-3. O consentimento do acesso (`atendimento_whatsapp` / `wa-consent-v2`), que e' o que `leitura.py`
-   seleciona, NUNCA habilita o envio: mesmo com um registro SINTETICO que ratifica tudo, a permissao que o
-   job apresenta e' recusada `recontact_permission_unqualified`.
+3. O consentimento do acesso (`atendimento_whatsapp` / `wa-consent-v2`) NUNCA habilita o envio. Desde
+   E-SF-21r o criterio e' o aceite do termo de contato (finalidade 2), sem fonte em producao: ninguem e'
+   selecionado; e se o consentimento de atendimento for apresentado ao gate, e' recusado
+   `recontact_permission_unqualified`.
 """
 
 from __future__ import annotations
@@ -93,19 +94,30 @@ async def test_com_tudo_aberto_e_porta_sintetica_o_mecanismo_envia() -> None:
     assert resumo.contadores["enviado_texto"] == 1 and c.cliente.total == 1
 
 
-def test_nenhuma_porta_de_oposicao_do_beneficiario_existe_em_src() -> None:
-    """GAP/DPO: o canal de oposicao do beneficiario nao e' decidido aqui. Nenhuma classe em `src/` implementa
-    `executavel` e a composicao de producao nao preenche `oposicao_beneficiario`."""
+def test_a_unica_porta_de_oposicao_e_o_parar_e_nenhuma_raiz_a_monta() -> None:
+    """E-SF-21r: a unica implementacao de `executavel` em `src/` e' a oposicao pelo PARAR (`optout.py`), e
+    nenhum arquivo de `src/` a instancia; a composicao de producao nao preenche `oposicao_beneficiario`."""
     raiz = Path(composicao.__file__).resolve().parents[2]
     implementacoes = [
-        arquivo
+        arquivo.relative_to(raiz).as_posix()
         for arquivo in raiz.rglob("*.py")
         for no in ast.walk(ast.parse(arquivo.read_text(encoding="utf-8")))
         if isinstance(no, ast.AsyncFunctionDef | ast.FunctionDef)
         and no.name == "executavel"
         and arquivo.name != "job.py"
     ]
-    assert implementacoes == []
+    assert implementacoes == ["platform/lembretes/optout.py"]
+    instancias = [
+        arquivo
+        for arquivo in raiz.rglob("*.py")
+        for no in ast.walk(ast.parse(arquivo.read_text(encoding="utf-8")))
+        if isinstance(no, ast.Call)
+        and (
+            (isinstance(no.func, ast.Name) and no.func.id == "OposicaoPeloParar")
+            or (isinstance(no.func, ast.Attribute) and no.func.attr == "OposicaoPeloParar")
+        )
+    ]
+    assert instancias == []
 
 
 def test_flag_do_lembrete_nasce_desligada_e_em_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -136,7 +148,13 @@ async def test_simulador_tambem_e_recusado_pelo_gate_de_producao() -> None:
 async def test_wa_consent_v2_nunca_habilita_o_lembrete_nem_com_tudo_ratificado() -> None:
     """RT-D4: o registro SINTETICO abre finalidade, template, oposicao e taxonomia; a permissao que o job
     apresenta (a do acesso, `permissao_do_acesso`) continua recusada. Zero envio, zero reserva."""
-    c = _cenario(outbound=gate_ratificado())  # `permissao_de` fica o default do job
+    # Default do job (E-SF-21r): sem fonte de aceite, ninguem e' selecionado e a cobranca nem e' lida.
+    c = _cenario(outbound=gate_ratificado())
+    resumo = await executar(c.deps, c.cfg, agora=AGORA)
+    assert resumo.contadores["sem_aceite_finalidade_cobranca"] == 1
+    assert c.cliente.total == 0 and c.fatos.consultadas == []
+    # O consentimento de atendimento apresentado ao gate continua recusado como permissao proativa.
+    c = _cenario(outbound=gate_ratificado(), permissao_de=permissao_do_acesso)
     resumo = await executar(c.deps, c.cfg, agora=AGORA)
     assert resumo.contadores["recusado_outbound_recontact_permission_unqualified"] == 1
     assert "enviaria" not in resumo.contadores and not any(k.startswith("enviado") for k in resumo.contadores)
@@ -164,7 +182,7 @@ def test_a_composicao_de_producao_nao_injeta_gate_nem_permissao() -> None:
     ]
     assert len(chamadas) == 1
     assert {k.arg for k in chamadas[0].keywords}.isdisjoint(
-        {"outbound", "permissao_de", "oposicao_beneficiario"}
+        {"outbound", "permissao_de", "oposicao_beneficiario", "aceites"}
     )
     assert not Path(composicao.__file__).read_text(encoding="utf-8").count("esf13_apoio")
 
