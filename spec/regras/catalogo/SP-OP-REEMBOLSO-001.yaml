@@ -1,0 +1,285 @@
+# CATALOGO DE REGRAS — SP-OP-REEMBOLSO-001 (piloto de Financas, FIN-01..FIN-08).
+# ADR-0080 e DL-0194 (PROPOSTOS); formato `maezo-regras-catalogo.v1` (src/maezo/regras/catalogo/schema.py).
+#
+# O QUE E'. A primeira copia na repo das 8 perguntas do piloto de Financas (caderno "Frente B -
+# Perguntas por setor e responsaveis - onda 1", 18/11/2026), uma entrada por regra, com o pedaco
+# EXATO do artefato que cada uma aprova (`fonte`) e o hash por regra (`sha256`, recalculado pelo CI:
+# make check-catalogo-regras imprime o valor certo quando diverge).
+#
+# ESTADO. Todas `legado_pendente` (blueprint B9): ja' estao na `main` sem aprovacao registrada.
+# `aprovacoes`, `liberacoes` e `comprovacoes` estao VAZIAS e assim ficam ate' uma PESSOA do time
+# tecnico transcrever a resposta de Financas com evidencia (runbook
+# docs/runbooks/chancela-regras-transcricao-manual.md) ou, a partir da fase 4, o exportador
+# transcrever o recibo. Nenhum agente escreve aprovacao aqui (ADR-0007; regra 5 do sme-dispatch).
+#
+# APROVA A ESPECIFICACAO, NAO LIGA NADA. Varias regras descrevem mecanismo ainda NAO construido
+# (sombra, desligamento automatico, fonte do P60). A faixa automatica segue desligada (teto R$ 0)
+# ate' o ato do R-070 §6; `o_que_nao_e` diz isso em cada uma.
+#
+# PENDENTE DE NEGOCIO (nao inventado aqui):
+#   P2 — titular e substituto de `financas` (nome, e-mail, login GitHub): sem eles o piloto nao abre.
+#   P3 — FIN-02, FIN-03, FIN-05 e FIN-07 (teto e exposicao): o R-070 §6 e' "preenchimento exclusivo do
+#        dono e da atuaria". O `aprovam: [financas, dono]` abaixo e' o DEFAULT do blueprint, a
+#        confirmar pelo dono: a chancela substitui o §6 ou so' o importa? A atuaria e' pessoa
+#        distinta do financeiro dentro de `financas`? Ate' a resposta, nenhuma dessas quatro aprova.
+#   `ciencia: []` em todas: o caderno nao indica setor de ciencia para o piloto.
+schema: maezo-regras-catalogo.v1
+processo: SP-OP-REEMBOLSO-001
+regras:
+  - id: REEMBOLSO.PAGAMENTO.PAPEL_DO_FINANCEIRO
+    alias: FIN-01
+    estado_declarado: legado_pendente
+    tipo: clausula_documento
+    fonte:
+      - arquivo: docs/processes/contracts/SP-OP-REEMBOLSO-001.md
+        secao: "## Papeis humanos (candidate groups)"
+    sha256: "5a331f0a982fc7bc78dc7b8c892df0c8ffec4259a9b342c48f83106d5a50182a"
+    aprovam: [financas]
+    ciencia: []
+    titulo: "Papel do financeiro no reembolso"
+    regra: >-
+      O financeiro paga o reembolso fora do sistema e registra no sistema a data em que pagou. Não
+      decide se o beneficiário tem direito nem o valor: isso é da análise de reembolso.
+    exemplo: >-
+      A analista aprova R$ 180,00 para a consulta da Ana. Aparece na fila do financeiro a tarefa
+      "Registrar pagamento". O financeiro faz o pagamento pelo processo de sempre e, no sistema,
+      informa "pago em 14/11". A Ana recebe pelo WhatsApp: "o pagamento foi feito em 14/11/2026".
+    orientacao: >-
+      Confirmar. É assim que o financeiro já trabalha hoje; o sistema só registra a data para avisar o
+      beneficiário. Se o financeiro também confere algo antes de pagar (por exemplo, dados bancários),
+      descreva no campo: isso pode virar um passo da tarefa.
+    o_que_e: "Aprovar que o papel do financeiro no reembolso é pagar fora do sistema e registrar a data do pagamento."
+    o_que_nao_e: "Não aprova o direito ao reembolso nem o valor de nenhum pedido, e não muda como o pagamento é feito hoje."
+    norma: null
+    validade: P1Y
+    editavel: []
+    historico_de_mudanca: []
+    aprovacoes: []
+    liberacoes: []
+    comprovacoes: []
+
+  - id: REEMBOLSO.FAIXA_AUTO.TETO_PEDIDO
+    alias: FIN-02
+    estado_declarado: legado_pendente
+    tipo: parametro_politica
+    fonte:
+      - arquivo: spec/policies/autonomy/L0-core.yaml
+        caminho: [actions, reembolso_auto_approval, params, teto_duro_brl]
+      - arquivo: spec/policies/autonomy/tenants-amh.yaml
+        caminho: [overrides, reembolso_auto_approval, params, max_value_brl]
+    sha256: "902016ec6d7f890e3dcd5c6a6b4bc29ea9bc0dd7477db2c6fef54a4a42f21f04"
+    aprovam: [financas, dono]  # P3: default do blueprint, a confirmar pelo dono
+    ciencia: []
+    titulo: "Teto por pedido da aprovação automática"
+    regra: >-
+      Um pedido só pode ser aprovado automaticamente se o valor couber no menor destes três números:
+      o limite de reembolso do contrato do beneficiário, o valor típico aprovado para aquele tipo de
+      consulta (percentil 60 do histórico) e R$ 300,00.
+    exemplo: >-
+      A Ana pagou R$ 250,00 numa consulta particular. O limite do contrato dela é R$ 280,00 e o valor
+      típico aprovado é R$ 220,00. O menor dos três é R$ 220,00. Como R$ 250,00 é maior, o pedido vai
+      inteiro para uma pessoa analisar. O sistema nunca reduz o valor para caber no teto.
+    orientacao: >-
+      Aceitar R$ 300,00 como teto inicial. É 60% do teto já em uso na autorização de guias (R$ 500,00,
+      escolhido sobre dados reais) e é mais baixo porque no reembolso quem envia a nota é o próprio
+      beneficiário. É um valor de julgamento, não tirado de dados: por isso começa baixo e só sobe com
+      evidência (FIN-07). Se preferir mais cautela, R$ 200,00 é uma alternativa razoável.
+    o_que_e: "Aprovar o critério do teto por pedido (menor de três números) e o teto duro de R$ 300,00."
+    o_que_nao_e: "Não liga a faixa automática: ela segue desligada (teto R$ 0) até o ato do dono e da atuária no R-070 §6."
+    norma: null
+    validade: P1Y
+    editavel: []
+    historico_de_mudanca: []
+    aprovacoes: []
+    liberacoes: []
+    comprovacoes: []
+
+  - id: REEMBOLSO.FAIXA_AUTO.TETO_ZERO_SEM_HISTORICO
+    alias: FIN-03
+    estado_declarado: legado_pendente
+    tipo: parametro_politica
+    fonte:
+      - arquivo: spec/policies/autonomy/tenants-amh.yaml
+        caminho: [overrides, reembolso_auto_approval, params, max_value_brl]
+    sha256: "a82c53b0a6205782bd83c1655c06372943568c31544818d3b80a4452e8f6fde3"
+    aprovam: [financas, dono]  # P3: default do blueprint, a confirmar pelo dono
+    ciencia: []
+    titulo: "Teto zero até existir histórico"
+    regra: >-
+      Enquanto o valor típico (percentil 60) não puder ser calculado com dados reais, o teto fica em
+      R$ 0,00 e nenhum pedido é aprovado automaticamente.
+    exemplo: >-
+      O time de dados ainda não entregou o histórico de reembolsos. Mesmo que a faixa seja ligada, o
+      pedido de R$ 90,00 do João vai para a analista, porque o teto é R$ 0,00.
+    orientacao: "Aceitar. É a trava que impede ligar a faixa com números inventados."
+    o_que_e: "Aprovar que o teto da operadora fica em R$ 0,00 enquanto o percentil 60 não existir com dados reais."
+    o_que_nao_e: "Não aprova nenhum teto acima de zero e não liga a faixa automática; subir o teto exige o ato do R-070 §6."
+    norma: null
+    validade: P1Y
+    editavel: []
+    historico_de_mudanca: []
+    aprovacoes: []
+    liberacoes: []
+    comprovacoes: []
+
+  - id: REEMBOLSO.FAIXA_AUTO.FONTE_DO_P60
+    alias: FIN-04
+    estado_declarado: legado_pendente
+    tipo: clausula_documento
+    fonte:
+      - arquivo: docs/compliance/human-windows/R-070-dec-teto-d07.md
+        secao: "### 3.3 Teto por pedido"
+      - arquivo: docs/compliance/human-windows/R-070-dec-teto-d07.md
+        secao: "### 3.7 Dependências antes do ativo"
+    sha256: "98303f83d650569501939d5d81abd981d5469066010a933bcf6666e2ede49e4c"
+    aprovam: [financas]
+    ciencia: []
+    titulo: "De onde vem o histórico para o percentil 60"
+    regra: >-
+      O valor típico sai do histórico de reembolsos já aprovados integralmente, por tipo de consulta.
+      O sistema precisa saber qual base usar e quem responde por ela.
+    exemplo: >-
+      Para consulta de dermatologia, o histórico mostra que 60% dos reembolsos aprovados por inteiro
+      foram de até R$ 220,00. Esse é o valor típico usado no FIN-02.
+    orientacao: >-
+      Indicar a base oficial (a proposta técnica é o histórico de reembolsos do Tasy, pela plataforma
+      de dados AMH), o período (sugerimos os últimos 12 meses) e a pessoa responsável pelo número. Não
+      conseguimos calcular esse valor sozinhos: o sistema hoje não tem acesso a esse histórico.
+    o_que_e: "Aprovar a base, o período e o responsável pelo histórico que alimenta o percentil 60."
+    o_que_nao_e: "Não calcula nem publica nenhum percentil 60 e não liga a faixa automática; o teto segue R$ 0."
+    norma: null
+    validade: P1Y
+    editavel: []
+    historico_de_mudanca: []
+    aprovacoes: []
+    liberacoes: []
+    comprovacoes: []
+
+  - id: REEMBOLSO.FAIXA_AUTO.LIMITES_DE_EXPOSICAO
+    alias: FIN-05
+    estado_declarado: legado_pendente
+    tipo: parametro_politica
+    fonte:
+      - arquivo: spec/policies/autonomy/L0-core.yaml
+        caminho: [actions, reembolso_auto_approval, params, exposicao_max_aprovacoes_beneficiario_30d]
+      - arquivo: spec/policies/autonomy/L0-core.yaml
+        caminho: [actions, reembolso_auto_approval, params, exposicao_max_valor_beneficiario_30d_brl]
+      - arquivo: spec/policies/autonomy/L0-core.yaml
+        caminho: [actions, reembolso_auto_approval, params, orcamento_diario_tenant_brl]
+    sha256: "8ac6e0f3fb70de3c1de3b875e070ed3ef5672c2f2c3c71d4e4b4970365a25aef"
+    aprovam: [financas, dono]  # P3: default do blueprint, a confirmar pelo dono
+    ciencia: []
+    titulo: "Limites de exposição da aprovação automática"
+    regra: >-
+      Por beneficiário: no máximo 2 aprovações automáticas e R$ 600,00 a cada 30 dias. Para a
+      operadora: no máximo R$ 3.000,00 aprovados automaticamente por dia. Atingido um limite, os
+      próximos pedidos vão para uma pessoa.
+    exemplo: >-
+      O João já teve 2 consultas aprovadas automaticamente neste mês. A terceira, mesmo pequena, vai
+      para a analista. No mesmo dia, se a soma das aprovações automáticas da operadora chegar a
+      R$ 3.000,00, todo pedido novo vai para pessoa até o dia seguinte.
+    orientacao: >-
+      Aceitar como ponto de partida e recalibrar depois do período de sombra (FIN-07). Os números são
+      propostos sem dado; o objetivo é limitar o prejuízo de um erro ou de uma fraude.
+    o_que_e: "Aprovar os três limites de exposição: 2 aprovações e R$ 600,00 por beneficiário em 30 dias, R$ 3.000,00 por dia."
+    o_que_nao_e: "Não liga a faixa automática e não aprova recalibração: os números voltam a validação depois da sombra."
+    norma: null
+    validade: P1Y
+    editavel: []
+    historico_de_mudanca: []
+    aprovacoes: []
+    liberacoes: []
+    comprovacoes: []
+
+  - id: REEMBOLSO.FAIXA_AUTO.NF_VERIFICADA
+    alias: FIN-06
+    estado_declarado: legado_pendente
+    tipo: clausula_documento
+    fonte:
+      - arquivo: docs/compliance/human-windows/R-070-dec-teto-d07.md
+        secao: "### 3.7 Dependências antes do ativo"
+    sha256: "36b4704dde7a37f8da155bbe02f459b198a8d3f419eef3fa49bcd054e972346d"
+    aprovam: [financas]
+    ciencia: []
+    titulo: "Como verificar o valor da nota fiscal"
+    regra: >-
+      A aprovação automática só acontece se o valor da nota fiscal for verificado. O valor só informado
+      pelo beneficiário não basta.
+    exemplo: >-
+      A Ana envia a foto da nota de R$ 250,00. Se o sistema não consegue confirmar a nota, o pedido vai
+      para a analista, mesmo que todo o resto esteja certo.
+    orientacao: >-
+      Preferir a consulta da chave da nota (NF-e ou NFS-e) na fonte oficial: é a verificação mais forte.
+      A leitura automática da imagem (OCR) é mais fraca; se for usada, defina uma tolerância (sugerimos
+      zero centavo de diferença).
+    o_que_e: "Aprovar que só nota fiscal com valor verificado permite aprovação automática, e escolher a forma de verificar."
+    o_que_nao_e: "Não liga a faixa automática nem constrói a verificação da nota; sem verificação o pedido vai sempre para pessoa."
+    norma: null
+    validade: P1Y
+    editavel: []
+    historico_de_mudanca: []
+    aprovacoes: []
+    liberacoes: []
+    comprovacoes: []
+
+  - id: REEMBOLSO.FAIXA_AUTO.SOMBRA_E_PROMOCAO
+    alias: FIN-07
+    estado_declarado: legado_pendente
+    tipo: clausula_documento
+    fonte:
+      - arquivo: docs/compliance/human-windows/R-070-dec-teto-d07.md
+        secao: "### 3.6 Promoção (rígida)"
+    sha256: "43be5a2e79d77161c11784b25a2b55f5068faa533e9877db75c9036634356d93"
+    aprovam: [financas, dono]  # P3: default do blueprint, a confirmar pelo dono
+    ciencia: []
+    titulo: "Período de teste antes de ligar (sombra)"
+    regra: >-
+      Antes de valer, o sistema só recomenda e a pessoa decide. Para ligar de verdade: pelo menos 200
+      casos ou 60 dias, concordância de pelo menos 98% e nenhum caso em que a pessoa negou ou reduziu
+      um pedido que o sistema achou elegível. Depois, o teto sobe no máximo 50% por trimestre e nunca
+      passa de R$ 500,00 sem nova decisão formal.
+    exemplo: >-
+      Em 60 dias, o sistema recomendou aprovar 210 pedidos. A analista concordou em 207 (98,6%) e nos
+      outros 3 pediu mais documentos, sem negar nem reduzir. A faixa pode ser proposta para ligar.
+    orientacao: >-
+      Aceitar. Se o volume de consultas reembolsadas for baixo, 200 casos podem demorar; nesse caso vale
+      o prazo de 60 dias, mas com a mesma exigência de concordância.
+    o_que_e: "Aprovar os critérios da sombra (200 casos ou 60 dias, 98% de concordância) e o limite de subida do teto."
+    o_que_nao_e: "Não liga a faixa: a sombra ainda não está construída e ligar continua sendo o ato do dono e da atuária no R-070 §6."
+    norma: null
+    validade: P1Y
+    editavel: []
+    historico_de_mudanca: []
+    aprovacoes: []
+    liberacoes: []
+    comprovacoes: []
+
+  - id: REEMBOLSO.FAIXA_AUTO.DESLIGAMENTO_AUTOMATICO
+    alias: FIN-08
+    estado_declarado: legado_pendente
+    tipo: clausula_documento
+    fonte:
+      - arquivo: docs/compliance/human-windows/R-070-dec-teto-d07.md
+        secao: "### 3.5 Disparos automáticos de desligamento (exigem religar manual)"
+    sha256: "ab06f78d657d70d75e25f913195a4f35f6a380a4d0818cd17f096951cda41047"
+    aprovam: [financas]
+    ciencia: []
+    titulo: "Desligamento automático da faixa"
+    regra: >-
+      A faixa se desliga sozinha, e só volta com religação manual, quando: uma pessoa reverte ou reduz
+      uma aprovação automática; aparece nota fiscal em duplicidade (mesmo arquivo, ou mesma pessoa,
+      data e valor); a configuração está inválida; ou a concordância cai abaixo de 98%.
+    exemplo: >-
+      A Ana manda a mesma nota duas vezes, em dias diferentes. O sistema detecta a duplicidade, desliga
+      a faixa e todos os pedidos voltam para análise humana até alguém religar.
+    orientacao: >-
+      Aceitar. Se quiser outro gatilho (por exemplo, um valor diário de estorno), descreva no campo.
+    o_que_e: "Aprovar os quatro gatilhos que desligam a faixa sozinha e a exigência de religação manual."
+    o_que_nao_e: "Não liga a faixa nem constrói o desligamento automático: hoje a faixa já está desligada (teto R$ 0)."
+    norma: null
+    validade: P1Y
+    editavel: []
+    historico_de_mudanca: []
+    aprovacoes: []
+    liberacoes: []
+    comprovacoes: []

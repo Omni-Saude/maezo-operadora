@@ -1,0 +1,19 @@
+# ESCOPO DA CHANCELA DE REGRAS — processos no portao e artefatos cobertos (ADR-0080/DL-0194, PROPOSTOS).
+# Formato e semantica: src/maezo/regras/catalogo/escopo.py. Mudar `portao` (observar -> exigir) e' FLIP
+# revisado por dono qualificado (flip-path-review-gate); o agente nao liga portao.
+#
+# Piloto (onda 1): SP-OP-REEMBOLSO-001 em `observar`. Cobre SO' o que as regras FIN-01..FIN-08 apontam
+# em politica: o override do tenant AMH inteiro e os quatro parametros do L0-core usados por FIN-02/05.
+# FORA do escopo por ora (entram quando houver regra no catalogo, com texto de negocio): `requires`,
+# `faixa_auto_desligada` e `max_value_brl` do L0-core, e a tabela spec/processes/dmn/reembolso_auto_approval.dmn.
+schema: maezo-regras-escopo.v1
+processos:
+  - processo: SP-OP-REEMBOLSO-001
+    portao: observar
+    desde_pr: null
+    artefatos_cobertos:
+      - {arquivo: spec/policies/autonomy/tenants-amh.yaml, caminho: [overrides, reembolso_auto_approval, params]}
+      - {arquivo: spec/policies/autonomy/L0-core.yaml, caminho: [actions, reembolso_auto_approval, params, teto_duro_brl]}
+      - {arquivo: spec/policies/autonomy/L0-core.yaml, caminho: [actions, reembolso_auto_approval, params, exposicao_max_aprovacoes_beneficiario_30d]}
+      - {arquivo: spec/policies/autonomy/L0-core.yaml, caminho: [actions, reembolso_auto_approval, params, exposicao_max_valor_beneficiario_30d_brl]}
+      - {arquivo: spec/policies/autonomy/L0-core.yaml, caminho: [actions, reembolso_auto_approval, params, orcamento_diario_tenant_brl]}

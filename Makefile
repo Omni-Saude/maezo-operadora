@@ -3,6 +3,7 @@
         verify-amh-contract-pin verify-rco-rules-pin \
         check-alert-runbook-urls \
         check-revisao-das-reguas \
+        check-chancela-regras check-catalogo-regras check-regras-so-acrescimo check-regras-cobertura check-controle-de-alteracoes \
         check-plans-counts \
         check-doc-symbol-citations \
         check-compliance-doc-citations \
@@ -77,6 +78,20 @@ check-aprovacao-de-regras: ## DL-0148 (pendencia 27): todo .bpmn/.dmn publicavel
 	# bytes de um aprovado mudaram sem nova aprovacao. Pendentes passam (o deploy do dev nao para),
 	# mas sao listados em toda execucao. A cerca nunca aprova nada: aprovar e' ato humano em PR.
 	.venv/bin/python scripts/ci/check_aprovacao_de_regras.py
+
+check-chancela-regras: check-catalogo-regras check-regras-so-acrescimo check-regras-cobertura check-controle-de-alteracoes ## Chancela de regras (ADR-0080/DL-0194 PROPOSTOS), onda 1: os 4 checks do catalogo
+
+check-catalogo-regras: ## Chancela de regras: forma do catalogo spec/regras/catalogo/ e hash por regra recalculado (imprime o valor certo)
+	.venv/bin/python scripts/ci/check_catalogo_regras.py
+
+check-regras-so-acrescimo: ## Chancela de regras: regra/aprovacao/recibo/linha do controle nunca somem nem sao editados (contra o merge-base do main)
+	.venv/bin/python scripts/ci/check_regras_so_acrescimo.py
+
+check-regras-cobertura: ## Chancela de regras: todo artefato de spec/regras/escopo.yaml tem regra no catalogo (RF-07)
+	.venv/bin/python scripts/ci/check_regras_cobertura.py
+
+check-controle-de-alteracoes: ## Chancela de regras: spec/regras/controle-de-alteracoes.yaml e' exatamente o gerado dos catalogos
+	.venv/bin/python scripts/ci/check_controle_de_alteracoes.py
 
 check-alert-runbook-urls: ## D12-01-b / R-007: toda regra alert: de alert-rules.yml carrega annotations.runbook_url resolvivel no repo
 	# Falha se uma regra `alert:` nao tem `runbook_url`, se o caminho apontado nao existe no

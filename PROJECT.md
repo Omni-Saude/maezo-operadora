@@ -46,6 +46,8 @@ Beneficiário (WhatsApp/Portal)        Prestador (Portal TISS)
 | `spec/policies/autonomy/` | Matriz L0–L3 (ADR-0008) — mudança = PR com revisão de compliance |
 | `src/maezo/tools/mcp_memory/` | Memória episódica/semântica (ADR-0002) — store + MCP server |
 | `src/maezo/platform/` | Tenancy, integrações portadas, webhooks, validação de artefatos |
+| `src/maezo/regras/` | Chancela de regras: catálogo, hash por regra, estado, controle de alterações (ADR-0080, Proposto) |
+| `spec/regras/` | Catálogo de regras por processo, escopo do portão, controle de alterações gerado |
 | `tests/evals/golden/` | Golden datasets por agente — gate de promoção (ADR-0009) |
 | `deploy/` | K8s (namespace por tenant) + Helm |
 

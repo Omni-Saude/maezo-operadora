@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" id="d" name="d" namespace="x">
+  <decision id="dec" name="dec">
+    <decisionTable id="dt" hitPolicy="FIRST">
+      <input id="in_valor" label="valor"><inputExpression typeRef="number"><text>valor</text></inputExpression></input>
+      <output id="out_r" name="r" typeRef="string"/>
+      <rule id="r1"><inputEntry><text>&lt;= 300</text></inputEntry><outputEntry><text>"AUTO"</text></outputEntry></rule>
+      <rule id="r2"><inputEntry><text>-</text></inputEntry><outputEntry><text>"HUMANO"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+</definitions>
