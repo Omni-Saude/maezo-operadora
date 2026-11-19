@@ -19,12 +19,31 @@ duas listas:
   * `pendentes` — o que esta publicado SEM aprovacao registrada, dito em voz alta, com `responsavel`
     (pode ser "a definir"). Passa na cerca — o deploy do dev nao para — mas aparece em toda execucao.
 
+VARIOS PAPEIS POR ARTEFATO (onda 0 da chancela de regras; DL-0194 e ADR-0080, ambos PROPOSTOS).
+Um artefato pode exigir mais de um papel. Forma nova de uma entrada de `aprovados`:
+
+    - artefato: spec/processes/dmn/<arquivo>.dmn
+      sha256: <64 hex>
+      aprovam: [financas, dono]          # conjunto EXATO de papeis exigidos (opcional)
+      aprovacoes:                        # uma por papel, cada uma com quem/quando/evidencia
+        - {papel: financas, aprovado_por: ..., aprovado_em: AAAA-MM-DD, evidencia: ...}
+        - {papel: dono, aprovado_por: ..., aprovado_em: AAAA-MM-DD, evidencia: ...}
+
+Com `aprovam` declarado, o conjunto de papeis das aprovacoes tem de ser IGUAL a ele: papel faltando
+reprova (aprovacao parcial nao e' aprovacao) e papel sobrando tambem (o conjunto e' exato; mudar quem
+aprova e' mudar `aprovam` em PR revisado). A forma antiga (`aprovado_por`/`papel`/`aprovado_em`/
+`evidencia` na propria entrada) continua aceita e equivale a uma lista de um papel; misturar as duas
+formas na mesma entrada reprova. Um pendente pode declarar `aprovam` para dizer, desde ja', quem
+tera' de aprovar — o dominio e' checado, nada mais.
+
 O QUE ESTA CERCA REPROVA
 ------------------------
   1. artefato publicavel que nao esta em nenhuma das listas (o rascunho novo que entraria no motor
      calado). Apagar a linha de um pendente cai aqui: nao e' um jeito de sair da lista;
   2. artefato aprovado cujo hash atual nao bate com o aprovado (editaram regra aprovada);
   3. aprovacao incompleta (sem quem, sem papel conhecido, sem data, data no futuro, hash malformado);
+  3b. conjunto de papeis diferente do `aprovam` declarado (faltando ou sobrando), papel repetido na
+     mesma entrada, ou as duas formas (antiga e `aprovacoes`) misturadas;
   4. entrada que aponta para arquivo que nao e' publicavel (apagado/renomeado) e entrada duplicada.
 
 O QUE ELA NAO FAZ, e e' deliberado: nao aprova nada, nao escreve no registro e nao bloqueia o deploy.
@@ -129,6 +148,100 @@ def _lista(dados: dict[str, Any], chave: str, achados: list[str]) -> list[dict[s
     return bruto
 
 
+#: Campos de UMA aprovacao — na forma antiga ficam na propria entrada; na nova, em cada item de
+#: `aprovacoes`.
+_CAMPOS_APROVACAO: Final[tuple[str, ...]] = ("aprovado_por", "papel", "aprovado_em", "evidencia")
+
+
+def _conjunto_aprovam(artefato: str, bruto: object, achados: list[str]) -> frozenset[str] | None:
+    """`aprovam`: lista nao vazia, sem repeticao, so' papeis conhecidos. None = invalido (achado ja'
+    registrado) — nunca vira "qualquer conjunto serve"."""
+    if not isinstance(bruto, list) or not bruto or not all(isinstance(p, str) for p in bruto):
+        achados.append(f"{artefato}: `aprovam` tem de ser uma lista nao vazia de papeis.")
+        return None
+    papeis = [p.strip() for p in bruto]
+    repetidos = sorted({p for p in papeis if papeis.count(p) > 1})
+    if repetidos:
+        achados.append(f"{artefato}: `aprovam` repete papel(is) {repetidos}.")
+        return None
+    desconhecidos = sorted(set(papeis) - PAPEIS_VALIDOS)
+    if desconhecidos:
+        achados.append(
+            f"{artefato}: `aprovam` cita papel(is) desconhecido(s) {desconhecidos} "
+            f"(validos: {sorted(PAPEIS_VALIDOS)})."
+        )
+        return None
+    return frozenset(papeis)
+
+
+def _verificar_uma(artefato: str, rotulo: str, aprov: dict[str, Any], hoje: date, achados: list[str]) -> str:
+    """Valida quem/papel/quando/evidencia de UMA aprovacao; devolve o papel ("" se ausente)."""
+    for campo in _CAMPOS_APROVACAO:
+        if not str(aprov.get(campo) or "").strip():
+            achados.append(
+                f"{artefato}{rotulo}: aprovacao sem `{campo}` — aprovacao sem isso nao e' registro."
+            )
+    papel = str(aprov.get("papel") or "").strip()
+    if papel and papel not in PAPEIS_VALIDOS:
+        achados.append(
+            f"{artefato}{rotulo}: papel {papel!r} desconhecido (validos: {sorted(PAPEIS_VALIDOS)})."
+        )
+    bruto_data = aprov.get("aprovado_em")
+    if bruto_data:
+        try:
+            quando = date.fromisoformat(str(bruto_data))
+        except ValueError:
+            achados.append(f"{artefato}{rotulo}: `aprovado_em={bruto_data!r}` nao e' data ISO (AAAA-MM-DD).")
+        else:
+            if quando > hoje:
+                achados.append(f"{artefato}{rotulo}: `aprovado_em` {quando.isoformat()} esta' no futuro.")
+    return papel
+
+
+def _verificar_aprovacoes(artefato: str, entrada: dict[str, Any], hoje: date, achados: list[str]) -> None:
+    """Forma antiga (um papel na propria entrada) ou nova (`aprovacoes`, varios papeis), e o conjunto
+    exato contra `aprovam` quando declarado."""
+    nova = "aprovacoes" in entrada
+    if nova and any(campo in entrada for campo in _CAMPOS_APROVACAO):
+        achados.append(
+            f"{artefato}: mistura a forma antiga (`aprovado_por`/`papel`/... na entrada) com "
+            f"`aprovacoes` — use so' `aprovacoes`."
+        )
+        return
+    papeis: list[str] = []
+    if nova:
+        lista = entrada.get("aprovacoes")
+        if not isinstance(lista, list) or not lista or not all(isinstance(a, dict) for a in lista):
+            achados.append(f"{artefato}: `aprovacoes` tem de ser uma lista nao vazia de mapas.")
+            return
+        for i, aprov in enumerate(lista, start=1):
+            papeis.append(_verificar_uma(artefato, f" (aprovacao #{i})", aprov, hoje, achados))
+    else:
+        papeis.append(_verificar_uma(artefato, "", entrada, hoje, achados))
+
+    presentes = [p for p in papeis if p]
+    repetidos = sorted({p for p in presentes if presentes.count(p) > 1})
+    if repetidos:
+        achados.append(f"{artefato}: papel(is) {repetidos} aprovado(s) mais de uma vez na mesma entrada.")
+    if "aprovam" not in entrada:
+        return
+    exigido = _conjunto_aprovam(artefato, entrada.get("aprovam"), achados)
+    if exigido is None:
+        return
+    faltam = sorted(exigido - set(presentes))
+    sobram = sorted(set(presentes) - exigido)
+    if faltam:
+        achados.append(
+            f"{artefato}: aprovacao PARCIAL — falta(m) {faltam} do conjunto exato `aprovam` "
+            f"{sorted(exigido)}. Enquanto faltar papel, a entrada fica em `pendentes`."
+        )
+    if sobram:
+        achados.append(
+            f"{artefato}: papel(is) {sobram} aprovou(aram) mas nao esta(o) em `aprovam` "
+            f"{sorted(exigido)} — o conjunto e' exato; mudar quem aprova e' mudar `aprovam` em PR revisado."
+        )
+
+
 def verificar(dados: dict[str, Any], *, raiz: Path = _REPO_ROOT, hoje: date | None = None) -> list[str]:
     """Devolve a lista de achados; vazia = verde."""
     hoje = hoje or date.today()
@@ -161,21 +274,7 @@ def verificar(dados: dict[str, Any], *, raiz: Path = _REPO_ROOT, hoje: date | No
         artefato = str(entrada.get("artefato", "")).strip()
         if not artefato or artefato not in publicaveis:
             continue
-        for campo in ("aprovado_por", "papel", "aprovado_em", "evidencia"):
-            if not str(entrada.get(campo) or "").strip():
-                achados.append(f"{artefato}: aprovacao sem `{campo}` — aprovacao sem isso nao e' registro.")
-        papel = str(entrada.get("papel") or "").strip()
-        if papel and papel not in PAPEIS_VALIDOS:
-            achados.append(f"{artefato}: papel {papel!r} desconhecido (validos: {sorted(PAPEIS_VALIDOS)}).")
-        bruto_data = entrada.get("aprovado_em")
-        if bruto_data:
-            try:
-                quando = date.fromisoformat(str(bruto_data))
-            except ValueError:
-                achados.append(f"{artefato}: `aprovado_em={bruto_data!r}` nao e' data ISO (AAAA-MM-DD).")
-            else:
-                if quando > hoje:
-                    achados.append(f"{artefato}: `aprovado_em` {quando.isoformat()} esta' no futuro.")
+        _verificar_aprovacoes(artefato, entrada, hoje, achados)
         esperado = str(entrada.get("sha256") or "").strip().lower()
         if not _SHA256_RE.match(esperado):
             achados.append(f"{artefato}: `sha256` ausente ou malformado (64 hex).")
@@ -192,6 +291,8 @@ def verificar(dados: dict[str, Any], *, raiz: Path = _REPO_ROOT, hoje: date | No
         artefato = str(entrada.get("artefato", "")).strip()
         if artefato and not str(entrada.get("responsavel") or "").strip():
             achados.append(f'{artefato}: pendente sem `responsavel` (use "a definir" se ainda nao ha\').')
+        if artefato and "aprovam" in entrada:
+            _conjunto_aprovam(artefato, entrada.get("aprovam"), achados)
 
     for artefato in sorted(publicaveis - set(vistos)):
         if isento_provisoriamente(artefato):

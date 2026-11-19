@@ -32,6 +32,17 @@ a general allowlist, and growing it is an orchestrator decision, not
 something this code (or the human editing the YAML) can quietly expand
 without also updating `tracker.md` to match.
 
+EXACT ROLE SET (onda 0 da chancela de regras — DL-0194 / ADR-0080, both
+PROPOSTO, awaiting the owner's acceptance). A FINAL contract needs an
+`approved` record at its current version from EVERY role the tracker assigns
+to it (`docs/sme-dispatch/tracker.md`, column "Roles assigned") — one approval
+out of five is not a sign-off — and from no role outside that set (changing who
+signs is changing the tracker, an owner act). A FINAL contract with a signoff
+file but no tracker row, or a row with an abbreviation this module does not
+know, fails closed. `dono` is a valid role (abbreviation `DONO` in the
+tracker): the owner already ratifies rules in this repo, and the rule-approval
+fence (`scripts/ci/check_aprovacao_de_regras.py`) has always accepted it.
+
 No agent — this module included — ever creates, edits, or infers a signoff
 record. Signoff is an exclusively human act (constraint: no self-certification).
 """
@@ -59,7 +70,20 @@ REQUIRED_FIELDS = (
     "notes",
 )
 VALID_VERDICTS = frozenset({"approved", "needs-changes"})
-VALID_ROLES = frozenset({"medico-auditor", "juridico", "dpo", "regulatorio", "financas", "po"})
+VALID_ROLES = frozenset({"medico-auditor", "juridico", "dpo", "regulatorio", "financas", "po", "dono"})
+
+#: Abbreviations of the tracker's "Roles assigned" column (legend in `docs/sme-dispatch/tracker.md`)
+#: -> signoff `role`. `DONO` is not in the tracker legend yet: it enters when the owner assigns
+#: himself to a contract (DL-0194, PROPOSTO).
+TRACKER_ROLE_ABBREVIATIONS: dict[str, str] = {
+    "MA": "medico-auditor",
+    "JU": "juridico",
+    "DPO": "dpo",
+    "REG": "regulatorio",
+    "FIN": "financas",
+    "PO": "po",
+    "DONO": "dono",
+}
 
 # A `**Status:**` marker locates a status-declaration line...
 _STATUS_MARKER_RE = re.compile(r"\*\*Status:\*\*")
@@ -71,6 +95,10 @@ _STATUS_MARKER_RE = re.compile(r"\*\*Status:\*\*")
 # fail-open). Ambiguity must resolve to FAIL, never to the more permissive class.
 _STATUS_PAIR_RE = re.compile(r"\b(DRAFT|FINAL)\s*\(v([0-9]+(?:\.[0-9]+)*)\)")
 _VERSION_RE = re.compile(r"^v[0-9]+(?:\.[0-9]+)*$")
+
+# A parenthetical note inside the roles cell ("MA (secondary)", "PO (retro-verification)") is
+# commentary on the role, not a role.
+_TRACKER_ROLE_NOTE_RE = re.compile(r"\([^)]*\)")
 
 # How much context (characters) around a contract-ID mention in tracker.md counts as
 # "the same discussion" when cross-checking a retro-verification flag.
@@ -494,12 +522,117 @@ def check_exceptions(
 
 
 # ---------------------------------------------------------------------------
+# Required role set per contract (tracker.md, "Roles assigned")
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class TrackerRoles:
+    """Roles the tracker assigns to one contract, or why they could not be read."""
+
+    roles: frozenset[str]
+    problem: str | None = None
+
+
+def _split_row(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def parse_tracker_roles(tracker_text: str) -> dict[str, TrackerRoles]:
+    """{contract_id: TrackerRoles} from every markdown table whose header has the columns
+    "Contract ID" and "Roles assigned". An unknown abbreviation or an empty cell is kept as a
+    `problem` (fail-closed at use time), never silently dropped."""
+    result: dict[str, TrackerRoles] = {}
+    id_col = roles_col = -1
+    for line in tracker_text.splitlines():
+        if not line.lstrip().startswith("|"):
+            id_col = roles_col = -1
+            continue
+        cells = _split_row(line)
+        if "Contract ID" in cells and "Roles assigned" in cells:
+            id_col, roles_col = cells.index("Contract ID"), cells.index("Roles assigned")
+            continue
+        if id_col < 0 or len(cells) <= max(id_col, roles_col) or set(cells[id_col]) <= {"-", ":"}:
+            continue
+        contract_id = cells[id_col].strip("*` ")
+        raw = _TRACKER_ROLE_NOTE_RE.sub("", cells[roles_col])
+        tokens = [tok.strip().upper() for tok in raw.split(",") if tok.strip()]
+        unknown = sorted(tok for tok in tokens if tok not in TRACKER_ROLE_ABBREVIATIONS)
+        roles = frozenset(
+            TRACKER_ROLE_ABBREVIATIONS[tok] for tok in tokens if tok in TRACKER_ROLE_ABBREVIATIONS
+        )
+        problem: str | None = None
+        if unknown:
+            problem = f"unknown role abbreviation(s) {unknown} (known: {sorted(TRACKER_ROLE_ABBREVIATIONS)})"
+        elif not roles:
+            problem = "empty 'Roles assigned' cell"
+        result[contract_id] = TrackerRoles(roles=roles, problem=problem)
+    return result
+
+
+def _check_role_set(
+    contract: ContractStatus,
+    signoff_path: Path,
+    records: list[dict[str, str]],
+    tracker_roles: dict[str, TrackerRoles] | None,
+    report: Report,
+) -> None:
+    """Every tracker role approved at the current version, and no role outside that set."""
+    if tracker_roles is None:
+        report.error(
+            signoff_path,
+            f"cannot read the role set of {contract.contract_id} — docs/sme-dispatch/tracker.md "
+            "is missing or unreadable (fail-closed: a FINAL sign-off needs the exact role set)",
+        )
+        return
+    entry = tracker_roles.get(contract.contract_id)
+    if entry is None:
+        report.error(
+            signoff_path,
+            f"{contract.contract_id} has no row in docs/sme-dispatch/tracker.md — the exact set of "
+            "roles that must sign off is unknown (fail-closed)",
+        )
+        return
+    if entry.problem is not None:
+        report.error(
+            signoff_path,
+            f"tracker.md row for {contract.contract_id}: {entry.problem} — fail-closed",
+        )
+        return
+    approved = {
+        r["role"]
+        for r in records
+        if r["contract_version_reviewed"] == contract.version and r["verdict"] == "approved"
+    }
+    missing = sorted(entry.roles - approved)
+    extra = sorted(approved - entry.roles)
+    if missing:
+        report.error(
+            signoff_path,
+            f"{contract.contract_id} {contract.version}: missing an 'approved' sign-off from role(s) "
+            f"{missing} (tracker.md assigns {sorted(entry.roles)}) — a partial sign-off does not "
+            "count toward FINAL promotion",
+        )
+    if extra:
+        report.error(
+            signoff_path,
+            f"{contract.contract_id} {contract.version}: sign-off from role(s) {extra} not assigned "
+            f"in tracker.md ({sorted(entry.roles)}) — the role set is exact; changing who signs is "
+            "changing the tracker (owner act)",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Per-FINAL-contract check
 # ---------------------------------------------------------------------------
 
 
 def _check_final_signoff(
-    contract: ContractStatus, signoff_path: Path, records: list[dict[str, str]], report: Report
+    contract: ContractStatus,
+    signoff_path: Path,
+    records: list[dict[str, str]],
+    report: Report,
+    tracker_roles: dict[str, TrackerRoles] | None = None,
 ) -> None:
     matching = [r for r in records if r["contract_version_reviewed"] == contract.version]
     if not matching:
@@ -521,6 +654,9 @@ def _check_final_signoff(
             f"{contract.version} (role(s): {roles}) — a FINAL contract cannot carry an unresolved "
             "needs-changes verdict",
         )
+        return
+
+    _check_role_set(contract, signoff_path, records, tracker_roles, report)
 
 
 # ---------------------------------------------------------------------------
@@ -576,6 +712,13 @@ def validate_signoffs(contracts_dir: Path, tracker_path: Path, report: Report) -
     exceptions = load_exceptions(exceptions_path, report)
     granted = check_exceptions(exceptions, contracts, signoffs_by_contract, tracker_path, report)
 
+    tracker_roles: dict[str, TrackerRoles] | None = None
+    if tracker_path.is_file():
+        try:
+            tracker_roles = parse_tracker_roles(tracker_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            tracker_roles = None  # reported per FINAL contract by _check_role_set (fail-closed)
+
     for contract_id, contract in sorted(contracts.items()):
         if contract.status != "FINAL":
             continue
@@ -594,4 +737,4 @@ def validate_signoffs(contracts_dir: Path, tracker_path: Path, report: Report) -
             continue
 
         signoff_path, records = record_info
-        _check_final_signoff(contract, signoff_path, records, report)
+        _check_final_signoff(contract, signoff_path, records, report, tracker_roles)
