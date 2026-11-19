@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="defs">
+  <process id="p" isExecutable="true">
+    <boundaryEvent id="timer_sla" attachedToRef="t1"><timerEventDefinition id="td"><timeDuration>P5D</timeDuration></timerEventDefinition></boundaryEvent>
+  </process>
+</definitions>

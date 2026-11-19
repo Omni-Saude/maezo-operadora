@@ -1,0 +1,8 @@
+politica:
+  reembolso:
+    params:
+      teto_brl: 300
+      desligada: true
+      faixas: [1, 2]
+mensagens:
+  aviso: "Seu pedido foi recebido."

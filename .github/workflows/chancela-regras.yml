@@ -1,0 +1,72 @@
+name: chancela-regras
+
+# ---------------------------------------------------------------------------------------------
+# Chancela de regras pelos responsaveis tecnicos — onda 1 (ADR-0080 e DL-0194, ambos PROPOSTOS).
+#
+# Os quatro checks do catalogo em git (blueprint §3.12):
+#   check-catalogo-regras        forma do catalogo + hash por regra recalculado (imprime o certo)
+#   check-regras-so-acrescimo    regra/aprovacao/recibo/linha do controle nunca somem nem mudam,
+#                                contra o merge-base do main (por isso fetch-depth: 0)
+#   check-regras-cobertura       todo artefato do escopo tem regra no catalogo
+#   check-controle-de-alteracoes o controle de alteracoes e' exatamente o gerado
+#
+# O CI SO' VERIFICA (B2): nenhum passo assina, escreve no catalogo ou aprova nada. Nenhum segredo,
+# nenhuma credencial de nuvem; `contents: read` basta.
+#
+# Limite dito (R-08): em pull_request roda o checker do HEAD do PR. Um PR que altere o checker E o
+# catalogo passaria nos proprios checks; a protecao e' `scripts/ci/` ser caminho de dono
+# (flip-path-review-gate) e o mesmo job rodar no push do main (red-main-alarm).
+# ---------------------------------------------------------------------------------------------
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MAEZO_CI_PYTHON_VERSION: "3.12"
+  MAEZO_CI_UV_VERSION: "0.11.26"
+
+jobs:
+  chancela-regras:
+    name: chancela-regras
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Catalogo de regras (forma e hash por regra)
+        run: make check-catalogo-regras
+
+      - name: So' acrescimo contra o merge-base do main
+        run: make check-regras-so-acrescimo
+
+      - name: Cobertura do escopo
+        run: make check-regras-cobertura
+
+      - name: Controle de alteracoes gerado
+        run: make check-controle-de-alteracoes

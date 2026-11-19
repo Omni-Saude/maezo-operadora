@@ -1,0 +1,6 @@
+# CONTROLE DE ALTERACOES DAS REGRAS — ARQUIVO GERADO. NAO EDITE A MAO.
+# Fonte: spec/regras/catalogo/*.yaml. Gerar: python -m maezo.regras.controle gerar
+# O CI (scripts/ci/check_controle_de_alteracoes.py) reprova se este arquivo divergir do gerado.
+# ADR-0080 e DL-0194 (PROPOSTOS).
+linhas: []
+schema: maezo-regras-controle.v1
