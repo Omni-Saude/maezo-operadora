@@ -312,7 +312,14 @@ def _seed_minimal_repo(tmp_path: Path) -> Path:
     )
     sme_dir = tmp_path / "docs" / "sme-dispatch"
     sme_dir.mkdir(parents=True)
-    (sme_dir / "tracker.md").write_text("| 1 | SP-OP-FIXTURE-001 | FINAL | none |\n")
+    # Onda 0 da chancela (DL-0194, PROPOSTA): o gate exige o conjunto exato de papeis do tracker,
+    # entao a fixture declara a coluna "Roles assigned" com o unico papel que assina (MA).
+    (sme_dir / "tracker.md").write_text(
+        "| # | Contract ID | Status (version) | Roles assigned |\n"
+        "|---|---|---|---|\n"
+        "| 1 | SP-OP-FIXTURE-001 | FINAL (v1.0.0) | MA |\n",
+        encoding="utf-8",
+    )
     return tmp_path
 
 

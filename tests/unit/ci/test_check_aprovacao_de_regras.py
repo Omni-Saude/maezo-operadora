@@ -188,3 +188,114 @@ def test_o_registro_real_lista_o_exemplo_rco_como_isento(capsys: pytest.CaptureF
     saida = capsys.readouterr().out
     assert "spec/processes/dmn/rco/rco_exemplo_sintetico.dmn" in saida
     assert "P7" in saida
+
+
+# --- varios papeis por artefato (onda 0 da chancela de regras; DL-0194/ADR-0080 PROPOSTOS) ---------
+
+
+def _aprov(papel_: str, **over: Any) -> dict[str, Any]:
+    base = {
+        "papel": papel_,
+        "aprovado_por": f"Pessoa {papel_}",
+        "aprovado_em": "2026-10-18",
+        "evidencia": "PR #1",
+    }
+    base.update(over)
+    return base
+
+
+def _multi(raiz: Path, aprovam: Any, aprovacoes: Any) -> dict[str, Any]:
+    entrada: dict[str, Any] = {"artefato": _DMN, "sha256": sha256_normalizado(raiz / _DMN)}
+    if aprovam is not None:
+        entrada["aprovam"] = aprovam
+    entrada["aprovacoes"] = aprovacoes
+    return {"version": 1, "aprovados": [entrada], "pendentes": [{"artefato": _BPMN, "responsavel": "x"}]}
+
+
+def test_multi_papel_conjunto_exato_passa(raiz: Path) -> None:
+    dados = _multi(raiz, ["financas", "dono"], [_aprov("dono"), _aprov("financas")])
+    assert verificar(dados, raiz=raiz, hoje=_HOJE) == []
+
+
+def test_multi_papel_sem_aprovam_passa_com_varios_papeis(raiz: Path) -> None:
+    dados = _multi(raiz, None, [_aprov("financas"), _aprov("juridico")])
+    assert verificar(dados, raiz=raiz, hoje=_HOJE) == []
+
+
+def test_aprovacao_parcial_reprova(raiz: Path) -> None:
+    """O RED da lacuna 1.1.2: um papel de dois nao e' aprovacao."""
+    achados = verificar(_multi(raiz, ["financas", "dono"], [_aprov("financas")]), raiz=raiz, hoje=_HOJE)
+    assert any("PARCIAL" in a and "'dono'" in a for a in achados), achados
+
+
+def test_papel_sobrando_reprova(raiz: Path) -> None:
+    dados = _multi(raiz, ["financas"], [_aprov("financas"), _aprov("dpo")])
+    achados = verificar(dados, raiz=raiz, hoje=_HOJE)
+    assert any("'dpo'" in a and "conjunto e' exato" in a for a in achados), achados
+
+
+def test_papel_repetido_na_entrada_reprova(raiz: Path) -> None:
+    dados = _multi(raiz, ["financas"], [_aprov("financas"), _aprov("financas", aprovado_por="Outra")])
+    assert any("mais de uma vez" in a for a in verificar(dados, raiz=raiz, hoje=_HOJE))
+
+
+@pytest.mark.parametrize(
+    ("aprovam", "trecho"),
+    [
+        ([], "lista nao vazia"),
+        ("financas", "lista nao vazia"),
+        (["financas", "financas"], "repete"),
+        (["financas", "estagiario"], "desconhecido"),
+    ],
+)
+def test_aprovam_invalido_reprova(raiz: Path, aprovam: Any, trecho: str) -> None:
+    achados = verificar(_multi(raiz, aprovam, [_aprov("financas")]), raiz=raiz, hoje=_HOJE)
+    assert any("`aprovam`" in a and trecho in a for a in achados), achados
+
+
+@pytest.mark.parametrize(
+    ("over", "trecho"),
+    [
+        ({"aprovado_por": ""}, "(aprovacao #1): aprovacao sem `aprovado_por`"),
+        ({"evidencia": None}, "(aprovacao #1): aprovacao sem `evidencia`"),
+        ({"papel": "estagiario"}, "papel 'estagiario' desconhecido"),
+        ({"aprovado_em": "2026-12-01"}, "no futuro"),
+        ({"aprovado_em": "ontem"}, "nao e' data ISO"),
+    ],
+)
+def test_item_de_aprovacoes_incompleto_reprova(raiz: Path, over: dict[str, Any], trecho: str) -> None:
+    achados = verificar(_multi(raiz, None, [_aprov("financas", **over)]), raiz=raiz, hoje=_HOJE)
+    assert any(trecho in a for a in achados), achados
+
+
+@pytest.mark.parametrize("aprovacoes", [[], "financas", [["financas"]]])
+def test_aprovacoes_malformada_reprova(raiz: Path, aprovacoes: Any) -> None:
+    achados = verificar(_multi(raiz, None, aprovacoes), raiz=raiz, hoje=_HOJE)
+    assert any("`aprovacoes` tem de ser uma lista nao vazia" in a for a in achados), achados
+
+
+def test_misturar_forma_antiga_e_nova_reprova(raiz: Path) -> None:
+    dados = _multi(raiz, None, [_aprov("financas")])
+    dados["aprovados"][0]["aprovado_por"] = "Alguem"
+    assert any("mistura a forma antiga" in a for a in verificar(dados, raiz=raiz, hoje=_HOJE))
+
+
+def test_forma_antiga_com_aprovam_exige_o_mesmo_papel(raiz: Path) -> None:
+    """A forma de um papel continua aceita; com `aprovam` de dois papeis ela e' parcial."""
+    assert verificar(_registro(raiz, aprovam=["financas"]), raiz=raiz, hoje=_HOJE) == []
+    achados = verificar(_registro(raiz, aprovam=["financas", "dono"]), raiz=raiz, hoje=_HOJE)
+    assert any("PARCIAL" in a for a in achados), achados
+
+
+def test_hash_alterado_reprova_tambem_na_forma_multi_papel(raiz: Path) -> None:
+    dados = _multi(raiz, ["financas", "dono"], [_aprov("financas"), _aprov("dono")])
+    (raiz / _DMN).write_bytes(b"<definitions>regra EDITADA</definitions>\n")
+    assert any("NOVA aprovacao" in a for a in verificar(dados, raiz=raiz, hoje=_HOJE))
+
+
+def test_pendente_pode_declarar_aprovam_e_o_dominio_e_checado(raiz: Path) -> None:
+    dados = _registro(raiz)
+    dados["pendentes"][0]["aprovam"] = ["financas", "dono"]
+    assert verificar(dados, raiz=raiz, hoje=_HOJE) == []
+    dados["pendentes"][0]["aprovam"] = ["financas", "atuaria"]
+    assert any("desconhecido" in a for a in verificar(dados, raiz=raiz, hoje=_HOJE))

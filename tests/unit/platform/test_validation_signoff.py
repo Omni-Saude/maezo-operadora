@@ -38,7 +38,9 @@ DEFAULT_TRACKER = (
     "# SME review tracker\n\n"
     "| # | Contract ID | Status (version) | Roles assigned |\n"
     "|---|---|---|---|\n"
-    "| 1 | SP-OP-ESCALATION-001 | **FINAL (v1.0.0)** | MA, REG (retro-verification) |\n"
+    "| 1 | SP-OP-ESCALATION-001 | **FINAL (v1.0.0)** | MA (retro-verification) |\n"
+    "| 2 | SP-OP-AUTH-001 | DRAFT (v0.1.0) | MA |\n"
+    "| 3 | SP-OP-AMBIG-001 | DRAFT (v0.1.0) | MA |\n"
 )
 
 
@@ -62,7 +64,7 @@ def _write_signoff(contracts_dir: Path, contract_id: str, body: str) -> Path:
 
 def _write_tracker(tmp_path: Path, text: str = DEFAULT_TRACKER) -> Path:
     path = tmp_path / "tracker.md"
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -560,3 +562,95 @@ class TestGrandfatherException:
         validate_signoffs(contracts_dir, tracker, report)
         assert not report.ok
         assert any("no signoff file" in f.message for f in report.findings)
+
+
+# ---------------------------------------------------------------------------
+# Exact role set from tracker.md (onda 0 da chancela de regras; DL-0194/ADR-0080 PROPOSTO)
+# ---------------------------------------------------------------------------
+
+
+def _record(role: str, verdict: str = "approved", version: str = "v1.0.0") -> str:
+    return (
+        f'- reviewer_name: "Pessoa {role}"\n'
+        f'  role: "{role}"\n'
+        '  date: "2026-07-10"\n'
+        f'  contract_version_reviewed: "{version}"\n'
+        f'  verdict: "{verdict}"\n'
+        '  notes: "ok"\n'
+    )
+
+
+def _tracker_with(roles_cell: str, contract_id: str = "SP-OP-PAGTO-001") -> str:
+    return (
+        "| # | Contract ID | Status (version) | Roles assigned | Dispatch status |\n"
+        "|---|---|---|---|---|\n"
+        f"| 1 | {contract_id} | **FINAL (v1.0.0)** | {roles_cell} | owner action |\n"
+    )
+
+
+class TestExactRoleSet:
+    def _run(
+        self, tmp_path: Path, roles_cell: str, body: str, contract_id: str = "SP-OP-PAGTO-001"
+    ) -> Report:
+        contracts_dir = tmp_path / "contracts"
+        _write_contract(contracts_dir, "SP-OP-PAGTO-001", status="FINAL", version="1.0.0")
+        _write_signoff(contracts_dir, "SP-OP-PAGTO-001", body)
+        tracker = _write_tracker(tmp_path, _tracker_with(roles_cell, contract_id))
+        report = Report()
+        validate_signoffs(contracts_dir, tracker, report)
+        return report
+
+    def test_every_tracker_role_approved_passes(self, tmp_path: Path) -> None:
+        body = _record("financas") + _record("juridico") + _record("po")
+        report = self._run(tmp_path, "FIN, JU (light), PO", body)
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_partial_signoff_fails(self, tmp_path: Path) -> None:
+        """The RED of backlog 5: one approval out of three is not a sign-off."""
+        report = self._run(tmp_path, "FIN, JU (light), PO", _record("financas"))
+        assert not report.ok
+        assert any(
+            "missing an 'approved' sign-off" in f.message and "'juridico'" in f.message
+            for f in report.findings
+        )
+
+    def test_approval_at_stale_version_does_not_count_for_the_role(self, tmp_path: Path) -> None:
+        body = _record("financas") + _record("po") + _record("juridico", version="v0.9.0")
+        report = self._run(tmp_path, "FIN, JU, PO", body)
+        assert any("'juridico'" in f.message and "missing" in f.message for f in report.findings)
+
+    def test_role_outside_tracker_set_fails(self, tmp_path: Path) -> None:
+        body = _record("financas") + _record("dpo")
+        report = self._run(tmp_path, "FIN", body)
+        assert any("not assigned" in f.message and "'dpo'" in f.message for f in report.findings)
+
+    def test_dono_is_a_valid_role_when_the_tracker_assigns_it(self, tmp_path: Path) -> None:
+        report = self._run(tmp_path, "FIN, DONO", _record("financas") + _record("dono"))
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_final_contract_without_tracker_row_fails(self, tmp_path: Path) -> None:
+        report = self._run(tmp_path, "FIN", _record("financas"), contract_id="SP-OP-OUTRO-001")
+        assert any("has no row in docs/sme-dispatch/tracker.md" in f.message for f in report.findings)
+
+    def test_unknown_abbreviation_fails_closed(self, tmp_path: Path) -> None:
+        report = self._run(tmp_path, "FIN, ATU", _record("financas"))
+        assert any("unknown role abbreviation" in f.message and "ATU" in f.message for f in report.findings)
+
+    def test_missing_tracker_fails_closed_for_final_with_signoff(self, tmp_path: Path) -> None:
+        contracts_dir = tmp_path / "contracts"
+        _write_contract(contracts_dir, "SP-OP-PAGTO-001", status="FINAL", version="1.0.0")
+        _write_signoff(contracts_dir, "SP-OP-PAGTO-001", _record("financas"))
+        report = Report()
+        validate_signoffs(contracts_dir, tmp_path / "nao-existe.md", report)
+        assert any("cannot read the role set" in f.message for f in report.findings)
+
+    def test_real_tracker_parses_every_contract_without_problem(self) -> None:
+        """Non-vacuity: the versioned tracker yields a known role set for each of its rows."""
+        from maezo.platform.validation.signoff import parse_tracker_roles
+
+        repo = Path(__file__).resolve().parents[3]
+        roles = parse_tracker_roles((repo / "docs/sme-dispatch/tracker.md").read_text(encoding="utf-8"))
+        assert len(roles) >= 16
+        assert all(entry.problem is None and entry.roles for entry in roles.values())
+        assert roles["SP-OP-PAGTO-001"].roles == {"financas", "juridico", "po"}
+        assert roles["SP-OP-CRED-001"].roles == {"medico-auditor", "juridico", "regulatorio", "po"}

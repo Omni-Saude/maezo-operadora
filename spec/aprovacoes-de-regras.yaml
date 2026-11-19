@@ -17,6 +17,18 @@
 # Editou o arquivo aprovado? O hash muda e a cerca reprova: nova aprovacao, ou a entrada volta a
 # `pendentes`. Nunca atualize so' o hash.
 #
+# VARIOS PAPEIS (onda 0 da chancela de regras; DL-0194/ADR-0080, PROPOSTOS). Quando o artefato exige
+# mais de um papel, a entrada usa a forma de lista, com o conjunto EXATO em `aprovam`:
+#   artefato: ...
+#   sha256:   ...
+#   aprovam:  [financas, dono]          # conjunto exato; falta ou sobra de papel reprova
+#   aprovacoes:
+#     - {papel: financas, aprovado_por: ..., aprovado_em: AAAA-MM-DD, evidencia: ...}
+#     - {papel: dono,     aprovado_por: ..., aprovado_em: AAAA-MM-DD, evidencia: ...}
+# A forma de um papel so' (campos acima direto na entrada) continua valendo; misturar as duas reprova.
+# Aprovacao parcial (falta papel) NAO e' aprovacao: a entrada fica em `pendentes`, que tambem aceita
+# `aprovam` para dizer desde ja' quem tera' de aprovar.
+#
 # pendentes — publicados HOJE sem aprovacao registrada. Nao bloqueiam o deploy do dev; aparecem em
 # toda execucao da cerca. `responsavel: a definir` = ninguem foi nomeado ainda (decisao do dono).
 # `marca_no_arquivo` e' a linha de status COPIADA do proprio artefato em 19/10/2026 (nao e' opiniao).
