@@ -771,3 +771,15 @@ Base: main `bf9c84df`. Construção local em worktree própria, sem PR, até a r
 - **ACHADO (pedido de linha):** `motivo_informado` (texto livre pseudonimizado, contrato `SP-OP-CANCEL-001.md:81`, `cancel.py:111`, `phi_vars.py:347`) não tem produtor no cancelamento. Recomendo retirá-lo do contrato e do worker numa linha própria.
 - Em curso: `tests/unit` inteiro × main para a 29-2 e a RT-02.
 - **Ordem de PRs (CD-202):** 24a → 29-1 → 29-2 → RT-02, um por vez, quando o dono liberar o commit.
+
+## 2026-11-20 ~22:30Z — tests/unit × main para 29-2 e RT-02; PONTO DE PARADA na 29-2 (admissão do portal em `/deploy/`)
+
+- **RT-02:** `tests/unit` inteiro × main limpa: só 1 falha exclusiva, `tests/unit/dev/test_engine_integration_runner.py::test_discovery_rejects_untracked_test_outside_integration_directory`, que exige checkout sem alterações tracked ("checkout possui alterações tracked"). É artefato da árvore sem commit (o mesmo caso da 24a), e confiro de novo depois do commit. +27 passed na parte de `tests/unit/processes`.
+- **29-2:** além do mesmo teste de checkout sujo, uma **regressão real**: `tests/unit/ci/test_check_portal_admissao.py::test_repo_real_passa`.
+  - O portão `scripts/ci/check_portal_admissao.py` exige que o sha256 de todo BPMN com tarefa no portal esteja admitido ou declarado em `aguardando_admissao` no espelho `deploy/aws-ecs/envs/dev-sa-east-1/portal-admissao.json`.
+  - O espelho já declara o REEMBOLSO-001 aguardando admissão, com o digest `05c181b9…` da main (#1149 e DEC-30 D14, ainda não implantados). As junções mudam os bytes para `ef5d529c79b4c572e62dee63b82111331d3a5a63e4c1bda63e1993d373236b94`.
+  - A forma que o próprio portão prevê para "mudança de BPMN antes do corte" é trocar o digest dessa entrada `aguardando_admissao` (e acrescentar a 29-2 ao `motivo`), sem tocar `admitidos`; o `deploy-processes` dela exige repinar a admissão (runbook `material-staff-na-aws.md`, passo 5).
+  - **PONTO DE PARADA:** o arquivo está em `/deploy/` (dono no CODEOWNERS) e é o espelho da admissão de deploy. A janela não edita sem resposta.
+  - **Proposta:** no PR da 29-2, trocar SÓ o `process_definition_digest` da entrada `aguardando_admissao` do REEMBOLSO-001 (`05c181b9…` → `ef5d529c79b4c572e62dee63b82111331d3a5a63e4c1bda63e1993d373236b94`) e acrescentar ao `motivo` "e a E-SF-29-2 (junções exclusivas G4, sem mudança de comportamento)". Nada em `admitidos`, nada implantado, e o repin segue ato do dono no corte.
+  - Alternativa: a 29-2 espera até a admissão ser repinada pelo dono, ou é feita junto com o próximo corte.
+- Sem o espelho atualizado, o PR da 29-2 fica vermelho nesse portão. A 29-2 fica parada até a resposta. A 29-1 e a RT-02 não tocam BPMN e seguem prontas.
