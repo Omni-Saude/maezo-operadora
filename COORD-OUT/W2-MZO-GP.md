@@ -448,3 +448,20 @@ Verificação:
 - **Push do ramo feito, sem PR** (regra da CD-185): `origin/sf-w2/mzo-gp/esf05r-c` = `a33abda2`.
 - A comparação de `tests/unit` de 18/11 parou na parte 6, lado da main; as partes 1–5 tinham dado idênticas contra `587a759b`. Refaço tudo sobre a main `41e364de`: a main andou 2 merges, sem arquivo em comum com o diff; `merge-tree` limpo. Comparo o MERGE simulado (`41e364de` + `a33abda2` = `80f6b19b`) × `41e364de` limpa, nas 6 partes, mais `make lint type validate-artifacts` no merge.
 - Pendente antes do PR: a docstring do contrato de thread no resolvedor (achado não bloqueante da revisão).
+
+## 2026-11-20 ~16:15Z — PR E-SF-05r (c) aberto
+
+- PR maezo-operadora #1341, ramo `sf-w2/mzo-gp/esf05r-c`, head `9cfd8798b5f361a34ce44865cad12764de53a708`, base `587a759b`. CI em curso.
+- Arquivos:
+  - `src/maezo/gateway/commercial_record_resolver.py` (novo);
+  - `src/maezo/portal/api/app.py`;
+  - `src/maezo/portal/api/commercial.py`;
+  - `tests/unit/gateway/test_esf05r_record_resolver.py` (novo);
+  - `tests/unit/test_commercial_admission_a1.py` (o teste nomeado).
+  - `production.py` intocado.
+- Gates do diff:
+  - `tests/unit` inteiro (CD-173), merge simulado (`41e364de` + `a33abda2`) × main limpa `41e364de`: 0 falha só no merge em todas as 6 partes (160, 107, 15, 19, 18 e 169 linhas comuns);
+  - `make lint type validate-artifacts` verde no merge. Na 1ª tentativa o `make` saiu com 2 porque a worktree não tinha `.venv` (o Makefile usa caminho relativo); refeito com link temporário, verde.
+  - Revisão FAIL → PASS (entrada das ~17:50Z de 18/11).
+  - A docstring do contrato de thread entrou depois (`9cfd8798`), só documentação; os 11 testes da parte c passam sobre ela.
+- 2 merges atrás (#1334, #1335), disjuntos, não trazidos. Worktrees temporárias removidas sem `--force`; scratchpad vazio.
