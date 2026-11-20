@@ -69,13 +69,46 @@ jobs:
     name: trilha (plataforma x agente)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # `actions: read` + `pull-requests: read`: so' para a decisao da arvore verificada (abaixo) — ler a run do
+    # PR e o artefato dela. Nada aqui escreve.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       plataforma: ${{ steps.classificar.outputs.plataforma }}
       agentes: ${{ steps.classificar.outputs.agentes }}
+      # 'true' SO' no push em main cuja arvore e' identica a testada pela run verde do PR (L1a). Em qualquer
+      # outro evento, ou em qualquer duvida, fica 'false' e o workflow roda inteiro.
+      verificado: ${{ github.event_name == 'push' && steps.arvore.outputs.verificado == 'true' && 'true' || 'false' }}
+      run_verificadora: ${{ steps.arvore.outputs.run_verificadora }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
+      # ARVORE VERIFICADA (L1a, custo de Actions, 18/11/2026). No PR, grava a arvore do merge de teste que esta
+      # run verifica; no push em main, `scripts/ci/arvore_verificada.py` compara a arvore do merge com a da
+      # ULTIMA run em pull_request do head final do PR, que precisa estar `success`. Iguais = os mesmos bytes ja
+      # verdes: as lanes pesadas (shards de unit e o que depende delas, portal-web, terraform, java, helm) nao
+      # repetem e o `portao` aponta a run verificadora. Qualquer duvida = roda tudo. Medido em 11-18/11: 41%
+      # dos merges, ~100 min de runner cada.
+      - name: Grava a arvore testada (pull_request)
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/ci/arvore_verificada.py --gravar "$RUNNER_TEMP/arvore-testada"
+      - name: Publica a arvore testada (pull_request)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: arvore-testada-ci
+          path: ${{ runner.temp }}/arvore-testada/arvore.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Arvore ja verificada pelo PR? (push em main)
+        id: arvore
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/arvore_verificada.py --decidir --workflow ci.yml --artefato arvore-testada-ci
       - name: Classifica o diff
         id: classificar
         env:
@@ -204,11 +237,22 @@ jobs:
           PLATAFORMA: ${{ needs.trilha.outputs.plataforma }}
           QUALIDADE: ${{ needs.quality.result }}
           AGENTES: ${{ needs.agentes.result }}
+          EVENTO: ${{ github.event_name }}
+          VERIFICADO: ${{ needs.trilha.outputs.verificado }}
+          RUN_VERIFICADORA: ${{ needs.trilha.outputs.run_verificadora }}
         run: |
           set -e
-          echo "trilha=${TRILHA} plataforma=${PLATAFORMA} quality=${QUALIDADE} agentes=${AGENTES}"
+          echo "trilha=${TRILHA} plataforma=${PLATAFORMA} quality=${QUALIDADE} agentes=${AGENTES} evento=${EVENTO} verificado=${VERIFICADO}"
           if [ "${TRILHA}" != "success" ]; then
             echo "::error::a classificacao da trilha falhou (${TRILHA}) — sem ela nada e' verde"; exit 1
+          fi
+          # L1a: so' no PUSH, e so' quando a trilha provou que a arvore e' identica a de uma run verde do PR.
+          # A suite pesada pulada e' esperada; qualquer outro resultado dela (falha, cancelamento) segue vermelho.
+          if [ "${EVENTO}" = "push" ] && [ "${VERIFICADO}" = "true" ] && [ "${PLATAFORMA}" = "true" ]; then
+            [ "${QUALIDADE}" = "skipped" ] || { echo "::error::arvore verificada, mas a suite da plataforma terminou ${QUALIDADE}"; exit 1; }
+            [ -n "${RUN_VERIFICADORA}" ] || { echo "::error::arvore verificada sem run verificadora"; exit 1; }
+            echo "## lint / type / unit: arvore identica a verificada pela run ${RUN_VERIFICADORA} (verde) — suite nao repetida" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           if [ "${PLATAFORMA}" = "true" ]; then
             [ "${QUALIDADE}" = "success" ] || { echo "::error::trilha PLATAFORMA: lint / type / unit (plataforma) = ${QUALIDADE}"; exit 1; }
@@ -226,7 +270,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: [trilha]
-    if: needs.trilha.outputs.plataforma == 'true'
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -243,18 +287,20 @@ jobs:
           # O ledger e' a MESMA historia do `dev`: `ledger_original_producer` recusa `PYTEST_XDIST_*`
           # (114 x `CaptureRefusedError`, run 35694139974), entao roda em serie — e como e' o maior
           # cluster da suite (test_ledger_current_consumer 6,7 min · current_execution 3,4 · os
-          # outros seis ~2,5), vai em tres shards seriais para o maior nao passar de ~7 min.
+          # outros seis ~2,5), vai em DOIS shards seriais: o consumer sozinho e o resto.
+          # L3 (custo de Actions, 18/11/2026): `ledger-execution` voltou para o `ledger-resto`. Medido
+          # em 11-18/11: execution 5,8 e resto 4,3 min de job, dos quais ~1,4 de reclaim de disco e
+          # ~0,5 de preparo por shard, mais o arredondamento por job — juntos, ~8,5 min de parede (abaixo
+          # do consumer e longe do caminho critico, `integration (restante)`, ~33 min) e ~2 min a menos
+          # por run. A particao continua completa e disjunta (`test_global_integration_ci.py`).
           - shard: ledger-consumer
             alvo: tests/unit/ci/test_ledger_current_consumer.py
-            xdist: -n 0
-          - shard: ledger-execution
-            alvo: tests/unit/ci/test_ledger_current_execution.py
             xdist: -n 0
           - shard: ledger-resto
             # Lista EXPLICITA, e nao glob + `--ignore`: o pytest nao aplica `--ignore` a arquivo passado
             # como argumento — o glob expandia os oito e o shard repetia consumer+execution (56 funcoes
             # duplicadas, pegas pela cerca de particao antes de chegar ao CI).
-            alvo: tests/unit/ci/test_ledger_current_relations.py tests/unit/ci/test_ledger_d7_async_consumer.py tests/unit/ci/test_ledger_execution_admission.py tests/unit/ci/test_ledger_invalid_declaration_boundaries.py tests/unit/ci/test_ledger_invalid_declarations.py tests/unit/ci/test_ledger_operational_history.py
+            alvo: tests/unit/ci/test_ledger_current_execution.py tests/unit/ci/test_ledger_current_relations.py tests/unit/ci/test_ledger_d7_async_consumer.py tests/unit/ci/test_ledger_execution_admission.py tests/unit/ci/test_ledger_invalid_declaration_boundaries.py tests/unit/ci/test_ledger_invalid_declarations.py tests/unit/ci/test_ledger_operational_history.py
             xdist: -n 0
           # `ci` em DOIS shards paralelos, por medicao (JUnit do run 35729333978): um so' somava
           # 32,7 min de teste em 4 workers e levava 13 min de parede — os testes desta pasta geram
@@ -271,16 +317,16 @@ jobs:
           - shard: gateway-platform
             alvo: tests/unit/gateway tests/unit/platform
             xdist: -n auto --dist loadfile
-          - shard: dev-runner
-            alvo: tests/unit/dev/test_engine_integration_runner.py
-            xdist: -n 0
           # `test_relay_boundary_diagnostics.py` entra AQUI, em serie, e sai do `restante`: seus testes
           # pausam o tracer do pytest-cov pelo controller para instalar o proprio `sys.settrace`; num
           # worker do xdist o hook pertence a OUTRA instancia do coverage (a que o pytest-cov liga no
           # boot do worker) e o `pause()` nao o remove — 8 erros "refuses to replace another Python
           # trace hook" (run 35694139974). Em serie o controller e' o dono do hook e o fixture funciona.
+          # L3 (18/11/2026): `dev-runner` voltou para o `dev` — os dois sao seriais; medidos 6,3 + 5,8 min
+          # de job em 11-18/11, juntos ~10 min de parede e ~2 min a menos por run (reclaim + preparo +
+          # arredondamento de um job inteiro).
           - shard: dev
-            alvo: tests/unit/dev --ignore=tests/unit/dev/test_engine_integration_runner.py tests/unit/portal/test_relay_boundary_diagnostics.py
+            alvo: tests/unit/dev tests/unit/portal/test_relay_boundary_diagnostics.py
             xdist: -n 0
           - shard: restante
             alvo: tests --ignore=tests/unit/ci --ignore=tests/unit/gateway --ignore=tests/unit/platform --ignore=tests/unit/dev --ignore=tests/unit/portal/test_relay_boundary_diagnostics.py
@@ -290,22 +336,6 @@ jobs:
         with:
           # Collected historical-tool tests verify immutable Git ancestry.
           fetch-depth: 0
-
-      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
-        # O flip PUBLIC->PRIVATE (12:51Z) sujeitou o repo a cota de cache de Actions do
-        # repo privado e as 20 caches foram evictadas; toda run desde entao reconstruiu
-        # caches frios e esgotou o disco do runner NO MEIO da suite (provado:
-        # "Free space left: 61 MB" as 13:39:48Z e "0 MB" as 21:05:01Z -> ~3,5k falhas
-        # + ~3,3k erros de escrita e jobs morrendo com logs nao finalizados). A imagem
-        # ubuntu-24.04 embarca SDKs que NENHUM passo deste job usa (Android/.NET/GHC
-        # pertencem a outros jobs/flows, em outros runners); remove-los devolve a
-        # margem que a suite media pre-flip. df antes/depois audita a reclamacao; a
-        # limpeza nao toca em nenhum caminho usado por este job.
-        run: |
-          set -e
-          df -h / | tail -1
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
-          df -h / | tail -1
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
@@ -328,6 +358,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
+        id: uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
@@ -338,6 +369,38 @@ jobs:
           # Exact-key restores only: do not reuse earlier unconstrained fixture metadata.
           cache-suffix: offline-fixture-${{ hashFiles('.github/workflows/ci.yml', 'scripts/ci/prepare_offline_fixture_cache.py', 'scripts/dev/run_engine_integration.py') }}
           cache-dependency-glob: "uv.lock"
+
+      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
+        # O flip PUBLIC->PRIVATE (12:51Z) sujeitou o repo a cota de cache de Actions do
+        # repo privado e as 20 caches foram evictadas; toda run desde entao reconstruiu
+        # caches frios e esgotou o disco do runner NO MEIO da suite (provado:
+        # "Free space left: 61 MB" as 13:39:48Z e "0 MB" as 21:05:01Z -> ~3,5k falhas
+        # + ~3,3k erros de escrita e jobs morrendo com logs nao finalizados). A imagem
+        # ubuntu-24.04 embarca SDKs que NENHUM passo deste job usa (Android/.NET/GHC
+        # pertencem a outros jobs/flows, em outros runners); remove-los devolve a
+        # margem que a suite media pre-flip. df antes/depois audita a reclamacao; a
+        # limpeza nao toca em nenhum caminho usado por este job.
+        # L6 (custo de Actions, 18/11/2026): CONDICIONAL. Medido em 18/11 (run 44319803448): o runner
+        # comeca com ~86 GB livres ANTES deste passo e a suite consome no maximo ~9 GB com o cache uv
+        # quente; o rm -rf custava ~1,4 min por job (15,5 min por run de plataforma). O incidente acima
+        # foi de cache FRIO. Por isso o passo vem DEPOIS do `Install uv` e so' pula quando o cache uv
+        # restaurou exato (`cache-hit == true`) E ha' >= LIMIAR_GB livres; cache frio, saida ausente ou
+        # disco abaixo do limiar fazem o reclaim de sempre. O passo de medicao pos-suite (L3) segue
+        # registrando o pico, e o checkpoint antes da suite continua.
+        env:
+          CACHE_HIT: ${{ steps.uv.outputs.cache-hit }}
+          LIMIAR_GB: "40"
+        run: |
+          set -e
+          df -h / | tail -1
+          livre_gb="$(df --output=avail -BG / | tail -1 | tr -dc '0-9')"
+          if [ "${CACHE_HIT}" = "true" ] && [ -n "${livre_gb}" ] && [ "${livre_gb}" -ge "${LIMIAR_GB}" ]; then
+            echo "reclaim dispensado: cache uv quente e ${livre_gb} GB livres (limiar ${LIMIAR_GB} GB)"
+          else
+            echo "reclaim: cache uv '${CACHE_HIT:-ausente}', ${livre_gb:-?} GB livres (limiar ${LIMIAR_GB} GB)"
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+            df -h / | tail -1
+          fi
 
       - name: Verify uv defaults and populate the qualified interpreter
         run: |
@@ -386,7 +449,7 @@ jobs:
           retention-days: 7
 
       - name: Disk headroom checkpoint before the unit suite
-        run: df -h / | tail -1
+        run: df -h / | tail -1; nproc; free -m
 
       # O nome deste passo e' lido por dois meta-testes (`test_global_integration_ci.py`,
       # `test_offline_fixture_cache_preparation.py`): renomear aqui e' renomear la'.
@@ -411,6 +474,12 @@ jobs:
             --junitxml="unit-junit-${{ matrix.shard }}.xml" \
             --cov="$GITHUB_WORKSPACE/src/maezo" --cov-report=
 
+      # Medicao (L3/L6, custo de Actions, 18/11/2026): disco, memoria e vCPU DEPOIS da suite, em toda
+      # run (`always()`), para dimensionar o reclaim de disco e ver o efeito do runner de 2 vCPU / 8 GB do
+      # repositorio privado. Nao altera resultado: so' imprime.
+      - name: Disk, memory and vCPU after the suite (medicao)
+        if: always()
+        run: df -h / | tail -1; nproc; free -m
       - name: Upload shard results (coverage data + junit)
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
@@ -437,22 +506,6 @@ jobs:
           # Collected historical-tool tests verify immutable Git ancestry.
           fetch-depth: 0
 
-      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
-        # O flip PUBLIC->PRIVATE (12:51Z) sujeitou o repo a cota de cache de Actions do
-        # repo privado e as 20 caches foram evictadas; toda run desde entao reconstruiu
-        # caches frios e esgotou o disco do runner NO MEIO da suite (provado:
-        # "Free space left: 61 MB" as 13:39:48Z e "0 MB" as 21:05:01Z -> ~3,5k falhas
-        # + ~3,3k erros de escrita e jobs morrendo com logs nao finalizados). A imagem
-        # ubuntu-24.04 embarca SDKs que NENHUM passo deste job usa (Android/.NET/GHC
-        # pertencem a outros jobs/flows, em outros runners); remove-los devolve a
-        # margem que a suite media pre-flip. df antes/depois audita a reclamacao; a
-        # limpeza nao toca em nenhum caminho usado por este job.
-        run: |
-          set -e
-          df -h / | tail -1
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
-          df -h / | tail -1
-
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
@@ -474,6 +527,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
+        id: uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
@@ -484,6 +538,38 @@ jobs:
           # Exact-key restores only: do not reuse earlier unconstrained fixture metadata.
           cache-suffix: offline-fixture-${{ hashFiles('.github/workflows/ci.yml', 'scripts/ci/prepare_offline_fixture_cache.py', 'scripts/dev/run_engine_integration.py') }}
           cache-dependency-glob: "uv.lock"
+
+      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
+        # O flip PUBLIC->PRIVATE (12:51Z) sujeitou o repo a cota de cache de Actions do
+        # repo privado e as 20 caches foram evictadas; toda run desde entao reconstruiu
+        # caches frios e esgotou o disco do runner NO MEIO da suite (provado:
+        # "Free space left: 61 MB" as 13:39:48Z e "0 MB" as 21:05:01Z -> ~3,5k falhas
+        # + ~3,3k erros de escrita e jobs morrendo com logs nao finalizados). A imagem
+        # ubuntu-24.04 embarca SDKs que NENHUM passo deste job usa (Android/.NET/GHC
+        # pertencem a outros jobs/flows, em outros runners); remove-los devolve a
+        # margem que a suite media pre-flip. df antes/depois audita a reclamacao; a
+        # limpeza nao toca em nenhum caminho usado por este job.
+        # L6 (custo de Actions, 18/11/2026): CONDICIONAL. Medido em 18/11 (run 44319803448): o runner
+        # comeca com ~86 GB livres ANTES deste passo e a suite consome no maximo ~9 GB com o cache uv
+        # quente; o rm -rf custava ~1,4 min por job (15,5 min por run de plataforma). O incidente acima
+        # foi de cache FRIO. Por isso o passo vem DEPOIS do `Install uv` e so' pula quando o cache uv
+        # restaurou exato (`cache-hit == true`) E ha' >= LIMIAR_GB livres; cache frio, saida ausente ou
+        # disco abaixo do limiar fazem o reclaim de sempre. O passo de medicao pos-suite (L3) segue
+        # registrando o pico, e o checkpoint antes da suite continua.
+        env:
+          CACHE_HIT: ${{ steps.uv.outputs.cache-hit }}
+          LIMIAR_GB: "40"
+        run: |
+          set -e
+          df -h / | tail -1
+          livre_gb="$(df --output=avail -BG / | tail -1 | tr -dc '0-9')"
+          if [ "${CACHE_HIT}" = "true" ] && [ -n "${livre_gb}" ] && [ "${livre_gb}" -ge "${LIMIAR_GB}" ]; then
+            echo "reclaim dispensado: cache uv quente e ${livre_gb} GB livres (limiar ${LIMIAR_GB} GB)"
+          else
+            echo "reclaim: cache uv '${CACHE_HIT:-ausente}', ${livre_gb:-?} GB livres (limiar ${LIMIAR_GB} GB)"
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+            df -h / | tail -1
+          fi
 
       - name: Verify uv defaults and populate the qualified interpreter
         run: |
@@ -541,7 +627,7 @@ jobs:
         # Post-mortem 2026-09-20: registra no log o espaco livre no momento exato em
         # que a suite comeca — se o esgotamento de disco voltar, o checkpoint nomeia o
         # consumidor entre "fim do setup" e "durante o pytest".
-        run: df -h / | tail -1
+        run: df -h / | tail -1; nproc; free -m
 
       # T2.3 (B9 CI surgery): folded the coverage gate into the unit-test step itself
       # instead of a second pytest invocation, so the suite runs exactly once.
@@ -571,6 +657,12 @@ jobs:
           .venv/bin/python -m coverage report --fail-under=85
           .venv/bin/python -m coverage html
 
+      # Medicao (L3/L6, custo de Actions, 18/11/2026): disco, memoria e vCPU DEPOIS da suite, em toda
+      # run (`always()`), para dimensionar o reclaim de disco e ver o efeito do runner de 2 vCPU / 8 GB do
+      # repositorio privado. Nao altera resultado: so' imprime.
+      - name: Disk, memory and vCPU after the suite (medicao)
+        if: always()
+        run: df -h / | tail -1; nproc; free -m
       - name: Upload unit test results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
@@ -587,7 +679,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [trilha]
-    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
     defaults:
       run:
         working-directory: src/maezo/portal/web
@@ -1155,17 +1247,6 @@ jobs:
           # Collected historical-tool tests verify immutable Git ancestry.
           fetch-depth: 0
 
-      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
-        # Mesma causa e mesma prova do passo igual no job `quality`: cache evictado no
-        # flip privado -> reconstrucao fria -> disco esgotado no meio da suite (floor
-        # mediu 3.4-3.5k falhas + 3.0-3.4k erros em 28 min com 0-61 MB livres). Remove
-        # apenas SDKs da imagem que este job nao usa; df antes/depois audita.
-        run: |
-          set -e
-          df -h / | tail -1
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
-          df -h / | tail -1
-
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
@@ -1187,6 +1268,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
+        id: uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
@@ -1197,6 +1279,33 @@ jobs:
           # Exact-key restores only: do not reuse earlier unconstrained fixture metadata.
           cache-suffix: offline-fixture-${{ hashFiles('.github/workflows/ci.yml', 'scripts/ci/prepare_offline_fixture_cache.py', 'scripts/dev/run_engine_integration.py') }}
           cache-dependency-glob: "uv.lock"
+
+      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
+        # Mesma causa e mesma prova do passo igual no job `quality`: cache evictado no
+        # flip privado -> reconstrucao fria -> disco esgotado no meio da suite (floor
+        # mediu 3.4-3.5k falhas + 3.0-3.4k erros em 28 min com 0-61 MB livres). Remove
+        # apenas SDKs da imagem que este job nao usa; df antes/depois audita.
+        # L6 (custo de Actions, 18/11/2026): CONDICIONAL. Medido em 18/11 (run 44319803448): o runner
+        # comeca com ~86 GB livres ANTES deste passo e a suite consome no maximo ~9 GB com o cache uv
+        # quente; o rm -rf custava ~1,4 min por job (15,5 min por run de plataforma). O incidente acima
+        # foi de cache FRIO. Por isso o passo vem DEPOIS do `Install uv` e so' pula quando o cache uv
+        # restaurou exato (`cache-hit == true`) E ha' >= LIMIAR_GB livres; cache frio, saida ausente ou
+        # disco abaixo do limiar fazem o reclaim de sempre. O passo de medicao pos-suite (L3) segue
+        # registrando o pico, e o checkpoint antes da suite continua.
+        env:
+          CACHE_HIT: ${{ steps.uv.outputs.cache-hit }}
+          LIMIAR_GB: "40"
+        run: |
+          set -e
+          df -h / | tail -1
+          livre_gb="$(df --output=avail -BG / | tail -1 | tr -dc '0-9')"
+          if [ "${CACHE_HIT}" = "true" ] && [ -n "${livre_gb}" ] && [ "${livre_gb}" -ge "${LIMIAR_GB}" ]; then
+            echo "reclaim dispensado: cache uv quente e ${livre_gb} GB livres (limiar ${LIMIAR_GB} GB)"
+          else
+            echo "reclaim: cache uv '${CACHE_HIT:-ausente}', ${livre_gb:-?} GB livres (limiar ${LIMIAR_GB} GB)"
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+            df -h / | tail -1
+          fi
 
       - name: Verify uv defaults and populate the qualified interpreter
         run: |
@@ -1229,7 +1338,7 @@ jobs:
         # Post-mortem 2026-09-20: espaco livre registrado no momento em que o gate
         # comeca (fences + suite de medicao) — mesmo proposito do checkpoint do job
         # `quality`.
-        run: df -h / | tail -1
+        run: df -h / | tail -1; nproc; free -m
 
       # Os mesmos artefatos que o job `quality` baixa para a cobertura, no mesmo pin: cada
       # `unit-shard-*` traz `unit-junit-<shard>.xml`, e `merge-multiple: true` achata todos na raiz
@@ -1258,6 +1367,12 @@ jobs:
           PY
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make release-floor-check
 
+      # Medicao (L3/L6, custo de Actions, 18/11/2026): disco, memoria e vCPU DEPOIS da suite, em toda
+      # run (`always()`), para dimensionar o reclaim de disco e ver o efeito do runner de 2 vCPU / 8 GB do
+      # repositorio privado. Nao altera resultado: so' imprime.
+      - name: Disk, memory and vCPU after the suite (medicao)
+        if: always()
+        run: df -h / | tail -1; nproc; free -m
       - name: Upload release-floor unit diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
@@ -1285,7 +1400,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [trilha]
-    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1361,7 +1476,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [trilha]
-    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
     services:
       postgres:
         # postgres:17 (indice multi-arch resolvido em 23/09/2026 no Docker Hub).
@@ -1419,7 +1534,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [trilha]
-    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
+    if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1637,10 +1752,10 @@ jobs:
           # O shard `restante` e' o COMPLEMENTO (`tests` menos os arquivos acima): arquivo novo
           # marcado `integration` cai nele sozinho, sem editar esta matriz e sem buraco na
           # particao.
-          - shard: reembolso
-            alvo: tests/integration/processes/test_sp_op_reembolso_001.py tests/integration/processes/test_sp_op_lgpd_dsr_001.py
+          # L3 (18/11/2026): `reembolso` (~6 min de job, dos quais ~1,5 de subir a pilha) entrou no
+          # `recurso-nip` (~18): juntos ~25 min, abaixo do `restante` (~33, o caminho critico).
           - shard: recurso-nip
-            alvo: tests/integration/processes/test_sp_op_recurso_001.py tests/integration/processes/test_sp_op_nip_001.py tests/integration/processes/test_sp_op_programa_001.py tests/integration/processes/test_t33_a2_agent_start_idempotency_matrix.py tests/integration/processes/test_t33_a1_cancel_handoff_redelivery_idempotency.py tests/integration/processes/test_lgpd_execution_refusal.py
+            alvo: tests/integration/processes/test_sp_op_reembolso_001.py tests/integration/processes/test_sp_op_lgpd_dsr_001.py tests/integration/processes/test_sp_op_recurso_001.py tests/integration/processes/test_sp_op_nip_001.py tests/integration/processes/test_sp_op_programa_001.py tests/integration/processes/test_t33_a2_agent_start_idempotency_matrix.py tests/integration/processes/test_t33_a1_cancel_handoff_redelivery_idempotency.py tests/integration/processes/test_lgpd_execution_refusal.py
           - shard: cancel-contas
             alvo: tests/integration/processes/test_sp_op_cancel_001.py tests/integration/processes/test_sp_op_contas_001.py tests/integration/processes/test_sp_op_inadimplencia_001.py tests/integration/processes/test_sp_op_escalation_001.py
           - shard: cred-ans
@@ -1771,7 +1886,7 @@ jobs:
             echo "or \`.github/**\`; no test in the global integration-marker set reads those"
             echo "paths (frontend has its own \`portal-web\`/\`portal-e2e\` lanes; workflow edits"
             echo "stay fenced by the unit-lane meta-tests). The real-engine lane (~23 min de"
-            echo "relogio em 5 shards, ~115 min faturados) was not started. The nightly schedule"
+            echo "relogio em 4 shards, ~93 min faturados) was not started. The nightly schedule"
             echo "still runs the full lane on main."
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -1971,6 +2086,12 @@ jobs:
             --validation integration-validation.json -- \
             ${{ matrix.alvo }} -q -m "integration and not chaos" --durations=40 -ra
 
+      # Medicao (L3/L6, custo de Actions, 18/11/2026): disco, memoria e vCPU DEPOIS da suite, em toda
+      # run (`always()`), para dimensionar o reclaim de disco e ver o efeito do runner de 2 vCPU / 8 GB do
+      # repositorio privado. Nao altera resultado: so' imprime.
+      - name: Disk, memory and vCPU after the suite (medicao)
+        if: always()
+        run: df -h / | tail -1; nproc; free -m
       - name: Upload integration test results
         if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2

@@ -653,6 +653,44 @@ _FATOS_BOOLEANOS_DOSSIE: Final[dict[str, str]] = {
 }
 
 
+#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
+#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
+#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
+#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
+_PERMITIDOS_LEGADO_U1C_MENSAGEM: Final[frozenset[str]] = frozenset(
+    {
+        "numero_contrato",
+        "tipo_plano",
+        "competencias_em_aberto",
+        "status_inadimplencia",
+        "dentro_janela_purga",
+        "prazo_purga_iso",
+        "prazo_notificacao_previa_iso",
+        "fonte_regulatoria_purga",
+    }
+)
+
+_PERMITIDOS_LEGADO_U1C_DOSSIE: Final[frozenset[str]] = frozenset(
+    {
+        "intencao",
+        "numero_contrato",
+        "tipo_plano",
+        "competencias_em_aberto",
+        "meses_inadimplencia",
+        "valor_total_devido_cents",
+        "dentro_periodo_minimo",
+        "notificacao_previa_feita",
+        "dentro_janela_purga",
+        "ja_em_rescisao_cancel",
+        "motivo_humano",
+        "status_inadimplencia",
+        "sla_analise_iso",
+        "fonte_regulatoria_sla",
+        "dmn_refs",
+    }
+)
+
+
 class FernandoGraph:
     """Wires Fernando's injected dependencies into a compilable `StateGraph[FernandoState]`.
 
@@ -1028,10 +1066,13 @@ class FernandoGraph:
         }
         intencao = state.get("intencao")
         intencao_validated = intencao if intencao in _VALID_INTENCOES else None
-        prompt = (
-            f"{message_prompt()}\n\nintencao={intencao_validated}\n"
-            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
+        fatos_txt = render_fatos_para_prompt(
+            facts,
+            booleanos=_FATOS_BOOLEANOS_MENSAGEM,
+            permitidos=_PERMITIDOS_LEGADO_U1C_MENSAGEM,
+            agente="fernando",
         )
+        prompt = f"{message_prompt()}\n\nintencao={intencao_validated}\n{fatos_txt}"
         try:
             texto = await self._llm.generate(
                 prompt,
@@ -1091,10 +1132,13 @@ class FernandoGraph:
             "fonte_regulatoria_sla": state.get("fonte_regulatoria_sla"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
-        prompt = (
-            f"{dossier_prompt()}\n\nmotivo={state.get('motivo_humano')}\n"
-            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_DOSSIE)}"
+        fatos_txt = render_fatos_para_prompt(
+            facts,
+            booleanos=_FATOS_BOOLEANOS_DOSSIE,
+            permitidos=_PERMITIDOS_LEGADO_U1C_DOSSIE,
+            agente="fernando",
         )
+        prompt = f"{dossier_prompt()}\n\nmotivo={state.get('motivo_humano')}\n{fatos_txt}"
         try:
             narrativa = await self._llm.generate(
                 prompt,

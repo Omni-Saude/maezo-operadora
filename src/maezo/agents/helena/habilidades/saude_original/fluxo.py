@@ -113,7 +113,7 @@ def _anotar(lida: _l.Leitura | None) -> None:
         turno["lida"] = lida
 
 
-def _chamador(self: HelenaGraph) -> _l.Chamar:
+def _chamador(self: HelenaGraph, state: Mapping[str, Any]) -> _l.Chamar:
     rota = self._rota_global
     if rota is None:
         raise AssertionError("saude_original exige a rota do modelo da allowlist")
@@ -122,8 +122,10 @@ def _chamador(self: HelenaGraph) -> _l.Chamar:
     if callable(derivar):
         transporte = derivar(CAMPOS_SEM_PENSAMENTO)
 
+    nomes = _ma.nomes_conhecidos(self, state)
+
     async def chamar(sistema: str, texto: str, max_tokens: int) -> str:
-        mensagens = [{"role": "user", "content": [{"text": _ma.minimizar_prompt(texto)}]}]
+        mensagens = [{"role": "user", "content": [{"text": _ma.minimizar_prompt(texto, nomes=nomes)}]}]
         resposta = await transporte.conversar(sistema, mensagens, max_tokens=max_tokens)
         return str(resposta.texto)
 
@@ -154,7 +156,7 @@ async def atender(
         logger.info("helena_saude_original", via="risco_pelo_texto")
         return risco
     try:
-        lida = await _l.ler(_chamador(self), conversa_para_leitura(state))
+        lida = await _l.ler(_chamador(self, state), conversa_para_leitura(state))
     except PROGRAMMING_ERRORS:
         raise
     except ValueError:

@@ -128,7 +128,7 @@ compara duas fontes independentes e *"o adaptador deve recusar fontes indisponí
 projeção defasada devolve fila vazia **sem erro visível**. O bloco de frescor do painel mostra o
 atraso entre a fonte e o portal, que é onde isso aparece.
 
-## `resultados.html` — o que aconteceu com um caso real (só leitura)
+## `resultados.html` — o que aconteceu com um caso de teste pelo caminho real (só leitura)
 
 `https://maezo-teste-dev.austa.com.br/p/resultados.html`. Lista os casos de uma janela
 (prioridade, grupo, tempo até o humano concluir, desfecho) e abre cada um em oito blocos —

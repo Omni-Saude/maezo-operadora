@@ -165,10 +165,6 @@ def snapshot_result(journey_value):
     return {"kind": "journey_snapshot", "journeys": [journey_value], "next_cursor": None, "plan_choices": []}
 
 
-def issued_journey_result(state, reason=None):
-    return snapshot_result(journey_with_coverage(state, reason, issued=True))
-
-
 class JourneyScopeAuthority(UnitScope):
     """Scope granting the journey read — isolates the A4 coverage gate.
 
@@ -316,7 +312,7 @@ async def test_default_and_coverage_only_compositions_never_bind(schema_bytes):
     app = build_app(
         schema_bytes,
         calls,
-        issued_journey_result("active"),
+        journey_with_coverage("active", issued=True),
         sales_admitted=False,
         catalog_admitted=False,
         coverage_admitted=True,
@@ -406,7 +402,7 @@ async def test_source_asserted_coverage_stays_gated_even_with_issued_contract(sc
     app = build_app(
         schema_bytes,
         calls,
-        issued_journey_result("active"),
+        journey_with_coverage("active", issued=True),
         sales_admitted=True,
         catalog_admitted=False,
         coverage_admitted=False,
@@ -880,3 +876,87 @@ def test_a4_record_signed_by_strict_subset_of_owner_roles_refuses(owners):
 def test_a4_record_signed_by_every_required_role_is_admitted(owners):
     admission = parse_coverage_read_admission(a4_record(owners=list(owners)), now=datetime.now(UTC))
     assert set(admission.owners) == set(A4_REQUIRED_SIGNATORIES)
+
+
+# E-SF-05r (b), TB-E-15-b: coverage is never derived. The named guard of the plan: an issued
+# contract with accepted terms and payment refs, and no source coverage fact, is never shown
+# as `active` — what crosses is the source's own `unknown` with its reason, or nothing.
+@pytest.mark.asyncio
+async def test_never_issued_to_active(schema_bytes):
+    calls = []
+    app = build_app(
+        schema_bytes,
+        calls,
+        journey_with_coverage("unknown", "absent_generation", issued=True),
+        sales_admitted=True,
+        catalog_admitted=False,
+        coverage_admitted=False,
+    )
+    served = await post_journey(app)
+    assert served.status_code == 200
+    coverage = served.json()["data"]["journeys"][0]["coverage"]
+    assert coverage["coverageState"] == "unknown" and coverage["unknownReason"] == "absent_generation"
+    assert "active" not in json.dumps(coverage)
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_unknown_without_reason_is_refused(schema_bytes):
+    # The frozen arm leaves `unknownReason` optional; without A4 a reasonless `unknown` is
+    # refused like a source-asserted fact (202, nothing disclosed, no re-dispatch).
+    calls = []
+    app = build_app(
+        schema_bytes,
+        calls,
+        journey_with_coverage("unknown", issued=True),
+        sales_admitted=True,
+        catalog_admitted=False,
+        coverage_admitted=False,
+    )
+    refused = await post_journey(app)
+    assert refused.status_code == 202 and refused.json()["data"] is None
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_admitted_a4_passes_the_source_rendering_unchanged(schema_bytes):
+    # With A4 the gate is inert: the source-owned rendering crosses as the source wrote it.
+    calls = []
+    app = build_app(
+        schema_bytes,
+        calls,
+        journey_with_coverage("unknown", issued=True),
+        sales_admitted=True,
+        catalog_admitted=False,
+        coverage_admitted=True,
+    )
+    served = await post_journey(app)
+    assert served.status_code == 200
+    assert served.json()["data"]["journeys"][0]["coverage"] == coverage_arm("unknown")
+
+
+@pytest.mark.parametrize(
+    ("dimension", "reason"),
+    [
+        ("catalog_admission", "commercial_catalog_admission_invalid"),
+        ("acceptance_admission", "commercial_acceptance_admission_invalid"),
+        ("coverage_admission", "commercial_coverage_admission_invalid"),
+        ("support_admission", "commercial_support_admission_invalid"),
+    ],
+)
+def test_off_contract_admission_is_refused_even_without_a2(schema_bytes, dimension, reason):
+    # Before E-SF-05r (b) this was checked only on the bound branch: without A2 a foreign
+    # record was silently accepted and had already relaxed its dimension's codec gate.
+    with pytest.raises(ValueError, match=reason):
+        compose_commercial_gateway(
+            schema_bytes=schema_bytes, **{dimension: SimpleNamespace(contract_sha256="0" * 64)}
+        )
+
+
+def test_recovered_unknown_without_reason_is_refused(schema_bytes):
+    # E-SF-05r (b): the reasonless-unknown refusal holds on the `operation.get` recovery
+    # carrier too, with the same exact reason code as a recovered source-asserted fact.
+    codec = CoverageGatedCodec(CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins()), gated=True)
+    with pytest.raises(CommercialRefusalError) as err:
+        codec.parse_result(recovered_payload("unknown"), operation_request(codec))
+    assert err.value.status == "denied" and err.value.reason_code == "purpose_denied"

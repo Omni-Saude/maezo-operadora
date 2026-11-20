@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import random
+from collections.abc import Collection
 from datetime import date
 from typing import Any
 
@@ -15,6 +17,28 @@ from maezo.qa.simulador.registro import (
 
 #: CPF sintetico valido (digitos verificadores corretos), usado em todo teste.
 CPF_SINTETICO = "52998224725"
+
+
+def digitos_verificadores(base: str) -> str:
+    """Os dois digitos verificadores do CPF para os 9 digitos de `base`."""
+    digitos = base
+    for tamanho in (9, 10):
+        soma = sum(int(digitos[i]) * (tamanho + 1 - i) for i in range(tamanho))
+        digitos += str(soma * 10 % 11 % 10)
+    return digitos[9:]
+
+
+def cpf_sintetico_valido(*, excluir: Collection[str] = ()) -> str:
+    """Um CPF com digito verificador CORRETO gerado na hora: nenhum teste escreve um CPF valido novo no
+    codigo (a guarda do repositorio procura CPF valido em src/maezo/qa e docs/runbooks)."""
+    sorteio = random.Random()
+    while True:
+        base = "".join(str(sorteio.randrange(10)) for _ in range(9))
+        if len(set(base)) == 1:
+            continue
+        cpf = base + digitos_verificadores(base)
+        if cpf not in excluir:
+            return cpf
 
 
 def sujeito(*, nome: str = "Joana Pereira da Silva", dono: bool = False, rotulo: str = "s001") -> Sujeito:

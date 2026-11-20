@@ -331,15 +331,16 @@ a{color:var(--accent)}
   pedido vai ao <b>agente</b>, que avalia e decide — e o processo nasce da decisão dele.</p>
   <div id="agForm" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.6rem">
     <label>tenant_id<input id="ag_tenant" value="amh"></label>
-    <label>numero_guia_tiss<input id="ag_guia" placeholder="ex.: 90000001"></label>
+    <label>numero_guia_tiss<input id="ag_guia" placeholder="ex.: FICT-90000001"></label>
     <label>codigo_procedimento_tuss<input id="ag_tuss" placeholder="ex.: 40901114"></label>
     <label>categoria_procedimento<input id="ag_categoria" placeholder="ex.: exame"></label>
     <label>prestador_id<input id="ag_prestador" placeholder="ex.: PREST-001"></label>
     <label>beneficiario_pseudo_id<input id="ag_benef" placeholder="pseudônimo, nunca CPF"></label>
     <label>carater_atendimento<input id="ag_carater" placeholder="eletivo | urgencia"></label>
-    <label>cid10<input id="ag_cid" placeholder="ex.: M545"></label>
     <label>valor_estimado_brl<input id="ag_valor" placeholder="ex.: 480"></label>
   </div>
+  <p class="hint">Só caso fictício: o número da guia precisa começar com <code>FICT-</code>.
+  O CID-10 não é pedido nem enviado ao agente (DL-0190).</p>
   <div style="margin:.7rem 0;display:flex;gap:.5rem;flex-wrap:wrap">
     <button class="ghost" onclick="exemploFicticio()">preencher exemplo fictício</button>
     <button class="primary" onclick="pedirAoRafael()">Enviar ao Rafael</button>
@@ -377,24 +378,33 @@ const $=id=>document.getElementById(id);
 if (!"__AGENTE_CONFIGURADO__") { const c=$("cardAgente"); if(c) c.style.display="none"; }
 
 function exemploFicticio(){
-  // Caso FICTICIO de proposito: numero de guia fora de qualquer faixa real e pseudonimo
-  // explicito. O canal nao tem como saber se um caso e' real — quem preenche sabe.
+  // Caso FICTICIO de proposito: guia com o marcador GUIA_FICTICIA e pseudonimo explicito.
+  // O canal nao tem como saber se um caso e' real — o marcador obriga quem preenche a dizer.
   const n = 90000000 + Math.floor(Math.random()*99999);
-  $("ag_tenant").value="amh"; $("ag_guia").value=String(n);
+  $("ag_tenant").value="amh"; $("ag_guia").value=GUIA_FICTICIA+String(n);
   $("ag_tuss").value="40901114"; $("ag_categoria").value="exame";
   $("ag_prestador").value="PREST-FICTICIO-001";
   $("ag_benef").value="pseudo-ficticio-"+n;
-  $("ag_carater").value="eletivo"; $("ag_cid").value="M545"; $("ag_valor").value="480";
+  $("ag_carater").value="eletivo"; $("ag_valor").value="480";
 }
+
+// DL-0190: marcador FECHADO de caso ficticio. Guia sem ele nao sai daqui.
+const GUIA_FICTICIA="FICT-";
 
 function agCampo(id){const v=$(id).value.trim();return v===""?null:v}
 
 async function pedirAoRafael(){
   const out=$("saidaAgente");
-  const corpo={tenant_id:agCampo("ag_tenant"),numero_guia_tiss:agCampo("ag_guia"),
+  const guia=agCampo("ag_guia");
+  if(guia===null||!guia.startsWith(GUIA_FICTICIA)){
+    out.innerHTML=`<div class="errmsg">recusado: o número da guia precisa começar com ${GUIA_FICTICIA} (só caso fictício neste canal)</div>`;
+    return;
+  }
+  // DL-0190: sem `cid10` no corpo. O CID e' dado sensivel de saude e este canal nao o envia.
+  const corpo={tenant_id:agCampo("ag_tenant"),numero_guia_tiss:guia,
     codigo_procedimento_tuss:agCampo("ag_tuss"),categoria_procedimento:agCampo("ag_categoria"),
     prestador_id:agCampo("ag_prestador"),beneficiario_pseudo_id:agCampo("ag_benef"),
-    carater_atendimento:agCampo("ag_carater"),cid10:agCampo("ag_cid"),canal:"portal_tiss"};
+    carater_atendimento:agCampo("ag_carater"),canal:"portal_tiss"};
   const valor=agCampo("ag_valor"); if(valor!==null) corpo.valor_estimado_brl=Number(valor);
   for(const k of Object.keys(corpo)) if(corpo[k]===null) delete corpo[k];
 
@@ -559,6 +569,39 @@ def _caminho_normalizado(caminho: str) -> str:
     return re.sub(r"/+", "/", posixpath.normpath("/" + so_caminho))
 
 
+#: DL-0190: marcador FECHADO de caso ficticio. O ingresso do agente so' recebe, por este canal,
+#: guia que o carregue — o canal nao tem como saber se um caso e' real, entao exige que quem
+#: preenche o declare. A mesma constante vive no JavaScript do formulario (`GUIA_FICTICIA`).
+GUIA_FICTICIA = "FICT-"
+
+#: Rota do ingresso que recebe pedido de autorizacao, ja' sem o prefixo `/agente`.
+ROTA_AUTORIZACOES = "/v1/autorizacoes"
+
+
+def _recusa_do_pedido_ao_agente(caminho: str, bruto: bytes) -> str | None:
+    """Motivo de recusa (texto curto, SEM o valor recebido) ou `None` para repassar.
+
+    Vale para a rota de autorizacoes (comparada no caminho NORMALIZADO, como a cerca do motor)
+    e para qualquer corpo que traga `numero_guia_tiss` ou `cid10` — mudar a grafia do caminho
+    nao contorna a regra. `cid10` e' recusado em vez de removido: quem o mandou fica sabendo.
+    """
+    rota = _caminho_normalizado(caminho) == ROTA_AUTORIZACOES
+    try:
+        corpo = json.loads(bruto.decode("utf-8")) if bruto else None
+    except (UnicodeDecodeError, ValueError):
+        corpo = None
+    if not isinstance(corpo, dict):
+        return "corpo do pedido nao e' um objeto JSON" if rota else None
+    if not rota and "numero_guia_tiss" not in corpo and "cid10" not in corpo:
+        return None
+    if "cid10" in corpo:
+        return "cid10 nao e' aceito neste canal de teste"
+    guia = corpo.get("numero_guia_tiss")
+    if not isinstance(guia, str) or not guia.startswith(GUIA_FICTICIA):
+        return f"numero_guia_tiss precisa comecar com {GUIA_FICTICIA} (so' caso ficticio neste canal)"
+    return None
+
+
 def _processo_da_tarefa(tarefa_id: str) -> str | None:
     """A CHAVE do processo da tarefa, lida no motor; `None` se a leitura falhar ou vier torta."""
     if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", tarefa_id):
@@ -635,7 +678,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._proxy(ENGINE, "/engine")
 
-    def _proxy(self, base: str, prefixo: str, timeout: int = 30) -> None:
+    def _proxy(self, base: str, prefixo: str, timeout: int = 30, corpo: bytes | None = None) -> None:
         """Repassa a requisicao para `base`, tirando `prefixo` do caminho.
 
         `timeout` e' parametro porque as duas pontas tem ordens de grandeza diferentes: o
@@ -643,8 +686,8 @@ class Handler(BaseHTTPRequestHandler):
         de segundos. Um timeout de 30s no agente cortaria justamente o caso que se quer ver.
         """
         path = self.path[len(prefixo) :]
-        body = None
-        if self.command == "POST":
+        body = corpo
+        if body is None and self.command == "POST":
             body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         req = urllib.request.Request(
             base + path,
@@ -753,9 +796,14 @@ class Handler(BaseHTTPRequestHandler):
             if not AGENTE:
                 self._responder_json(503, {"erro": "AGENT_INGRESS_URL nao configurada neste canal"})
                 return
+            bruto = self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
+            recusa = _recusa_do_pedido_ao_agente(self.path[len("/agente") :], bruto)
+            if recusa is not None:
+                self._responder_json(422, {"erro": recusa})
+                return
             # 180s: um turno com modelo real pode levar dezenas de segundos, e o que se quer
             # ver e' exatamente esse caso.
-            self._proxy(AGENTE, "/agente", timeout=180)
+            self._proxy(AGENTE, "/agente", timeout=180, corpo=bruto)
             return
         self.send_response(404)
         self.end_headers()

@@ -1,0 +1,180 @@
+"""Relogio-sombra da contratacao eletronica (E-SF-07: TB-E-09-a, EP-REG-32b, EP-REG-23c, TB-E-14-a).
+
+Base normativa (so' referencia, sem copia): `docs/compliance/legal/textos-base/RN-413-2016.md`, Art. 5º
+(§§2º, 5º, 6º e 7º).
+
+UM relogio so': funcao pura de dominio sobre os eventos-candidatos (gravados pelo registro de
+eventos-candidatos do gateway comercial, que importa os tipos daqui). Sem timer proprio, sem BPMN, sem DMN,
+sem importacao de outra camada. Nao e' worker e nao e' registrado em runtime nenhum (nada montado).
+
+* Inicio: o evento-candidato MAIS CEDO com dados. Qual evento e' o inicio legal nao e' decidido aqui.
+* Contagem em dias corridos, SEM pausa: suspensoes ficam registradas, mas nao descontam nada ate' haver
+  ratificacao; lembrete de recuperacao nunca suspende.
+* Alarmes internos viram item de escalonamento para PESSOA, com grupo responsavel obrigatorio.
+* No dia de corte, o caso ganha a marca `possivel_vigencia_automatica`: e' uma HIPOTESE que pede pessoa,
+  nao uma conclusao juridica. Nada aqui afirma que um contrato esta' vigente.
+* Nunca comando adverso: nada rescinde, nega, cobra ou bloqueia. Nenhuma data-limite e' exibida a cliente.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Final, Literal
+
+TipoDeEvento = Literal[
+    "prospect_save_com_valores",
+    "party_submit",
+    "acceptance_record",
+    "pedido_de_documentacao",
+    "pericia_ou_entrevista",
+]
+#: Candidatos ao inicio do relogio (o relogio-sombra usa o MAIS CEDO deles).
+TIPOS_DE_INICIO: Final[frozenset[str]] = frozenset(
+    {"prospect_save_com_valores", "party_submit", "acceptance_record"}
+)
+#: Eventos que a norma trata como suspensao. So' registrados; a contagem nao pausa (sem ratificacao).
+TIPOS_DE_SUSPENSAO: Final[frozenset[str]] = frozenset({"pedido_de_documentacao", "pericia_ou_entrevista"})
+TIPOS_DE_EVENTO: Final[frozenset[str]] = TIPOS_DE_INICIO | TIPOS_DE_SUSPENSAO
+
+
+@dataclass(frozen=True, slots=True)
+class EventoCandidato:
+    """So' tipo, digest da referencia do proponente e instante UTC do servidor. Zero conteudo."""
+
+    proponente_digest: str
+    tipo: str
+    instante: datetime
+
+
+# --- Limiares: operacional, relogio-sombra, NAO e' prazo legal. Unico lugar destes numeros. -------------
+#: Alarmes internos (dias corridos desde o inicio do relogio-sombra).
+DIA_ALARME_1: Final[int] = 15
+DIA_ALARME_2: Final[int] = 20
+DIA_ALARME_3: Final[int] = 23
+#: Corte operacional: a partir dele o caso vai a pessoa com a hipotese `possivel_vigencia_automatica`.
+DIA_CORTE: Final[int] = 25
+DIAS_DE_ALARME: Final[tuple[int, ...]] = (DIA_ALARME_1, DIA_ALARME_2, DIA_ALARME_3)
+#: A partir deste dia a recuperacao de abandono fica bloqueada (so' leitura para a E-SF-16).
+DIA_BLOQUEIO_DA_RECUPERACAO: Final[int] = DIA_ALARME_2
+
+#: Estagios da contratacao que tem teto nomeado (o alarme de estouro so' existe para eles).
+ESTAGIOS_COM_TETO: Final[frozenset[str]] = frozenset({"cadastro", "aceite"})
+
+_ORIGEM_CANONICA: Final = object()
+
+
+class RelogioRecusado(ValueError):  # noqa: N818
+    """Recusa com codigo fixo; nunca ecoa valor recebido."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class EstadoDoRelogio:
+    """Estado interno (staff-only). Sem campo de data-limite: nada daqui e' exibivel a cliente."""
+
+    proponente_digest: str
+    inicio: datetime | None
+    dias_corridos: int | None
+    alarmes_atingidos: tuple[int, ...]
+    possivel_vigencia_automatica: bool
+    recuperacao_bloqueada: bool
+    suspensoes_registradas: int
+    _origem: object = field(default=None, init=False, repr=False, compare=False)
+
+
+#: Data civil do inicio contada com recuo de 5 horas: conservador para todo fuso brasileiro (UTC-2 a UTC-5),
+#: porque a data de inicio nunca fica depois da data civil local; contar a mais antecipa alarme, nunca atrasa.
+_RECUO_DA_DATA_DE_INICIO: Final[timedelta] = timedelta(hours=5)
+
+
+def _selar(estado: EstadoDoRelogio) -> EstadoDoRelogio:
+    """So' o relogio canonico sela o estado; `dataclasses.replace` nao copia o selo (campo fora do init)."""
+    object.__setattr__(estado, "_origem", _ORIGEM_CANONICA)
+    return estado
+
+
+def _utc(valor: object) -> bool:
+    return type(valor) is datetime and valor.utcoffset() == timedelta(0)
+
+
+def estado_do_relogio(
+    eventos: Sequence[EventoCandidato], *, proponente_digest: str, agora: datetime
+) -> EstadoDoRelogio:
+    """O relogio canonico. Sem evento de inicio, nao ha' contagem (estado sem inicio, nunca inventado)."""
+    if not _utc(agora):
+        raise RelogioRecusado("relogio_instante_invalido")
+    proprios = [e for e in eventos if type(e) is EventoCandidato and e.proponente_digest == proponente_digest]
+    if not all(_utc(e.instante) for e in proprios):
+        raise RelogioRecusado("relogio_instante_invalido")
+    inicios = [e.instante for e in proprios if e.tipo in TIPOS_DE_INICIO]
+    suspensoes = sum(1 for e in proprios if e.tipo in TIPOS_DE_SUSPENSAO)
+    if not inicios:
+        return _selar(EstadoDoRelogio(proponente_digest, None, None, (), False, False, suspensoes))
+    inicio = min(inicios)
+    dias = (agora.date() - (inicio - _RECUO_DA_DATA_DE_INICIO).date()).days
+    return _selar(
+        EstadoDoRelogio(
+            proponente_digest=proponente_digest,
+            inicio=inicio,
+            dias_corridos=dias,
+            alarmes_atingidos=tuple(d for d in DIAS_DE_ALARME if dias >= d),
+            possivel_vigencia_automatica=dias >= DIA_CORTE,
+            recuperacao_bloqueada=dias >= DIA_BLOQUEIO_DA_RECUPERACAO,
+            suspensoes_registradas=suspensoes,
+        )
+    )
+
+
+def exigir_relogio_canonico(estado: object) -> EstadoDoRelogio:
+    """Todo consumidor le' so' o estado deste relogio; estado montado por outro lugar e' recusado."""
+    if type(estado) is not EstadoDoRelogio or estado._origem is not _ORIGEM_CANONICA:
+        raise RelogioRecusado("SECOND_CLOCK_FORBIDDEN")
+    return estado
+
+
+@dataclass(frozen=True, slots=True)
+class ItemDeEscalonamento:
+    """Pedido de atencao humana. Nao e' comando: nao rescinde, nao nega, nao cobra, nao bloqueia."""
+
+    proponente_digest: str
+    motivo: Literal["alarme_relogio_sombra", "possivel_vigencia_automatica"]
+    dia: int
+    grupo_responsavel: str
+    estagio: str
+    acao: Literal["escalation_requested"] = "escalation_requested"
+
+
+def _papel(valor: object) -> str:
+    if type(valor) is not str or not valor or len(valor) > 64 or not valor.replace("_", "").isalnum():
+        raise RelogioRecusado("RESPONSIBLE_QUEUE_REQUIRED")
+    if not valor.isascii() or valor != valor.lower():
+        raise RelogioRecusado("RESPONSIBLE_QUEUE_REQUIRED")
+    return valor
+
+
+def itens_de_escalonamento(
+    estado: EstadoDoRelogio, *, estagio: str, grupo_responsavel: str
+) -> tuple[ItemDeEscalonamento, ...]:
+    """Um item por alarme atingido e, no corte, o item da hipotese. Sem inicio, nenhum item (sem contagem)."""
+    estado = exigir_relogio_canonico(estado)
+    if type(estagio) is not str or estagio not in ESTAGIOS_COM_TETO:
+        raise RelogioRecusado("OVERRUN_WITHOUT_NAMED_CEILING")
+    grupo = _papel(grupo_responsavel)
+    if estado.dias_corridos is None:
+        return ()
+    itens = [
+        ItemDeEscalonamento(estado.proponente_digest, "alarme_relogio_sombra", d, grupo, estagio)
+        for d in estado.alarmes_atingidos
+    ]
+    if estado.possivel_vigencia_automatica:
+        itens.append(
+            ItemDeEscalonamento(
+                estado.proponente_digest, "possivel_vigencia_automatica", DIA_CORTE, grupo, estagio
+            )
+        )
+    return tuple(itens)

@@ -632,6 +632,86 @@ _FATOS_BOOLEANOS_POR_FLUXO: Final[dict[str, dict[str, str]]] = {
 }
 
 
+#: DL-0191 (ADR-0079 §2, unidade U1b): as UNICAS chaves de `fatos` que chegam ao prompt da
+#: narrativa, por fluxo. Listas FECHADAS: as chaves de hoje de `_contas_facts`/`_recurso_facts`/
+#: `_reembolso_facts`, nenhuma chave nova, MENOS:
+#:   - `numero_guia_tiss` (vinculo do caso com a pessoa) e `cid10` (dado sensivel de saude, LGPD
+#:     art. 11);
+#:   - as chaves de vinculo do caso — `numero_lote_tiss`, `numero_conta`, `glosa_id` e
+#:     `protocolo_reembolso` — que compoem as business keys deste modulo (`_business_key`) e
+#:     ligam o caso a pessoa sem acrescentar nada a narrativa (decisao da coordenacao);
+#:   - `relacao_com_titular` (titular | dependente): a estrutura do prompt de reembolso
+#:     (`prompts.py::reembolso_prompt`, itens 1 a 5) nao a pede.
+#: Campo novo nos montadores fica fora do prompt ate' alguem o acrescentar aqui de proposito. Todas
+#: seguem no dossie devolvido ao humano (`fatos`), na auditoria e nas variaveis do processo — a
+#: minimizacao e' do prompt.
+_PERMITIDOS_PROMPT_CONTAS: Final[frozenset[str]] = frozenset(
+    {
+        "competencia",
+        "tipo_lote",
+        "valor_apresentado_brl",
+        "reason_codes_tiss",
+        "categoria_normalizada",
+        "glosa_classificada",
+        "denial_ratio",
+        "item_conforme_tabela",
+        "divergencia_valor",
+        "documentacao_anexa",
+        "triagem",
+        "indicio_fraude_sinalizado",
+        "dmn_refs",
+        "sla_analise",
+        "lacunas_enriquecimento",
+    }
+)
+
+_PERMITIDOS_PROMPT_RECURSO: Final[frozenset[str]] = frozenset(
+    {
+        "glosa_type",
+        "glosa_reason_code",
+        "valor_glosado_brl",
+        "codigo_procedimento_tuss",
+        "glosa_existe",
+        "dentro_prazo_recurso",
+        "documentacao_recurso_completa",
+        "admissibilidade_recurso",
+        "elegibilidade_recurso",
+        "grupo_revisor",
+        "dmn_refs",
+        "sla_analise",
+        "lacunas_enriquecimento",
+    }
+)
+
+_PERMITIDOS_PROMPT_REEMBOLSO: Final[frozenset[str]] = frozenset(
+    {
+        "tipo_reembolso",
+        "categoria_procedimento",
+        "codigo_procedimento_tuss",
+        "valor_solicitado_cents",
+        "situacao_prazo",
+        "motivo_nao_rede",
+        "lacunas_enriquecimento",
+    }
+)
+
+#: Fluxo -> lista, no mesmo despacho de `_FATOS_BOOLEANOS_POR_FLUXO`.
+_PERMITIDOS_PROMPT_POR_FLUXO: Final[dict[str, frozenset[str]]] = {
+    "contas": _PERMITIDOS_PROMPT_CONTAS,
+    "recurso": _PERMITIDOS_PROMPT_RECURSO,
+    "reembolso": _PERMITIDOS_PROMPT_REEMBOLSO,
+}
+
+
+def fatos_para_prompt(facts: dict[str, Any], permitidos: frozenset[str]) -> dict[str, Any]:
+    """Recorta `fatos` pela lista fechada do fluxo (DL-0191), na ordem do montador.
+
+    So' leitura: o dicionario do dossie nao muda. O renderizador do runtime aplica a mesma lista
+    de novo; recortar antes faz o descarte dele valer como alarme, e nao como rotina.
+    """
+    return {chave: valor for chave, valor in facts.items() if chave in permitidos}
+
+
 class MarinaGraph:
     """Wires Marina's injected dependencies into a compilable `StateGraph[MarinaState]`."""
 
@@ -1212,10 +1292,14 @@ class MarinaGraph:
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
         booleanos = _FATOS_BOOLEANOS_POR_FLUXO.get(flow, _FATOS_BOOLEANOS_CONTAS)
-        prompt = (
-            f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n"
-            f"{render_fatos_para_prompt(facts, booleanos=booleanos)}"
+        # DL-0191: `facts` segue intacto no dossie devolvido abaixo; o prompt recebe so' o
+        # recorte da lista fechada do fluxo (sem guia nem CID-10).
+        permitidos = _PERMITIDOS_PROMPT_POR_FLUXO.get(flow, _PERMITIDOS_PROMPT_CONTAS)
+        fatos_do_prompt = fatos_para_prompt(facts, permitidos)
+        fatos_txt = render_fatos_para_prompt(
+            fatos_do_prompt, booleanos=booleanos, permitidos=permitidos, agente="marina"
         )
+        prompt = f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n{fatos_txt}"
         try:
             narrativa = await self._llm.generate(
                 prompt,

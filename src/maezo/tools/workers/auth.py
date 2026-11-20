@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import math
+import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -391,6 +392,38 @@ class _CriterionOutcome:
     sombra: tuple[str, ...] = ()
 
 
+class OrcamentoDmnEsgotadoError(TimeoutError):
+    """DL-0189: o orcamento de motor DMN da tarefa acabou ANTES desta avaliacao; o motor nao e chamado.
+
+    `TimeoutError`, como o `asyncio.wait_for` de `evaluate_sync` levanta quando o prazo vence no meio de
+    uma avaliacao: os dois caem no mesmo `except` de cada criterio e viram o `*_TABELA_INDISPONIVEL`
+    dele (analise humana, nunca negativa). A mensagem e um codigo fixo, sem dado do caso."""
+
+
+@dataclass(frozen=True, slots=True)
+class _OrcamentoDmn:
+    """DL-0189: o instante-limite (`time.monotonic`) das chamadas ao motor de UMA tarefa.
+
+    Criado em `execute` e passado adiante como argumento (nunca guardado na instancia: o harness roda
+    tarefas do mesmo topico em paralelo sobre o MESMO worker). `limite=None` = sem orcamento, o
+    comportamento anterior a DL-0189 (construcao direta do worker em teste ou ferramenta)."""
+
+    limite: float | None
+
+    @classmethod
+    def a_partir_de_agora(cls, orcamento_s: float | None) -> _OrcamentoDmn:
+        return cls(None if orcamento_s is None else time.monotonic() + orcamento_s)
+
+    def prazo_restante_s(self) -> float | None:
+        """O que resta para a proxima avaliacao, ou `None` sem orcamento. Esgotado: levanta antes do motor."""
+        if self.limite is None:
+            return None
+        restante = self.limite - time.monotonic()
+        if restante <= 0:
+            raise OrcamentoDmnEsgotadoError("orcamento_dmn_esgotado")
+        return restante
+
+
 class ValidateAutoCriteriaWorker(WorkerBase):
     """External task: `operadora.auth.validate_auto_criteria` (`ST_ValidateAutoApprovalCriteria`).
 
@@ -455,6 +488,17 @@ class ValidateAutoCriteriaWorker(WorkerBase):
          `ST_EnviarNegativaFormal`), and an unmodeled `bpmnError` silently ENDS the process
          scope on CIB Seven 2.1.0 (ADR-0030, live-verified). This worker only RETURNS.
 
+    ENGINE BUDGET (DL-0189). The two to four sequential DMN evaluations of one task share ONE
+    deadline (`orcamento_dmn_s`, the task lock minus the `complete` margin), so a slow engine can no
+    longer hold the task past its lock (the engine would re-deliver it to another worker and reject
+    this worker's late `complete`). Each evaluation gets what is left; once it is spent, the
+    remaining tables fail closed exactly like an unreachable table (`*_TABELA_INDISPONIVEL`, human
+    review) and the engine is not called again for this task. SOFT bound: synchronous blocking
+    that escapes `wait_for` (DNS resolution when the per-call HTTP client is built, awaited by
+    `asyncio.run`'s executor shutdown) can overrun it, at most once per task (the next call raises
+    before any network). An exhausted budget reports the same `*_TABELA_INDISPONIVEL` token as an
+    outage, by design (identical output); the log's `error_type` tells them apart.
+
     DEGRADATION (design §6) — fail-safe AND visible. An unexpected error anywhere returns all
     four criteria false plus `VALIDADOR_INDISPONIVEL`, with an `error` log line, a
     `maezo_worker_error_count_total` increment and an audit token. It is deliberately NOT an
@@ -468,6 +512,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         resolver: CeilingResolver | None = None,
         dmn: DmnTransport | None = None,
         sources: CriteriaSources | None = None,
+        orcamento_dmn_s: float | None = None,
     ) -> None:
         # max_retries=1: every branch here is DETERMINISTIC (a DMN no-match, an unratified
         # source, a missing input) — an in-process retry with sleeps changes nothing and only
@@ -484,22 +529,41 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         self._dmn = dmn
         # Injectable for tests; production reads the cached manifest (`criteria_sources()`).
         self._sources_override = sources
+        # DL-0189: orcamento TOTAL de motor DMN por tarefa (`WorkerRuntimeSettings.auth_dmn_budget_s`,
+        # o bloqueio menos a margem do `complete`). Cada avaliacao recebe o que resta dele (o
+        # `wait_for` de `evaluate_sync`, abaixo do `client_timeout_s` do transporte); esgotado, as
+        # tabelas que faltam viram `*_TABELA_INDISPONIVEL` sem chamar o motor. `None` = sem orcamento.
+        if orcamento_dmn_s is not None and not (
+            isinstance(orcamento_dmn_s, int | float)
+            and not isinstance(orcamento_dmn_s, bool)
+            and math.isfinite(orcamento_dmn_s)
+            and orcamento_dmn_s > 0
+        ):
+            raise ValueError("orcamento_dmn_s must be a positive finite number of seconds")
+        self._orcamento_dmn_s = None if orcamento_dmn_s is None else float(orcamento_dmn_s)
 
     # -- rule sources -------------------------------------------------------------------
 
     def _sources(self) -> CriteriaSources:
         return self._sources_override if self._sources_override is not None else criteria_sources()
 
-    def _evaluate_dmn(self, decision_key: str, variables: dict[str, Any]) -> dict[str, Any]:
+    def _evaluate_dmn(
+        self, decision_key: str, variables: dict[str, Any], orcamento: _OrcamentoDmn
+    ) -> dict[str, Any]:
         """Evaluate one decision table engine-side. Raises on ANY failure — callers fail closed.
 
         Deliberately thin: `evaluate_sync` records the authoritative `DmnVersion` into the audit
         collector (ADR-0028 §5) and `first_row` turns an empty result into `DmnNoResultError`
         rather than the fail-OPEN `{}` the dead local evaluator used to return.
+
+        DL-0189: the call gets what is left of the task's engine budget (`prazo_s`); an exhausted
+        budget raises `OrcamentoDmnEsgotadoError` BEFORE the engine is called, and an expiry in
+        flight raises `TimeoutError` — both a `*_TABELA_INDISPONIVEL` in the caller, never a denial.
         """
         if self._dmn is None:
             raise RuntimeError(f"dmn transport seam not wired for `{self.topic}` (ADR-0028)")
-        rows, _version = evaluate_sync(self._dmn, decision_key, variables)
+        prazo_s = orcamento.prazo_restante_s()
+        rows, _version = evaluate_sync(self._dmn, decision_key, variables, prazo_s=prazo_s)
         return first_row(rows, decision_key, variables)
 
     # -- criterion: FINANCEIRO ----------------------------------------------------------
@@ -561,7 +625,9 @@ class ValidateAutoCriteriaWorker(WorkerBase):
 
     # -- criterion: TECNICO -------------------------------------------------------------
 
-    def _criterio_tecnico(self, process_vars: dict[str, Any], sources: CriteriaSources) -> _CriterionOutcome:
+    def _criterio_tecnico(
+        self, process_vars: dict[str, Any], sources: CriteriaSources, orcamento: _OrcamentoDmn
+    ) -> _CriterionOutcome:
         """DUT/ROL coverage, plus the procedure-specific clinical criteria table when required.
 
         Steps, each failing closed:
@@ -587,9 +653,15 @@ class ValidateAutoCriteriaWorker(WorkerBase):
             cobertura = self._evaluate_dmn(
                 _DMN_DUT_ROL_COVERAGE,
                 {"codigo_procedimento_tuss": codigo, "categoria_procedimento": categoria},
+                orcamento,
             )
         except Exception as exc:  # fail-closed: unreachable table never approves
-            self.logger.error("auth_auto_criteria_dmn_failed", decision=_DMN_DUT_ROL_COVERAGE, error=str(exc))
+            self.logger.error(
+                "auth_auto_criteria_dmn_failed",
+                decision=_DMN_DUT_ROL_COVERAGE,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
             return _CriterionOutcome(ok=False, falhas=(_TEC_TABELA_INDISPONIVEL,))
 
         consulted = [_DMN_DUT_ROL_COVERAGE]
@@ -618,10 +690,15 @@ class ValidateAutoCriteriaWorker(WorkerBase):
                     # `_to_camunda_vars` caveat), so only the table's own declared inputs are
                     # forwarded — resolved from the table itself, never a hardcoded list here.
                     criteria_row = self._evaluate_dmn(
-                        criteria_key, _dut_criteria_inputs(criteria_key, process_vars)
+                        criteria_key, _dut_criteria_inputs(criteria_key, process_vars), orcamento
                     )
                 except Exception as exc:  # fail-closed
-                    self.logger.error("auth_auto_criteria_dmn_failed", decision=criteria_key, error=str(exc))
+                    self.logger.error(
+                        "auth_auto_criteria_dmn_failed",
+                        decision=criteria_key,
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
                     return _CriterionOutcome(ok=False, falhas=(_TEC_TABELA_INDISPONIVEL,))
                 atendida = _as_bool(criteria_row.get("dut_atendida"))
                 if atendida is None:
@@ -643,7 +720,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
     # -- criterion: REGULATORIO ---------------------------------------------------------
 
     def _criterio_regulatorio(
-        self, process_vars: dict[str, Any], sources: CriteriaSources
+        self, process_vars: dict[str, Any], sources: CriteriaSources, orcamento: _OrcamentoDmn
     ) -> _CriterionOutcome:
         """Carencia / CPT via `carencia_check`.
 
@@ -679,9 +756,15 @@ class ValidateAutoCriteriaWorker(WorkerBase):
             row = self._evaluate_dmn(
                 _DMN_CARENCIA_CHECK,
                 {"tipo_procedimento": tipo, "dias_desde_adesao": dias, "cpt_declarada": cpt},
+                orcamento,
             )
         except Exception as exc:  # fail-closed
-            self.logger.error("auth_auto_criteria_dmn_failed", decision=_DMN_CARENCIA_CHECK, error=str(exc))
+            self.logger.error(
+                "auth_auto_criteria_dmn_failed",
+                decision=_DMN_CARENCIA_CHECK,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
             return _CriterionOutcome(ok=False, falhas=(_REG_TABELA_INDISPONIVEL,))
 
         cumprida = _as_bool(row.get("carencia_cumprida"))
@@ -706,7 +789,7 @@ class ValidateAutoCriteriaWorker(WorkerBase):
     # -- criterion: CONTRATUAL ----------------------------------------------------------
 
     def _criterio_contratual(
-        self, process_vars: dict[str, Any], sources: CriteriaSources
+        self, process_vars: dict[str, Any], sources: CriteriaSources, orcamento: _OrcamentoDmn
     ) -> _CriterionOutcome:
         """Contractual milestones / rules / KPIs via `auth_criteria_contratual`.
 
@@ -725,10 +808,14 @@ class ValidateAutoCriteriaWorker(WorkerBase):
             row = self._evaluate_dmn(
                 _DMN_CRITERIA_CONTRATUAL,
                 {"tenant_id": tenant, "categoria_procedimento": categoria},
+                orcamento,
             )
         except Exception as exc:  # fail-closed
             self.logger.error(
-                "auth_auto_criteria_dmn_failed", decision=_DMN_CRITERIA_CONTRATUAL, error=str(exc)
+                "auth_auto_criteria_dmn_failed",
+                decision=_DMN_CRITERIA_CONTRATUAL,
+                error=str(exc),
+                error_type=type(exc).__name__,
             )
             return _CriterionOutcome(ok=False, falhas=(_CON_TABELA_INDISPONIVEL,))
 
@@ -779,7 +866,10 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         enqueued. Outside an audited dispatch nothing is deferred. Inert while the rco pin is `sem_pacote`.
         """
         try:
-            result = self._evaluate_criteria(process_vars)
+            # DL-0189: o relogio do orcamento de motor comeca AQUI, uma vez por tarefa.
+            result = self._evaluate_criteria(
+                process_vars, _OrcamentoDmn.a_partir_de_agora(self._orcamento_dmn_s)
+            )
         except Exception as exc:  # degradation (design §6): fail-safe AND visible
             # Fail-safe, not an incident: an incident stalls a care-authorization request, which
             # is worse for the beneficiary than routing it to a human auditor (mirrors DL-0037's
@@ -821,12 +911,12 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         except Exception as exc:  # observability must never break the gate
             self.logger.warning("auth_auto_criteria_metric_failed", error=str(exc))
 
-    def _evaluate_criteria(self, process_vars: dict[str, Any]) -> dict[str, Any]:
+    def _evaluate_criteria(self, process_vars: dict[str, Any], orcamento: _OrcamentoDmn) -> dict[str, Any]:
         sources = self._sources()
-        tecnico = self._criterio_tecnico(process_vars, sources)
+        tecnico = self._criterio_tecnico(process_vars, sources, orcamento)
         financeiro = self._criterio_financeiro(process_vars)
-        regulatorio = self._criterio_regulatorio(process_vars, sources)
-        contratual = self._criterio_contratual(process_vars, sources)
+        regulatorio = self._criterio_regulatorio(process_vars, sources, orcamento)
+        contratual = self._criterio_contratual(process_vars, sources, orcamento)
 
         result = _criteria_result(
             tecnico=tecnico,
@@ -2146,7 +2236,11 @@ def register_auth_workers(
     # R-064 (RN 424/2017 art. 3 I), DARK: `junta_rn424_guard` vem de `MAEZO_AUTH_JUNTA_RN424_GUARD`.
     # `is True`, nao truthiness: um valor-lixo ("true", 1) nunca liga a guarda.
     harness.register_worker(ConveneJuntaWorker(rn424_guard=seams.get("junta_rn424_guard") is True))
-    harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
+    # DL-0189: `auth_dmn_orcamento_s` vem de `WorkerRuntimeSettings.auth_dmn_budget_s` (o bloqueio menos
+    # a margem do `complete`); ausente (topic-probe, testes) o worker fica sem orcamento, como antes.
+    harness.register_worker(
+        ValidateAutoCriteriaWorker(dmn=seams.get("dmn"), orcamento_dmn_s=seams.get("auth_dmn_orcamento_s"))
+    )
     # R-005 / F-018 (DEC-02), DARK: `auth_prazo_dias_uteis` vem de `MAEZO_AUTH_PRAZO_DIAS_UTEIS`.
     # Desligada, o worker so' escreve as tres variaveis nulas e o timer segue no ISO da DMN.
     harness.register_worker(

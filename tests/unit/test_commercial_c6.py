@@ -22,6 +22,7 @@ from maezo.gateway.commercial_admission import (
     compose_commercial_gateway,
     compose_public_catalog_gateway,
 )
+from maezo.gateway.commercial_public_fences import PresentialChannelFact
 from maezo.portal.api.commercial import (
     PUBLIC_CATALOG_PATH,
     commercial_command,
@@ -467,7 +468,26 @@ async def test_work_scope_cannot_be_borrowed_from_customer_or_billing(actor, pur
         gateway._scope(value)
 
 
+#: Registro ANS conhecido, com os dois códigos (cerca da E-SF-05r para produto `usable`).
+SYN_ANS_REGISTRY = {
+    "dataState": "known",
+    "productRegistryCode": "SYN-ANS-PRODUCT",
+    "operatorRegistryCode": "SYN-ANS-OPERATOR",
+}
+
+#: Ato sintético do dono sobre o canal presencial: só testes constroem um.
+SYN_PRESENTIAL_FACT = PresentialChannelFact(owner_act_ref="SYN-OWNER-ACT")
+
+
 def public_body():
+    """Catálogo da 1ª perna: registro ANS conhecido e preço público desconhecido."""
+    body = numeric_public_body()
+    body["products"][0]["price"] = {"dataState": "unknown"}
+    return body
+
+
+def numeric_public_body():
+    """Catálogo com preço público numérico (2ª perna): as cercas da E-SF-05r o recusam."""
     unknown = {"dataState": "unknown"}
     return {
         "schemaVersion": "sales-catalog-read.proposed.v3",
@@ -494,7 +514,7 @@ def public_body():
                 "productVersion": "1",
                 "productName": "Synthetic product",
                 "operatorName": "Synthetic operator",
-                "ansRegistry": deepcopy(unknown),
+                "ansRegistry": deepcopy(SYN_ANS_REGISTRY),
                 "modality": "individual_familiar",
                 "offerState": "usable",
                 **{
@@ -648,6 +668,7 @@ def public_rig(schema_bytes, body=None, status=200):
         scope_authority=scope_authority,
         source_authority=source,
         source_admission=catalog_admission(),
+        presential_fact=SYN_PRESENTIAL_FACT,
         transport=httpx.MockTransport(transport),
     )
     app = FastAPI()
@@ -657,7 +678,7 @@ def public_rig(schema_bytes, body=None, status=200):
 
 
 @pytest.mark.asyncio
-async def test_actual_public_factory_route_calls_fixed_machine_get_and_preserves_numeric_values(schema_bytes):
+async def test_actual_public_factory_route_calls_fixed_machine_get_and_preserves_source_values(schema_bytes):
     app, _, _, source, calls = public_rig(schema_bytes)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="https://maezo.invalid"
@@ -731,7 +752,7 @@ async def test_public_invalid_transport_or_authority_never_calls_source(schema_b
     ],
 )
 async def test_public_source_failure_is_categorical_and_not_stale_success(schema_bytes, failure):
-    body = public_body()
+    body = numeric_public_body() if failure == "numeric_expired" else public_body()
     if failure == "withdrawn":
         body["source"]["publicationState"] = "withdrawn"
     elif failure == "expired":
@@ -771,7 +792,9 @@ async def test_public_price_expiry_rechecked_after_last_source_authority_io(sche
             return current[0]
 
     monkeypatch.setattr(wire_module, "datetime", Clock)
-    body = public_body()
+    # Preço numérico (2ª perna): com a perna fechada a cerca já recusa; o recheck do prazo
+    # segue coberto no próprio wire e esta rota não pode divulgar o preço em caso algum.
+    body = numeric_public_body()
     body["products"][0]["price"]["amounts"][0]["currentness"]["validUntil"] = (
         now + timedelta(seconds=1)
     ).isoformat()
@@ -788,7 +811,13 @@ async def test_public_price_expiry_rechecked_after_last_source_authority_io(sche
             },
         )
     assert result.status_code == 503
-    assert source.digests[-1] is not None
+    # Com a 2ª perna fechada (E-SF-05r), a cerca recusa o preço numérico no primeiro parse,
+    # antes da fase de divulgação: nenhum digest é ligado. O recheck do prazo continua no wire.
+    assert source.digests[-1] is None
+    expired = numeric_public_body()
+    expired["products"][0]["price"]["amounts"][0]["currentness"]["validUntil"] = "2000-01-01T00:00:00Z"
+    with pytest.raises(CommercialRefusalError):
+        CommercialWire(schema_bytes).parse_public_result(httpx.Response(200, json=expired).content)
 
 
 def test_c6_2_connection_slots_nullable_but_keys_required(schema_bytes):

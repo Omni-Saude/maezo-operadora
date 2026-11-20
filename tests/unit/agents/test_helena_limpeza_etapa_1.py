@@ -159,6 +159,7 @@ class _Settings:
         self.helena_saude_gerativa = gerativa
         self.helena_base_saude = base
         self.helena_busca_semantica = False
+        self.runtime_mode = "local"
 
 
 def test_composicao_monta_a_rota_global_sem_a_base_e_sem_a_gerativa() -> None:
