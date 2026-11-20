@@ -538,6 +538,9 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
         # id da midia, o protocolo nem o telefone. Varridos abaixo como os demais.
         "reembolso_store.py",
         "reembolso_turno.py",
+        # `rota_comercial.py` (GTM-E-12b): revisado ao entrar nesta lista. Nao recebe wamid, telefone
+        # nem texto; so' tokens fechados e booleanos. Sem logger. Varrido abaixo como os demais.
+        "rota_comercial.py",
         "roteamento.py",
         "security.py",
         "settings.py",
