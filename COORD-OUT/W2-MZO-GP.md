@@ -903,3 +903,14 @@ Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos 
   - `sf-w2/mzo-gp/esf35` @ `290594618a5d4fb4d4353252700182bd1fb07de0`
 - **PR #1343 (E-SF-24a)** aberto. Um merge atrás (#1342, sem arquivo em comum; CD-155: não trazido). O teste de checkout limpo agora passa. Aguardo o CI para o PRONTO.
 - Em curso: `tests/unit` × main para a 11 e a 35. Os PRs das demais saem um por vez, na ordem 29-1 → 29-2 → RT-02 → 11 → 35.
+
+## 2026-11-21 ~00:05Z (UTC do contêiner: 2026-11-20 23:55Z) — PRONTO #1343 (E-SF-24a)
+
+- **PRONTO:** #1343, head `43462269fa204566594bf0f523b8e35051856b42`.
+  - CI verde, menos o `flip-path-review-gate`, esperado: o template está em `/spec/policies/ans/` (CODEOWNERS L238) e precisa da aprovação do security-team ou da exceção do dono, como no #1308. Está registrado no corpo do PR.
+  - `live-pytest] PASS`: recurso-nip passed=181; cancel-contas passed=138; cred-ans passed=129; restante passed=965.
+  - Unit: ci, ci-pesado, ledger-resto, ledger-consumer, gateway-platform, dev e restante, todos verdes. `integration tests (real engine)` verde.
+- **Simulação de merge real** numa worktree destacada no sha da main `b86b3d822fd8020858eeee288472322509dba519`: merge sem conflito; `make lint type validate-artifacts` rc=0 (com link temporário da `.venv`, removido); `tests/unit/{sec,tools/workers,spec,platform}` 14288 passed, 15 failed. As 15 são as mesmas falhas de ambiente local da main de base (`fail-main-4.txt`). Worktree removida sem `--force`.
+- **1 merge atrás** (#1342, autonomy loaders): sem arquivo em comum, não trazido (CD-155).
+- **Arquivos:** `src/maezo/tools/workers/denial_term.py` (novo), `src/maezo/tools/workers/auth.py`, `spec/policies/ans/templates/termo-negativa.v0.txt` (novo), `tests/unit/sec/test_documento_negativa_fence.py` (novo), `tests/unit/tools/workers/test_worker_handler_purity.py`, `docs/processes/contracts/SP-OP-AUTH-001.md`.
+- **Próximo PR**, depois do merge deste: 29-1 (ramo já no remoto).
