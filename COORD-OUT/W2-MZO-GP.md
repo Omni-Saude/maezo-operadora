@@ -783,3 +783,35 @@ Base: main `bf9c84df`. Construção local em worktree própria, sem PR, até a r
   - **Proposta:** no PR da 29-2, trocar SÓ o `process_definition_digest` da entrada `aguardando_admissao` do REEMBOLSO-001 (`05c181b9…` → `ef5d529c79b4c572e62dee63b82111331d3a5a63e4c1bda63e1993d373236b94`) e acrescentar ao `motivo` "e a E-SF-29-2 (junções exclusivas G4, sem mudança de comportamento)". Nada em `admitidos`, nada implantado, e o repin segue ato do dono no corte.
   - Alternativa: a 29-2 espera até a admissão ser repinada pelo dono, ou é feita junto com o próximo corte.
 - Sem o espelho atualizado, o PR da 29-2 fica vermelho nesse portão. A 29-2 fica parada até a resposta. A 29-1 e a RT-02 não tocam BPMN e seguem prontas.
+
+## 2026-11-20 ~22:50Z — CAMINHO E-SF-11 (REG-21; só a EP-REG-21a)
+
+**Escopo:** só a **EP-REG-21a** ("nenhum sucesso DSR fabricado, nos dois lados"). Ficam fora, como pontos de parada já declarados no plano:
+- 21b: ato do encarregado (GAP-C3), DPO;
+- 21c: F-2, AF-07, legal-hold e OWNER-DEPLOY;
+- 21d: freeze sucessor do C6-4, A2 e OWNER-DEPLOY.
+São das classes DPO/LGPD e deploy da fronteira.
+
+**O que existe em main** (levantamento):
+- **Lado worker:** `ExecuteRequestWorker.execute` (`src/maezo/tools/workers/lgpd.py:327-478`) não tem `return`; todo caminho levanta `WorkerFailureError(retries_left=0)` ou o `LegalHoldErasureDeferredError`. Isso já é pinado por `test_execute_request_nenhuma_entrada_completa_a_tarefa` (`tests/unit/tools/workers/test_lgpd_erasure.py:556`, produto cartesiano de tipos × decisões × `human_approved`) e pela integração `test_lgpd_execution_refusal.py`. O nome `test_execute_request_no_path_completes` do plano não existe.
+- **Lado comprador:** NÃO existe superfície DSR no gateway comercial nem no C6-4 (sem `privacy.*`, sem enum de status). `PUBLISHED_DSR_REQUEST_KINDS` e `CONTRACT_PENDING` não existem. O único canal é o portal do titular, `POST /dsr` (`src/maezo/portal/api/dsr.py`, DARK), cujo recibo é `DsrReceipt.status: Literal["received"]` ("recibo de estágio, nunca desfecho"). O adapter "CONTRACT_PENDING" do plano exigiria código novo, e isso é a 21d (bloqueada).
+
+**Proposta — um PR, só testes** (molde da E-SF-12, `test_e_sf_12_nao_contato_fence.py`): arquivo novo `tests/unit/portal/test_ep_reg_21a_dsr_sem_sucesso_fabricado.py` com:
+1. `test_execute_request_no_path_completes`, o nome do plano. Reusa o produto cartesiano do `:556` e, além do `raises`, prova que nada devolve dict nem `status` terminal (`execution_completed`, `atendida`, `concluida`); inclui os caminhos de legal-hold.
+2. `test_buyer_dsr_view_never_fulfilled_without_source`, na forma possível hoje, sem adapter:
+   - o recibo do portal só tem `status == "received"`, e o schema (`DsrReceipt`, `openapi.json`, `generated/api.ts`) não tem campo nem valor de desfecho (`fulfill*`, `done`, `atendid*`, `concluid*`, `completed`);
+   - nenhuma rota GET de status de DSR existe em `portal/api`;
+   - o C6-4 não tem comando DSR (só leitura do JSON, sem editar);
+   - nenhum literal de desfecho DSR em `src/maezo/{gateway,adapters,portal/api}`.
+   - A semântica "adapter devolve CONTRACT_PENDING" fica para a 21d, e o teste diz isso na docstring.
+3. Controles de não-vacuidade em cada varredura.
+
+**Fica fechado:**
+- `lgpd.py`, `erasure.py`, BPMN/DMN do LGPD-DSR, o portal (código), os conjuntos PHI, o C6-4 e os locks: intocados;
+- nenhuma habilitação de direito;
+- nada ligado (o canal segue DARK).
+
+**Subperguntas** (com o padrão que adoto se não houver resposta):
+- (a) Linha no `docs/evidence-ledger.md`: é ponto de parada desta janela. **Padrão:** mando o texto da linha no relatório final, sem editar.
+- (b) Incluir o arquivo novo em `SECURITY_TESTS` do `Makefile`? **Padrão:** não (o Makefile é compartilhado e não é exigido); fica como pedido de linha.
+- (c) A E-SF-11 conta no placar só com a 21a? **Padrão:** a 21a entra como parcial; 21b, 21c e 21d na lista de pontos de parada.
