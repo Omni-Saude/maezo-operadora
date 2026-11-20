@@ -874,3 +874,19 @@ As seis linhas estão construídas e revisadas. O commit segue negado pelo modo 
   - linha do evidence-ledger da 21a (texto no relatório final);
   - dívida `Lei9656-art12-VI` no `funnel_deadline_catalog.dmn`.
 - **Limpeza:** `mut24` é a worktree de main limpa (usada como base das comparações); `esf29`, `esf29b`, `rt02`, `esf11` e `esf35` são as árvores das linhas. Ficam até os merges; serão removidas sem `--force` na LIMPEZA de cada uma.
+
+## 2026-11-21 ~00:30Z — patches das seis linhas (pedido do funil e da coordenação do programa)
+
+Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos rastreados + `git diff --no-index /dev/null` de cada arquivo novo (`node_modules` excluído). Cada um passa em `git apply --check` sobre a main limpa `bf9c84df`. Nenhum commit, push ou envio para fora.
+
+| Linha | Caminho | sha256 | Bytes | Arquivos |
+|---|---|---|---|---|
+| 24a | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/patches/24a.patch` | `8bb808fcec269044e0803cb527c21c5bf9c8b95c040124b133c371cdf7e6542a` | 34793 | 6 |
+| 29-1 | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/patches/29-1.patch` | `ec8be0a48357689777898ac66773ef76b5f5d0521c0998eeefce3f854c6d5125` | 28015 | 1 |
+| 29-2 | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/patches/29-2.patch` | `c14d00f011a1edf7ba289d815aaee45a71fab26835a86955aa1dc6cfc30fb2ab` | 30506 | 5 |
+| rt02 | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/patches/rt02.patch` | `f416282ed665300b624083e3835efe355ad8b29d6c697725d3b381ab8f4b397b` | 20448 | 5 |
+| esf11 | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/patches/esf11.patch` | `31299e1a658c9c8b8984f80df37884b3821bbae0ed08bb3871849162a4a6afbe` | 13761 | 1 |
+| esf35 | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/patches/esf35.patch` | `c04d275040516b86262c65fcc5567503c359fbac1bef7804a961625f4e239095` | 7024 | 1 |
+
+- **Destino durável fora do repositório:** não tem. O scratchpad é da sessão e some quando o contêiner é reciclado. Não envio código para nenhum outro lugar.
+- Volto a ficar parada.
