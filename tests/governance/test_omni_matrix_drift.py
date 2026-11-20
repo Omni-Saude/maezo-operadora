@@ -371,6 +371,20 @@ def test_strict_json_refuses(texto: str) -> None:
     assert exc.value.motivo is DriftRefusal.FORMA_DA_MATRIZ_DESCONHECIDA
 
 
+@pytest.mark.parametrize("dados", [b'{"id": "IF-\xff"}', b"\xc3\x28"], ids=["byte-ff", "seq-truncada"])
+def test_strict_json_refuses_invalid_utf8(dados: bytes) -> None:
+    with pytest.raises(DriftRecusadoError) as exc:
+        carregar_matriz(dados)
+    assert exc.value.motivo is DriftRefusal.FORMA_DA_MATRIZ_DESCONHECIDA
+
+
+@pytest.mark.parametrize("dados", [b"[" * 100_000, b'{"a":' * 100_000], ids=["listas", "objetos"])
+def test_strict_json_refuses_deep_nesting(dados: bytes) -> None:
+    with pytest.raises(DriftRecusadoError) as exc:
+        carregar_matriz(dados)
+    assert exc.value.motivo is DriftRefusal.FORMA_DA_MATRIZ_DESCONHECIDA
+
+
 def test_strict_json_accepts_valid_matrix() -> None:
     m = _matriz()
     m["interfaces"][0]["peso"] = 1.5
@@ -556,6 +570,22 @@ def test_read_refuses_partial_clone(tmp_path: Path, chave_valor: tuple[str, str]
     assert exc.value.motivo is DriftRefusal.CLONE_PARCIAL_RECUSADO
 
 
+@pytest.mark.parametrize(
+    "conteudo",
+    ["[extensions]\n\tpartialClone = origin\n", '[remote "origin"]\n\tpromisor = true\n'],
+    ids=["partialClone", "promisor"],
+)
+def test_read_refuses_partial_clone_via_include(tmp_path: Path, conteudo: str) -> None:
+    """`include.path` no config local nao burla a guarda de clone parcial."""
+    repo, sha_base, _ = _clone(tmp_path)
+    incluido = tmp_path / "incluido.cfg"
+    incluido.write_text(conteudo, encoding="utf-8")
+    _git(repo, "config", "include.path", str(incluido))
+    with pytest.raises(DriftRecusadoError) as exc:
+        ler_do_clone(repo, sha_base)
+    assert exc.value.motivo is DriftRefusal.CLONE_PARCIAL_RECUSADO
+
+
 def test_read_refuses_subdirectory_of_clone(tmp_path: Path) -> None:
     repo, sha_base, _ = _clone(tmp_path)
     with pytest.raises(DriftRecusadoError) as exc:
@@ -580,6 +610,71 @@ def test_read_refuses_non_commit_object(tmp_path: Path) -> None:
         with pytest.raises(DriftRecusadoError) as exc:
             ler_do_clone(repo, objeto)
         assert exc.value.motivo is DriftRefusal.LEITURA_DO_CLONE_FALHOU
+
+
+def test_read_refuses_annotated_tag_object(tmp_path: Path) -> None:
+    """Id de objeto tag anotada descasca para um commit, mas nao E o commit: recusa."""
+    repo, sha_base, _ = _clone(tmp_path)
+    _git(repo, "tag", "-a", "t-base", "-m", "tag sintetica", sha_base)
+    etiqueta = _git(repo, "rev-parse", "t-base")
+    assert etiqueta != sha_base and _git(repo, "cat-file", "-t", etiqueta) == "tag"
+    with pytest.raises(DriftRecusadoError) as exc:
+        ler_do_clone(repo, etiqueta)
+    assert exc.value.motivo is DriftRefusal.LEITURA_DO_CLONE_FALHOU
+
+
+def test_git_invocation_is_hardened(tmp_path: Path, monkeypatch: Any) -> None:
+    """Toda chamada git: `--no-replace-objects`, ambiente exato e `--end-of-options`."""
+    repo, sha_base, _ = _clone(tmp_path)
+    chamadas: list[tuple[list[str], dict[str, str] | None]] = []
+    original = subprocess.run
+
+    def gravar(argv: list[str], **kwargs: Any) -> Any:
+        chamadas.append((list(argv), kwargs.get("env")))
+        return original(argv, **kwargs)
+
+    monkeypatch.setattr(drift.subprocess, "run", gravar)
+    assert ler_do_clone(repo, sha_base) == _matriz()
+    assert len(chamadas) >= 4
+    for argv, env in chamadas:
+        assert argv[:2] == ["git", "--no-replace-objects"]
+        assert env == dict(drift._AMBIENTE_GIT)
+    assert drift._AMBIENTE_GIT["GIT_NO_LAZY_FETCH"] == "1"
+    assert drift._AMBIENTE_GIT["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert drift._AMBIENTE_GIT["GIT_TERMINAL_PROMPT"] == "0"
+    assert not any(
+        k.startswith("GIT_")
+        for k in drift._AMBIENTE_GIT
+        if k not in {"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT", "GIT_NO_LAZY_FETCH"}
+    )
+    revisoes = [argv for argv, _ in chamadas if f"{sha_base}^{{commit}}" in argv]
+    assert len(revisoes) == 1
+    argv = revisoes[0]
+    assert argv[argv.index(f"{sha_base}^{{commit}}") - 1] == "--end-of-options"
+
+
+def test_write_does_not_follow_symlink(tmp_path: Path) -> None:
+    fora = tmp_path / "fora.json"
+    elo = tmp_path / "elo.json"
+    elo.symlink_to(fora)
+    with pytest.raises(OSError):
+        drift._escrever(elo, b"{}\n")
+    assert not fora.exists()
+    real = tmp_path / "real.json"
+    drift._escrever(real, b"{}\n")
+    assert real.read_bytes() == b"{}\n"
+
+
+def test_cli_deeply_nested_matrix_is_typed_refusal(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo, sha_base, sha_alvo = _clone(tmp_path)
+    (repo / drift.MATRIZ_PATH).write_bytes(b"[" * 100_000)
+    _git(repo, "commit", "-qam", "aninhado")
+    profundo = _git(repo, "rev-parse", "HEAD")
+    assert main(["--omni-git-dir", str(repo), "--base", sha_base, "--target", profundo]) == 2
+    erro = capsys.readouterr().err
+    assert erro.startswith("FORMA_DA_MATRIZ_DESCONHECIDA") and "Traceback" not in erro
 
 
 def test_read_ignores_caller_git_env(tmp_path: Path, monkeypatch: Any) -> None:

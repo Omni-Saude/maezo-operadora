@@ -258,7 +258,7 @@ def _objeto_sem_chave_duplicada(pares: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def carregar_matriz(dados: bytes) -> Any:
-    """JSON estrito: chave duplicada, NaN/Infinity ou texto invalido recusam como forma desconhecida."""
+    """JSON estrito: chave duplicada, NaN/Infinity, aninhamento excessivo ou texto invalido recusam."""
     try:
         return json.loads(
             dados,
@@ -268,6 +268,8 @@ def carregar_matriz(dados: bytes) -> Any:
         )
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise _forma(f"matriz nao e JSON valido: {exc}") from exc
+    except RecursionError as exc:
+        raise _forma("matriz JSON aninhada alem do limite de recursao") from exc
 
 
 #: Ambiente do git montado do zero: nenhuma variavel do chamador (`GIT_DIR`, `GIT_*`, proxy...) passa.
@@ -306,7 +308,8 @@ def _validar_clone(git_dir: Path) -> None:
         raise DriftRecusadoError(
             DriftRefusal.LEITURA_DO_CLONE_FALHOU, f"{git_dir} nao e o topo do repositorio ({raiz})"
         )
-    config = _git(git_dir, "config", "--local", "--list", "--name-only")
+    # `--includes`: `include.path`/`includeIf` do config local tambem contam (sem isso, burlariam a guarda)
+    config = _git(git_dir, "config", "--local", "--includes", "--list", "--name-only")
     if config.returncode != 0:
         raise _falhou(config, "config do clone ilegivel")
     promisores = sorted(
