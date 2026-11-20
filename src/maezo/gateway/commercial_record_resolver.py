@@ -49,6 +49,12 @@ class CommercialRecordResolver:
     gateway composto (as portas de autoridade ficam com quem monta o resolvedor).
     `wrap_commercial` é o invólucro da postura de legitimidade que `create_app` aplica; por
     padrão, devolve o mesmo objeto.
+
+    Contrato de thread: as rotas chamam `public_catalog_gateway` e `commercial_gateway` via
+    `asyncio.to_thread`, então `compose_public`, `compose_commercial`, `wrap_commercial` e
+    `clock` rodam numa thread de trabalho, fora do loop. Eles só devem construir objetos;
+    não podem tocar estado compartilhado preso ao loop (store, transporte ou cliente em uso
+    por outra requisição) nem depender de executar no loop.
     """
 
     catalog_record_path: Path | None
