@@ -488,3 +488,8 @@ Verificação:
   - Título e corpo do #1341 descrevem o que entrou.
   - Disco: worktrees temporárias removidas sem `--force`; scratchpad vazio; `git status` limpo; clone principal em `main` `bf9c84df`.
 - Próxima da fila: E-SF-24 → E-SF-29 → RT-02 → E-SF-11 → E-SF-35. CAMINHO da E-SF-24 antes de qualquer código.
+
+## 2026-11-20 ~17:10Z — pendência registrada (ROOT, sobre o #1341)
+
+- LACUNA para a linha que um dia ligar a produção, não para agora: `CommercialRecordResolver` compõe um gateway POR CHAMADA. Com transporte real (cliente HTTP), quem monta `compose_public`/`compose_commercial` tem de reutilizar o cliente ou fechá-lo; do contrário vaza uma conexão por requisição. Na próxima vez que eu tocar `src/maezo/gateway/commercial_record_resolver.py`, isso entra no contrato da docstring, com teste (por exemplo, composição que conta clientes abertos e não fechados ao fim de N chamadas).
+- LIMPEZA #1341 e aviso ao funil já feitos (entrada das ~17:05Z). E-SF-24: levantamento em curso, CAMINHO a seguir.
