@@ -890,3 +890,16 @@ Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos 
 
 - **Destino durável fora do repositório:** não tem. O scratchpad é da sessão e some quando o contêiner é reciclado. Não envio código para nenhum outro lugar.
 - Volto a ficar parada.
+
+## 2026-11-21 ~01:00Z — commit liberado; seis ramos no remoto; PR #1343 (24a) aberto
+
+- O commit da 24a passou na tentativa única proposta pelo funil e pela coordenação do programa: mesmo comando, mesmo ramo e mesmo clone, só **sem a linha de coautoria com identificador de modelo** (regra do dono no brief). O link de sessão foi mantido; não é identificador de modelo.
+- Commits e push (CD-185), todos com a árvore limpa depois:
+  - `sf-w2/mzo-gp/esf24` @ `43462269fa204566594bf0f523b8e35051856b42`
+  - `sf-w2/mzo-gp/esf29-1` @ `b15a3ecefef8b6bb720a074503089b686ec49189`
+  - `sf-w2/mzo-gp/esf29-2` @ `ab611ff733badf6b1d6b7c6aeb76f88f643bfe6c`
+  - `sf-w2/mzo-gp/rt02` @ `34b2803376126783802a184f3e852bbd7c26a0e6`
+  - `sf-w2/mzo-gp/esf11` @ `73aedfaee5bb942f9d74dc405af4f64b9fb7a0f0`
+  - `sf-w2/mzo-gp/esf35` @ `290594618a5d4fb4d4353252700182bd1fb07de0`
+- **PR #1343 (E-SF-24a)** aberto. Um merge atrás (#1342, sem arquivo em comum; CD-155: não trazido). O teste de checkout limpo agora passa. Aguardo o CI para o PRONTO.
+- Em curso: `tests/unit` × main para a 11 e a 35. Os PRs das demais saem um por vez, na ordem 29-1 → 29-2 → RT-02 → 11 → 35.
