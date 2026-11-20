@@ -73,3 +73,9 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 - `tests/governance`: ramo 177 passed; main 89 passed.
 - `make lint type validate-artifacts` rc=0. Nenhum `noqa` nem `type: ignore` novo.
 - PR não aberto: já há PR do funil aberto (#1343). Abro quando ele fechar, sem trazer a main se o diff continuar disjunto.
+
+## 2026-11-20T23:48Z — CD-219: parada
+
+- 34r registrada. PR só quando a coordenação definir a posição na fila do funil; ramo fica como está, sem novas baterias.
+- `febe41a` fica como está (sem reescrita).
+- 12r não começa até a decisão do dono sobre o acesso. Janela parada.
