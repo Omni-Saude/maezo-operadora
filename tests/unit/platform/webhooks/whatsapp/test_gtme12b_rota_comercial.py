@@ -163,7 +163,7 @@ def test_id_e_acao_batem_com_o_grafo_e_o_vocabulario() -> None:
     assert rc.AGENTE_ID == comercial_graph.AGENT_ID
     assert rc.ACAO_PRETENDIDA == comercial_graph.ACAO_ENVIO_PROSPECT
     l0 = yaml.safe_load((_RAIZ / "spec/policies/autonomy/L0-core.yaml").read_text(encoding="utf-8"))
-    assert rc.ACAO_PRETENDIDA in repr(l0)
+    assert l0["actions"][rc.ACAO_PRETENDIDA] == {"level": "L3"}
 
 
 # ---------------------------------------------------------------- isolamento
