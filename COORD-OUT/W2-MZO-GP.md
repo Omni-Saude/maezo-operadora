@@ -705,3 +705,45 @@ Além disso, tocar o BPMN tira dele a isenção da baseline dos gates: as 4 entr
   - gates `--touched` novos=0.
 - Faltam no ramo: `tests/unit` inteiro × main e a integração do reembolso + `recurso-nip` no CI do PR.
 - As três (24a, 29-1, 29-2) aguardam a liberação de commit pelo dono. Sigo para o CAMINHO da RT-02.
+
+## 2026-11-20 ~21:00Z — CAMINHO E-SF-RT-02 (motivo de cancelamento em lista fechada, sem saúde; E35 = B)
+
+Base: main `bf9c84df`. Construção local em worktree própria, sem PR, até a resposta.
+
+**O que existe em main** (levantamento):
+- A E-SF-09 / EP-REG-27b está em `src/maezo/platform/saida_a_pedido/cancelamento.py` (DL-0178, PR #1282) como modelo de domínio puro, com a política `spec/policies/saida-a-pedido/pedido-cancelamento.yaml` em `NAO_RATIFICADO`. O contrato diz "sem efeito no motor; sem intake vivo da página; emissão de protocolo pendente" (`SP-OP-CANCEL-001.md:376-390`).
+- Já estão prontos:
+  - `Elemento(tipo="pergunta_motivo")`;
+  - a guarda `GUARD_REQUIRES_REASON` (pergunta antes do protocolo ou obrigatória);
+  - o passo `pos_protocolo`, vazio (`passos_pos_protocolo=()`);
+  - `submissao_de_payload`, que já recusa a chave `motivo`;
+  - o evento catalogado `ret.cancelamento.motivo_registrado` (só `codigo_motivo`, emissor `nenhum`);
+  - `legal_bases_matrix`, que recusa `vinculo_ao_titular` para `motivo_cancelamento`.
+- O `motivo_informado` (texto livre) do contrato `:81` / `cancel.py:111` não é escrito por nenhum código do cancelamento.
+
+**Proposta (menor caminho, nada ligado):**
+- `src/maezo/platform/saida_a_pedido/cancelamento.py`:
+  - enum fechado `CodigoMotivoCancelamento` com os 6 códigos do RT-05 item 5 (`valor_alto`, `mudanca_de_cidade`, `outro_vinculo`, `rede_nao_atende`, `atendimento_servico`, `prefiro_nao_dizer`);
+  - `passos_pos_protocolo` passa a ter um `pergunta_motivo` opcional, com pular de um toque;
+  - `registrar_motivo(codigo) -> CodigoMotivoCancelamento` recusa, com código fixo e sem eco, qualquer valor fora do enum, texto livre incluído;
+  - `ContagemDeMotivos`, um contador PURO em memória (dict código → inteiro), sem nenhum campo de pessoa, contrato, pedido ou protocolo, e sem emissor.
+- `spec/policies/saida-a-pedido/pedido-cancelamento.yaml`: os textos da pergunta e das 6 opções, em `NAO_RATIFICADO` como o resto. Se o empacotamento travar arquivo novo, os textos ficam no mesmo arquivo.
+- Testes novos, `tests/unit/processes/test_e_sf_rt_02_motivo.py`, com os três nomeados pelo plano e controles:
+  - `test_motivo_nao_bloqueia_protocolo`: o protocolo e as variáveis de início do CANCEL-001 são idênticos com e sem resposta; a pergunta só aparece depois do protocolo; pular é aceito;
+  - `test_motivo_texto_livre_recusado`: qualquer string fora do enum é recusada sem eco;
+  - `test_motivo_sem_codigo_saude`: enum e textos passam pelo `contem_dado_de_saude` da E-SF-13, mais uma lista de termos de saúde;
+  - um teste estrutural: o código nunca entra em `variaveis_de_inicio_cancel_001`, `SubmissaoCancelamento`, nem em nenhum registro com chave de pessoa ou contrato; `ContagemDeMotivos` não tem atributo de pessoa (AST e dataclass).
+- `docs/processes/contracts/SP-OP-CANCEL-001.md`, na seção E-SF-09: o motivo fica fora do motor, como contagem agregada só por código. O `motivo_informado` (texto livre) segue sem produtor; recomendo retirá-lo do contrato numa linha própria. Fica como ACHADO, sem mexer agora.
+
+**Fica fechado** (com o teste que prova):
+- vínculo ao titular (RT-D1, DPO) — teste estrutural;
+- **nenhuma métrica emitida**: sem `Counter` em `runtime/metrics.py`, sem evento (`motivo_registrado` segue com emissor `nenhum`), sem tabela nem migração. Medir é ligar, e nada é ligado;
+- BPMN do CANCEL-001 intocado, sem variável de processo nova. O plano listava uma "variável opcional"; recuo conservador porque ela viraria dado do motor ligado à instância;
+- WhatsApp/Lucas intocado (DL-0098, sem retenção; o Lucas não mostra protocolo na confirmação);
+- `spec/communications/` intocado (é o registro de templates proativos, FECHADO);
+- `phi_vars`/corpus de PHI e arquivos de contagem não mudam.
+
+**Subperguntas** (com o padrão que adoto se não houver resposta):
+- (a) A contagem agregada só como modelo puro, sem emissor? Padrão: sim. O emissor (métrica ou evento) é decisão da E-SF-35r e da coordenação.
+- (b) Os rótulos dos 6 códigos usam o texto do RT-05 item 5, verbatim? Padrão: sim.
+- (c) O `motivo_informado` no contrato: padrão, ACHADO e pedido de linha, sem editar.
