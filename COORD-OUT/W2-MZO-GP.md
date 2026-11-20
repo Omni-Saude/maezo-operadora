@@ -747,3 +747,27 @@ Base: main `bf9c84df`. Construção local em worktree própria, sem PR, até a r
 - (a) A contagem agregada só como modelo puro, sem emissor? Padrão: sim. O emissor (métrica ou evento) é decisão da E-SF-35r e da coordenação.
 - (b) Os rótulos dos 6 códigos usam o texto do RT-05 item 5, verbatim? Padrão: sim.
 - (c) O `motivo_informado` no contrato: padrão, ACHADO e pedido de linha, sem editar.
+
+## 2026-11-20 ~21:40Z — 29-1 com `tests/unit` × main limpo; RT-02 montada com revisão PASS (CD-202)
+
+- **29-1**, `tests/unit` inteiro × main limpa `bf9c84df` (6 partes; a parte `ci` em 4 blocos): 0 falha só no ramo e 0 só na main, com as mesmas falhas da main em todas as partes. +14 passed na parte com `tests/unit/spec` (o arquivo novo).
+- **RT-02**, montada em worktree própria (ramo local `sf-w2/mzo-gp/rt02`), com as condições da CD-202:
+  - enum `CodigoMotivoCancelamento` com os 6 códigos e rótulos VERBATIM do RT-05 item 5 (minúsculos, como no texto);
+  - pergunta opcional no passo `pos_protocolo` do modelo E-SF-09, com pular;
+  - `codigo_do_motivo` só aceita `str` exato da lista e devolve o código canônico; o resto é recusado com `reason_not_in_closed_list`, sem eco (`args` fixos);
+  - `ContagemDeMotivos`, pura, só `por_codigo` (lista fechada, na ordem, inteiros ≥ 0, validados no `__post_init__`), sem pessoa, contrato, pedido, protocolo, tenant ou instante, e sem emissor;
+  - teste de que nenhum outro módulo de `src/` lê os nomes do bloco (nenhum uso para retenção, oferta, segmentação ou mensagem);
+  - teste de saúde em códigos e rótulos;
+  - BPMN, Lucas, `spec/communications` e o corpus de PHI intocados.
+  - A função foi renomeada de `motivo_informado` para `codigo_do_motivo`, para não colidir com a variável de texto livre do contrato.
+- Revisão independente: **PASS**. As 5 recomendações não bloqueantes aplicadas:
+  - subclasse de `str` não passa;
+  - a contagem valida a lista fechada na construção;
+  - o nome da função;
+  - a pergunta diz "escolha" em vez de "conte";
+  - os controles do teste foram reforçados.
+  - Não aplicada: o loader exigir as chaves novas (mesmo padrão das antigas).
+- Testes: `tests/unit/processes` 142 passed; 15 de 15 mutações mortas; `make lint type validate-artifacts` rc=0; CD-170 limpo (o único `noqa` do arquivo é anterior).
+- **ACHADO (pedido de linha):** `motivo_informado` (texto livre pseudonimizado, contrato `SP-OP-CANCEL-001.md:81`, `cancel.py:111`, `phi_vars.py:347`) não tem produtor no cancelamento. Recomendo retirá-lo do contrato e do worker numa linha própria.
+- Em curso: `tests/unit` inteiro × main para a 29-2 e a RT-02.
+- **Ordem de PRs (CD-202):** 24a → 29-1 → 29-2 → RT-02, um por vez, quando o dono liberar o commit.
