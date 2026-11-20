@@ -556,3 +556,21 @@ O levantamento do impacto do formField novo mudou o tamanho da E-SF-24. Correç�
   - Flag: testes de que nenhum código de `src` chama o render nem liga a flag (AST, com controles). O teste do estado fechado declara a confirmação jurídica como pré-condição para ligar. O contrato também diz isso.
   - Fora: BPMN, portal, gerados, corpus de PHI e arquivos de contagem. Sem DL, sem migração.
 - Gates locais: `make lint type validate-artifacts` rc=0; CD-170 limpo; 40 testes novos; 22 de 22 mutações mortas (worktree isolada, restaurada). Em curso: `tests/unit` inteiro × main e a revisão independente.
+
+## 2026-11-20 ~18:00Z — E-SF-24a: revisão PASS, tests/unit × main, correções não bloqueantes
+
+- **Revisão independente: PASS**, sem bloqueantes (sobre a árvore de ~17:10Z). Das 7 observações não bloqueantes, 4 foram corrigidas na árvore:
+  1. O termo v0 NÃO traz o elemento I do art. 16, § 1º (segunda instância na Ouvidoria). A docstring e o contrato dizem isso agora, e a pré-condição para ligar a flag passou a incluir a completude do § 1º, com teste.
+  2. "Mesmo critério do guard": o render é MAIS estrito (`auditor_id` só de largura zero conta como vazio). O texto foi corrigido no módulo e no contrato.
+  3. Uma asserção vácua do E3 (`texto not in repr(...)`) foi trocada por uma conferência contra os valores do registro.
+  4. Canal da Ouvidoria com quebra de linha (forjaria itens da lista) passa a ser recusado, com teste.
+- Ficam como ACHADO no PR, não corrigidos:
+  - a varredura E2 só confere a convenção de nome (`compose_vendor_notice` e `compose_provider_notices` existem fora dela);
+  - o detector da flag não vê o kwarg `denial_written_notice=True` (coberto em `tests/unit/runtime/test_worker_runtime_service.py:524`);
+  - o template mora em `spec/policies/ans/` (empacotado), mas o caminho de carga em runtime não foi verificado, porque ninguém chama o render.
+- **tests/unit inteiro × main limpa `bf9c84df`** (6 partes; a parte `ci` foi refeita em 4 blocos por timeout nas duas árvores): 0 falha só na main, 2 falhas só no ramo, nenhuma do código novo:
+  - `tests/unit/dev/test_engine_integration_runner.py::test_discovery_rejects_untracked_test_outside_integration_directory` exige checkout sem alterações tracked e cai porque a árvore ainda não tem commit. Some com o commit; confiro de novo depois dele;
+  - `tests/unit/dev/test_engine_runner_final_repair.py::test_teardown_is_non_green_until_completion_and_interruptions_are_durable[normal]` é flake sob `-n auto` (pid vazio); isolado no ramo, 13 de 13 em 2 rodadas.
+  - A parte com `tests/unit/sec` coletou +40 no ramo (os testes novos), todos verdes.
+- Depois das 4 correções: 42 testes novos; 24 de 24 mutações mortas (duas novas: canal com quebra; rótulo vazando no registro); `make lint type validate-artifacts` rc=0; `tests/unit/sec` + `tests/unit/tools/workers` + os testes que leem o contrato do AUTH-001: 5909 passed, 27 skipped. CD-170 limpo.
+- **Bloqueio:** commit e push. O modo automático negou o commit no ramo `sf-w2/mzo-gp/esf24`, e o pedido de liberação está com o dono. Não contorno.
