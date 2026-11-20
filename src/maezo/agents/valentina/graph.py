@@ -427,15 +427,16 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
 }
 
 
-#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
-#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
-#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
-#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
-_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+#: DL-0191 / U1c (ADR-0079 §2): as UNICAS chaves de `fatos` que chegam ao prompt da narrativa. Lista
+#: FECHADA: as chaves de hoje de `_care_facts`, nenhuma nova, MENOS `beneficiario_pseudo_id`
+#: (pseudonimo da pessoa: liga o caso a ela e nao serve a narrativa). `programa_id` e `ciclo` ficam:
+#: identificam o PROGRAMA e o periodo, nao a pessoa (sem o pseudonimo nao ligam a ninguem), e os
+#: templates os pedem. `beneficiario_pseudo_id` segue no dossie (`fatos`), na auditoria e nas
+#: variaveis do processo — a minimizacao e' do prompt.
+_PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(
     {
         "programa_id",
         "ciclo",
-        "beneficiario_pseudo_id",
         "gatilho",
         "consent_status",
         "risco_estratificado",
@@ -944,8 +945,10 @@ class ValentinaGraph:
 
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
+        # U1c: `facts` segue intacto no dossie; o prompt recebe so' o recorte da lista fechada.
+        fatos_do_prompt = {chave: valor for chave, valor in facts.items() if chave in _PERMITIDOS_PROMPT}
         fatos_txt = render_fatos_para_prompt(
-            facts, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_LEGADO_U1C, agente="valentina"
+            fatos_do_prompt, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_PROMPT, agente="valentina"
         )
         prompt = f"{prompt_text}\n\ntask={task} route={route} motivo_humano={motivo_humano}\n{fatos_txt}"
         llm_ok = True

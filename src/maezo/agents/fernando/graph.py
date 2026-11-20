@@ -653,13 +653,13 @@ _FATOS_BOOLEANOS_DOSSIE: Final[dict[str, str]] = {
 }
 
 
-#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
-#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
-#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
-#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
-_PERMITIDOS_LEGADO_U1C_MENSAGEM: Final[frozenset[str]] = frozenset(
+#: DL-0191 / U1c (ADR-0079 §2): as UNICAS chaves de `fatos` que chegam a cada prompt. Listas
+#: FECHADAS: as chaves de hoje de cada montador, nenhuma nova, MENOS `numero_contrato` — chave de
+#: vinculo que liga o caso ao beneficiario e que nenhum dos dois textos pede (a mensagem orienta a
+#: regularizacao; o dossie resume a inadimplencia). Segue no dossie/mensagem (`fatos`), na
+#: auditoria e nas variaveis do processo — a minimizacao e' do prompt.
+_PERMITIDOS_PROMPT_MENSAGEM: Final[frozenset[str]] = frozenset(
     {
-        "numero_contrato",
         "tipo_plano",
         "competencias_em_aberto",
         "status_inadimplencia",
@@ -670,10 +670,9 @@ _PERMITIDOS_LEGADO_U1C_MENSAGEM: Final[frozenset[str]] = frozenset(
     }
 )
 
-_PERMITIDOS_LEGADO_U1C_DOSSIE: Final[frozenset[str]] = frozenset(
+_PERMITIDOS_PROMPT_DOSSIE: Final[frozenset[str]] = frozenset(
     {
         "intencao",
-        "numero_contrato",
         "tipo_plano",
         "competencias_em_aberto",
         "meses_inadimplencia",
@@ -1066,10 +1065,11 @@ class FernandoGraph:
         }
         intencao = state.get("intencao")
         intencao_validated = intencao if intencao in _VALID_INTENCOES else None
+        # U1c: `facts` segue intacto no retorno; o prompt recebe so' o recorte da lista fechada.
         fatos_txt = render_fatos_para_prompt(
-            facts,
+            {chave: valor for chave, valor in facts.items() if chave in _PERMITIDOS_PROMPT_MENSAGEM},
             booleanos=_FATOS_BOOLEANOS_MENSAGEM,
-            permitidos=_PERMITIDOS_LEGADO_U1C_MENSAGEM,
+            permitidos=_PERMITIDOS_PROMPT_MENSAGEM,
             agente="fernando",
         )
         prompt = f"{message_prompt()}\n\nintencao={intencao_validated}\n{fatos_txt}"
@@ -1132,10 +1132,11 @@ class FernandoGraph:
             "fonte_regulatoria_sla": state.get("fonte_regulatoria_sla"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
+        # U1c: `facts` segue intacto no retorno; o prompt recebe so' o recorte da lista fechada.
         fatos_txt = render_fatos_para_prompt(
-            facts,
+            {chave: valor for chave, valor in facts.items() if chave in _PERMITIDOS_PROMPT_DOSSIE},
             booleanos=_FATOS_BOOLEANOS_DOSSIE,
-            permitidos=_PERMITIDOS_LEGADO_U1C_DOSSIE,
+            permitidos=_PERMITIDOS_PROMPT_DOSSIE,
             agente="fernando",
         )
         prompt = f"{dossier_prompt()}\n\nmotivo={state.get('motivo_humano')}\n{fatos_txt}"

@@ -170,6 +170,7 @@ from maezo.runtime.error_text import (
 )
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import (
+    UNTRUSTED_MAX_CHARS,
     render_fatos_para_prompt,
     render_untrusted_block,
     sem_campos_nao_confiaveis,
@@ -195,6 +196,7 @@ from maezo.tools.workers.dmn_transport import (
     DmnTransport,
     first_row,
 )
+from maezo.tools.workers.phi_vars import redact_free_text
 
 from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
 
@@ -509,14 +511,14 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
 }
 
 
-#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
-#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
-#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
-#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
-_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+#: DL-0191 / U1c (ADR-0079 §2): as UNICAS chaves de `fatos` que chegam ao repr de fatos do prompt.
+#: Lista FECHADA: as chaves de hoje de `_cred_facts`, nenhuma nova, MENOS `prestador_id` (o
+#: identificador do prestador do caso) e `protocolo_cred` (o numero do pedido): chaves de vinculo
+#: que nao servem a narrativa — o humano as ve no proprio caso, no dossie e nas variaveis do
+#: processo. O texto livre `motivo_informado` nunca entra no repr: vai em bloco NAO CONFIAVEL
+#: proprio (HEL-06), redigido (`_texto_livre_redigido`).
+_PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(
     {
-        "prestador_id",
-        "protocolo_cred",
         "direcao",
         "tipo_prestador",
         "origem_solicitacao",
@@ -539,6 +541,15 @@ _PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
         "lacunas_enriquecimento",
     }
 )
+
+
+def _texto_livre_redigido(valor: object) -> str | None:
+    """U1c: texto livre de terceiro passa pela rede de identificadores (`redact_free_text`: e-mail,
+    CPF/CNPJ, telefone, sequencia longa de digitos) ANTES do bloco NAO CONFIAVEL. O teto e' o do
+    proprio bloco, para a redacao nao cortar antes dele."""
+    if valor is None:
+        return None
+    return redact_free_text(str(valor), max_chars=UNTRUSTED_MAX_CHARS)
 
 
 class CarolinaGraph:
@@ -935,12 +946,17 @@ class CarolinaGraph:
         facts = self._cred_facts(state)
         # HEL-06: `facts` segue INTACTO para o dossie e para a proveniencia (ADR-0007); so' a
         # COPIA que vai ao modelo perde o texto livre, que reaparece logo abaixo demarcado.
-        fatos_para_prompt = sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS)
-        motivo_informado = facts.get("motivo_informado")
+        # U1c: e o recorte da lista fechada (sem o identificador do prestador nem o protocolo).
+        fatos_para_prompt = {
+            chave: valor
+            for chave, valor in sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS).items()
+            if chave in _PERMITIDOS_PROMPT
+        }
+        motivo_informado = _texto_livre_redigido(facts.get("motivo_informado"))
         fatos_txt = render_fatos_para_prompt(
             fatos_para_prompt,
             booleanos=_FATOS_BOOLEANOS,
-            permitidos=_PERMITIDOS_LEGADO_U1C,
+            permitidos=_PERMITIDOS_PROMPT,
             agente="carolina",
         )
         prompt = (

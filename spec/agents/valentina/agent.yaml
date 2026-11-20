@@ -9,7 +9,7 @@ reports_to: "coordenacao-clinica@amh"          # gestor humano = coordenacao cli
 security_zone: phi                             # Zona PHI integral (ADR-0006/D10): processa PHI clinico in-zone APOS o gate de consentimento
 graph: graph.py:build
 prompt_versions:                               # versionados (ADR-0009) — gate de eval no golden
-  system: system-v1
+  system: system-v2
   stratification: stratification-v1            # dossie de estratificacao de risco (care.stratify)
   care_plan: care-plan-v1                      # dossie de plano de cuidado (care.enroll)
 model:

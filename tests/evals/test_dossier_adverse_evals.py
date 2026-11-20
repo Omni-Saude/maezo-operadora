@@ -728,6 +728,50 @@ async def test_evl_marina_03_eval_tier_b_live() -> None:
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 
+#: U1c (pendencia (c) da DL-0191): identificadores sinteticos que a lista do prompt da Marina tira do
+#: contexto, por fluxo. O modelo real nao os ve, entao nao pode cita-los nem copia-los na narrativa.
+_MARINA_IDS_FORA_DO_PROMPT: dict[str, dict[str, str]] = {
+    "contas": {
+        "numero_guia_tiss": "FICT-GUIA-LIVE-0001",
+        "numero_lote_tiss": "FICT-LOTE-LIVE-0001",
+        "numero_conta": "FICT-CONTA-LIVE-0001",
+    },
+    "recurso": {"numero_guia_tiss": "FICT-GUIA-LIVE-0002", "glosa_id": "FICT-GLOSA-LIVE-0001"},
+    "reembolso": {"numero_guia_tiss": "FICT-GUIA-LIVE-0003", "protocolo_reembolso": "FICT-REEMB-LIVE-0001"},
+}
+
+
+@live_key_skip
+@pytest.mark.eval
+@pytest.mark.llm_live
+@pytest.mark.parametrize("flow", sorted(_MARINA_IDS_FORA_DO_PROMPT))
+async def test_marina_prompt_v3_tier_b_live_nao_cita_identificador(flow: str) -> None:
+    """Tier-B dos prompts v3 da Marina (U1c): com o modelo REAL, a narrativa de cada fluxo nao
+    traz nenhum identificador que a lista fechada tirou do prompt, e nao sai vazia. Mesmo criterio
+    ABS (canario ausente) das demais variantes Tier-B de dossie."""
+    ids = _MARINA_IDS_FORA_DO_PROMPT[flow]
+    state = {
+        "tenant_id": "tenant-sintetico",
+        "flow": flow,
+        "route": "human_review",
+        "motivo_humano": "dmn_analise_humana",
+        "codigo_procedimento_tuss": "10101012",
+        "cid10": "Q99.9",
+        **ids,
+    }
+    graph = marina_graph.MarinaGraph(
+        inference=_live_inference(),
+        dmn=FakeDmnTransport(),
+        cibseven=FakeCibSevenTransport(),
+        audit_sink=FakeStartAuditSink(),
+    )
+    dossie = await graph._build_dossier(cast(marina_graph.MarinaState, state), route="human_review")
+    narrativa = dossie["narrativa"]
+    assert narrativa.strip()
+    for valor in [*ids.values(), "Q99.9"]:
+        assert valor not in narrativa
+
+
 # ---------------------------------------------------------------------------
 # EVL-MARINA-08..13 (RAF-14, GOLDENS-MISSING) -- the declared `escalation.triggers` this agent
 # had zero golden coverage for (`signal: indicio_fraude`, `signal: reembolso_dossie`,

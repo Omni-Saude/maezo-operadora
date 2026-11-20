@@ -165,6 +165,7 @@ from maezo.runtime.error_text import (
 )
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import (
+    UNTRUSTED_MAX_CHARS,
     render_fatos_para_prompt,
     render_untrusted_block,
     sem_campos_nao_confiaveis,
@@ -190,6 +191,7 @@ from maezo.tools.workers.dmn_transport import (
     DmnTransport,
     first_row,
 )
+from maezo.tools.workers.phi_vars import redact_free_text
 
 from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
 
@@ -498,11 +500,11 @@ _FATOS_BOOLEANOS_NIP: Final[dict[str, str]] = {
 }
 
 
-#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
-#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
-#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
-#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
-_PERMITIDOS_LEGADO_U1C_ANS_SUBMIT: Final[frozenset[str]] = frozenset(
+#: DL-0191 / U1c (ADR-0079 §2): as UNICAS chaves de `fatos` que chegam ao repr de fatos do prompt,
+#: por fluxo. Listas FECHADAS: as chaves de hoje dos dois montadores, nenhuma nova.
+#: `ans_submit`: todas as de hoje. O envio periodico e' AGREGADO (nenhuma chave liga a uma pessoa);
+#: `dataset_ref` e' o ponteiro do dataset agregado do envio, nao de um caso individual.
+_PERMITIDOS_PROMPT_ANS_SUBMIT: Final[frozenset[str]] = frozenset(
     {
         "fluxo",
         "report_type",
@@ -522,11 +524,14 @@ _PERMITIDOS_LEGADO_U1C_ANS_SUBMIT: Final[frozenset[str]] = frozenset(
     }
 )
 
-_PERMITIDOS_LEGADO_U1C_NIP: Final[frozenset[str]] = frozenset(
+#: `nip`: as de hoje MENOS `numero_nip_ans` e `protocolo_ans` — os numeros da notificacao na ANS,
+#: chaves de vinculo que ligam o caso ao beneficiario que reclamou e nao servem a narrativa (o
+#: humano os ve no proprio caso). O texto livre (`tema_nip`, `referencia_negativa_original`) nunca
+#: entra no repr: vai em bloco NAO CONFIAVEL proprio (HEL-06), o `tema_nip` redigido e a referencia
+#: so' como presenca (ver `_build_dossier`).
+_PERMITIDOS_PROMPT_NIP: Final[frozenset[str]] = frozenset(
     {
         "fluxo",
-        "numero_nip_ans",
-        "protocolo_ans",
         "classificacao_nip",
         "classificacao",
         "prazo_dias",
@@ -544,6 +549,20 @@ _PERMITIDOS_LEGADO_U1C_NIP: Final[frozenset[str]] = frozenset(
         "lacunas_enriquecimento",
     }
 )
+
+
+def _texto_livre_redigido(valor: object) -> str | None:
+    """U1c: texto livre de terceiro passa pela rede de identificadores (`redact_free_text`: e-mail,
+    CPF/CNPJ, telefone, sequencia longa de digitos) ANTES do bloco NAO CONFIAVEL. O teto e' o do
+    proprio bloco, para a redacao nao cortar antes dele."""
+    if valor is None:
+        return None
+    return redact_free_text(str(valor), max_chars=UNTRUSTED_MAX_CHARS)
+
+
+#: U1c: a referencia da negativa original e' chave de vinculo (aponta para o caso da pessoa). O
+#: modelo so' fica sabendo SE ela foi informada; o valor segue no dossie e nas variaveis.
+_REFERENCIA_INFORMADA: Final[str] = "referencia informada (o valor fica no caso, com o humano)"
 
 
 class GustavoGraph:
@@ -980,9 +999,7 @@ class GustavoGraph:
             _FATOS_BOOLEANOS_ANS_SUBMIT if state.get("fluxo") == "ans_submit" else _FATOS_BOOLEANOS_NIP
         )
         permitidos = (
-            _PERMITIDOS_LEGADO_U1C_ANS_SUBMIT
-            if state.get("fluxo") == "ans_submit"
-            else _PERMITIDOS_LEGADO_U1C_NIP
+            _PERMITIDOS_PROMPT_ANS_SUBMIT if state.get("fluxo") == "ans_submit" else _PERMITIDOS_PROMPT_NIP
         )
         # HEL-06: `facts` segue INTACTO para o dossie e para a proveniencia (ADR-0007); so' a
         # COPIA que vai ao modelo perde o texto livre, que reaparece logo abaixo demarcado. Os
@@ -991,9 +1008,14 @@ class GustavoGraph:
         # que preserva o prefixo cacheavel e o baseline de eval — e um bloco vazio DIZ que o campo
         # nao trouxe conteudo, em vez de deixar o modelo inferir por que ele sumiu (mesmo principio
         # do `SEM DADO` de `render_fatos_para_prompt`).
-        fatos_para_prompt = sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS)
-        tema_nip = facts.get("tema_nip")
-        referencia = facts.get("referencia_negativa_original")
+        # U1c: e o recorte da lista fechada do fluxo (sem os numeros da NIP na ANS).
+        fatos_para_prompt = {
+            chave: valor
+            for chave, valor in sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS).items()
+            if chave in permitidos
+        }
+        tema_nip = _texto_livre_redigido(facts.get("tema_nip"))
+        referencia = _REFERENCIA_INFORMADA if facts.get("referencia_negativa_original") else None
         fatos_txt = render_fatos_para_prompt(
             fatos_para_prompt, booleanos=booleanos, permitidos=permitidos, agente="gustavo"
         )

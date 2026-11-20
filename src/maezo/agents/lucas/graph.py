@@ -1075,6 +1075,14 @@ def _rotulo_boleto(state: LucasState) -> str | None:
     return rotulo if _BOLETO_MASCARADO.match(rotulo) else None
 
 
+def _boleto_para_o_prompt(state: LucasState) -> str | None:
+    """U1c: o boleto como o PROMPT o ve — o rotulo mascarado (`_rotulo_boleto`) na forma de
+    apresentacao (`"****0037"` -> `"final 0037"`), ou `None` quando o estado nao traz rotulo mascarado
+    (numero inteiro, `SIM-...` da simulada, texto qualquer). Nunca o valor cru."""
+    rotulo = _rotulo_boleto(state)
+    return _boleto_do_rascunho_sem_asterisco(rotulo) if rotulo is not None else None
+
+
 def boleto_no_texto(rotulo: object) -> str | None:
     """`"****0037"` -> `"boleto final 0037"`; `None` para o que nao e' rotulo mascarado (o `SIM-...` da
     simulada, vazio, lixo). E' a UNICA forma em que um boleto chega ao beneficiario."""
@@ -3329,11 +3337,12 @@ class RespostaRecusadaError(RuntimeError):
         self.response_kind = response_kind
 
 
-#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
-#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
-#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
-#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
-_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+#: DL-0191 / U1c (ADR-0079 §2): as UNICAS chaves de `fatos` que chegam ao prompt do rascunho.
+#: Lista FECHADA, igual as chaves de hoje: nenhuma e' identificador da pessoa. `numero_boleto` fica
+#: porque a mensagem cita o boleto, mas o PROMPT so' recebe o rotulo mascarado na forma de
+#: apresentacao ("final 0037", `_boleto_para_o_prompt`), nunca o valor cru do estado: um numero
+#: inteiro (linha digitavel, nosso numero) ou um texto qualquer nesse campo vira `None` (SEM DADO).
+_PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(
     {
         "tipo_solicitacao",
         "competencia",
@@ -4388,13 +4397,15 @@ class LucasGraph:
                 facts["vencimento"] = vencimento
         # O modelo ve' o boleto na forma de apresentacao ("final 0037"): asterisco no rascunho vira negrito
         # no WhatsApp. A cerca continua recebendo o rotulo mascarado dos fatos (`facts`).
-        fatos_do_prompt = dict(facts)
-        if isinstance(facts.get("numero_boleto"), str):
-            fatos_do_prompt["numero_boleto"] = _boleto_do_rascunho_sem_asterisco(facts["numero_boleto"])
+        # U1c: o prompt recebe o recorte da lista fechada, e o boleto SO' como rotulo mascarado — antes
+        # ia o valor cru do estado, e um numero inteiro ou um texto qualquer no campo chegava ao modelo.
+        fatos_do_prompt = {chave: valor for chave, valor in facts.items() if chave in _PERMITIDOS_PROMPT}
+        if "numero_boleto" in fatos_do_prompt:
+            fatos_do_prompt["numero_boleto"] = _boleto_para_o_prompt(state)
         fatos_txt = render_fatos_para_prompt(
             fatos_do_prompt,
             booleanos=_FATOS_BOOLEANOS_MENSAGEM,
-            permitidos=_PERMITIDOS_LEGADO_U1C,
+            permitidos=_PERMITIDOS_PROMPT,
             agente="lucas",
         )
         prompt = f"{message_prompt()}\n\n{fatos_txt}"

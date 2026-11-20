@@ -11,8 +11,9 @@ montagem e por fluxo:
 2. NO MONTADOR: as chaves do dicionario de fatos completo (o que o dossie ou a mensagem devolve)
    menos a lista do sitio sao EXATAMENTE o `DESCARTE_ESPERADO` daquele sitio. Vazio por padrao;
    so' tem algo onde ha decisao registrada: guia e CID-10 do rafael (DL-0190), as chaves de
-   vinculo da marina (DL-0191) e os campos de texto livre que gustavo e carolina mandam em bloco
-   NAO CONFIAVEL proprio (HEL-06), nunca no repr de fatos.
+   vinculo da marina (DL-0191), os identificadores e chaves de vinculo dos outros sete (U1c) e os
+   campos de texto livre que gustavo e carolina mandam em bloco NAO CONFIAVEL proprio (HEL-06),
+   nunca no repr de fatos.
 
 Chave nova num montador faz (2) falhar ate' alguem decidir: acrescenta-la a lista do sitio (vai
 ao prompt) ou ao `DESCARTE_ESPERADO` (fica so' no dossie).
@@ -66,9 +67,31 @@ DESCARTE_ESPERADO: dict[str, frozenset[str]] = {
     "marina._build_dossier/reembolso": frozenset(
         {"numero_guia_tiss", "protocolo_reembolso", "relacao_com_titular"}
     ),
-    # HEL-06: texto livre de terceiro vai em bloco NAO CONFIAVEL proprio, nao no repr.
-    "gustavo._build_dossier/nip": frozenset({"tema_nip", "referencia_negativa_original"}),
-    "carolina._build_dossier": frozenset({"motivo_informado"}),
+    # U1c (ADR-0079 §2): identificadores e chaves de vinculo de cada caso ficam so' no dossie.
+    "valentina._build_dossier/stratify": frozenset({"beneficiario_pseudo_id"}),
+    "valentina._build_dossier/enroll": frozenset({"beneficiario_pseudo_id"}),
+    # HEL-06: texto livre de terceiro vai em bloco NAO CONFIAVEL proprio, nao no repr; U1c: os
+    # numeros da NIP na ANS ficam so' no dossie.
+    "gustavo._build_dossier/nip": frozenset(
+        {"tema_nip", "referencia_negativa_original", "numero_nip_ans", "protocolo_ans"}
+    ),
+    "beatriz._build_dossier": frozenset(
+        {
+            "numero_caso",
+            "tenant_id",
+            "entidade_pseudo_id",
+            "prestador_id",
+            "beneficiario_pseudo_id",
+            "numero_contrato",
+            "feature_snapshot_ref",
+            "resumo_fhir",
+        }
+    ),
+    "carolina._build_dossier": frozenset({"motivo_informado", "prestador_id", "protocolo_cred"}),
+    "andre._build_dossier/pagto_dossier": frozenset({"ordem_pagamento_id"}),
+    "andre._build_dossier/adequacao_dossier": frozenset({"ordem_pagamento_id"}),
+    "fernando._build_message": frozenset({"numero_contrato"}),
+    "fernando._build_dossier": frozenset({"numero_contrato"}),
 }
 
 
@@ -294,7 +317,9 @@ def test_todo_agente_do_vocabulario_tem_sitio_de_referencia() -> None:
 
 async def test_chave_nova_num_montador_e_acusada(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prova de nao-vacuidade (revisao de e9b3c3bd, F1): uma chave nova em
-    `ValentinaGraph._care_facts` some do prompt pelo renderizador E faz o teste de referencia falhar."""
+    `ValentinaGraph._care_facts` fica FORA do prompt (o recorte da lista fechada a tira antes do
+    renderizador, U1c) E faz o teste de referencia falhar. O descarte contado pelo renderizador,
+    para quem nao recorta antes, e' provado em `tests/unit/runtime/test_prompt_format_permitidos.py`."""
     from maezo.agents.valentina.graph import ValentinaGraph
 
     original = ValentinaGraph._care_facts
@@ -304,13 +329,11 @@ async def test_chave_nova_num_montador_e_acusada(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(ValentinaGraph, "_care_facts", staticmethod(_com_chave_nova))
     sitio = next(s for s in _SITIOS if s["sitio"] == "valentina._build_dossier/stratify")
-    antes = _descartes("valentina")
 
     chamadas, fatos = await _rodar(sitio, monkeypatch)
 
     chaves, permitidos = chamadas[0]
-    assert "chave_nova_sintetica" in chaves - permitidos  # o renderizador a descarta...
-    assert _descartes("valentina") == antes + 1  # ...conta o descarte...
+    assert "chave_nova_sintetica" not in chaves  # o recorte a tira antes do renderizador...
     assert fatos is not None
-    assert set(fatos) - permitidos == {"chave_nova_sintetica"}  # ...e o teste de referencia a acusa
-    assert set(fatos) - permitidos != DESCARTE_ESPERADO.get(sitio["sitio"], frozenset())
+    assert "chave_nova_sintetica" in set(fatos) - permitidos  # ...ela segue no dossie...
+    assert set(fatos) - permitidos != DESCARTE_ESPERADO.get(sitio["sitio"], frozenset())  # ...e e' acusada

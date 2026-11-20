@@ -11,7 +11,7 @@ security_zone: phi                            # PHI integral (CDC/TISS/feature s
 graph: graph.py:build
 prompt_versions:                              # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  dossier: dossier-v1                         # dossie de investigacao (corpus que sera selado p/ a UT humana)
+  dossier: dossier-v2                         # dossie de investigacao (corpus que sera selado p/ a UT humana)
 model:
   task_default: { tier: fast }                # gather/montagem do dossie
   reasoning:    { tier: frontier }            # casos com muitos indicadores / dossie complexo

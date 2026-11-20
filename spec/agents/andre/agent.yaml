@@ -7,7 +7,7 @@ security_zone: phi                        # Zona PHI (ADR-0006): Andre e o CHOKE
 graph: graph.py:build
 prompt_versions:                          # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  dossier: dossier-v1                      # dossie atuarial/populacional (instrucao, nao decisao)
+  dossier: dossier-v2                      # dossie atuarial/populacional (instrucao, nao decisao)
 model:
   task_default: { tier: fast }            # montagem/roteamento do dossie de risco
   reasoning:    { tier: frontier }        # coortes ambiguas / risco atuarial complexo

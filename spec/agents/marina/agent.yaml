@@ -24,7 +24,7 @@ reports_to: "coordenacao-contas@amh"
 security_zone: phi
 graph: graph.py:build
 prompt_versions:
-  system: system-v2
+  system: system-v3
   dossier: dossier-v3                  # DL-0191: o texto nao pede campo fora da lista do prompt
   recurso: recurso-v3
   reembolso: reembolso-v3

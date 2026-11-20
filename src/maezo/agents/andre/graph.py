@@ -731,14 +731,16 @@ _FATOS_BOOLEANOS_ADEQUACAO: Final[dict[str, str]] = {
 }
 
 
-#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
-#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
-#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
-#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
-_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+#: DL-0191 / U1c (ADR-0079 §2): as UNICAS chaves de TOPO de `fatos` que chegam ao prompt. Lista
+#: FECHADA: as chaves de hoje de `_facts`, nenhuma nova, MENOS `ordem_pagamento_id` — chave de
+#: vinculo da ordem de pagamento (business key do fluxo), que o humano ve no proprio caso e que nao
+#: serve a narrativa. `cohort_id`, `aggregate_dataset_refs` e `dmn_refs` ficam: apontam para
+#: AGREGADOS k-anon e regras, nao para uma pessoa, e sao a FONTE que o template manda citar. O
+#: conteudo ANINHADO de `actuarial_aggregate`/`population_aggregate`/`adequacao` nao e' recortado
+#: aqui (projecao tipada do ADR-0079 §5, fora da U1c); o k minimo do agregado e' decisao do dono.
+_PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(
     {
         "flow",
-        "ordem_pagamento_id",
         "tipo_pagamento",
         "competencia",
         "data_vencimento",
@@ -1441,8 +1443,10 @@ class AndreGraph:
         booleanos = dict(_FATOS_BOOLEANOS_PAGTO)
         if flow == "adequacao_dossier":
             booleanos.update(_FATOS_BOOLEANOS_ADEQUACAO)
+        # U1c: `facts` segue intacto em `fatos_agregados`; o prompt recebe so' o recorte da lista.
+        fatos_do_prompt = {chave: valor for chave, valor in facts.items() if chave in _PERMITIDOS_PROMPT}
         fatos_txt = render_fatos_para_prompt(
-            facts, booleanos=booleanos, permitidos=_PERMITIDOS_LEGADO_U1C, agente="andre"
+            fatos_do_prompt, booleanos=booleanos, permitidos=_PERMITIDOS_PROMPT, agente="andre"
         )
         prompt = f"{dossier_prompt()}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\n{fatos_txt}"
         try:
