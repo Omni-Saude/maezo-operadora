@@ -493,3 +493,27 @@ Verificação:
 
 - LACUNA para a linha que um dia ligar a produção, não para agora: `CommercialRecordResolver` compõe um gateway POR CHAMADA. Com transporte real (cliente HTTP), quem monta `compose_public`/`compose_commercial` tem de reutilizar o cliente ou fechá-lo; do contrário vaza uma conexão por requisição. Na próxima vez que eu tocar `src/maezo/gateway/commercial_record_resolver.py`, isso entra no contrato da docstring, com teste (por exemplo, composição que conta clientes abertos e não fechados ao fim de N chamadas).
 - LIMPEZA #1341 e aviso ao funil já feitos (entrada das ~17:05Z). E-SF-24: levantamento em curso, CAMINHO a seguir.
+
+## 2026-11-20 ~17:30Z — CAMINHO E-SF-24 (EP-PROC-07a, termo de negativa do art. 14 da RN 623)
+
+Base: main `bf9c84df`. Ramo: `sf-w2/mzo-gp/esf24` (construo localmente enquanto espero; sem PR até a resposta).
+
+- **Hoje**: o `SendDenialNoticeWorker` (`src/maezo/tools/workers/auth.py`) compõe o registro da negativa e fica em `entrega_manual_pendente`, sem envio. `_REQUIRED_DENIAL_FIELDS` exige justificativa clínica, CID-10 e fundamentação DUT/ROL, mas não a **cláusula contratual ou dispositivo legal** que o art. 14 da RN 623 pede. Não há render do termo nem template versionado.
+- **Arquivos**:
+  1. `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`: formField novo `clausula_contratual_ou_dispositivo_legal` (`requiredIf decisao_auditor == NEGAR`, `enforcedBy ... ERR_AUTH_DENIAL_INCOMPLETE`) nas 3 UTs de decisão (`UT_AnaliseMedicoAuditor`, `UT_CoordenacaoAssume`, `UT_RegistrarParecerJunta`). O BPMN não tem entrada na baseline dos gates. Nenhum elemento, fluxo ou tópico novo.
+  2. `src/maezo/tools/workers/auth.py`: `_REQUIRED_DENIAL_FIELDS` + o campo novo (o comentário passa de 9 para 12 anotações, 4 campos). Função pura `render_denial_term(record, template) -> (texto, sha256)`, chamada SÓ com `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` ligada (já existe, default False). Recusas tipadas `ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO` e `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE`. O estado continua `entrega_manual_pendente`; o registro guarda só versão e sha256 do template e o sha256 do render, nunca o texto.
+  3. Template novo `spec/templates/auth/termo-negativa.v0.txt` + manifesto (versão, sha256). Sem prosa própria: só os campos do registro humano e o verbatim do art. 16 da RN 623 (reanálise pela Ouvidoria), conferido contra `docs/compliance/legal/textos-base/RN-623-2024.md`.
+  4. `tests/unit/sec/test_documento_negativa_fence.py` (novo), E1–E4 com os nomes do plano: exige cláusula/dispositivo; nenhum gerador sem template versionado (allowlist módulo→template com versão + sha256); registro sem texto autoral nem "entregue"/"delivered"; render puro, determinístico (2 renders = mesmo sha256) e completo.
+  5. Ajustes de fence que o campo novo obriga: `tests/unit/tools/workers/test_auth_denial_guard.py` (conjunto de formFields por UT), `phi_vars`/`test_validation_phi_completeness.py` (AUTH-001 `bpmn_declared_input` 10 → 11; **arquivo de contagem, CD-80**) e `engine_schemas` se o gerado cobrir formFields.
+  6. `docs/processes/contracts/SP-OP-AUTH-001.md`: o campo novo e o render atrás da flag; seguem proibidos entregue/delivered/notice_sent.
+- **Fica fechado**:
+  - a flag segue desligada (D5 B) — teste: com a flag em False, nenhum render é chamado;
+  - envio, PDF/PDF-A (07b, sem dependência nem licença no pyproject) e Carta (07c, J29) ficam fora;
+  - `authorization_denial` (hard) intocado; nenhuma DMN, nenhum DL, nenhuma migração;
+  - os gates do BPMN seguem UNVERIFIED.
+- **Subperguntas (com o padrão conservador que adoto se não houver resposta)**:
+  - (a) Tocar o BPMN (formField nas 3 UTs) ou completar só no worker? Padrão: tocar, porque o plano pede o espelho BPMN↔`_REQUIRED_DENIAL_FIELDS` e o próprio comentário do worker diz que o BPMN é a fonte.
+  - (b) Formato do render: texto UTF-8 determinístico com sha256, sem PDF. Padrão: texto.
+  - (c) `/spec/templates/` não tem dono no CODEOWNERS. Padrão: acrescentar `/spec/templates/  @rodaquino-OMNI @Omni-Saude/security-team`, uma linha. Se a coordenação preferir não tocar o CODEOWNERS, ponho o template num diretório que já tem dono.
+  - (d) O campo novo NÃO é PHI (é referência de cláusula ou norma). Padrão: classificá-lo como não PHI, com a justificativa no comentário.
+- Mutação: E1–E4 e o teste da flag desligada, em worktree isolada, antes da revisão.
