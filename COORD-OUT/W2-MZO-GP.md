@@ -815,3 +815,33 @@ São das classes DPO/LGPD e deploy da fronteira.
 - (a) Linha no `docs/evidence-ledger.md`: é ponto de parada desta janela. **Padrão:** mando o texto da linha no relatório final, sem editar.
 - (b) Incluir o arquivo novo em `SECURITY_TESTS` do `Makefile`? **Padrão:** não (o Makefile é compartilhado e não é exigido); fica como pedido de linha.
 - (c) A E-SF-11 conta no placar só com a 21a? **Padrão:** a 21a entra como parcial; 21b, 21c e 21d na lista de pontos de parada.
+
+## 2026-11-20 ~23:30Z — 29-2 PASS no diff final (CD-205); E-SF-11 em re-revisão; CAMINHO E-SF-35 (EP-CORE-06F)
+
+- **29-2:** a 4ª revisão (diff final, com o espelho do portal) deu **PASS**.
+  - `portal-admissao.json` muda só nas linhas 56–57: o digest do REEMBOLSO-001 em `aguardando_admissao` passa a `ef5d529c…` (= sha256 do BPMN) e o `motivo` foi acrescentado, sem nada removido;
+  - `admitidos` e as demais chaves estão idênticos byte a byte;
+  - o portão sai 0, só com o aviso esperado; `test_check_portal_admissao.py` passa;
+  - nenhum outro arquivo de `/deploy/` muda; o check de CODEOWNERS de `/deploy/` deve ficar vermelho (exceção do dono, CD-205);
+  - ACHADO menor: `PLANS.md:58` ainda cita `05c181b9` como registro histórico; nenhum check o lê.
+- **E-SF-11 (21a):** a revisão deu FAIL com dois bloqueantes no próprio arquivo de teste, os dois corrigidos:
+  - **B1:** o teste do canal escuro não via o formato `name/value` do TF/ECS e do k8s. Agora falha em QUALQUER menção a `LGPD_DSR_CHANNEL` em `deploy/` ou `config/` (hoje não há nenhuma).
+  - **B2:** o detector de desfecho não via snake_case/camelCase. Agora normaliza antes e o vocabulário foi ampliado.
+  - 6 testes; 11 de 11 mutações mortas (inclusive o TF `name/value` e o `request_fulfilled`). Re-revisão em curso. O teste afirma o `POST /dsr` escuro pelo default de `PortalSettings`, sem ligar nada.
+
+**CAMINHO E-SF-35 (só a variante EP-CORE-06F):**
+- **Em main** (`src/maezo/gateway/commercial_analytics_admission.py`, testes em `tests/unit/test_commercial_admission_a9.py`):
+  - o loader A9 só produz `refused` (`admitted` e `deferred` são recusados);
+  - `refuse_measurement_payload` recusa envelope pessoal e stub com tenant/journey fora dos enums sintéticos (`synthetic-tenant-a|b`, `synthetic-journey-a|b`);
+  - nenhum registro A9 é versionado no maezo (`test_no_a9_admission_record_ships_in_the_repository`);
+  - nenhuma superfície de medição, agregador ou emissor. Não existe `measurement_not_admitted` nem `operationalBaseline`.
+  - O registro real do OSP não existe (ato do DPO pendente; A-INDEX `pending`). A E-SF-47 está mesclada no omni (#54, #56), mas o walk real segue NOT_RUN por falta de staging.
+- **Proposta: um PR, só testes, nada em `src/`, nenhum lock nem o C6-4.** Arquivo novo `tests/unit/test_commercial_admission_a9_fallback.py`, reaproveitando `a9_record()` e `_clean_stub_payload()` (registro sintético em memória, como a suíte atual):
+  - `test_refused_record_keeps_measurement_dimension_closed`: o refused parseia com `admitted_commands == []`; com ele em mãos, `refuse_measurement_payload` segue recusando `journey_measurement_key`, `dedupe_key` e `variant_id` (reasons reais `*_fabricated`); nenhuma superfície de emissão (reusa a varredura existente);
+  - `test_synthetic_walk_with_real_tenant_refuses`: tenant ou journey fora dos enums sintéticos (inclusive variações de caixa e espaço) → `measurement_stub_not_synthetic`;
+  - `test_synthetic_walk_result_never_labelled_baseline`: qualquer rótulo de baseline (`operationalBaseline`, `baseline`, `meta`, inclusive `"UNMEASURED"`) no payload → `measurement_stub_shape_invalid` (o stub tem exatamente 14 campos).
+  - Mutação de cada teste contra o código existente.
+- **Fica fechado:** sem leitura do arquivo do OSP por caminho (não existe, e versionar um registro no maezo viola o teste `:538`); sem emissor; sem walk real; sem re-pin (06.2 ratificado). Classe DPO intocada.
+- **Subperguntas** (com o padrão que adoto se não houver resposta):
+  - (a) Reason tipado próprio para baseline (`measurement_baseline_labelled`, exige mudar `src` + nota de divergência no `CONTRACT-FREEZE-C6-4-REGISTER.json`)? **Padrão:** não; usar `measurement_stub_shape_invalid`.
+  - (b) O nome `measurement_not_admitted` do plano não existe. **Padrão:** usar os reasons reais e registrar a deriva como ACHADO.
