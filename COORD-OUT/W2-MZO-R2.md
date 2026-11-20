@@ -64,3 +64,12 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 - Reparo por terceiro: todos tratados; 78 testes; um mutante sobrevivente equivalente (id vazio no denominador, já recusado pela checagem seguinte).
 - Reconferência independente do reparo: em curso.
 - GAP G1 mantido: o relatório de deriva não é gerado nesta linha.
+
+## 2026-11-20T23:47Z — E-SF-34r pronta para PR; em espera
+
+- Head `e169e1428fe2ecaf2952bb2392d1187245f21a9b`, sobre a main `b86b3d822fd8020858eeee288472322509dba519`, 0 merges atrás, `git merge-tree` limpo.
+- Reparo da segunda rodada por terceiro; reconferência independente PASS (9/9 mutantes mortos). 88 testes no arquivo novo.
+- `tests/unit` inteiro, main limpa × ramo (worktrees destacadas, `-n 4`): os dois com 122 failed, 359 errors, 43934 passed. Conjunto de falhas idêntico; zero falha só no ramo.
+- `tests/governance`: ramo 177 passed; main 89 passed.
+- `make lint type validate-artifacts` rc=0. Nenhum `noqa` nem `type: ignore` novo.
+- PR não aberto: já há PR do funil aberto (#1343). Abro quando ele fechar, sem trazer a main se o diff continuar disjunto.
