@@ -465,3 +465,13 @@ Verificação:
   - Revisão FAIL → PASS (entrada das ~17:50Z de 18/11).
   - A docstring do contrato de thread entrou depois (`9cfd8798`), só documentação; os 11 testes da parte c passam sobre ela.
 - 2 merges atrás (#1334, #1335), disjuntos, não trazidos. Worktrees temporárias removidas sem `--force`; scratchpad vazio.
+
+## 2026-11-20 ~16:55Z — PRONTO #1341 (E-SF-05r parte c)
+
+- **PRONTO** enviado direto à coordenação do programa: #1341, head `9cfd8798b5f361a34ce44865cad12764de53a708`. 37 success, 2 skipped, 0 vermelho; `live-pytest] PASS`: recurso-nip 181, cancel-contas 138, cred-ans 129, restante 965. mergeable=true, clean.
+- 3 merges atrás (#1334, #1335, #1340), sem arquivo em comum e sem uso dos símbolos tocados, não trazidos. Simulação de merge real sobre `e4d65db1` (worktree removida): comerciais + gateway + portal, 11025 passed, 1 falha de ambiente.
+- Com esta, a E-SF-05r fecha as três partes (a #1327, b #1333, c #1341). Ficam fechados e registrados:
+  - `presential_offer`, `signature_mode` e os recibos do aceite (exigem contrato sucessor);
+  - o verificador concreto (não há fonte de identidade de máquina);
+  - a ligação da raiz de produção (registro assinado e transporte do registro).
+- Depois do merge: LIMPEZA #1341, depois E-SF-24 (CAMINHO antes).
