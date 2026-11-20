@@ -30,3 +30,13 @@ textos:                            # RT-05 itens 1-4 (DECIDIDO-coordenador); ras
   botao_toque_1: "Pedir cancelamento"
   botao_toque_2: "Confirmar pedido de cancelamento"
   estado_aguardando: "Aguardando o comprovante de cancelamento"
+  # E-SF-RT-02 (RT-05 item 5): pergunta opcional DEPOIS do protocolo; opcoes verbatim do RT-05; sem
+  # texto livre (rotulos VERBATIM do RT-05, sem retoque). A resposta so' entra numa contagem agregada por codigo, sem vinculo ao titular (E35 = B).
+  pergunta_motivo: "Se quiser, escolha o principal motivo do cancelamento."
+  botao_pular_motivo: "Pular"
+  motivo_valor_alto: "o valor ficou alto"
+  motivo_mudanca_de_cidade: "mudei de cidade"
+  motivo_outro_vinculo: "vou usar o plano da empresa/de outro vínculo"
+  motivo_rede_nao_atende: "a rede não atende onde eu preciso"
+  motivo_atendimento_servico: "atendimento/serviço"
+  motivo_prefiro_nao_dizer: "prefiro não dizer"
