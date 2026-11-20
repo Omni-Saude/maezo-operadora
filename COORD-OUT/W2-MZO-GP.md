@@ -845,3 +845,32 @@ São das classes DPO/LGPD e deploy da fronteira.
 - **Subperguntas** (com o padrão que adoto se não houver resposta):
   - (a) Reason tipado próprio para baseline (`measurement_baseline_labelled`, exige mudar `src` + nota de divergência no `CONTRACT-FREEZE-C6-4-REGISTER.json`)? **Padrão:** não; usar `measurement_stub_shape_invalid`.
   - (b) O nome `measurement_not_admitted` do plano não existe. **Padrão:** usar os reasons reais e registrar a deriva como ACHADO.
+
+## 2026-11-21 ~00:10Z — ESTADO DAS SEIS ÁRVORES; PARADA (CD-208)
+
+As seis linhas estão construídas e revisadas. O commit segue negado pelo modo automático, à espera da liberação do dono. Paro aqui, sem repetir baterias. Base de todas: main `bf9c84df`.
+
+| Ordem | Linha | Árvore (ramo local) | Arquivos | Revisão | tests/unit × main |
+|---|---|---|---|---|---|
+| 1 | 24a | clone principal `/home/user/maezo-operadora` (`sf-w2/mzo-gp/esf24`) | `denial_term.py` (novo), `auth.py`, `spec/policies/ans/templates/termo-negativa.v0.txt` (novo), `tests/unit/sec/test_documento_negativa_fence.py` (novo), `test_worker_handler_purity.py`, contrato AUTH-001 | PASS (+4 não bloqueantes aplicados) | feito; só o teste de checkout sujo e um flake |
+| 2 | 29-1 | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/esf29` (`sf-w2/mzo-gp/esf29-1`) | `tests/unit/spec/test_sp_op_reembolso_001_prazo_legal_fence.py` (novo) | PASS (3 rodadas) | feito, limpo (a lacuna do terminate foi fechada depois, só no teste) |
+| 3 | 29-2 | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/esf29b` (`sf-w2/mzo-gp/esf29-2`) | BPMN REEMBOLSO-001, `baseline.json`, `test_bpmn_gates_harness.py`, `tests/unit/spec/test_sp_op_reembolso_001_juncoes_g4.py` (novo), `portal-admissao.json` (2 linhas, CD-205) | PASS (4 rodadas, a última sobre o diff final) | feito; a regressão de admissão foi resolvida pela CD-205 (conferido no portão e no teste); resta o de checkout sujo |
+| 4 | RT-02 | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/rt02` (`sf-w2/mzo-gp/rt02`) | `cancelamento.py`, `politica.py`, `pedido-cancelamento.yaml`, contrato CANCEL-001, `tests/unit/processes/test_e_sf_rt_02_motivo.py` (novo) | PASS (+5 não bloqueantes) | feito; só o de checkout sujo |
+| 5 | E-SF-11 (21a) | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/esf11` (`sf-w2/mzo-gp/esf11`) | `tests/unit/portal/test_ep_reg_21a_dsr_sem_sucesso_fabricado.py` (novo) | PASS (2 rodadas) | a rodar no commit |
+| 6 | E-SF-35 (06F) | `/tmp/claude-0/-home-user/5fe95728-62c1-5ca8-bc73-97817e534745/scratchpad/esf35` (`sf-w2/mzo-gp/esf35`) | `tests/unit/test_commercial_admission_a9_fallback.py` (novo) | PASS (+ recomendações aplicadas) | a rodar no commit |
+
+- **Todas:** `make lint type validate-artifacts` rc=0; CD-170 limpo; mutação dos testes novos (24a 24/24; 29-1 16/16; 29-2 6/6; RT-02 15/15; 11 11/11; 35 6/6).
+- **Teste que exige checkout sem alterações:** `tests/unit/dev/test_engine_integration_runner.py::test_discovery_rejects_untracked_test_outside_integration_directory` falha em toda árvore sem commit. Será conferido de novo depois do commit de cada linha.
+- **Ao liberar:** para cada linha, na ordem: commit (mensagem simples, com as linhas de atribuição), `tests/unit` × main para 11 e 35, push, PR, CI (`live-pytest` dos shards), simulação de merge, PRONTO. CD-155: trazer a main só se houver arquivo em comum.
+- **Pontos de parada em aberto:**
+  - 24b (jurídico: `fundamentacao_dut` × art. 14);
+  - 29-3 (regra PRZ-0009 com dois relógios no repositório de regras + pin, semana que vem);
+  - 21b, 21c e 21d (DPO, AF-07/legal-hold, deploy, freeze).
+- **Pedidos de linha acumulados:**
+  - dono para `/spec/templates/`;
+  - dono para `reembolso_prazo_pagamento.dmn` (a 29-3 está hoje sem DMN);
+  - retirar `motivo_informado` do CANCEL-001;
+  - `SECURITY_TESTS` para o teste da 21a;
+  - linha do evidence-ledger da 21a (texto no relatório final);
+  - dívida `Lei9656-art12-VI` no `funnel_deadline_catalog.dmn`.
+- **Limpeza:** `mut24` é a worktree de main limpa (usada como base das comparações); `esf29`, `esf29b`, `rt02`, `esf11` e `esf35` são as árvores das linhas. Ficam até os merges; serão removidas sem `--force` na LIMPEZA de cada uma.
