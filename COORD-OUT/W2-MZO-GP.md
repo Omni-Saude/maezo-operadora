@@ -686,3 +686,22 @@ Além disso, tocar o BPMN tira dele a isenção da baseline dos gates: as 4 entr
 - Os testes C1 e C3 da 29-1 já servem para os vigias dentro do subprocesso. A allowlist do C3 ganha `agents.events.reembolso.prazo_legal_vencido` quando a 29-3 entrar.
 
 **Ordem de PRs:** 29-1 → 29-2. A 24a está pronta antes delas. Todas esperam a liberação de commit pelo dono. Depois: RT-02 (CAMINHO antes).
+
+## 2026-11-20 ~20:40Z — 29-2: revisão PASS
+
+- A revisão independente da 29-2 passou de FAIL a PASS em três rodadas, só por DI:
+  - duas junções sobrepostas;
+  - setas que terminavam no gateway antigo;
+  - uma seta que atravessava a própria origem;
+  - uma seta colinear à saída da junção.
+- Confirmado pela revisão:
+  - processo idêntico, salvo o `targetRef` de 10 fluxos;
+  - junções só XOR;
+  - nenhum ramo concorrente chega a uma junção (comportamento igual no motor);
+  - baseline −4 entradas e teto 18 → 14;
+  - nenhum pino de linha deslocado;
+  - bpmnlint só perde os 4 `no-gateway-join-fork`, sem aviso novo;
+  - o DI novo ainda removeu 4 cruzamentos e 5 sobreposições que já existiam;
+  - gates `--touched` novos=0.
+- Faltam no ramo: `tests/unit` inteiro × main e a integração do reembolso + `recurso-nip` no CI do PR.
+- As três (24a, 29-1, 29-2) aguardam a liberação de commit pelo dono. Sigo para o CAMINHO da RT-02.
