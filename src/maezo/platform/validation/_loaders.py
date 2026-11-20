@@ -22,6 +22,10 @@ class ParseError(Exception):
     """A file could not be parsed (malformed XML/YAML or unreadable)."""
 
 
+class DuplicateYAMLKeyError(yaml.YAMLError):
+    """A mapping repeats a key — YAML's default would silently keep the LAST occurrence."""
+
+
 class _UniqueMappingLoader(yaml.SafeLoader):
     """Reject repeated source keys while retaining standard YAML merge precedence.
 
@@ -30,6 +34,10 @@ class _UniqueMappingLoader(yaml.SafeLoader):
     Anchored mappings are checked once, before flattening mutates their shared nodes.
     The strict mode is opt-in; unrelated artifact consumers retain their old semantics.
     """
+
+    #: Whether the refusal names the repeated key. Off by default: a PHI-adjacent file may carry
+    #: sensitive text in a key. On only for files whose keys are governance names (see below).
+    name_duplicate_key: bool = False
 
     def __init__(self, stream: str | bytes | IO[str] | IO[bytes]) -> None:
         super().__init__(stream)
@@ -54,9 +62,25 @@ class _UniqueMappingLoader(yaml.SafeLoader):
                     raise yaml.YAMLError("unhashable YAML mapping key") from exc
                 if duplicate:
                     # MarkedYAMLError includes the source line, which can contain PHI.
-                    # Report only its position; do not echo the key, values or source buffer.
-                    raise yaml.YAMLError(f"duplicate YAML mapping key at line {key_node.start_mark.line + 1}")
+                    # Report only its position; do not echo the values or source buffer.
+                    line = key_node.start_mark.line + 1
+                    if self.name_duplicate_key:
+                        shown = str(key)[:80] if isinstance(key, str | int | float | bool) else "<key>"
+                        raise DuplicateYAMLKeyError(f"duplicate YAML mapping key {shown!r} at line {line}")
+                    raise DuplicateYAMLKeyError(f"duplicate YAML mapping key at line {line}")
         super().flatten_mapping(node)
+
+
+class PolicyUniqueKeyLoader(_UniqueMappingLoader):
+    """The strict loader for `spec/policies/autonomy/*.yaml` (DL-0193): every reader of that folder.
+
+    A key appended at the end of `L0-core.yaml` or a tenant overlay with an EXISTING action name
+    would otherwise silently override the reviewed entry (last-wins) — an "addition" that loosens a
+    rule. Duplicate keys are refused at ANY depth. Policy keys are action/field names, never PHI,
+    so the refusal names the key.
+    """
+
+    name_duplicate_key = True
 
 
 def load_xml(path: Path) -> ET.Element:
@@ -71,10 +95,16 @@ def load_xml(path: Path) -> ET.Element:
         raise ParseError(f"could not read file: {exc}") from exc
 
 
-def load_yaml(path: Path, *, reject_duplicate_keys: bool = False) -> object:
-    """Parse YAML, optionally refusing repeated mapping keys, or raise `ParseError`."""
+def load_yaml(path: Path, *, reject_duplicate_keys: bool = False, name_duplicate_key: bool = False) -> object:
+    """Parse YAML, optionally refusing repeated mapping keys, or raise `ParseError`.
+
+    `name_duplicate_key` (implies `reject_duplicate_keys`) uses :class:`PolicyUniqueKeyLoader`,
+    whose refusal names the key — only for files whose keys are known not to carry PHI.
+    """
     try:
         with path.open(encoding="utf-8") as handle:
+            if name_duplicate_key:
+                return yaml.load(handle, Loader=PolicyUniqueKeyLoader)
             if reject_duplicate_keys:
                 return yaml.load(handle, Loader=_UniqueMappingLoader)
             return yaml.safe_load(handle)

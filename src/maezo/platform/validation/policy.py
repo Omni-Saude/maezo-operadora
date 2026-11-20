@@ -16,7 +16,9 @@ Checks:
   in only one of the two places — is a compliance regression and FAILS the
   gate; it is never a warning;
 - tenant override files (`tenants-*.yaml`) may never touch (add/modify) a
-  hard-frozen action.
+  hard-frozen action;
+- a mapping key repeated at any depth in any of these files is an error
+  (DL-0193), never YAML's silent last-wins.
 
 Second family, added by owner decision R-199: `spec/policies/phi/` — the
 CODEOWNED manifest that receives the DPO's disposition over the PHI-shaped,
@@ -48,7 +50,7 @@ def load_frozen_hard(path: Path, report: Report) -> dict[str, str] | None:
         report.error(path, f"frozen hard-item list {FROZEN_FILENAME} is missing (compliance guardrail)")
         return None
     try:
-        data = _as_dict(load_yaml(path))
+        data = _as_dict(load_yaml(path, name_duplicate_key=True))
     except ParseError as exc:
         report.error(path, str(exc))
         return None
@@ -73,7 +75,7 @@ def validate_core_file(path: Path, report: Report) -> dict[str, str]:
     """Validate one core-layer file (`L*-core.yaml`); returns its {action: level} hard items."""
     hard_found: dict[str, str] = {}
     try:
-        data = _as_dict(load_yaml(path))
+        data = _as_dict(load_yaml(path, name_duplicate_key=True))
     except ParseError as exc:
         report.error(path, str(exc))
         return hard_found
@@ -104,7 +106,7 @@ def validate_core_file(path: Path, report: Report) -> dict[str, str]:
 def validate_tenant_file(path: Path, frozen: dict[str, str], report: Report) -> None:
     """Validate a tenant override file: it must never touch a hard-frozen action."""
     try:
-        data = _as_dict(load_yaml(path))
+        data = _as_dict(load_yaml(path, name_duplicate_key=True))
     except ParseError as exc:
         report.error(path, str(exc))
         return

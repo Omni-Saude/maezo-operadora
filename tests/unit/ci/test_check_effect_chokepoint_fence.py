@@ -782,6 +782,19 @@ def test_completeness_baseline_fixture_passes(tmp_path: Path) -> None:
     assert violations == [], violations
 
 
+def test_completeness_refuses_a_duplicate_manifest_key_instead_of_last_wins(tmp_path: Path) -> None:
+    """DL-0193: the §8.5 read of `action-approvals.yaml` uses the shared strict loader."""
+    src_dir = tmp_path / "src"
+    _write_full_baseline_repo(tmp_path, src_dir)
+    manifest = tmp_path / "spec" / "policies" / "autonomy" / "action-approvals.yaml"
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "status: RATIFICADO\n", encoding="utf-8")
+    assert yaml.safe_load(manifest.read_text(encoding="utf-8"))["status"] == "RATIFICADO"
+
+    violations, _counters = check_completeness(src_dir, tmp_path)
+
+    assert any("duplicate YAML mapping key 'status'" in v for v in violations), violations
+
+
 def test_completeness_item1_missing_construction_raises(tmp_path: Path) -> None:
     src_dir = tmp_path / "src"
     _write_baseline_manifest(tmp_path)
