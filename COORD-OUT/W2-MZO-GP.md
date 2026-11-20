@@ -475,3 +475,16 @@ Verificação:
   - o verificador concreto (não há fonte de identidade de máquina);
   - a ligação da raiz de produção (registro assinado e transporte do registro).
 - Depois do merge: LIMPEZA #1341, depois E-SF-24 (CAMINHO antes).
+
+## 2026-11-20 ~17:05Z — #1341 mesclado (main `bf9c84df`); LIMPEZA #1341 (CD-149)
+
+- #1341 mesclado; a main `bf9c84df` contém o head `9cfd8798b5f361a34ce44865cad12764de53a708`. A E-SF-05r está completa (#1327, #1333, #1341).
+- **LIMPEZA #1341**
+  - Ramos para o dono apagar:
+    - `sf-w2/mzo-gp/esf05r-c` @ `9cfd8798b5f361a34ce44865cad12764de53a708`, no remoto.
+    - O mesmo ramo no LOCAL: não tentei apagar (`git branch -d` negado nesta sessão). Ficam no meu disco `esf05r-a`, `esf05r-b` e `esf05r-c`, todos mesclados.
+  - Ramos locais nunca enviados: nenhum novo (`esf26-parse-ca` @ `e1822aa2` segue só registrado).
+  - PR órfão ou substituído: nenhum. Nenhum PR meu aberto no maezo.
+  - Título e corpo do #1341 descrevem o que entrou.
+  - Disco: worktrees temporárias removidas sem `--force`; scratchpad vazio; `git status` limpo; clone principal em `main` `bf9c84df`.
+- Próxima da fila: E-SF-24 → E-SF-29 → RT-02 → E-SF-11 → E-SF-35. CAMINHO da E-SF-24 antes de qualquer código.
