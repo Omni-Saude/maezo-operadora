@@ -62,7 +62,7 @@ class DriftRefusal(StrEnum):
     REGISTRO_DE_ADMISSAO_AUSENTE = "REGISTRO_DE_ADMISSAO_AUSENTE"
 
 
-class DriftRecusado(Exception):
+class DriftRecusadoError(Exception):
     def __init__(self, motivo: DriftRefusal, detalhe: str) -> None:
         super().__init__(f"{motivo}: {detalhe}")
         self.motivo = motivo
@@ -71,12 +71,12 @@ class DriftRecusado(Exception):
 
 def _sha_valido(sha: str) -> str:
     if not isinstance(sha, str) or _SHA40.fullmatch(sha) is None:
-        raise DriftRecusado(DriftRefusal.SHA_INVALIDO, f"esperado sha de 40 hex minusculos: {sha!r}")
+        raise DriftRecusadoError(DriftRefusal.SHA_INVALIDO, f"esperado sha de 40 hex minusculos: {sha!r}")
     return sha
 
 
-def _forma(detalhe: str) -> DriftRecusado:
-    return DriftRecusado(DriftRefusal.FORMA_DA_MATRIZ_DESCONHECIDA, detalhe)
+def _forma(detalhe: str) -> DriftRecusadoError:
+    return DriftRecusadoError(DriftRefusal.FORMA_DA_MATRIZ_DESCONHECIDA, detalhe)
 
 
 def _hash_linha(item: Mapping[str, Any]) -> str:
@@ -149,7 +149,10 @@ def comparar(base: Any, alvo: Any, *, base_sha: str, target_sha: str) -> dict[st
                 "sha256_alvo": a[1] if a else None,
             }
         )
-    totais = {e: sum(1 for x in relatorio_linhas if x["estado"] == e) for e in ("igual", "alterada", "ausente", "nova")}
+    totais = {
+        e: sum(1 for x in relatorio_linhas if x["estado"] == e)
+        for e in ("igual", "alterada", "ausente", "nova")
+    }
     return {
         "schema": SCHEMA,
         "matriz": MATRIZ_PATH,
@@ -161,7 +164,8 @@ def comparar(base: Any, alvo: Any, *, base_sha: str, target_sha: str) -> dict[st
         "totais": totais,
         "linhas": relatorio_linhas,
         "reproducao": (
-            f"python -m scripts.omni_matrix_drift --omni-git-dir <clone> --base {base_sha} --target {target_sha}"
+            "python -m scripts.omni_matrix_drift --omni-git-dir <clone> "
+            f"--base {base_sha} --target {target_sha}"
         ),
     }
 
@@ -173,8 +177,10 @@ def sucessor_por_janela(janela: str) -> dict[str, Any]:
     e o commit do sucessor e do dono do omni. Toda chamada recusa.
     """
     if janela not in JANELAS:
-        raise DriftRecusado(DriftRefusal.JANELA_DESCONHECIDA, f"janela {janela!r} fora de {sorted(JANELAS)}")
-    raise DriftRecusado(
+        raise DriftRecusadoError(
+            DriftRefusal.JANELA_DESCONHECIDA, f"janela {janela!r} fora de {sorted(JANELAS)}"
+        )
+    raise DriftRecusadoError(
         DriftRefusal.REGISTRO_DE_ADMISSAO_AUSENTE,
         f"janela {janela} exige registros {', '.join(JANELAS[janela])}; nenhum registro de admissao existe",
     )
@@ -184,13 +190,14 @@ def serializar(relatorio: Mapping[str, Any]) -> bytes:
     return (json.dumps(relatorio, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def caminho_de_saida(out: Path, target_sha: str, *, raiz: Path = REPO_ROOT) -> Path:
+def caminho_de_saida(out: Path, target_sha: str, *, raiz: Path | None = None) -> Path:
     """So `<raiz>/portal-mirror/MATRIX-DRIFT-<target_sha>.json`; qualquer outro destino recusa."""
     _sha_valido(target_sha)
+    raiz = REPO_ROOT if raiz is None else raiz
     esperado = (raiz / RELATORIO_DIR_REL / f"MATRIX-DRIFT-{target_sha}.json").resolve()
     destino = (out if out.is_absolute() else raiz / out).resolve()
     if destino != esperado:
-        raise DriftRecusado(DriftRefusal.SAIDA_FORA_DO_DIRETORIO, f"destino {destino} != {esperado}")
+        raise DriftRecusadoError(DriftRefusal.SAIDA_FORA_DO_DIRETORIO, f"destino {destino} != {esperado}")
     return destino
 
 
@@ -203,7 +210,9 @@ def ler_do_clone(git_dir: Path, sha: str) -> Any:
         check=False,
     )
     if proc.returncode != 0:
-        raise DriftRecusado(DriftRefusal.LEITURA_DO_CLONE_FALHOU, proc.stderr.decode("utf-8", "replace").strip())
+        raise DriftRecusadoError(
+            DriftRefusal.LEITURA_DO_CLONE_FALHOU, proc.stderr.decode("utf-8", "replace").strip()
+        )
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
@@ -225,7 +234,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             base_sha=args.base,
             target_sha=args.target,
         )
-    except DriftRecusado as exc:
+    except DriftRecusadoError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     dados = serializar(relatorio)
