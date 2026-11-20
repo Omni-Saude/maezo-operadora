@@ -517,3 +517,20 @@ Base: main `bf9c84df`. Ramo: `sf-w2/mzo-gp/esf24` (construo localmente enquanto 
   - (c) `/spec/templates/` não tem dono no CODEOWNERS. Padrão: acrescentar `/spec/templates/  @rodaquino-OMNI @Omni-Saude/security-team`, uma linha. Se a coordenação preferir não tocar o CODEOWNERS, ponho o template num diretório que já tem dono.
   - (d) O campo novo NÃO é PHI (é referência de cláusula ou norma). Padrão: classificá-lo como não PHI, com a justificativa no comentário.
 - Mutação: E1–E4 e o teste da flag desligada, em worktree isolada, antes da revisão.
+
+## 2026-11-20 ~17:50Z — ADENDO ao CAMINHO E-SF-24: o campo novo não é local
+
+O levantamento do impacto do formField novo mudou o tamanho da E-SF-24. Correções ao CAMINHO das ~17:30Z:
+
+- **O BPMN não propaga sozinho.** Hoje o campo existe em três listas mantidas à mão, e um gate de runtime em `src/maezo/gateway/human/decision_binding.py` (~:802) exige `formFields do BPMN == allowed_inputs ∪ {auditor_id}`. Se só o BPMN mudar, a ligação do portal quebra para as 3 UTs. O campo novo obriga:
+  - `src/maezo/portal/contracts/models.py` (`AllowedInput`, `AuthDecisionInputs`, `AuthJuntaInputs` e os validadores, `_INPUTS_BY_FORM`);
+  - `PortalReadCommand.java` (mapa `COMPILED`) e 3 testes Java;
+  - 3 GERADOS: `openapi.json`, `generated/api.ts` e `taskReadBindings.ts` (CD-80);
+  - o corpus de PHI: `DISPOSITIONS`, `docs/review-queue.md`, `CORPUS_DELTA_LOG` e os pinos de linha e de contagem em `test_validation_phi_completeness.py` (27 → 30 ocorrências). **Correção**: o `bpmn_declared_input` = 10 NÃO muda, porque ele conta o rol da documentação, não os formFields;
+  - cerca de 15 testes do portal e de gateway/human, mais 5 payloads NEGAR da integração.
+  Na prática é uma mudança de contrato do formulário do portal, maior que a E-SF-24 inteira.
+- **Fronteira jurídica.** `docs/processes/contracts/SP-OP-AUTH-001.md` (~:764) já mapeia o art. 14 assim: motivo = `justificativa_clinica`; cláusula/dispositivo = `fundamentacao_dut`. O guard já exige os dois, e o mapeamento está marcado "a confirmar pelo jurídico". Decidir que `fundamentacao_dut` NÃO basta e que é preciso um campo próprio é exatamente essa confirmação, e ela é da classe jurídica da fronteira. A janela não decide isso.
+- **Novo padrão conservador** (substitui a subpergunta (a)): dividir em duas partes.
+  - **E-SF-24a (sigo com esta)**: sem campo novo, sem tocar BPMN nem portal. Template v0 versionado + render puro e determinístico, atrás da flag escura (que segue desligada). O registro, com a flag ligada, leva só a versão e o sha256 do template. Testes E2, E3 e E4 + E1 pinado no mapeamento VIGENTE do contrato: o render recusa `…_FUNDAMENTO_AUSENTE` quando falta motivo ou cláusula/dispositivo (= `fundamentacao_dut`); o nome do teste diz isso. O template cita o art. 16 da RN 623 verbatim, e os canais da Ouvidoria (§1º, II) são entrada obrigatória do render (recusa tipada se faltarem). Não há dado da operadora no repositório.
+  - **E-SF-24b (ponto de parada)**: o campo próprio nas 3 UTs, com a cascata acima. Fica condicionado à confirmação jurídica do mapeamento e, se confirmada, vira uma linha própria da fila com o seu próprio CAMINHO.
+- As subperguntas (b), (c) e (d) seguem como estavam; a (d) fica sem objeto na 24a, que não tem campo novo.
