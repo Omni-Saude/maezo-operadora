@@ -4,9 +4,9 @@ Fila: E-SF-34r, E-SF-12r, E-SF-06r, E-SF-32r. Base: main `b86b3d8`.
 
 ## 2026-11-20 22:51Z — BLOQUEIO de leitura do pacote
 
-`add_repo` (omni_sales_platform, leitura) negado pelo modo automático ("[Unauthorized Access]"). Não tentei outro caminho. O orquestrador repassou por mensagem o trecho da 34r (fronteira, mapa, bloco do plano). Os seis prefixos sha256 foram conferidos pelo orquestrador às 22:52Z no clone dele, não por mim.
+`add_repo` (omni_sales_platform, leitura) negado pelo modo automático ("[Unauthorized Access]"). Não tentei outro caminho. Material recebido do coordenador por mensagem. Os seis prefixos sha256 foram conferidos pelo orquestrador às 22:52Z no clone dele, não por mim.
 
-## 2026-11-20 22:56Z — CAMINHO E-SF-34r (variante A; detector nunca promove linha)
+## 2026-11-20 22:56Z — CAMINHO E-SF-34r
 
 Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r depois, cada uma com CAMINHO próprio e pontos de parada, enviado antes à coordenação do programa.
 
@@ -19,7 +19,7 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
    - O relatório não copia conteúdo de linha, só ids e hashes, para respeitar a guarda de proveniência `scripts/docs/omni_provenance.py`.
    - Escreve só com `--out` e só dentro de `docs/delivery/commercial-platform/portal-mirror/`. Sem `--out`, imprime na saída padrão.
 2. `tests/governance/test_omni_matrix_drift.py`. Cobre:
-   - `test_drift_report_pins_target_sha` e `test_drift_never_promotes_rows` (nomes do plano);
+   - `test_drift_report_pins_target_sha` e `test_drift_never_promotes_rows`;
    - o estado fechado do sucessor;
    - recusa de sha que não tenha 40 caracteres;
    - recusa de escrita fora do diretório de relatório;
@@ -30,7 +30,7 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 
 **O que fica fechado (codificado como teste):**
 - O detector nunca promove linha: o estado de qualificação de cada linha (`NOT_RUN` / `PLANNING_ONLY_UNQUALIFIED`) não é lido como entrada de decisão nem escrito na saída como novo valor. O relatório traz `promove_linhas: false` constante.
-- Sucessor por janela de admissão (D-34: A1+A2+A3; D-38: A6+A10): a função existe e recusa sempre, enquanto não houver registro de admissão da janela. Recusa `REGISTRO_DE_ADMISSAO_AUSENTE`. Hoje nenhum `A<n>-ADMISSION-RECORD.json` existe e o registro A10 está pendente (ato do dono).
+- Sucessor por janela de admissão: a função existe e recusa sempre (`REGISTRO_DE_ADMISSAO_AUSENTE`); nenhum registro de admissão existe.
 - Nenhuma flag, nenhuma ingestão, nenhum envio, nenhuma medição.
 - Nada de spec/processes, deploy/, spec/policies, workflows, CODEOWNERS, PLANS.md, ledger nem contagens.
 
@@ -54,3 +54,13 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 - `tests/unit` inteiro, main × ramo;
 - `make lint type validate-artifacts`;
 - varredura de `noqa` e `type: ignore` novos.
+
+## 2026-11-20T23:06Z — E-SF-34r: CD-218 recebida; construção e revisão
+
+- Ramo `sf-w2/mzo-r2/esf34r` @ `9d487f605308fb79e0f4b9e03cf4299b6ee85ca8`, sem PR. Dois arquivos novos, nenhum alterado.
+- Forma da matriz fixada em constantes (CD-218); SQ-34r-1 encerrada.
+- Mutação antes da revisão: 25/25 mortos (2 casos reforçados).
+- Revisão às cegas: FAIL com 2 bloqueantes (symlink no destino; clone parcial poderia buscar blob na rede) e 6 não bloqueantes.
+- Reparo por terceiro: todos tratados; 78 testes; um mutante sobrevivente equivalente (id vazio no denominador, já recusado pela checagem seguinte).
+- Reconferência independente do reparo: em curso.
+- GAP G1 mantido: o relatório de deriva não é gerado nesta linha.
