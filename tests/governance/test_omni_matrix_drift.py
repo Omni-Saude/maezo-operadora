@@ -183,6 +183,14 @@ def _id_duplicado(m: dict[str, Any]) -> None:
     m["proposedMissingSources"][0]["id"] = "IF-00"
 
 
+def _id_duplicado_fora_do_denominador(m: dict[str, Any]) -> None:
+    m["proposedMissingSources"][1]["id"] = "GAP-0"
+
+
+def _id_vazio_fora_do_denominador(m: dict[str, Any]) -> None:
+    m["proposedMissingSources"][0]["id"] = ""
+
+
 def _sem_lista(m: dict[str, Any]) -> None:
     del m["proposedMissingSources"]
 
@@ -214,6 +222,8 @@ def _denominador_duplicado(m: dict[str, Any]) -> None:
         _id_vazio,
         _id_numerico,
         _id_duplicado,
+        _id_duplicado_fora_do_denominador,
+        _id_vazio_fora_do_denominador,
         _sem_lista,
         _lista_errada,
         _item_nao_objeto,
