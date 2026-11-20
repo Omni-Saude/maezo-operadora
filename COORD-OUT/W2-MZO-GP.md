@@ -574,3 +574,35 @@ O levantamento do impacto do formField novo mudou o tamanho da E-SF-24. Correç�
   - A parte com `tests/unit/sec` coletou +40 no ramo (os testes novos), todos verdes.
 - Depois das 4 correções: 42 testes novos; 24 de 24 mutações mortas (duas novas: canal com quebra; rótulo vazando no registro); `make lint type validate-artifacts` rc=0; `tests/unit/sec` + `tests/unit/tools/workers` + os testes que leem o contrato do AUTH-001: 5909 passed, 27 skipped. CD-170 limpo.
 - **Bloqueio:** commit e push. O modo automático negou o commit no ramo `sf-w2/mzo-gp/esf24`, e o pedido de liberação está com o dono. Não contorno.
+
+## 2026-11-20 ~19:10Z — CAMINHO E-SF-29 (EP-PROC-06a, relógio legal de pagamento do reembolso)
+
+Base: main `bf9c84df`. Construção em worktree própria a partir da main, sem misturar com a árvore da 24a, e só depois da CD.
+
+**O que o levantamento mudou no tamanho.** O plano dá a 06a como M. No head ela toca:
+- `SP-OP-REEMBOLSO-001` (subprocesso envolvendo análise, pendência, auditor, coordenação e registro do pagamento + BRT + 2 boundaries não-interruptivos + publish + UT);
+- uma DMN nova;
+- 6 arquivos com a contagem de DMN 71 → 72 (`README.md`, `test_engine_deploy.py`, `test_engine_deploy_cli.py`, `test_shadow_candidates_common.py`, `test_validation_vocabulario_saida.py`, `test_validation_phi_completeness.py`), o corpus de PHI (`CORPUS_DELTA_LOG`) e cerca de 17 pinos de linha do BPMN (o aninhamento no subprocesso desloca as linhas; a cerca de PHI e `phi_completeness.py` citam linhas);
+- o catálogo fechado de 5 UTs (`staff_material_reembolso_catalogo`, e o portal se a UT for exposta);
+- `aprovacoes-de-regras.yaml`, `test_dmn_dead_inputs_fence.py`, `_catalogo_prazos.py`, o contrato, o test-spec, `catalog.md` e o teste de engine.
+
+Além disso, tocar o BPMN tira dele a isenção da baseline dos gates: as 4 entradas G4 `no-gateway-join-fork` deste arquivo (`GW_DecisaoReembolso`, `GW_DesfechoPagamento`, `GW_AvisoAprovado`, `GW_AguardarDocs`) viram NOVAS e o `bpmn-gates` reprova (o mesmo que derrubou o #1318).
+
+**Proposta: três PRs em série** (um aberto por vez):
+- **29-1 (pequeno, sem arquivo de contagem):** `tests/unit/spec/test_sp_op_reembolso_001_prazo_legal_fence.py` com C1, C2 e C3 do plano, verdes hoje (o arquivo não existe; o plano o dava como existente).
+  - C1: prazo do reembolso é timer BPMN parametrizado por DMN.
+  - C2: nenhum prazo de reembolso em Python ou prompt.
+  - C3: nenhum caminho de timer paga ou aprova.
+  - Mutados antes da revisão.
+- **29-2 (refator de gates, só BPMN + baseline):** corrigir os 4 G4 com junções explícitas, sem mudar comportamento: as instâncias seguem o mesmo caminho, o que o teste de engine existente prova. Remove as 4 entradas de `scripts/bpmn-gates/baseline.json` e baixa o teto `("4","sp-op") 18 → 14` em `tests/processes/test_bpmn_gates_harness.py`. Sem isso, a 29-3 nasce vermelha.
+- **29-3 (o relógio):** o desenho da 06a, com C4 (vermelho hoje) como aceite, a DMN só com catch-all DRAFT e os defaults conservadores (`P30D`, corridos, sem reinício na pendência, âncora logo após a validação).
+  - O vencimento publica `agents.events.reembolso.prazo_legal_vencido` com payload só `tenant_id, protocolo_reembolso, tipo_reembolso` (via `operadora.events.publish`, sem worker novo) e cria `UT_TratarPrazoLegalVencido` (`coordenacao-reembolso`, sem campo de pagar ou negar).
+  - Nada paga, nega, reduz, avisa o beneficiário ou exibe ETA. A DMN entra em `duracoes_draft_internas` (nunca visível ao comprador). Gates de engine UNVERIFIED. O deploy é OWNER-DEPLOY.
+
+**PONTOS DE PARADA e subperguntas** (para cada uma, o padrão conservador que adoto se a CD não disser outro):
+- (a) **DMN nova** é ponto de parada desta janela. Alternativa sem DMN nova: o `funnel_deadline_catalog.dmn` já tem a linha `Lei9656-art12-VI` (DRAFT; âncora `documentacao_adequada_em`; quantidade, calendário, suspensão), e um BRT com `deadline_ref="Lei9656-art12-VI"` pode alimentar o timer. Mas o catálogo não tem duração ISO nem valor de alerta, e o contrato `:139` diz que o relógio parte de `documentacao_adequada_em`, nunca da submissão. **Padrão: DMN nova `reembolso_prazo_pagamento.dmn`**, só catch-all DRAFT, que DECIDE apenas a duração ISO do vencimento (parâmetro com a fonte citada: Lei 9.656 art. 12, VI, verbatim da baseline, "DRAFT/verify jurídico"). Nenhuma linha de "o quê" (cobertura, alcance, unidade), conforme a CD-55 §5. CODEOWNERS: a janela não toca (CD-192 c). **Pedido de linha:** dono para `reembolso_prazo_pagamento.dmn`.
+- (b) **Valor do alerta**: o plano o põe como pré-requisito "definido pelo dono de operações", e não há valor no pacote. **Padrão: SEM timer de alerta na 29-3**; só o vencimento. O alerta entra quando o dono de operações der o valor (mudança de dado + um boundary).
+- (c) **Âncora**: os defaults do plano dizem "logo após a validação"; o contrato diz `documentacao_adequada_em`. As duas leituras divergem quando houver SOLICITAR_INFO (J1, jurídico). **Padrão:** a âncora mais cedo (entrada no subprocesso, logo após a validação), sem reinício, que nunca alerta tarde (o racional do plano). O contrato é ajustado para dizer que a âncora é provisória até J1, e o C4 pina isso.
+- (d) **UT nova e portal**: **padrão:** a UT entra no catálogo de material de staff (o teste fecha o conjunto de UTs com o BPMN), mas NÃO no contrato do portal (Literal, Java, TS, openapi, `portal-admissao.json` sob `/deploy/`). Fica pedido de linha. Sem deploy, nada opera.
+- (e) **Arquivos de contagem** (DMN 71 → 72 e o corpus de PHI) na 29-3: preciso da serialização da coordenação do programa (CD-80/CD-192 §4) antes de abrir.
+- (f) Sequência 29-1 → 29-2 → 29-3 ou só a 29-3 com o `bpmn-gates` vermelho como exceção conhecida? **Padrão:** a série.
