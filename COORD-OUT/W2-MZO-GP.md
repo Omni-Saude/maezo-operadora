@@ -441,3 +441,10 @@ Verificação:
   4. acoplamento de import entre módulos de teste.
 - Lição: o mesmo padrão de teste vácuo da parte b (afirmar algo que o caminho padrão também satisfaz). Passo a mutar cada teste novo de postura ou invólucro antes da revisão.
 - `make lint type validate-artifacts` verde; `tests/unit` × main limpa em curso (parte 1 idêntica, 160 linhas).
+
+## 2026-11-20 ~15:05Z — retomada após o limite de uso (CD-185); 05r-c no remoto
+
+- Disco conferido: nada sumiu. Ramo local `sf-w2/mzo-gp/esf05r-c` @ `a33abda2f3edd3661337e42f794dd299049d7da3` (revisão PASS) intacto, `git status` limpo; worktrees: clone principal e canal (a da main antiga saiu sem `--force`).
+- **Push do ramo feito, sem PR** (regra da CD-185): `origin/sf-w2/mzo-gp/esf05r-c` = `a33abda2`.
+- A comparação de `tests/unit` de 18/11 parou na parte 6, lado da main; as partes 1–5 tinham dado idênticas contra `587a759b`. Refaço tudo sobre a main `41e364de`: a main andou 2 merges, sem arquivo em comum com o diff; `merge-tree` limpo. Comparo o MERGE simulado (`41e364de` + `a33abda2` = `80f6b19b`) × `41e364de` limpa, nas 6 partes, mais `make lint type validate-artifacts` no merge.
+- Pendente antes do PR: a docstring do contrato de thread no resolvedor (achado não bloqueante da revisão).
