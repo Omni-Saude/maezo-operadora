@@ -657,3 +657,32 @@ Além disso, tocar o BPMN tira dele a isenção da baseline dos gates: as 4 entr
   - O caso "prazo publicado" fica para quando o K1 trouxer a PRZ-0009, com o valor lido da tabela pinada, nunca escrito no teste.
 - **Dívida a retirar depois** (CD-199 item 3; não mexo agora): a linha DRAFT `Lei9656-art12-VI` do `spec/processes/dmn/funnel_deadline_catalog.dmn`, o mesmo número fora do lugar. Sai quando o K1 trouxer a PRZ-0009.
 - **Subperguntas:** (i) a forma do consumo K1 (tabela `rco/` pinada × outra interface); (ii) o terminate no escopo do subprocesso encerra também a `UT_TratarPrazoLegalVencido` se ela já existir quando o pagamento for registrado. Padrão: aceitar, porque o pagamento resolve o vencimento; a alternativa é a UT fora do subprocesso, correlacionada por mensagem.
+
+## 2026-11-20 ~20:10Z — E-SF-29: 29-1 com PASS; 29-2 montada (re-revisão em curso); 29-3 ajustada à CD-201
+
+**29-1** (`tests/unit/spec/test_sp_op_reembolso_001_prazo_legal_fence.py`): revisão independente FAIL → PASS em três rodadas. Bloqueantes corrigidos:
+- **B1:** o C3 não entrava em subprocesso. Agora a busca entra pelo início do subprocesso e sai pela saída e pelos boundaries dele. A regra virou allowlist: depois de um timer, até uma tarefa humana, só `notify_sla_risk` e o evento `sla_breached`; qualquer outra coisa reprova, inclusive fim com mensagem.
+- **B2:** o C2 não via o texto do beneficiário. Agora lê os textos do Lucas em `domain/reembolso/pedido.py` e os blocos de texto inteiros (frase em várias linhas, "30 (trinta) dias", horas, meses).
+- **B3:** o C2 dependia do caminho do checkout; agora usa o caminho relativo à raiz.
+- **B4:** o C3 dava falso positivo com o alerta não-interruptivo terminando dentro de um subprocesso, o desenho natural da 29-3. Corrigido; o `terminate` continua saindo do escopo, como deve.
+- A dívida do P5D está pinada pelo valor.
+- Resultado: 14 testes, 16 de 16 mutações mortas, ruff limpo.
+- **Limites aceitos e documentados no teste:** número solto em comparação (`d > 30`), número dentro de f-string, script de catálogo fora de `src`, proximidade de 160 caracteres em texto de agente.
+
+**29-2** (junções exclusivas):
+- O BPMN ganha 4 `exclusiveGateway` de junção no fim do process, mais o DI. Só o `targetRef` de 10 fluxos muda, na própria linha. As entradas dos 4 gateways foram trocadas no lugar, com as linhas restantes viradas comentário XML, sem deslocamento nenhum; nenhum pino de linha muda.
+- `baseline.json` perde só as 4 entradas; o teto vai de 18 para 14.
+- Teste novo, `tests/unit/spec/test_sp_op_reembolso_001_juncoes_g4.py`: junção só exclusiva, as entradas certas, as saídas e o default de cada gateway, e o texto exato de cada condição.
+- Gates `--touched`: novos=0, obsoletos=0. bpmnlint antes × depois: só somem os 4 `no-gateway-join-fork`, nenhum aviso novo. `make lint type validate-artifacts check-aprovacao-de-regras check-bpmn-error-allowlist` rc=0. 6 de 6 mutações mortas.
+- A revisão confirmou o comportamento idêntico no motor: o único ramo concorrente (`BT_AlertaSla`) não chega a nenhuma junção. Ela deu FAIL só pelo DI (2 junções sobrepostas e setas terminando no gateway antigo). Corrigi e a re-revisão está em curso.
+- `recurso-nip` e a integração do reembolso só rodam no CI do PR.
+
+**29-3** — desenho ajustado à **CD-201** (revoga o item 2 da CD-199). Sem código até a regra corrigida estar na main do repositório de regras e pinada no Maezo:
+- **Dois relógios**, cada um definido pela fonte por CHAVE (duração, unidade e âncora; a âncora vem de vocabulário fechado): RN 566 art. 10, contado da solicitação; Lei 9.656 art. 12, VI, contado da entrega da documentação adequada.
+- No BPMN, o "vigia" vira **um vigia por relógio publicado**. Uma lista de chaves vinda da fonte alimenta um multi-instance paralelo de vigias, ou dois vigias fixos por chave; a forma fica para o código.
+- Cada vigia só arma quando o instante da sua âncora existe. O segundo relógio começa por revisão humana: a `documentacao_adequada_em` é registrada por uma pessoa (campo de UT), nunca inferida.
+- Os dois instantes são DADO; nenhum número de prazo no Maezo; falha fechada com chave sem publicação.
+- C4 por relógio: sem publicação não há job; sem âncora registrada não há job; o pagamento encerra todos os vigias.
+- Os testes C1 e C3 da 29-1 já servem para os vigias dentro do subprocesso. A allowlist do C3 ganha `agents.events.reembolso.prazo_legal_vencido` quando a 29-3 entrar.
+
+**Ordem de PRs:** 29-1 → 29-2. A 24a está pronta antes delas. Todas esperam a liberação de commit pelo dono. Depois: RT-02 (CAMINHO antes).
