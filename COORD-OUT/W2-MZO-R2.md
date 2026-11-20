@@ -79,3 +79,8 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 - 34r registrada. PR só quando a coordenação definir a posição na fila do funil; ramo fica como está, sem novas baterias.
 - `febe41a` fica como está (sem reescrita).
 - 12r não começa até a decisão do dono sobre o acesso. Janela parada.
+
+## 2026-11-20T23:49Z — CD-220: PR #1344 aberto
+
+- Head `e169e1428fe2ecaf2952bb2392d1187245f21a9b`; aberto em paralelo ao #1343 (teto de dois, CD-220).
+- Aguardando CI; PRONTO à coordenação do programa quando verde.
