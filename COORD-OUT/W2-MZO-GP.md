@@ -606,3 +606,54 @@ Além disso, tocar o BPMN tira dele a isenção da baseline dos gates: as 4 entr
 - (d) **UT nova e portal**: **padrão:** a UT entra no catálogo de material de staff (o teste fecha o conjunto de UTs com o BPMN), mas NÃO no contrato do portal (Literal, Java, TS, openapi, `portal-admissao.json` sob `/deploy/`). Fica pedido de linha. Sem deploy, nada opera.
 - (e) **Arquivos de contagem** (DMN 71 → 72 e o corpus de PHI) na 29-3: preciso da serialização da coordenação do programa (CD-80/CD-192 §4) antes de abrir.
 - (f) Sequência 29-1 → 29-2 → 29-3 ou só a 29-3 com o `bpmn-gates` vermelho como exceção conhecida? **Padrão:** a série.
+
+## 2026-11-20 ~19:30Z — E-SF-29: 29-1 montada; lista da 29-2 para a T-MZO-A; desenho da 29-3 (duração nula)
+
+**29-1** (CD-197 item 2):
+- Montada em worktree própria a partir da main `bf9c84df`, ramo local `sf-w2/mzo-gp/esf29-1`. Um arquivo novo: `tests/unit/spec/test_sp_op_reembolso_001_prazo_legal_fence.py`, com C1, C2, C3 e controles de não-vacuidade.
+- 7 de 7 verdes na main; 11 de 11 mutações mortas; `make lint type validate-artifacts` rc=0; CD-170 limpo.
+- **ACHADO no C1:** o timer `TD_PrazoPendencia` (`ICE_PrazoPendencia`, P5D, "DRAFT/verify") tem duração literal no BPMN, não vinda de DMN. Fica numa allowlist que só encolhe, com o motivo: é a espera operacional pela documentação, não o prazo legal, e ao vencer decide um humano (`UT_DecidirPendenciaExpirada`). O teste falha se a entrada deixar de ser literal sem sair da lista.
+- **C2** tem uma allowlist do mesmo tipo para duas durações de `reembolso_turno.py`: a janela de 24h da conversa e a validade da consulta do protocolo. Nenhuma das duas é prazo do processo.
+- Em curso: revisão independente e `tests/unit` inteiro × main. Commit, push e PR quando o dono liberar.
+
+**29-2 — lista de arquivos para a T-MZO-A** (CD-198 item 2.d; não escrevo nada antes do "sem colisão"):
+- `CAMINHO spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn` — junções explícitas nos 4 gateways G4 (`GW_DecisaoReembolso`, `GW_DesfechoPagamento`, `GW_AvisoAprovado`, `GW_AguardarDocs`).
+  - Gateways novos e os fluxos novos entram no FIM do `bpmn:process` (depois do bloco dormente da faixa B, como o comentário de `:556-559` já faz), e o DI entra no fim do diagrama. Os fluxos existentes só trocam `targetRef` na própria linha.
+  - Assim nenhuma linha anterior a ~616 desloca e os pinos de linha da cerca de PHI não mudam. Se algum mudar, eu listo.
+  - Nenhum id renomeado; nenhum listener, timer, variável ou condição tocado.
+- `CAMINHO scripts/bpmn-gates/baseline.json` — só PERDE as 4 entradas G4 deste arquivo.
+- `CAMINHO tests/processes/test_bpmn_gates_harness.py` — teto `("4","sp-op")` 18 → 14.
+- Prova de comportamento idêntico: os testes de processo e de integração do reembolso sem nenhuma mudança de expectativa; `recurso-nip` no PR.
+
+**29-3 — desenho na variante de DURAÇÃO NULA** (CD-198 item 4, CD-199). SEM código.
+- **O que muda em relação ao CAMINHO anterior:**
+  - NÃO há DMN nova do Maezo. Nenhum `P30D` nem outro número de prazo em DMN, BPMN, Python ou teste do Maezo.
+  - A duração e a âncora vêm da regra `OMNI-GERAL-PRZ-0009` pela interface de regras (K1).
+  - A âncora é a da regra, "pedido de reembolso"; o contrato e o plano não a redefinem.
+  - Os itens 4(a) e 4(c) da CD-197 caem.
+- **Dados:** o processo guarda os dois instantes como DADO, `data_solicitacao` (o pedido; já existe no contrato `:80`) e `documentacao_adequada_em` (a documentação adequada; a âncora da lei, para o ponto jurídico informativo no repositório de regras). Nenhum dos dois decide nada no Maezo.
+- **Consumo (a forma é da coordenação do programa):** um `businessRuleTask` sobre a tabela publicada pelo K1 (pelo padrão do repositório: `spec/processes/dmn/rco/`, pinada em `config/integrations/rco/rules.lock.json`). Ele devolve `prazo_legal.vencimento_em` (instante já calculado pela regra a partir da âncora da regra) ou NULO.
+  - Se o K1 só publicar quantidade e unidade, o cálculo âncora + duração fica na expressão FEEL da tabela publicada, nunca no Maezo.
+  - Hoje o K1 do repositório só traz as tabelas `rco_*` de contas/AUTH. Se a PRZ-0009 não estiver lá, a 29-3 inteira espera.
+- **Estrutura no BPMN** (sem nenhuma duração própria):
+  - Subprocesso embutido `SP_JanelaPrazoLegalPagamento` em volta de análise, pendência, auditor, coordenação e registro do pagamento, com um ramo paralelo "vigia".
+  - O vigia passa por `GW_PrazoPublicado`: com `prazo_legal.vencimento_em` nulo, vai direto a um fim sem efeito (falha fechada: nenhum timer armado, nenhum vencimento calculado, nada exibido). Senão, um `intermediateCatchEvent` de timer `timeDate` = `${prazo_legal.vencimento_em}` → `ST_PublishPrazoLegalVencido` (`agents.events.reembolso.prazo_legal_vencido`, payload só `tenant_id, protocolo_reembolso, tipo_reembolso`, via `operadora.events.publish`) → `UT_TratarPrazoLegalVencido` (`coordenacao-reembolso`, sem campo de pagar, negar ou reduzir).
+  - Os fins do ramo principal dentro do subprocesso são `terminate` do escopo do subprocesso, então o pagamento (ou qualquer desfecho) encerra o vigia: "pagamento cancela o relógio".
+  - Sem timer de alerta (CD-197 4(b)). Sem `boundaryEvent` de duração, porque um boundary com duração nula não arma.
+- **Arquivos previstos** (quando liberada):
+  - o BPMN;
+  - o contrato e o test-spec do REEMBOLSO-001 (âncora = a da regra; os dois instantes como dado; vencimento só pelo publicado);
+  - `docs/processes/catalog.md`;
+  - `scripts/ops/staff_material_reembolso_catalogo.py` + o teste (UT nova, fora do portal, CD-197 4(d));
+  - o teste de engine (`tests/integration/processes/test_sp_op_reembolso_001.py`);
+  - o corpus de PHI e os pinos de linha, se o aninhamento deslocar.
+  - SEM contagem de DMN (71 continua 71) e SEM `aprovacoes-de-regras.yaml`.
+- **C4 (aceite) e fronteira**, como teste:
+  - sem prazo publicado não há job de timer, nem variável de vencimento, nem tarefa;
+  - nenhum caminho do vigia paga, nega, reduz, avisa o beneficiário ou exibe prazo;
+  - o evento não leva dado de saúde nem valor;
+  - o pagamento encerra o vigia;
+  - nenhum número de prazo no Maezo (C1/C2 estendidos: timer de prazo legal só por `timeDate` vindo de tabela K1).
+  - O caso "prazo publicado" fica para quando o K1 trouxer a PRZ-0009, com o valor lido da tabela pinada, nunca escrito no teste.
+- **Dívida a retirar depois** (CD-199 item 3; não mexo agora): a linha DRAFT `Lei9656-art12-VI` do `spec/processes/dmn/funnel_deadline_catalog.dmn`, o mesmo número fora do lugar. Sai quando o K1 trouxer a PRZ-0009.
+- **Subperguntas:** (i) a forma do consumo K1 (tabela `rco/` pinada × outra interface); (ii) o terminate no escopo do subprocesso encerra também a `UT_TratarPrazoLegalVencido` se ela já existir quando o pagamento for registrado. Padrão: aceitar, porque o pagamento resolve o vencimento; a alternativa é a UT fora do subprocesso, correlacionada por mensagem.
