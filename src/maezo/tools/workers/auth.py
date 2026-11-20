@@ -98,6 +98,7 @@ from maezo.tools.workers.base import (
     pick_fields,
 )
 from maezo.tools.workers.ceilings import CeilingResolver
+from maezo.tools.workers.denial_term import DENIAL_TERM_TEMPLATE
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row
 from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.phi_vars import redact_phi_vars
@@ -1719,6 +1720,11 @@ class SendDenialNoticeWorker(WorkerBase):
                 # exatamente isso, "pendente". Nunca "entregue": nao ha recibo a apresentar.
                 notice["entrega_negativa_status"] = DENIAL_DELIVERY_MANUAL_PENDING
                 notice["entrega_negativa_responsavel"] = DENIAL_DELIVERY_RESPONSIBLE
+                # E-SF-24 (EP-PROC-07a): o termo que o auditor entrega e' o do template
+                # VERSIONADO; o registro pina qual (versao + sha256), nunca o texto, que carrega
+                # o motivo clinico (PHI, ADR-0006). O render puro fica em `denial_term`.
+                notice["termo_negativa_template_versao"] = DENIAL_TERM_TEMPLATE.versao
+                notice["termo_negativa_template_sha256"] = DENIAL_TERM_TEMPLATE.sha256
                 self.logger.info(
                     "auth_denial_written_notice_manual_pending",
                     tenant_id=tenant_id,

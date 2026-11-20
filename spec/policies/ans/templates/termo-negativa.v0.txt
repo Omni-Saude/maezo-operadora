@@ -1,0 +1,15 @@
+# Mapeamento do art. 14 NAO confirmado pelo juridico: motivo = justificativa_clinica; clausula ou dispositivo legal = fundamentacao_dut.
+RN 623/2024, art. 14 — motivo da negativa de autorização do procedimento:
+$motivo
+
+RN 623/2024, art. 14 — cláusula contratual ou o dispositivo legal que a justifique:
+$fundamento
+
+RN 623/2024, art. 16:
+Ao beneficiário de plano de saúde é assegurada a faculdade de requerer a reanálise de sua solicitação, a qual será apreciada pela Ouvidoria da operadora, instituída na forma da Resolução Normativa n° 323, de 3 de abril de 2013, ou norma que vier a sucedê-la.
+
+RN 623/2024, art. 16, § 1°, II — canais de atendimento da Ouvidoria:
+$canais_ouvidoria
+
+RN 623/2024, art. 16, § 1°, III — prazo ordinário de resposta da reanálise pela Ouvidoria:
+$prazo_reanalise_dias_uteis dias úteis

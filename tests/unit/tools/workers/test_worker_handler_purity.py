@@ -91,6 +91,10 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         # (`adequacao._record_gap_shadow`; proved by test_adequacao_shadow.py section 6).
         "adequacao_shadow",
         "phi_vars",  # one-way PHI redaction helper
+        # E-SF-24 (EP-PROC-07a): the PURE render of the denial term from the versioned template
+        # (`spec/policies/ans/templates/`) + its sha256-pinned loader. No engine client, no worker
+        # registration, no process variable; `auth.SendDenialNoticeWorker` reads only its pin.
+        "denial_term",
         "_audit_ctx",  # per-task DMN-version collector (T-B)
         # MZO-5a (ADR-0075 (f)): stdlib reader of the rco K1 pin (rules.lock.json) that stamps
         # shaDmn/versaoRegra/idRegra on rco_ audit entries; no engine client, no worker registration.
