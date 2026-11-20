@@ -642,3 +642,23 @@ def test_offer_quote_payload_has_no_score_slot(schema_bytes):
     scored = json.loads(schema_bytes)
     scored["$defs"]["quoteResultData"]["properties"]["propensity"] = {"type": "number"}
     assert result_score_slots(scored, results) == ("quoteResultData.propensity",)
+
+
+# E-SF-05r (c), EP-CORE-00b — o teste nomeado pelo plano, pelo `create_app` real com o
+# resolvedor que relê os registros a cada chamada (detalhe em
+# tests/unit/gateway/test_esf05r_record_resolver.py).
+@pytest.mark.asyncio
+async def test_composition_root_without_record_file_keeps_both_routes_closed(schema_bytes, tmp_path):
+    from tests.unit.gateway.test_esf05r_record_resolver import (
+        UNAVAILABLE_CATALOG,
+        UNAVAILABLE_COMMERCIAL,
+        call_both,
+        resolver_app,
+    )
+
+    app, calls, composed, oidc = await resolver_app(schema_bytes, tmp_path)
+    async with oidc:
+        posted, catalog = await call_both(app)
+    assert posted.status_code == 503 and posted.json() == UNAVAILABLE_COMMERCIAL
+    assert catalog.status_code == 503 and catalog.json() == UNAVAILABLE_CATALOG
+    assert composed == [] and calls == []  # nenhum registro, nenhuma composição, nenhuma fonte

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, Literal, cast
@@ -22,6 +23,7 @@ from maezo.gateway.commercial_legitimacy_guard import (
     LegitimacyScreenGuardFactory,
     collective_legitimacy_shadow,
 )
+from maezo.gateway.commercial_record_resolver import CommercialRecordResolver
 from maezo.gateway.human.assignment_composition import AssignmentRuntime
 from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
@@ -264,6 +266,7 @@ def create_app(
     legitimacy_screen_guard_factory: LegitimacyScreenGuardFactory | None = None,
     commercial_gateway: CommercialGateway | None = None,
     public_catalog_gateway: PublicCatalogGateway | None = None,
+    commercial_record_resolver: CommercialRecordResolver | None = None,
     web_root: Path | None = None,
 ) -> FastAPI:
     """Production factory has no in-memory fallback and no default or agent credentials."""
@@ -404,12 +407,28 @@ def create_app(
     # register, signal art. 39 — never altering the commercial response, design §4) and
     # REQUIRES the no-default guard factory. The enforcing posture is a successor class
     # with its own explicit bind (design §4): unreachable by this flag, never named here.
-    app.state.commercial_gateway = collective_legitimacy_shadow(
-        commercial_gateway,
-        enabled=config.collective_legitimacy_screen,
-        guard_factory=legitimacy_screen_guard_factory,
-    )
+    enabled = config.collective_legitimacy_screen
+    guard_factory = legitimacy_screen_guard_factory
+
+    def legitimacy_posture(gateway: CommercialGateway | None) -> CommercialGateway | None:
+        # The single application of the posture: the injected gateway and, with a record
+        # resolver, every per-call gateway pass through this same call.
+        return collective_legitimacy_shadow(gateway, enabled=enabled, guard_factory=guard_factory)
+
+    app.state.commercial_gateway = legitimacy_posture(commercial_gateway)
     app.state.public_catalog_gateway = public_catalog_gateway
+    # E-SF-05r (c), EP-CORE-00b: with a record resolver the routes re-read the A1/A2 records on
+    # every call (no caching); a missing or refused record keeps that surface unbound (503).
+    # One source per surface: a resolver never coexists with a pre-composed gateway. The
+    # legitimacy posture applies to the resolved gateway exactly as to the injected one.
+    if commercial_record_resolver is not None:
+        if commercial_gateway is not None or public_catalog_gateway is not None:
+            raise ValueError("commercial_composition_invalid")
+        if enabled and guard_factory is None:
+            raise ValueError("legitimacy_screen_guard_unbound")
+        app.state.commercial_record_resolver = replace(
+            commercial_record_resolver, wrap_commercial=legitimacy_posture
+        )
     app.include_router(commercial_router)
 
     # Added BEFORE `deployment_host` on purpose. `add_middleware` inserts at position 0, so
