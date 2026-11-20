@@ -914,3 +914,16 @@ Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos 
 - **1 merge atrás** (#1342, autonomy loaders): sem arquivo em comum, não trazido (CD-155).
 - **Arquivos:** `src/maezo/tools/workers/denial_term.py` (novo), `src/maezo/tools/workers/auth.py`, `spec/policies/ans/templates/termo-negativa.v0.txt` (novo), `tests/unit/sec/test_documento_negativa_fence.py` (novo), `tests/unit/tools/workers/test_worker_handler_purity.py`, `docs/processes/contracts/SP-OP-AUTH-001.md`.
 - **Próximo PR**, depois do merge deste: 29-1 (ramo já no remoto).
+
+## 2026-11-20 ~23:55Z — #1343 mesclado (main `0e8b0bed`); LIMPEZA #1343; PR #1345 (29-1) aberto
+
+- #1343 (E-SF-24a) mesclado; a main `0e8b0bed` contém o head `43462269`.
+- **LIMPEZA #1343 (CD-149):**
+  - **Ramo para o dono apagar:** `sf-w2/mzo-gp/esf24` @ `43462269fa204566594bf0f523b8e35051856b42`, no remoto. O mesmo ramo local fica no meu disco, só registrado (`git branch -d` negado nesta sessão).
+  - Ramos locais nunca enviados: nenhum novo.
+  - PR órfão: nenhum.
+  - Título e corpo do #1343 descrevem o que entrou (o corpo registra o `flip-path-review-gate` esperado).
+  - **Disco:** o clone principal está em `main` `0e8b0bed`, limpo. A worktree `sim24` foi removida. O check-in agendado foi cancelado.
+- **PR #1345 (E-SF-29-1)** aberto: head `b15a3ecefef8b6bb720a074503089b686ec49189`, só o arquivo de teste novo; 2 merges atrás (#1342, #1343), sem arquivo em comum, não trazidos. Aguardo o CI.
+- Fila: 29-2 → RT-02 → 11 → 35, um PR por vez.
+- **Linha do evidence-ledger da E-SF-24a** (texto para quem escreve o ledger; a janela não edita): "E-SF-24a (EP-PROC-07a): termo da negativa (RN 623 art. 14/16) com template v0 versionado em `spec/policies/ans/templates/` e render puro atrás de `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` (DARK); registro só com versão e sha256 do template; mapeamento do art. 14 não confirmado pelo jurídico (pré-condição para ligar). PR #1343."
