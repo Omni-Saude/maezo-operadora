@@ -767,6 +767,34 @@ clausula/dispositivo = `fundamentacao_dut` (o guard de completude ja exige os do
 da Ouvidoria e prazo de reanalise NAO existem como configuracao do tenant neste build — o
 auditor os inclui no termo manual.
 
+**Termo da negativa versionado (E-SF-24, EP-PROC-07a, parte a; DARK).** O texto do termo sai
+de um template versionado, `spec/policies/ans/templates/termo-negativa.v0.txt` (diretorio
+com dono no CODEOWNERS), sem prosa propria: rotulos que citam a norma, os campos do registro
+humano (pelo mapeamento acima, **ainda nao confirmado pelo juridico** — o proprio template
+diz isso na primeira linha, de metadado) e o art. 16, caput, da RN 623 verbatim. O render
+(`maezo.tools.workers.denial_term`) e' puro e deterministico (mesmo input, mesmo sha256), nao
+decide nem altera `decisao_auditor`, so' compoe o termo de uma NEGAR com proveniencia humana
+(o criterio do guard, `auditor_id` nao vazio ou `human_approved is True`, porem mais estrito:
+`auditor_id` so' de caracteres de largura zero conta como vazio; senao, `ERR_DENIAL_NOT_HUMAN`)
+e recusa com codigo tipado:
+`ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO` (template ausente ou com sha256 fora do pino),
+`ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE` (falta motivo ou clausula/dispositivo) e
+`ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE` (faltam os canais da Ouvidoria ou o prazo da
+reanalise, de 1 a 7 dias uteis; art. 16, § 1o, II e III). Nenhum codigo de producao chama o
+render. Com a bandeira ligada, o registro da negativa ganha so' o pino do template:
+
+| Variavel | Tipo | Valor | Significado |
+|---|---|---|---|
+| `termo_negativa_template_versao` | string | `v0` | versao do template que o termo manual deve usar |
+| `termo_negativa_template_sha256` | string | sha256 dos bytes do template | qual texto exato, sem carregar o termo (que contem o motivo clinico, PHI) |
+
+O estado continua `entrega_manual_pendente`. **Ligar a bandeira tem pre-condicao:** a
+confirmacao juridica do mapeamento do art. 14 acima e da completude dos elementos minimos do
+art. 16, § 1o (o template v0 cita o caput e os incisos II e III; nao cita o inciso I, a
+segunda instancia na Ouvidoria). Um campo proprio para a clausula contratual ou o
+dispositivo legal nas tres UTs de decisao (parte b) depende da confirmacao juridica do
+mapeamento acima e muda o contrato de formulario do portal; nao entra aqui.
+
 **Fora deste pacote (declarado):** o canal real com comprovante (e o seu estado
 `entregue_com_recibo`), uma User Task de confirmacao da entrega manual (exige contrato de
 formulario do portal) e a citacao residual "RN 395 art. 10" na `bpmn:documentation` de
