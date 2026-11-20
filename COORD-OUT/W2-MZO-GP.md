@@ -534,3 +534,25 @@ O levantamento do impacto do formField novo mudou o tamanho da E-SF-24. Correç�
   - **E-SF-24a (sigo com esta)**: sem campo novo, sem tocar BPMN nem portal. Template v0 versionado + render puro e determinístico, atrás da flag escura (que segue desligada). O registro, com a flag ligada, leva só a versão e o sha256 do template. Testes E2, E3 e E4 + E1 pinado no mapeamento VIGENTE do contrato: o render recusa `…_FUNDAMENTO_AUSENTE` quando falta motivo ou cláusula/dispositivo (= `fundamentacao_dut`); o nome do teste diz isso. O template cita o art. 16 da RN 623 verbatim, e os canais da Ouvidoria (§1º, II) são entrada obrigatória do render (recusa tipada se faltarem). Não há dado da operadora no repositório.
   - **E-SF-24b (ponto de parada)**: o campo próprio nas 3 UTs, com a cascata acima. Fica condicionado à confirmação jurídica do mapeamento e, se confirmada, vira uma linha própria da fila com o seu próprio CAMINHO.
 - As subperguntas (b), (c) e (d) seguem como estavam; a (d) fica sem objeto na 24a, que não tem campo novo.
+
+## 2026-11-20 ~17:15Z — CD-192/193 aplicadas; PONTO DE PARADA E-SF-24b; estado da 24a
+
+- **PONTO DE PARADA — E-SF-24b (campo próprio de cláusula ou dispositivo legal). Não construída.** É da classe (i) da fronteira (jurídico); nenhum agente decide.
+  - Trecho de `docs/processes/contracts/SP-OP-AUTH-001.md` (seção R-004): "**Mapeamento a confirmar pelo juridico (COUNSEL):** motivo = `justificativa_clinica`; clausula/dispositivo = `fundamentacao_dut` (o guard de completude ja exige os dois)."
+  - A pergunta ao jurídico: `fundamentacao_dut` (fundamentação na DUT/ROL) atende à "cláusula contratual ou o dispositivo legal" que o art. 14 da RN 623 manda indicar?
+  - Se a resposta for "não", a mudança arrasta:
+    - BPMN AUTH-001 (3 formFields, nas UTs de análise, coordenação e junta);
+    - `_REQUIRED_DENIAL_FIELDS`;
+    - o contrato de formulário do portal (`src/maezo/portal/contracts/models.py`: `AllowedInput`, `AuthDecisionInputs`, `AuthJuntaInputs`, `_INPUTS_BY_FORM`) e `PortalReadCommand.java` (`COMPILED`), mais 3 testes Java;
+    - os gerados `openapi.json`, `generated/api.ts` e `taskReadBindings.ts`;
+    - o corpus de PHI (`DISPOSITIONS`, `docs/review-queue.md`, `CORPUS_DELTA_LOG` e os pinos de `test_validation_phi_completeness.py`);
+    - cerca de 15 testes de portal e de gateway/human, mais 5 payloads NEGAR da integração.
+  - Vai para a lista de pedidos de linha.
+- **E-SF-24a — construída localmente, sem commit nem push** (o modo automático negou o commit; aguardo a liberação do dono). Ajustes aplicados:
+  - **CODEOWNERS intocado.** O template mudou para `spec/policies/ans/templates/termo-negativa.v0.txt`, porque `/spec/policies/ans/` já tem dono (security-team) e já é empacotado. **PEDIDO DE LINHA:** "dono próprio para `/spec/templates/` (templates de documento ao beneficiário)", à coordenação do programa.
+  - A 1ª linha do template é um metadado (`# `, entra no sha256, não entra no termo) e diz que o mapeamento do art. 14 NÃO está confirmado pelo jurídico.
+  - Verbatim byte a byte: o caput do art. 16 e cada trecho citado nos rótulos (art. 14 e art. 16, § 1º, II e III) são comparados em teste com `docs/compliance/legal/textos-base/RN-623-2024.md`. O pacote do funil NÃO tem snapshot próprio da RN 623, então não há divergência a registrar. Corrigi um rótulo do § 1º, III que não era verbatim.
+  - Negativa não decidida por código: o render só compõe para NEGAR com proveniência humana (o mesmo critério do guard: `auditor_id` não vazio ou `human_approved is True`); fora disso recusa com `ERR_DENIAL_NOT_HUMAN`. Teste de que nem o render nem o worker produzem ou alteram `decisao_auditor`.
+  - Flag: testes de que nenhum código de `src` chama o render nem liga a flag (AST, com controles). O teste do estado fechado declara a confirmação jurídica como pré-condição para ligar. O contrato também diz isso.
+  - Fora: BPMN, portal, gerados, corpus de PHI e arquivos de contagem. Sem DL, sem migração.
+- Gates locais: `make lint type validate-artifacts` rc=0; CD-170 limpo; 40 testes novos; 22 de 22 mutações mortas (worktree isolada, restaurada). Em curso: `tests/unit` inteiro × main e a revisão independente.
