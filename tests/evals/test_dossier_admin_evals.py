@@ -108,7 +108,6 @@ from maezo.agents.carolina.graph import CarolinaGraph, CarolinaState
 from maezo.agents.carolina.graph import build as carolina_build
 from maezo.agents.gustavo.graph import GustavoGraph, GustavoState
 from maezo.agents.gustavo.graph import build as gustavo_build
-from maezo.runtime.inference import InferenceProvider, InferenceSettings
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -123,6 +122,7 @@ from ._harness import (
     run_case,
     run_mutation_check,
 )
+from ._vivo import exigir_chamada_viva, exigir_narrativa, provedor_vivo
 from .conftest import live_key_skip
 
 CAROLINA_CASES = load_golden("carolina")
@@ -339,14 +339,17 @@ async def test_carolina_eval_tier_b_live_no_leak() -> None:
     case = _case(CAROLINA_CASES, "EVL-CAROLINA-03")
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
+    provedor = provedor_vivo()
     graph = CarolinaGraph(
-        inference=InferenceProvider(settings=InferenceSettings(provider="anthropic")),
+        inference=provedor,
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
     )
     compiled = graph.compile_graph().compile()
     result = await compiled.ainvoke(cast(CarolinaState, dict(case["input"]["state"])))
+    exigir_chamada_viva(provedor)
+    exigir_narrativa(result.get("dossier"))
     assert_no_leak(result.get("dossier") or {}, case["leak_canaries"])
 
 
@@ -397,9 +400,12 @@ async def test_beatriz_eval_tier_b_live_no_leak() -> None:
     """EVL-BEATRIZ-03 (PL) Tier-B live variant -- see `test_carolina_eval_tier_b_live_no_leak`'s
     docstring for why this reuses the ABS criterion rather than `score_live`/TH."""
     case = _case(BEATRIZ_CASES, "EVL-BEATRIZ-03")
-    graph = BeatrizGraph(inference=InferenceProvider(settings=InferenceSettings(provider="anthropic")))
+    provedor = provedor_vivo()
+    graph = BeatrizGraph(inference=provedor)
     compiled = graph.compile_graph().compile()
     result = await compiled.ainvoke(cast(BeatrizState, dict(case["input"]["state"])))
+    exigir_chamada_viva(provedor)
+    exigir_narrativa(result.get("dossier"))
     assert_no_leak(result.get("dossier") or {}, case["leak_canaries"])
 
 
@@ -614,12 +620,15 @@ async def test_gustavo_eval_tier_b_live_no_leak() -> None:
     case = _case(GUSTAVO_CASES, "EVL-GUSTAVO-04")
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
+    provedor = provedor_vivo()
     graph = GustavoGraph(
-        inference=InferenceProvider(settings=InferenceSettings(provider="anthropic")),
+        inference=provedor,
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
     )
     compiled = graph.compile_graph().compile()
     result = await compiled.ainvoke(cast(GustavoState, dict(case["input"]["state"])))
+    exigir_chamada_viva(provedor)
+    exigir_narrativa(result.get("dossier"))
     assert_no_leak(result.get("dossier") or {}, case["leak_canaries"])

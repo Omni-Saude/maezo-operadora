@@ -23,6 +23,8 @@ import yaml
 from scripts.ci import tier_b_preflight as pf
 from scripts.ci import tier_b_resumo as tb
 
+from tests.evals import _vivo
+
 _RAIZ = Path(__file__).resolve().parents[3]
 _CI = _RAIZ / ".github" / "workflows" / "ci.yml"
 _MAKEFILE = _RAIZ / "Makefile"
@@ -251,6 +253,7 @@ def _rodar(
         monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
     else:
         monkeypatch.delenv("MAEZO_ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     junit = _junit(tmp_path, casos) if casos is not None else tmp_path / "nao-existe.xml"
     saida = tb.main(["--junit", str(junit), "--codigo", str(codigo)])
     return saida, resumo.read_text(encoding="utf-8"), junit.name
@@ -393,9 +396,11 @@ class _SdkStatusError(Exception):
 class _Provedor:
     def __init__(self, resposta: object = "ok", erro: BaseException | None = None) -> None:
         self.resposta, self.erro, self.chamadas = resposta, erro, 0
+        self.phi: list[bool] = []
 
-    async def generate(self, prompt: str, *, agent_id: str | None = None) -> object:
+    async def generate(self, prompt: str, *, phi: bool = False, agent_id: str | None = None) -> object:
         self.chamadas += 1
+        self.phi.append(phi)
         if self.erro is not None:
             raise self.erro
         return self.resposta
@@ -423,10 +428,11 @@ def test_preflight_without_key_makes_no_call(monkeypatch: pytest.MonkeyPatch) ->
     assert pf.main([], fabrica=lambda: p) == 0 and p.chamadas == 0
 
 
-def test_preflight_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_preflight_ok_and_calls_with_phi_true(monkeypatch: pytest.MonkeyPatch) -> None:
+    # (b) a MESMA rota da suite: os grafos chamam `generate(..., phi=True)`.
     monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
     p = _Provedor("ok")
-    assert pf.main([], fabrica=lambda: p) == 0 and p.chamadas == 1
+    assert pf.main([], fabrica=lambda: p) == 0 and p.chamadas == 1 and p.phi == [True]
 
 
 @pytest.mark.parametrize("resposta", ["", "   ", None])
@@ -450,12 +456,41 @@ def test_preflight_failure_prints_only_class_and_status(
     assert "CORPO-SECRETO" not in saida and "chave-de-teste" not in saida
 
 
-def test_preflight_uses_the_evals_provider_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Mesmo caminho dos evals vivos (test_classifier_evals): InferenceProvider com provider="anthropic".
-    # Construir exige uma chave no ambiente (fail-closed); nenhuma chamada e' feita aqui.
+def test_preflight_uses_the_evals_provider_factory_not_a_copy() -> None:
+    # (b) a configuracao vem dos testes (tests/evals/_vivo.py), nao e' duplicada no script.
+    from tests.evals import _vivo
+
+    assert pf._provedor_dos_evals() is _vivo.provedor_vivo
+
+
+def test_preflight_with_the_current_provider_reports_the_phi_zone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Prova real, sem rede: o provedor dos evals (`anthropic`, nao phi_capable) com phi=True e' recusado
+    # pela fachada (ADR-0006). O resumo diz a linha estavel da zona PHI e que a noite nao conta.
     monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
-    prov = pf._provedor_padrao()
-    assert type(prov).__name__ == "InferenceProvider" and prov._settings.provider == "anthropic"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "s.md"))
+    monkeypatch.setenv("TIER_B_NOITES_CONTAM", "false")
+    assert pf.main([]) == 1
+    saida = capsys.readouterr().out + (tmp_path / "s.md").read_text(encoding="utf-8")
+    assert "QUEBRADO: preflight falhou (PhiZoneRoutingError" in saida
+    assert tb.LINHA_ZONA_PHI in saida and tb.LINHA_NOITES_NAO_CONTAM in saida
+    assert "chave-de-teste" not in saida
+
+
+def test_preflight_imports_under_python_isolated_mode() -> None:
+    # (d4) `python -I` (como no passo do job) acha `maezo` e `tests.evals._vivo`; sem chave, sai 0.
+    env = {k: v for k, v in __import__("os").environ.items() if "ANTHROPIC_API_KEY" not in k}
+    r = subprocess.run(
+        [sys.executable, "-I", "scripts/ci/tier_b_preflight.py"],
+        cwd=_RAIZ,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert "sem chave, nenhuma chamada feita" in r.stdout
 
 
 def test_preflight_runs_before_the_suite_and_fails_the_step() -> None:
@@ -475,3 +510,148 @@ def test_summary_says_nights_do_not_count_until_evals_fix(
     (tmp_path / "summary.md").unlink()
     _, resumo, _ = _rodar(monkeypatch, tmp_path, ["aprovado"], 0, chave=True, bloqueante="false")
     assert "NAO contam" not in resumo
+
+
+# ------------------------------------------------------------------------- gravador de chamadas (a)
+
+
+def test_recorder_records_the_real_phi_refusal_and_reraises(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    from maezo.runtime.inference.errors import PhiZoneRoutingError
+
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    g = _vivo.provedor_vivo()
+    with pytest.raises(PhiZoneRoutingError):
+        asyncio.run(g.generate("x", phi=True))
+    assert g.chamadas == ["PhiZoneRoutingError"]
+    with pytest.raises(AssertionError, match=r"^LIVE CALL FAILED: PhiZoneRoutingError$"):
+        _vivo.exigir_chamada_viva(g)
+
+
+def test_recorder_ok_call_and_zero_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    from maezo.runtime.inference import InferenceProvider
+
+    async def _ok(self: object, prompt: str, **kwargs: object) -> str:
+        return "resposta"
+
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    monkeypatch.setattr(InferenceProvider, "generate", _ok)
+    g = _vivo.provedor_vivo()
+    with pytest.raises(AssertionError, match=r"^LIVE CALL FAILED: NenhumaChamadaAoProvedor$"):
+        _vivo.exigir_chamada_viva(g)
+    assert asyncio.run(g.generate("x", phi=True)) == "resposta" and g.chamadas == [None]
+    _vivo.exigir_chamada_viva(g)
+
+
+@pytest.mark.parametrize("dossie", [None, {}, {"narrativa": ""}, {"narrativa": "   "}, {"narrativa": None}])
+def test_leak_checks_require_a_generated_narrative(dossie: dict[str, object] | None) -> None:
+    with pytest.raises(AssertionError, match=r"^NARRATIVA AUSENTE"):
+        _vivo.exigir_narrativa(dossie)
+    _vivo.exigir_narrativa({"narrativa": "texto gerado"})
+
+
+def test_every_live_eval_goes_through_the_recorder() -> None:
+    # Nenhum teste vivo constroi o provedor por fora do gravador; todos exigem a chamada antes de pontuar.
+    raiz = _RAIZ / "tests" / "evals"
+    for arquivo in sorted(raiz.glob("test_*.py")):
+        texto = arquivo.read_text(encoding="utf-8")
+        assert 'InferenceProvider(settings=InferenceSettings(provider="anthropic"))' not in texto, (
+            arquivo.name
+        )
+        if "@pytest.mark.llm_live" in texto:
+            assert "exigir_chamada_viva(" in texto, arquivo.name
+
+
+# --------------------------------------------- regex do resumo contra a saida REAL do pytest (d2)
+
+_TESTE_FALSO = """
+from types import SimpleNamespace
+from tests.evals._harness import assert_live_score
+from tests.evals._vivo import exigir_chamada_viva
+
+def test_limiar_do_harness():
+    assert_live_score(0.5, 0.9)
+
+def test_limiar_da_extracao():
+    agregada = 0.5
+    assert agregada >= 0.9, (
+        f"extracao em {agregada:.3f}, abaixo do limiar de partida 0.90. LEIA O RELATORIO ACIMA."
+    )
+
+def test_chamada_viva_falhou():
+    exigir_chamada_viva(SimpleNamespace(chamadas=["PhiZoneRoutingError"]))
+
+def test_outra_assercao_com_o_texto():
+    assert {"nota": "TH violation: live score 0.1 below threshold 0.9"} == {}
+"""
+
+
+def test_summary_regexes_match_the_real_pytest_junit(tmp_path: Path) -> None:
+    alvo = tmp_path / "test_falso_tier_b.py"
+    alvo.write_text(_TESTE_FALSO, encoding="utf-8")
+    junit = tmp_path / "j.xml"
+    import os as _os
+
+    env = dict(_os.environ, PYTHONPATH=str(_RAIZ))
+    r = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            str(alvo),
+            "-q",
+            "--tb=no",
+            "-rN",
+            "-p",
+            "no:cacheprovider",
+            f"--junitxml={junit}",
+            f"--rootdir={tmp_path}",
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert r.returncode == 1, r.stdout[-2000:] + r.stderr[-2000:]
+    c = tb.ler_junit(junit)
+    resultado = {ident.split("::")[-1]: res for ident, res in c.casos}
+    assert resultado == {
+        "test_limiar_do_harness": tb.LIMIAR,
+        "test_limiar_da_extracao": tb.LIMIAR,
+        "test_chamada_viva_falhou": tb.FALHA,
+        "test_outra_assercao_com_o_texto": tb.FALHA,
+    }, resultado
+    assert c.classes_vivas == {"PhiZoneRoutingError"}
+
+
+def test_summary_with_live_call_failures_says_phi_zone_and_is_broken(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    resumo_arq = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(resumo_arq))
+    monkeypatch.setenv("TIER_B_BLOQUEANTE", "false")
+    monkeypatch.delenv("MAEZO_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "chave-de-teste")  # (d1) o outro nome tambem conta
+    junit = tmp_path / "j.xml"
+    casos = "".join(
+        f'<testcase classname="t" name="c{i}"><failure message="AssertionError: LIVE CALL FAILED: '
+        f'PhiZoneRoutingError"/></testcase>'
+        for i in range(3)
+    )
+    junit.write_text(f"<testsuites><testsuite>{casos}</testsuite></testsuites>", encoding="utf-8")
+    assert tb.main(["--junit", str(junit), "--codigo", "1"]) == 1
+    resumo = resumo_arq.read_text(encoding="utf-8")
+    assert "QUEBRADO: 3 caso(s) com LIVE CALL FAILED (PhiZoneRoutingError)" in resumo
+    assert tb.LINHA_ZONA_PHI in resumo
+
+
+def test_key_under_either_name_counts_as_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert tb.chave_presente() is False
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    assert tb.chave_presente() is True

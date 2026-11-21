@@ -40,10 +40,30 @@ from pathlib import Path
 #: Assinatura das reprovacoes DE LIMIAR, ancorada no INICIO da mensagem da falha (atributo `message` do
 #: junit): `_harness.assert_live_score` e o limiar da extracao ao vivo. Ancorar impede que uma assercao
 #: qualquer cuja mensagem carregue estado/saida do modelo contendo o texto seja rebaixada a "limiar".
+#: O fim da linha do TH aceita `\n` (mensagem com explicacao do assert rewriting do pytest), nao so' `$`.
 _FALHA_DE_LIMIAR = re.compile(
-    r"^AssertionError: (TH violation: live score [\d.]+ below threshold [\d.]+$"
+    r"^AssertionError: (TH violation: live score [\d.]+ below threshold [\d.]+(?:\n|$)"
     r"|extracao em [\d.]+, abaixo do limiar de partida )"
 )
+#: Mensagem estavel de `tests/evals/_vivo.py`: a CHAMADA ao provedor falhou (nunca e' "limiar").
+_FALHA_VIVA = re.compile(r"^AssertionError: LIVE CALL FAILED: (\w+)")
+ERRO_ZONA_PHI = "PhiZoneRoutingError"
+#: Linhas estaveis do resumo (o preflight usa as mesmas).
+LINHA_ZONA_PHI = "Tier B exige provedor na zona PHI; o provedor configurado nao e' phi_capable"
+LINHA_NOITES_NAO_CONTAM = (
+    "as 7 noites de observacao NAO contam enquanto o conserto dos evals vivos nao entrar "
+    "(TIER_B_NOITES_CONTAM=false)"
+)
+
+
+def noites_contam() -> bool:
+    return os.environ.get("TIER_B_NOITES_CONTAM", "false").strip().lower() == "true"
+
+
+def chave_presente() -> bool:
+    """Os mesmos nomes que `tests/evals/conftest.py` e o provedor aceitam."""
+    return bool(os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+
 
 APROVADO, PULADO, LIMIAR, FALHA, ERRO = "aprovado", "pulado", "abaixo do limiar", "falha", "erro"
 
@@ -51,6 +71,7 @@ APROVADO, PULADO, LIMIAR, FALHA, ERRO = "aprovado", "pulado", "abaixo do limiar"
 @dataclass
 class Contagem:
     casos: list[tuple[str, str]] = field(default_factory=list)  # (id, resultado)
+    classes_vivas: set[str] = field(default_factory=set)  # classes de "LIVE CALL FAILED: <classe>"
 
     def total(self, *resultados: str) -> int:
         return sum(1 for _, r in self.casos if not resultados or r in resultados)
@@ -65,7 +86,11 @@ def ler_junit(caminho: Path) -> Contagem:
         if caso.find("error") is not None:
             resultado = ERRO
         elif falha is not None:
-            resultado = LIMIAR if _FALHA_DE_LIMIAR.match(falha.get("message") or "") else FALHA
+            mensagem = falha.get("message") or ""
+            viva = _FALHA_VIVA.match(mensagem)
+            if viva:
+                c.classes_vivas.add(viva.group(1))
+            resultado = LIMIAR if not viva and _FALHA_DE_LIMIAR.match(mensagem) else FALHA
         elif caso.find("skipped") is not None:
             resultado = PULADO
         else:
@@ -104,6 +129,9 @@ def decidir(codigo: int, contagem: Contagem | None, *, chave_presente: bool, blo
     if rodados < total:
         avisos = (f"pulo parcial: {rodados} de {total} caso(s) rodaram",)
     falhas, limiar = contagem.total(FALHA), contagem.total(LIMIAR)
+    if falhas and contagem.classes_vivas:
+        classes = ", ".join(sorted(contagem.classes_vivas))
+        return Veredito(1, f"Tier B QUEBRADO: {falhas} caso(s) com LIVE CALL FAILED ({classes})", avisos)
     if falhas:
         return Veredito(
             1,
@@ -132,11 +160,10 @@ def _resumo(v: Veredito, contagem: Contagem | None, codigo: int, bloqueante: boo
     modo = "bloqueante" if bloqueante else "observacao (TIER_B_BLOQUEANTE=false)"
     linhas = [f"## evals-nightly — {v.manchete}", "", f"modo: {modo}; pytest exit {codigo}"]
     linhas += [f"- aviso: {a}" for a in v.avisos]
-    if os.environ.get("TIER_B_NOITES_CONTAM", "false").strip().lower() != "true":
-        linhas.append(
-            "- as 7 noites de observacao NAO contam enquanto o conserto dos evals vivos nao entrar "
-            "(TIER_B_NOITES_CONTAM=false)"
-        )
+    if contagem is not None and ERRO_ZONA_PHI in contagem.classes_vivas:
+        linhas.append(f"- {LINHA_ZONA_PHI}")
+    if not noites_contam():
+        linhas.append(f"- {LINHA_NOITES_NAO_CONTAM}")
     if contagem is not None:
         rodados = contagem.total() - contagem.total(PULADO)
         linhas += [
@@ -158,12 +185,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--codigo", type=int, required=True, help="exit code do pytest do Tier B")
     a = p.parse_args(argv)
     bloqueante = os.environ.get("TIER_B_BLOQUEANTE", "true").strip().lower() != "false"
-    chave_presente = bool(os.environ.get("MAEZO_ANTHROPIC_API_KEY"))
     try:
         contagem: Contagem | None = ler_junit(a.junit)
     except (OSError, ET.ParseError):
         contagem = None
-    v = decidir(a.codigo, contagem, chave_presente=chave_presente, bloqueante=bloqueante)
+    v = decidir(a.codigo, contagem, chave_presente=chave_presente(), bloqueante=bloqueante)
     texto = _resumo(v, contagem, a.codigo, bloqueante)
     destino = os.environ.get("GITHUB_STEP_SUMMARY")
     if destino:
@@ -173,6 +199,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     for aviso in v.avisos:
         print(f"::warning::Tier B: {aviso}")
     print(f"::{'error' if v.saida else 'notice'}::{v.manchete}")
+    if contagem is not None and ERRO_ZONA_PHI in contagem.classes_vivas:
+        print(f"::error::{LINHA_ZONA_PHI}")
     return v.saida
 
 
