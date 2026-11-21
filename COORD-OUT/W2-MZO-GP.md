@@ -1126,3 +1126,75 @@ Ramo `sf-w2/mzo-gp/esf24b`, a partir da main. O PR só abre depois do merge do #
 - **`tests/unit` completo × main** (6 lotes): nenhuma falha só do ramo; as falhas comuns são de ambiente (sem `helm`, clone raso, `uv` offline, processo root).
 - Sem arquivo em comum com a main; não trazida (CD-155). Sem novo push, conforme pedido do ROOT.
 - **Pré-condições da unidade que pinar o catálogo** (pedidas pelo ROOT; vão no relatório final para a T-MZO-A): pertinência ao catálogo, cerca para o chamador honrar `modo`, e as lacunas restantes da recusa de rótulo.
+
+## 2026-11-21 ~06:05Z — #1359 mesclado (main `dcfedd29`); LIMPEZA #1359; RELATÓRIO FINAL da fila
+
+### LIMPEZA #1359 (CD-149)
+- #1359 (E-SF-24b parcial) mesclado pela exceção do dono para o flip-path; a main `dcfedd29` contém o head `b6f176d7`.
+- **Ramo para o dono apagar:** `sf-w2/mzo-gp/esf24b` @ `b6f176d7ff647400f2ccbbd1583e452b23aca9b2`. O ramo local fica só registrado.
+- Ramos locais nunca enviados: nenhum. PR órfão: nenhum. Título e corpo do #1359 fiéis.
+- **Disco:** worktree `esf24b` removida sem `--force`; nenhuma worktree temporária restante, só o clone principal (`main` `dcfedd29`) e a do canal; check-in cancelado.
+- Run de push da main `dcfedd29`: em andamento; confirmo em seguida.
+
+### Fila entregue nesta rodada
+| Linha | PR | head |
+|---|---|---|
+| E-SF-24a | #1343 | `43462269` |
+| E-SF-29-1 | #1345 | `b15a3ece` |
+| E-SF-29-2 | #1346 | `ab611ff7` |
+| E-SF-RT-02 | #1348 | `34b28033` |
+| E-SF-11 (21a) | #1351 | `73aedfae` |
+| E-SF-35 (06F) | #1355 | `29059461` |
+| E-SF-24b parcial | #1359 | `b6f176d7` |
+
+Todas foram mescladas. Bloqueada: **E-SF-29-3**, até a 42b do rco e o pin do K1; o funil acorda a janela.
+
+### Ramos remotos desta janela para o dono apagar (todos mesclados)
+- `sf-w2/mzo-gp/esf24` @ `43462269fa204566594bf0f523b8e35051856b42`
+- `sf-w2/mzo-gp/esf29-1` @ `b15a3ecefef8b6bb720a074503089b686ec49189`
+- `sf-w2/mzo-gp/esf29-2` @ `ab611ff733badf6b1d6b7c6aeb76f88f643bfe6c`
+- `sf-w2/mzo-gp/rt02` @ `34b2803376126783802a184f3e852bbd7c26a0e6`
+- `sf-w2/mzo-gp/esf11` @ `73aedfaee5bb942f9d74dc405af4f64b9fb7a0f0`
+- `sf-w2/mzo-gp/esf35` @ `290594618a5d4fb4d4353252700182bd1fb07de0`
+- `sf-w2/mzo-gp/esf24b` @ `b6f176d7ff647400f2ccbbd1583e452b23aca9b2`
+- Também ainda no remoto, de rodadas anteriores já registradas nas LIMPEZAs acima:
+  - `sf-w2/mzo-gp/esf05r-a` @ `b158b334db1b591194dc0b312ef7ad3b5e7b6fd9`
+  - `sf-w2/mzo-gp/esf05r-b` @ `1c46c31605f2bb49e22006ea3a73941f10596a7d`
+  - `sf-w2/mzo-gp/esf05r-c` @ `9cfd8798b5f361a34ce44865cad12764de53a708`
+  - `sf-w2/mzo-gp/esf26` @ `ca609e7da24b7cd91ab5e6d7ef15cf0af90e7ff4`
+- O ramo do canal `sf-w2/mzo-gp/coord` fica.
+
+### DL
+Nenhuma DL foi pedida nem é necessária nesta fila: todas as linhas saíram sem DL.
+
+### Linhas para o evidence-ledger (texto; a janela não edita o ledger)
+- E-SF-24a: já enviada na entrada de 2026-11-20 ~23:55Z.
+- "E-SF-29-1 (reembolso, prazo legal): cercas C1–C3 de SP-OP-REEMBOLSO-001. Fixam o timer TD_PrazoPendencia em P5D numa allowlist que só encolhe, impedem prazo legal literal em BPMN e texto, e limitam o que roda depois do timer a avisar risco de SLA. PR #1345."
+- "E-SF-29-2 (reembolso, G4): junções exclusivas antes de GW_DecisaoReembolso, GW_DesfechoPagamento, GW_AvisoAprovado e GW_AguardarDocs. Sem mudança de comportamento: ids, saídas, condições e default intactos. Baseline G4 −4; digest em aguardando_admissao atualizado sem admitir nada (CD-205). PR #1346."
+- "E-SF-RT-02 (cancelamento, motivo): pergunta opcional depois do protocolo, com lista fechada de seis códigos sem saúde. A resposta só entra numa contagem agregada sem pessoa nem emissor; gravar o motivo ligado ao titular depende do DPO. PR #1348."
+- "E-SF-11 / EP-REG-21a (LGPD, DSR): cercas de que nenhum sucesso de DSR é fabricado, nem no worker execute_request (sem caminho que complete) nem em schema, rota, OpenAPI ou contrato comercial. O canal POST /dsr segue escuro. PR #1351."
+- "E-SF-35 / EP-CORE-06F (A9 recusada): walk sintético sobre o loader A9 e o registro em memória. A medição fica fechada, tenant ou jornada reais são recusados, e o resultado nunca é rotulado como baseline. PR #1355."
+- "E-SF-24b parcial (EP-PROC-07a, CD-231): termo da negativa v1, com os incisos I–III do art. 16, § 1°, da RN 623 conferidos byte a byte contra o texto-base. Porta FundamentoDoTermo fechada, com pino do catálogo None; modos entrega e rascunho; nenhum valor forja rótulo do template. A flag MAEZO_AUTH_DENIAL_WRITTEN_NOTICE segue desligada. PR #1359."
+
+### Pré-condições da unidade que pinar o catálogo de fundamentos (para a T-MZO-A)
+1. **Pertinência ao catálogo, não só autoconsistência.** O `hash_da_entrada` é exportado e sem chave, e o `hash_do_catalogo` é fornecido pelo chamador. O leitor do catálogo pinado tem de ser o ÚNICO construtor de `FundamentoDoTermo`, ou a porta confere a entrada contra o catálogo carregado; com teste.
+2. **O rascunho é textualmente igual ao termo de entrega.** É preciso uma cerca para o futuro chamador honrar `modo`: nunca enviar nem registrar como entregue um resultado `rascunho`.
+3. **Lacunas da recusa de rótulo** (baixo impacto, só no meio da linha). Faltam os controles Cc, U+2800 como espaço, U+201A como vírgula e as variantes "artigo", "RN nº 623" e sem vírgula. Acrescentar Cc e U+2800 ao conjunto removido, e não afirmar "na forma que o leitor vê" além do que é coberto.
+4. A receita do `hash_entrada` tem de ser fixada no contrato-k2: sha256 do JSON canônico com chaves ordenadas, UTF-8, sem espaços, sem os dois hashes. Os nomes de campo continuam provisórios até lá.
+
+### Pedidos de linha
+- Dono próprio para `spec/policies/ans/templates/` (hoje cai em `/spec/policies/ans/`, do security-team).
+- Dono do DMN de prazo de pagamento do reembolso (`reembolso_prazo_pagamento`), para a 29-3.
+- Retirar `motivo_informado` (texto livre, sem produtor) do contrato SP-OP-CANCEL-001 e do código ligado a ele.
+- Incluir o teste da 21a em `SECURITY_TESTS` do Makefile (compartilhado; não editei).
+- Dívida `Lei9656-art12-VI` no `funnel_deadline_catalog.dmn` (DRAFT), ligada à 29-3.
+- Nit para um PR futuro: `ContagemDeMotivos.__post_init__` levanta `MotivoForaDaListaError` também para contagem negativa ou não inteira, e o nome engana.
+
+### ACHADOs
+- `PLANS.md:58` cita o digest antigo `05c181b9` de SP-OP-REEMBOLSO-001; nenhum check o lê.
+- E-SF-35: deriva do plano. `measurement_not_admitted` e o "contador inalterado" não existem; as cercas usam os motivos reais.
+- E-SF-24b, não bloqueantes:
+  - letras de outros alfabetos que imitam latinas e quase-rótulos visivelmente diferentes não são barrados (barrar grego recusaria "β-bloqueador");
+  - o teste do ponto único não vigia `texto`.
+- Ambiente local (iguais na main, nada dos PRs): sem `helm`, clone raso, `uv` offline, processo root (`test_audit_anchor`). Uma worktree com a `.venv` editável do clone principal resolve `maezo` para o `src` dele e precisa de `PYTHONPATH` com o `src` da worktree na frente.
+- Processo: na 24b, um commit (`1dc614a1`) entrou com o mypy vermelho por encadear comandos com `;`. Foi corrigido no commit seguinte, sem amend; nada saiu para o remoto antes do verde.
