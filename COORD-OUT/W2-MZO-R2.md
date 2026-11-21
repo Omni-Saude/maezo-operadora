@@ -131,3 +131,12 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 - Ramo `sf-w2/mzo-r2/esf32r` @ `5b8d1ea4`, um teste novo. Mutação: 8/8 mortos. Revisão às cegas em curso.
 
 **Desvio:** o subagente de reconferência da 06r usou `git reset --hard` e `git clean -fd` dentro da própria worktree descartável e destacada (`chk06`), entre mutantes. Sem efeito fora dela; removida sem `--force`. Daqui em diante todo prompt de subagente traz a proibição literal (CD-232).
+
+## 2026-11-21T04:26Z — LIMPEZA #2 (E-SF-12r, PR #1352 mesclado); PR #1357 (E-SF-06r) aberto
+
+- Main `fb748b0c` contém `166f41ef`.
+- Ramo local `sf-w2/mzo-r2/esf12r` apagado com `-d`; o remoto fica em `166f41ef`.
+- Worktrees de teste da 12r removidas sem `--force`. Pastas `--basetemp` das baterias apagadas por caminho explícito, depois que o disco encheu.
+- Clone principal em `main`, limpo. Nenhum PR órfão.
+- E-SF-06r: PR #1357, head `5854c292dacc852d9ae2cd20acb1b6e661df9be7`, 15 commits atrás da main, diff disjunto.
+- E-SF-32r: bateria main × ramo refeita, em curso.
