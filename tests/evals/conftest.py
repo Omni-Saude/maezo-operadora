@@ -52,9 +52,10 @@ wave table). Provides:
   Fails LOUDLY (raises) on a missing directory / empty directory / malformed case — collection
   must never silently report "0 evals" when a golden file is actually broken (mirrors the CI
   guard's own "import error != no datasets yet" distinction, `ci.yml:530-537`).
-- `live_key_skip` — a `pytest.mark.skipif` mirroring `tests/unit/runtime/test_inference_live.py`
-  (`_HAS_KEY` gate on `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY`) for Tier-B (live-LLM,
-  threshold-scored, nightly-only) eval variants. Reuses the existing `llm_live` pytest marker
+- `live_key_skip` — a `pytest.mark.skipif` for Tier-B (live-LLM, threshold-scored) eval variants:
+  runs only with the execution opt-in `TIER_B_EXECUCAO` (noturno | manual) AND an intended credential
+  (`tests/evals/_regra_viva.py`); unlike `tests/unit/runtime/test_inference_live.py`, a key alone is
+  not enough. Reuses the existing `llm_live` pytest marker
   (already registered in `pyproject.toml`) — no new marker is registered for Tier B.
 """
 
@@ -359,7 +360,8 @@ def load_golden(agent: str, *, root: Path | None = None) -> list[dict[str, Any]]
 
 
 # ---------------------------------------------------------------------------
-# Tier B (live-LLM) skip gate — mirrors tests/unit/runtime/test_inference_live.py exactly.
+# Tier B (live-LLM) skip gate — opt-in de execucao + credencial (tests/evals/_regra_viva.py). Diferente do
+# pulo so' por chave de tests/unit/runtime/test_inference_live.py, que nao tem o opt-in.
 # ---------------------------------------------------------------------------
 
 # Roda so' com opt-in explicito de execucao (`TIER_B_EXECUCAO` = noturno | manual: o job noturno e o script

@@ -146,7 +146,7 @@ def decidir(
     *,
     chave_presente: bool,
     bloqueante: bool,
-    execucao: str | None = "noturno",
+    execucao: str | None = None,
 ) -> Veredito:
     """Pura, para os testes. Ver o contrato no topo do modulo."""
     if execucao is None:

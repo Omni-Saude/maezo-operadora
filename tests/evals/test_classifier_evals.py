@@ -120,9 +120,9 @@ async def test_evl_helena_19_mutation_check_memoria_is_non_vacuous() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tier B — live Anthropic call, threshold-scored, nightly-only, non-blocking. Loudly skips
-# without MAEZO_ANTHROPIC_API_KEY/ANTHROPIC_API_KEY (mirrors test_inference_live.py) — never
-# runs on a keyless PR or fork.
+# Tier B — live call, threshold-scored, non-blocking. Loudly skips without the execution opt-in
+# `TIER_B_EXECUCAO` (noturno | manual) AND an intended credential (tests/evals/_regra_viva.py) —
+# never runs on a PR, a fork or a local `make test`.
 # ---------------------------------------------------------------------------
 
 
