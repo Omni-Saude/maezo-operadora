@@ -342,4 +342,6 @@ def _pem(key: Ed25519PrivateKey) -> bytes:
 
 
 def _iso(value: datetime) -> str:
-    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    # Mesma forma do `read_profile.utc()` do produto (sempre 6 casas): `isoformat()` sem `timespec` omite
+    # a fracao quando o microssegundo e' 0 e o leitor estrito recusa o registro (intermitente, 21/11/2026).
+    return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
