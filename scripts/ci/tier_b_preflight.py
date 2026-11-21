@@ -12,7 +12,8 @@ chamam. Com o provedor `anthropic` atual (nao `phi_capable`) a fachada recusa an
 Contrato
 --------
 * Sempre importa o provedor dos evals (prova, ate' sem chave, que `python -I` acha `maezo` no venv do job).
-* Sem `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY`: nao chama nada, sai 0 (o resumo dira' "NAO RODOU").
+* Sem credencial viva (`MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY`, ou `MAEZO_INFERENCE_PROVIDER` da zona
+  PHI na execucao manual): nao chama nada, sai 0 (o resumo dira' "NAO RODOU").
 * Com chave: chamada falhou ou resposta vazia => "Tier B QUEBRADO: preflight ..." no resumo, `::error::` e
   saida 1, nos dois modos; com `PhiZoneRoutingError`, tambem a linha estavel da zona PHI. So' a classe do
   erro e o status HTTP — nunca a chave, nunca o corpo da resposta nem a mensagem do provedor. O resumo
@@ -62,9 +63,12 @@ def _escrever_resumo(linhas: list[str]) -> None:
 def main(argv: Sequence[str] | None = None, *, fabrica: Callable[[], Any] | None = None) -> int:
     del argv
     fabrica = fabrica or _provedor_dos_evals()
-    if not (os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")):
+    from tests.evals._vivo import credencial_viva_presente, provedor_configurado
+
+    if not credencial_viva_presente():
         print("preflight do Tier B: sem chave, nenhuma chamada feita")
         return 0
+    print(f"preflight do Tier B: provedor {provedor_configurado()}")
     zona_phi = False
     try:
         resposta = asyncio.run(fabrica().generate(PROMPT, phi=True, agent_id="ci-tier-b-preflight"))

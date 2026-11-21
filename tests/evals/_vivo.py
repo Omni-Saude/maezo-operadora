@@ -21,6 +21,7 @@ O resumo do noturno (`scripts/ci/tier_b_resumo.py`) le essas mensagens: elas nun
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from typing import Any
 
@@ -32,11 +33,36 @@ SEM_CHAMADA = "NenhumaChamadaAoProvedor"
 NARRATIVA_AUSENTE = "NARRATIVA AUSENTE"
 #: Classe que indica que o provedor configurado nao pode receber PHI (fachada de `runtime.inference`).
 ERRO_ZONA_PHI = "PhiZoneRoutingError"
+#: A MESMA variavel que o runtime usa para escolher o provedor (`InferenceSettings`, MAEZO_INFERENCE_*).
+VARIAVEL_PROVEDOR = "MAEZO_INFERENCE_PROVIDER"
+#: Sem a variavel: o comportamento de antes (`anthropic`, nao phi_capable => LIVE CALL FAILED visivel).
+PROVEDOR_PADRAO = "anthropic"
+#: Provedores REAIS aceitos num eval vivo; os da zona PHI nao usam chave de API (SigV4/sessao do dev).
+PROVEDORES_VIVOS = frozenset({"anthropic", "bedrock", "bedrock_br", "br_resident"})
+PROVEDORES_ZONA_PHI = frozenset({"bedrock_br", "br_resident"})
+PROVEDOR_NAO_VIVO = "ProvedorNaoVivo"
+
+
+def provedor_configurado() -> str:
+    return os.environ.get(VARIAVEL_PROVEDOR, "").strip() or PROVEDOR_PADRAO
+
+
+def credencial_viva_presente() -> bool:
+    """Ha' como um eval vivo chamar um modelo real: chave Anthropic, ou provedor da zona PHI nomeado
+    (cujas credenciais sao a sessao AWS do dev e os portoes `MAEZO_PHI_*`, verificados pelo proprio
+    provedor ao construir)."""
+    chave = os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    return bool(chave) or provedor_configurado() in PROVEDORES_ZONA_PHI
 
 
 def configuracao_viva() -> InferenceSettings:
-    """A configuracao do provedor real dos evals vivos (a mesma que cada teste construia inline)."""
-    return InferenceSettings(provider="anthropic")
+    """A configuracao do provedor real dos evals vivos. O provedor vem de `MAEZO_INFERENCE_PROVIDER`
+    (como no runtime); sem ela, `anthropic`. Um provedor de teste (`noop`, `phi_zone_mock`) e' RECUSADO:
+    um eval vivo nunca "passa" contra resposta enlatada."""
+    provedor = provedor_configurado()
+    if provedor not in PROVEDORES_VIVOS:
+        raise AssertionError(f"{LIVE_CALL_FAILED}: {PROVEDOR_NAO_VIVO} ({VARIAVEL_PROVEDOR}={provedor})")
+    return InferenceSettings(provider=provedor)
 
 
 class GravadorDeChamadas(InferenceProvider):

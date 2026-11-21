@@ -16,7 +16,7 @@ one" / "how does CI consume this" mechanics.
 
 | | Tier A (deterministic replay) | Tier B (live LLM) |
 |---|---|---|
-| Provider | `ReplayInferenceProvider` — scripted `recorded_llm` responses, no network, no key | the real `anthropic` provider (`InferenceProvider(settings=InferenceSettings(provider="anthropic"))`) |
+| Provider | `ReplayInferenceProvider` — scripted `recorded_llm` responses, no network, no key | the real provider from `tests/evals/_vivo.py::provedor_vivo()` (`MAEZO_INFERENCE_PROVIDER`, default `anthropic`), wrapped in a call recorder. The graphs call it with `phi=True`, so only a **PHI-zone** provider can serve Tier B — see "Tier B: execucao manual na zona PHI do dev" below |
 | Marker | `@pytest.mark.eval` | `@pytest.mark.eval` + `@pytest.mark.llm_live` + `@live_key_skip` |
 | Pass criterion | exact route / structured-field match / canary-absent (RT/SF/ABS) | threshold score >= `live.threshold` against the Tier-A baseline (TH) |
 | Runs when | always, keyless, no network — the `evals (agent-touching paths)` CI job (runs on every agent-touching PR; **not a required check in the `main-protection` ruleset today** — owner action pending to make it required) | only when `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY` is set — nightly-only in CI, non-blocking; **loudly skips** otherwise |
@@ -276,6 +276,50 @@ reviewed `ci.yml` wiring change to ever run in CI (the pipeline currently passes
 `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY` and defaults to the `noop` provider — see the T3.2
 design doc §1.2/§4-R2). That wiring edit is explicitly its own, separately-reviewed change, not
 bundled into any golden-dataset PR.
+
+## Tier B: execucao manual na zona PHI do dev
+
+**Por que manual.** Os grafos chamam o modelo com `phi=True` (ADR-0006): so' um provedor da zona PHI
+responde. O CI nao tem um, entao o noturno diz "Tier B nao roda no CI" e o Tier B roda **fora do CI**, por
+um humano com sessao AWS do dev, contra `bedrock_br` (Bedrock regional em sa-east-1 — o mesmo provedor que o
+simulador do dev ja' usa com dado sintetico e `phi=True`).
+
+**Nao crie o segredo `MAEZO_ANTHROPIC_API_KEY` no repositorio.** Com o provedor `anthropic` (nao
+`phi_capable`) todo caso vivo sai `LIVE CALL FAILED: PhiZoneRoutingError`; o segredo so' tornaria o noturno
+vermelho, sem medir nada. As 7 noites de observacao do Tier B ficam suspensas ate' existir provedor PHI no CI
+(decisao do dono).
+
+**Pre-requisitos** (nenhum valor e' copiado para ca'):
+
+- sessao AWS do dev ativa (ex.: `aws sso login --profile <perfil-do-dev>` e `AWS_PROFILE` exportado);
+- as tres variaveis que o dono preenche no tfvars do dev, exportadas no shell:
+  `MAEZO_PHI_ENDPOINT_URL` (`phi_endpoint_url`), `MAEZO_PHI_VENDOR_DPA_REF` (`phi_vendor_dpa_ref`) e
+  `MAEZO_INFERENCE_MODEL` (`phi_model_id`) — se o dev usar a excecao regional, tambem
+  `MAEZO_PHI_EXCECAO_REGIONAL`;
+- `uv sync --locked --extra dev` (o boto3 vem do venv).
+
+**Comando unico:**
+
+```bash
+.venv/bin/python scripts/dev/tier_b_manual.py   # resumo em $TMPDIR/tier-b-manual-<UTC>/resumo.md
+```
+
+O roteiro confere o ambiente (sem imprimir valores), fixa `MAEZO_INFERENCE_PROVIDER=bedrock_br`, roda o
+MESMO preflight do noturno (`scripts/ci/tier_b_preflight.py`, `phi=True`), so' o Tier B
+(`-m "eval and llm_live"`) e o MESMO resumo (`scripts/ci/tier_b_resumo.py`). Todo teste vivo passa pelo
+gravador de chamadas: se a chamada nao aconteceu ou falhou, o caso sai `LIVE CALL FAILED: <Classe>` antes de
+qualquer limiar — nunca vira "queda de qualidade".
+
+**Dados.** A suite usa SO' os goldens versionados (`tests/evals/golden/**`) e o corpus rotulado
+(`tests/evals/extracao/casos.json`). Antes de rodar, confirme que sao sinteticos: nenhum dado real de
+beneficiario pode entrar num eval.
+
+**Custo estimado.** ~147 chamadas por execucao (Helena 11, dossies 9, extracao 126, preflight 1), da ordem
+de US$ 2 a 5 por execucao conforme o modelo do tfvars; o valor real sai na fatura do Bedrock do dev.
+
+**Onde guardar.** O roteiro grava so' `<saida>/resumo.md` (id e resultado de cada caso, sem saida de
+modelo); o junit fica num diretorio temporario e e' apagado. Entregue o `resumo.md` a ROOT. Nunca commite o
+resumo, o junit nem logs do pytest desta execucao.
 
 ## How CI consumes this (no workflow edit needed)
 

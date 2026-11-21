@@ -61,7 +61,6 @@ wave table). Provides:
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +69,8 @@ from typing import Any, ClassVar
 import pytest
 
 from maezo.runtime.inference import PhiZoneRoutingError
+
+from ._vivo import credencial_viva_presente
 
 # ---------------------------------------------------------------------------
 # ReplayInferenceProvider — Tier A (deterministic, no network, no key)
@@ -361,7 +362,10 @@ def load_golden(agent: str, *, root: Path | None = None) -> list[dict[str, Any]]
 # Tier B (live-LLM) skip gate — mirrors tests/unit/runtime/test_inference_live.py exactly.
 # ---------------------------------------------------------------------------
 
-_HAS_LLM_KEY = bool(os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+# Chave Anthropic OU provedor da zona PHI nomeado em MAEZO_INFERENCE_PROVIDER (bedrock_br/br_resident:
+# credencial = sessao AWS do dev, sem chave de API) — ver `tests/evals/_vivo.py::credencial_viva_presente`
+# e a execucao manual do Tier B em tests/evals/README.md.
+_HAS_LLM_KEY = credencial_viva_presente()
 
 #: Apply to any Tier-B (live) eval test/parametrize case. Reuses the existing `llm_live` marker
 #: (`pyproject.toml`) rather than registering a new one — Tier B is "the same live-Anthropic-call
@@ -369,11 +373,12 @@ _HAS_LLM_KEY = bool(os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get(
 live_key_skip = pytest.mark.skipif(
     not _HAS_LLM_KEY,
     reason=(
-        "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping Tier-B "
+        "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY and no PHI-zone provider "
+        "(MAEZO_INFERENCE_PROVIDER=bedrock_br|br_resident) in environment — skipping Tier-B "
         "live-LLM eval variant. This is a loud, explicit skip, not a silent pass (mirrors "
         "tests/unit/runtime/test_inference_live.py): Tier-A (replay) evals are the PR "
-        "merge-blocking gate and are unaffected; Tier-B is nightly-only, threshold-scored, "
-        "non-blocking, and requires a real Anthropic key to ever execute."
+        "merge-blocking gate and are unaffected. Tier-B calls the graphs with phi=True, so it only "
+        "really runs against a PHI-zone provider — see the manual run in tests/evals/README.md."
     ),
 )
 

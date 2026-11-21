@@ -22,6 +22,7 @@ import pytest
 import yaml
 from scripts.ci import tier_b_preflight as pf
 from scripts.ci import tier_b_resumo as tb
+from scripts.dev import tier_b_manual as manual
 
 from tests.evals import _vivo
 
@@ -30,6 +31,13 @@ _CI = _RAIZ / ".github" / "workflows" / "ci.yml"
 _MAKEFILE = _RAIZ / "Makefile"
 
 Selecao = tuple[str, str]  # (caminho, expressao -m)
+
+
+@pytest.fixture(autouse=True)
+def _sem_provedor_do_ambiente(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `tests/evals/_vivo.py` le MAEZO_INFERENCE_PROVIDER (como o runtime): um valor herdado
+    # da maquina (`.env`, sessao do dev) mudaria o desfecho ou faria chamada real; quem precisa, define.
+    monkeypatch.delenv("MAEZO_INFERENCE_PROVIDER", raising=False)
 
 
 def _jobs() -> dict[str, Any]:
@@ -480,7 +488,11 @@ def test_preflight_with_the_current_provider_reports_the_phi_zone(
 
 def test_preflight_imports_under_python_isolated_mode() -> None:
     # (d4) `python -I` (como no passo do job) acha `maezo` e `tests.evals._vivo`; sem chave, sai 0.
-    env = {k: v for k, v in __import__("os").environ.items() if "ANTHROPIC_API_KEY" not in k}
+    env = {
+        k: v
+        for k, v in __import__("os").environ.items()
+        if "ANTHROPIC_API_KEY" not in k and k != "MAEZO_INFERENCE_PROVIDER"
+    }
     r = subprocess.run(
         [sys.executable, "-I", "scripts/ci/tier_b_preflight.py"],
         cwd=_RAIZ,
@@ -655,3 +667,98 @@ def test_key_under_either_name_counts_as_present(monkeypatch: pytest.MonkeyPatch
     assert tb.chave_presente() is False
     monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
     assert tb.chave_presente() is True
+
+
+# ------------------------------------------- provedor do ambiente (f), execucao manual (g), linha (h)
+
+
+@pytest.mark.parametrize(
+    ("valor", "esperado"),
+    [(None, "anthropic"), ("", "anthropic"), ("bedrock_br", "bedrock_br"), ("anthropic", "anthropic")],
+)
+def test_live_provider_comes_from_the_runtime_variable(
+    monkeypatch: pytest.MonkeyPatch, valor: str | None, esperado: str
+) -> None:
+    if valor is None:
+        monkeypatch.delenv("MAEZO_INFERENCE_PROVIDER", raising=False)
+    else:
+        monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", valor)
+    assert _vivo.configuracao_viva().provider == esperado
+
+
+@pytest.mark.parametrize("mock", ["noop", "phi_zone_mock", "qualquer"])
+def test_a_test_double_provider_is_refused_never_scored(monkeypatch: pytest.MonkeyPatch, mock: str) -> None:
+    monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", mock)
+    with pytest.raises(AssertionError, match=r"^LIVE CALL FAILED: ProvedorNaoVivo"):
+        _vivo.configuracao_viva()
+
+
+def test_phi_zone_provider_counts_as_live_credential_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    for nome in ("MAEZO_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY", "MAEZO_INFERENCE_PROVIDER"):
+        monkeypatch.delenv(nome, raising=False)
+    assert _vivo.credencial_viva_presente() is False and tb.chave_presente() is False
+    monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", "bedrock_br")
+    assert _vivo.credencial_viva_presente() is True and tb.chave_presente() is True
+
+
+def test_conftest_gate_runs_tier_b_under_the_phi_zone_provider() -> None:
+    # O portao `live_key_skip` aceita o provedor da zona PHI (SigV4, sem chave de API).
+    import os as _os
+
+    base = {
+        k: v
+        for k, v in _os.environ.items()
+        if "ANTHROPIC_API_KEY" not in k and k != "MAEZO_INFERENCE_PROVIDER"
+    }
+    codigo = "import tests.evals.conftest as c; print(c._HAS_LLM_KEY)"
+    for provedor, esperado in (("", "False"), ("bedrock_br", "True"), ("anthropic", "False")):
+        env = dict(base, MAEZO_INFERENCE_PROVIDER=provedor, PYTHONPATH=str(_RAIZ))
+        r = subprocess.run([sys.executable, "-c", codigo], cwd=_RAIZ, env=env, capture_output=True, text=True)
+        assert r.stdout.strip().splitlines()[-1] == esperado, (provedor, r.stderr[-1000:])
+
+
+def test_manual_run_refuses_without_gates_and_never_prints_values() -> None:
+    env = {"MAEZO_INFERENCE_PROVIDER": "anthropic", "MAEZO_PHI_ENDPOINT_URL": "VALOR-SECRETO-DO-TFVARS"}
+    problemas = manual.problemas_do_ambiente(env, credencial_aws=False)
+    texto = "\n".join(problemas)
+    assert "MAEZO_INFERENCE_PROVIDER deve ser vazio ou bedrock_br" in texto
+    assert "falta MAEZO_PHI_VENDOR_DPA_REF" in texto and "falta MAEZO_INFERENCE_MODEL" in texto
+    assert "falta MAEZO_PHI_ENDPOINT_URL" not in texto and "sem credencial AWS" in texto
+    assert "VALOR-SECRETO" not in texto
+    completo = {nome: "x" for nome in manual.PORTOES}
+    assert manual.problemas_do_ambiente(completo, credencial_aws=True) == []
+
+
+def test_manual_run_uses_the_nightly_preflight_selection_and_summary(tmp_path: Path) -> None:
+    preflight, suite, veredito = manual.comandos(tmp_path / "j.xml")
+    assert preflight[1:] == ["-I", "scripts/ci/tier_b_preflight.py"]
+    assert veredito[1:3] == ["-I", "scripts/ci/tier_b_resumo.py"]
+    # A MESMA selecao e as MESMAS opcoes do passo B do noturno (so' o caminho do junit muda).
+    noturno = _tokens_do_pytest(_passo("Nightly eval run — Tier B")["run"])
+    manual_tokens = suite[suite.index("pytest") + 1 :]
+    sem_junit = [t for t in noturno if not t.startswith("--junitxml=")]
+    assert [t for t in manual_tokens if not t.startswith("--junitxml=")] == sem_junit
+    env = manual.ambiente_da_execucao({"MAEZO_INFERENCE_PROVIDER": ""}, tmp_path / "r.md")
+    assert env["MAEZO_INFERENCE_PROVIDER"] == "bedrock_br" and env["TIER_B_EXECUCAO"] == "manual"
+    assert env["GITHUB_STEP_SUMMARY"] == str(tmp_path / "r.md") and env["TIER_B_BLOQUEANTE"] == "false"
+
+
+def test_manual_summary_says_manual_and_drops_the_nights_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TIER_B_EXECUCAO", "manual")
+    _, resumo, _ = _rodar(monkeypatch, tmp_path, ["aprovado"], 0, chave=True, bloqueante="false")
+    assert tb.LINHA_EXECUCAO_MANUAL in resumo and "NAO contam" not in resumo
+
+
+def test_phi_zone_line_points_to_an_existing_readme_section() -> None:
+    # (h) a linha do noturno diz que o Tier B nao roda no CI e aponta para o roteiro manual — que existe.
+    assert tb.LINHA_ZONA_PHI.startswith("Tier B nao roda no CI: exige provedor na zona PHI")
+    arquivo, ancora = tb.ROTEIRO_MANUAL.split("#")
+    titulos = [
+        linha[3:].strip()
+        for linha in (_RAIZ / arquivo).read_text(encoding="utf-8").splitlines()
+        if linha.startswith("## ")
+    ]
+    ancoras = {re.sub(r"[^a-z0-9 -]", "", t.lower()).replace(" ", "-") for t in titulos}
+    assert ancora in ancoras, sorted(ancoras)

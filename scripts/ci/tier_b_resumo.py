@@ -49,11 +49,23 @@ _FALHA_DE_LIMIAR = re.compile(
 _FALHA_VIVA = re.compile(r"^AssertionError: LIVE CALL FAILED: (\w+)")
 ERRO_ZONA_PHI = "PhiZoneRoutingError"
 #: Linhas estaveis do resumo (o preflight usa as mesmas).
-LINHA_ZONA_PHI = "Tier B exige provedor na zona PHI; o provedor configurado nao e' phi_capable"
+#: Onde esta' o roteiro da execucao manual do Tier B na zona PHI do dev (fora do CI).
+ROTEIRO_MANUAL = "tests/evals/README.md#tier-b-execucao-manual-na-zona-phi-do-dev"
+LINHA_ZONA_PHI = (
+    "Tier B nao roda no CI: exige provedor na zona PHI (o provedor configurado nao e' phi_capable); "
+    f"use a execucao manual ({ROTEIRO_MANUAL})"
+)
 LINHA_NOITES_NAO_CONTAM = (
     "as 7 noites de observacao NAO contam enquanto o conserto dos evals vivos nao entrar "
     "(TIER_B_NOITES_CONTAM=false)"
 )
+
+
+LINHA_EXECUCAO_MANUAL = "execucao MANUAL na zona PHI do dev (scripts/dev/tier_b_manual.py), fora do CI"
+
+
+def execucao_manual() -> bool:
+    return os.environ.get("TIER_B_EXECUCAO", "").strip().lower() == "manual"
 
 
 def noites_contam() -> bool:
@@ -61,8 +73,19 @@ def noites_contam() -> bool:
 
 
 def chave_presente() -> bool:
-    """Os mesmos nomes que `tests/evals/conftest.py` e o provedor aceitam."""
-    return bool(os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+    """Ha' credencial para um eval vivo (chave Anthropic por qualquer dos dois nomes, ou provedor da zona
+    PHI nomeado): a MESMA regra de `tests/evals/_vivo.py::credencial_viva_presente`, nao uma copia."""
+    raiz = str(Path(__file__).resolve().parents[2])
+    if raiz not in sys.path:
+        sys.path.insert(0, raiz)
+    try:
+        from tests.evals._vivo import credencial_viva_presente
+    except Exception:
+        # O resumo SEMPRE reporta: se o import do provedor dos evals quebrar, a mesma regra so' pelo ambiente.
+        chave = os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+        zona_phi = os.environ.get("MAEZO_INFERENCE_PROVIDER", "").strip() in {"bedrock_br", "br_resident"}
+        return bool(chave) or zona_phi
+    return credencial_viva_presente()
 
 
 APROVADO, PULADO, LIMIAR, FALHA, ERRO = "aprovado", "pulado", "abaixo do limiar", "falha", "erro"
@@ -162,7 +185,9 @@ def _resumo(v: Veredito, contagem: Contagem | None, codigo: int, bloqueante: boo
     linhas += [f"- aviso: {a}" for a in v.avisos]
     if contagem is not None and ERRO_ZONA_PHI in contagem.classes_vivas:
         linhas.append(f"- {LINHA_ZONA_PHI}")
-    if not noites_contam():
+    if execucao_manual():
+        linhas.append(f"- {LINHA_EXECUCAO_MANUAL}")
+    elif not noites_contam():
         linhas.append(f"- {LINHA_NOITES_NAO_CONTAM}")
     if contagem is not None:
         rodados = contagem.total() - contagem.total(PULADO)
