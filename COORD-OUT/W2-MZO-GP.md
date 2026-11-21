@@ -1344,3 +1344,18 @@ Ordem: ADD01-03 (PR quando a revisão der PASS) → RT-03 → 17r, um PR por vez
   - `sf-w2/mzo-gp/esf17r` @ `e187d7c5` (17r, de acordo A, três cercas novas).
   - Para as duas faltam a revisão independente e a suíte × main antes do PR.
 - **Disco:** a bateria completa encheu o volume. A causa eram 28G em `/tmp/pytest-of-root`, temporários do pytest das rodadas do dia; removidos com nenhum pytest ativo. As baterias agora rodam um lado de cada vez.
+
+## 2026-11-21 ~09:55Z — PRONTO #1366 (E-SF-ADD01-03)
+
+- **PRONTO:** #1366, head `41424fa3d6c8dc4f59eefd6759d2fe6018a655cc`; `mergeable_state` = clean.
+  - 37 checks verdes e 2 skipped, nenhum vermelho.
+  - `live-pytest] PASS`: recurso-nip passed=181; cancel-contas passed=138; cred-ans passed=129; restante passed=965.
+- **Simulação de merge real** numa worktree destacada no sha da main `3068785ac82409340ae139b4a91e881e945aa9af`:
+  - Merge sem conflito. `make lint type validate-artifacts` rc=0, com o `src` da simulação na frente do `PYTHONPATH`.
+  - `tests/unit/agents` + ligação de tools + política L1 + console ADD01-02: 9136 passed.
+  - Worktree removida sem `--force`.
+- Sem arquivo em comum com a main; não trazida (CD-155).
+- **Próximos, no remoto e com revisão PASS:**
+  - RT-03 (`rt03` @ `f903a88d`; a revisão pegou a falha de import relativo na cerca, corrigida);
+  - 17r (`esf17r` @ `ccb378f6`; a revisão pegou import relativo e `from maezo import X` na cerca (iii), corrigidos; detecção de envio por prefixo de segmento).
+  - A suíte × main das duas está rodando.
