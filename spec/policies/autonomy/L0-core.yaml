@@ -83,6 +83,13 @@ actions:
   # ainda a classifica como send_beneficiary_message ate a classe comunicacao_prospect existir
   # (pendente, fora deste pacote). Aditiva (CD-13): nenhuma acao existente muda.
   send_prospect_message:        { level: L3 }
+  # Copiloto interno (SC-03, `staff_assist`): o agente so' PREPARA um rascunho; o humano revisa e decide
+  # (L1 = REQUIRE_HUMAN). Sem params; NAO e' hard. Decisao do dono (PROG-COORD-37, spec W2-MZO-CA).
+  # Aditiva (CD-13): nenhuma acao existente muda.
+  staff_assist_draft:           { level: L1 }
+  # Mesma classe para a retencao: rascunho do copiloto para o atendente humano. L1, sem params, sem tool;
+  # NAO e' hard. Decisao do dono (PROG-COORD-37, spec W2-MZO-CA). Aditiva (CD-13).
+  retention_staff_assist_draft: { level: L1 }
   # mcp_memory: leitura/escrita de memória episódica/semântica (dados pseudonimizados)
   read_write_memory:            { level: L3 }
   erase_patient_memory:         { level: L1 }   # LGPD erasure: agente propõe, DPO/humano confirma
