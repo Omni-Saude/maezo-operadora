@@ -11,8 +11,9 @@
 #
 # FRONTEIRA (validada por `platform/validation/agent_def.py::_validate_commercial_agent`):
 #   * Zona Geral (`security_zone: general`), `process_keys: []`;
-#   * so' as acoes de `_ACOES_COMERCIAIS` (informacao publicada, roteamento ao humano/Helena e o
-#     envio ao prospect na sessao que ELE iniciou, `send_prospect_message` L3); nenhuma acao PHI,
+#   * so' as acoes de `_ACOES_COMERCIAIS` (informacao publicada, roteamento ao humano/Helena, o
+#     envio ao prospect na sessao que ELE iniciou, `send_prospect_message` L3, e o rascunho do
+#     copiloto, `staff_assist_draft` L1, que o humano revisa e envia); nenhuma acao PHI,
 #     nenhuma acao `hard`, nenhum envio a beneficiario, nenhum lembrete;
 #   * nunca elegibilidade, preco, desconto, comissao, comparacao entre operadoras, aceite,
 #     legitimidade PJ, leitura de DS/DPP, pergunta sobre saude ou perfil por saude.
@@ -38,6 +39,7 @@ autonomy_actions:
   - informational_response   # so' produto/rede publicados pela fonte; sem promessa de cobertura
   - triage_and_routing       # so' para o humano (sales_operations) ou de volta a Helena
   - send_prospect_message    # L3 (L0-core.yaml): envio ao prospect na sessao que ele iniciou
+  - staff_assist_draft       # L1 (L0-core.yaml; E-SF-ADD01-03): so' no modo staff_assist, o agente PREPARA o rascunho; o humano revisa, decide e envia
 # Nenhum KPI: o agente nao emite medicao (A9 UNMEASURED; GAP-HEADCOUNT/GAP-SLA). Declarar KPI exige
 # fonte de medicao declarada (`runtime/kpi_evaluator`), o que fica para a ativacao.
 kpis: []

@@ -85,6 +85,7 @@ def test_zona_geral_sem_processo_e_sem_nome_de_persona() -> None:
         "informational_response",
         "triage_and_routing",
         "send_prospect_message",
+        "staff_assist_draft",  # E-SF-ADD01-03: o rascunho do copiloto (L1), so' no modo staff_assist
     }
     assert definicao.tools == ["mcp-whatsapp.send_message"]
     assert definicao.channels["whatsapp"] == {

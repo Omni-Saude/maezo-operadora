@@ -11,7 +11,9 @@ Dois modos da MESMA definicao (`spec/agents/comercial/agent.yaml`):
   fallback "D1 sozinho" do plano.
 * `staff_assist` (SC-03, copiloto interno): nunca fala com o prospect. Devolve a rota de nota
   interna ao especialista; o envio ao comprador e' sempre clique do humano. Sem conteudo gerado
-  enquanto SC-03.D1 (DPO) nao responder.
+  enquanto SC-03.D1 (DPO) nao responder. O turno devolve, como DADO, a acao de autonomia que o
+  rascunho exerce (`staff_assist_draft`, L1: o agente so' PREPARA, o humano revisa e decide); quem
+  avalia a acao e' o gateway (ADR-0067: o agente nao importa o PEP). Nunca ha' acao de envio.
 
 PRECEDENCIA (fixa, nesta ordem): sinal de saude -> volta a Helena (saida clinica, sem texto
 comercial); pedido de pessoa -> fila humana; so' entao o modo.
@@ -52,6 +54,10 @@ MODOS: Final[frozenset[str]] = frozenset({"prospect", "staff_assist"})
 #: A acao de autonomia que o envio ao prospect exerce (`spec/policies/autonomy/L0-core.yaml`, L3).
 ACAO_ENVIO_PROSPECT: Final[str] = "send_prospect_message"
 
+#: E-SF-ADD01-03: a acao de autonomia que o rascunho do copiloto exerce (`L0-core.yaml`, L1, sem
+#: parametros, sem tool, nao `hard`). L1 = o agente so' prepara; o gateway devolve REQUIRE_HUMAN.
+ACAO_RASCUNHO_ATENDENTE: Final[str] = "staff_assist_draft"
+
 #: Rotas fechadas do turno.
 ROTA_SAIDA_CLINICA: Final[str] = "devolver_helena"
 ROTA_FILA_HUMANA: Final[str] = "fila_humana_sales_operations"
@@ -90,6 +96,8 @@ class ComercialState(TypedDict, total=False):
     rota: str
     response_text: str
     acao_de_envio: str | None
+    #: So' no modo `staff_assist`: a acao do rascunho (L1), devolvida como dado; nunca um envio.
+    acao_de_rascunho: str | None
     envio_pelo_humano: bool
     desfecho: str
     error: str | None
@@ -103,6 +111,7 @@ NEUTRAL_OUTPUTS: Final[Mapping[str, Any]] = {
     "rota": "",
     "response_text": "",
     "acao_de_envio": None,
+    "acao_de_rascunho": None,
     "envio_pelo_humano": False,
     "desfecho": "",
     "error": None,
@@ -158,8 +167,14 @@ class ComercialGraph:
         if state.get("pedido_humano") is True:
             return self._encaminhar("encaminhado_especialista_a_pedido", state)
         if state.get("modo") == "staff_assist":
-            # SC-03: nota interna; quem envia ao comprador e' o humano.
-            return {"rota": ROTA_NOTA_INTERNA, "envio_pelo_humano": True, "desfecho": "nota_interna"}
+            # SC-03: nota interna; quem envia ao comprador e' o humano. ADD01-03: a acao do rascunho
+            # (L1) volta como dado; nenhum texto gerado e nenhuma acao de envio.
+            return {
+                "rota": ROTA_NOTA_INTERNA,
+                "acao_de_rascunho": ACAO_RASCUNHO_ATENDENTE,
+                "envio_pelo_humano": True,
+                "desfecho": "nota_interna",
+            }
         if state.get("primeiro_turno") is True:
             return {
                 "rota": ROTA_CONVERSA,

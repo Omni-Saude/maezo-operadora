@@ -337,9 +337,11 @@ def _validate_no_hard_action(path: Path, definition: AgentDefinition, report: Re
 _AGENTES_COMERCIAIS: frozenset[str] = frozenset({"comercial"})
 
 #: O TETO do agente comercial, como allowlist fechada (GTM-01 D3): informacao publicada, roteamento
-#: ao humano/Helena e o envio ao prospect na sessao que ele iniciou. Tudo fora daqui e' recusa.
+#: ao humano/Helena, o envio ao prospect na sessao que ele iniciou e, no modo `staff_assist`, o
+#: rascunho do copiloto (`staff_assist_draft`, L1: so' preparar; E-SF-ADD01-03). Tudo fora daqui e'
+#: recusa.
 _ACOES_COMERCIAIS: frozenset[str] = frozenset(
-    {"informational_response", "triage_and_routing", "send_prospect_message"}
+    {"informational_response", "triage_and_routing", "send_prospect_message", "staff_assist_draft"}
 )
 
 #: O unico tool do agente comercial: a resposta pelo WhatsApp na sessao do prospect.
