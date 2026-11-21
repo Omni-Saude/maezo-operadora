@@ -238,7 +238,12 @@ def test_textos_sem_prazo_preco_ou_nome() -> None:
 
 def test_cd13_nenhuma_acao_existente_mudou() -> None:
     l0 = yaml.safe_load((_AUTONOMIA / "L0-core.yaml").read_text(encoding="utf-8"))["actions"]
-    antigas = {k: v for k, v in l0.items() if k != "send_prospect_message"}
+    novas = {
+        "send_prospect_message",
+        "staff_assist_draft",  # PROG-COORD-37 (W2-MZO-CA b)
+        "retention_staff_assist_draft",  # PROG-COORD-37 (W2-MZO-CA c)
+    }
+    antigas = {k: v for k, v in l0.items() if k not in novas}
     assert (
         hashlib.sha256(json.dumps(antigas, sort_keys=True).encode()).hexdigest()
         == "c6dd883f253d89f1a1247ffe9e04b44c3a76619ff39a13df34b4dea872631b64"
