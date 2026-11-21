@@ -969,3 +969,18 @@ Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos 
   - Worktree removida sem `--force`.
 - **4 merges atrás** (#1342–#1345), sem arquivo em comum, não trazidos (CD-155).
 - **Próximo PR**, depois do merge deste: RT-02 (ramo no remoto).
+
+## 2026-11-21 ~01:50Z — #1346 mesclado (main `7bc00ce1`); LIMPEZA #1346; PR #1348 (RT-02) aberto
+
+- #1346 (E-SF-29-2) mesclado; a main `7bc00ce1` contém o head `ab611ff7`.
+- **LIMPEZA #1346 (CD-149):**
+  - **Ramo para o dono apagar:** `sf-w2/mzo-gp/esf29-2` @ `ab611ff733badf6b1d6b7c6aeb76f88f643bfe6c`, no remoto. O ramo local fica só registrado.
+  - Ramos locais nunca enviados: nenhum novo.
+  - PR órfão: nenhum.
+  - Título e corpo do #1346 fiéis.
+  - **Disco:** worktree `esf29b` removida sem `--force`; check-in cancelado; clone principal em `main` `7bc00ce1`.
+- **PR #1348 (E-SF-RT-02)** aberto: head `34b2803376126783802a184f3e852bbd7c26a0e6`.
+  - 5 merges atrás (#1342–#1346), sem arquivo em comum, não trazidos (CD-155).
+  - Nenhum caminho do PR tem dono no CODEOWNERS.
+  - Aguardo o CI.
+- Fila: 11 → 35, um PR por vez.
