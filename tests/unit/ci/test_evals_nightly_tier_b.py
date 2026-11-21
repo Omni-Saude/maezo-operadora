@@ -131,6 +131,41 @@ def test_partition_fence_catches_mutations(mutacao: str, esperado: str) -> None:
     assert any(esperado in p for p in problemas), problemas
 
 
+def _tokens_do_pytest(script: str) -> list[str]:
+    linha = next(x for x in script.splitlines() if "-m pytest" in x)
+    tokens = shlex.split(linha.split("||")[0])
+    return tokens[tokens.index("pytest") + 1 :]
+
+
+#: Unicos tokens que os passos A/B podem ter ALEM da forma do `make evals` (caminho, -q, -m <expr>).
+_EXTRAS_PERMITIDOS = {"A": set(), "B": {"--tb=no", "-rN", "--junitxml=${RUNNER_TEMP}/tier-b-junit.xml"}}
+
+
+def _forma(tokens: list[str], extras: set[str]) -> list[str]:
+    return [t for t in tokens if t not in extras]
+
+
+def test_steps_have_exactly_the_make_evals_shape_plus_allowed_extras() -> None:
+    # `-k`, `--deselect`, segundo caminho, `-x`/`--maxfail` encolheriam a selecao sem mudar o `-m`.
+    alvo = re.search(r"^evals:.*\n\t(.+)$", _MAKEFILE.read_text(encoding="utf-8"), re.M)
+    assert alvo
+    make = _tokens_do_pytest(alvo.group(1))
+    assert len(make) == 4 and make[1:3] == ["-q", "-m"], make
+    a = _tokens_do_pytest(_passo("Nightly eval run — Tier A")["run"])
+    b = _tokens_do_pytest(_passo("Nightly eval run — Tier B")["run"])
+    assert _forma(a, _EXTRAS_PERMITIDOS["A"]) == [make[0], "-q", "-m", "eval and not llm_live"], a
+    assert _forma(b, _EXTRAS_PERMITIDOS["B"]) == [make[0], "-q", "-m", "eval and llm_live"], b
+    assert make[3] == "eval", "a selecao do make evals mudou: reveja a particao A/B"
+
+
+@pytest.mark.parametrize(
+    "intruso", ["-x", "--maxfail=1", "-k helena", "--deselect tests/evals/a.py::t", "tests/unit"]
+)
+def test_shape_fence_catches_extra_selection_tokens(intruso: str) -> None:
+    b = _tokens_do_pytest(_passo("Nightly eval run — Tier B")["run"]) + shlex.split(intruso)
+    assert _forma(b, _EXTRAS_PERMITIDOS["B"]) != [b[0], "-q", "-m", "eval and llm_live"]
+
+
 def test_tier_b_step_wiring() -> None:
     b = _passo("Nightly eval run — Tier B")
     env = b["env"]
@@ -178,6 +213,8 @@ def _junit(tmp_path: Path, casos: list[str]) -> Path:
             "limiar": f'<failure message="{_TH}"/>',
             "api": '<failure message="anthropic.AuthenticationError: 401 invalid x-api-key"/>',
             "erro": '<error message="fixture boom"/>',
+            "estado_com_frase": '<failure message="AssertionError: SF mismatch full state={&quot;nota&quot;: '
+            '&quot;TH violation: live score 0.1 abaixo do limiar&quot;}"/>',
         }[r]
         corpo.append(f'<testcase classname="tests.evals.t" name="caso_{i}">{filho}</testcase>')
     p = tmp_path / "j.xml"
@@ -272,6 +309,8 @@ def test_partial_threshold_failure_blocks_when_blocking(
         (["aprovado", "erro"], 1, "erro de fixture"),
         # F2: falha que nao e' de limiar (API 401, rede, credencial) mesmo com o resto verde
         (["aprovado", "api"], 1, "nao e' de limiar"),
+        # assercao qualquer cuja mensagem CARREGA o texto do limiar nao e' rebaixada a "limiar"
+        (["aprovado", "limiar", "estado_com_frase"], 1, "nao e' de limiar"),
         # F2: 100% dos rodados reprovando no limiar = falha sistemica
         (["limiar", "limiar", "pulado"], 1, "todos os 2 caso(s) rodados reprovaram"),
         # F3: codigo fora de {0, 1}

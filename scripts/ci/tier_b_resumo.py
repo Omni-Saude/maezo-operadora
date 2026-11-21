@@ -37,8 +37,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-#: Assinatura das reprovacoes DE LIMIAR (`_harness.assert_live_score` e o limiar da extracao ao vivo).
-_FALHA_DE_LIMIAR = re.compile(r"TH violation: live score|abaixo do limiar")
+#: Assinatura das reprovacoes DE LIMIAR, ancorada no INICIO da mensagem da falha (atributo `message` do
+#: junit): `_harness.assert_live_score` e o limiar da extracao ao vivo. Ancorar impede que uma assercao
+#: qualquer cuja mensagem carregue estado/saida do modelo contendo o texto seja rebaixada a "limiar".
+_FALHA_DE_LIMIAR = re.compile(
+    r"^AssertionError: (TH violation: live score [\d.]+ below threshold [\d.]+$"
+    r"|extracao em [\d.]+, abaixo do limiar de partida )"
+)
 
 APROVADO, PULADO, LIMIAR, FALHA, ERRO = "aprovado", "pulado", "abaixo do limiar", "falha", "erro"
 
@@ -60,8 +65,7 @@ def ler_junit(caminho: Path) -> Contagem:
         if caso.find("error") is not None:
             resultado = ERRO
         elif falha is not None:
-            texto = f"{falha.get('message', '')}\n{falha.text or ''}"
-            resultado = LIMIAR if _FALHA_DE_LIMIAR.search(texto) else FALHA
+            resultado = LIMIAR if _FALHA_DE_LIMIAR.match(falha.get("message") or "") else FALHA
         elif caso.find("skipped") is not None:
             resultado = PULADO
         else:

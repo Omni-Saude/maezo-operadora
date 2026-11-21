@@ -2748,7 +2748,7 @@ jobs:
       # TIER_B_BLOQUEANTE "false" (observacao das primeiras noites com chave), reprovacao DE LIMIAR em parte
       # dos casos vira `::warning::` e nao deixa o job vermelho; erro de coleta/fixture, falha que nao e' de
       # limiar (API, credencial), 100% reprovado ou chave presente sem nenhum caso rodado falham SEMPRE
-      # (scripts/ci/tier_b_resumo.py). Voltar a bloquear: TIER_B_BLOQUEANTE "true". Sem `-rA`, `--tb=no` e
+      # (scripts/ci/tier_b_resumo.py). Voltar a bloquear: TIER_B_BLOQUEANTE "true". Sem `-rA`, `--tb=no`, `-rN` e
       # junit fora do artefato: nem a saida do modelo nem o caso vao para log/artefato, so' o id no resumo.
       - name: Nightly eval run — Tier B (ao vivo)
         if: steps.guard.outputs.run == 'true'
@@ -2764,7 +2764,7 @@ jobs:
               sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
           PY
           set +e
-          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/evals -q --tb=no -m "eval and llm_live" --junitxml="${RUNNER_TEMP}/tier-b-junit.xml"
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/evals -q --tb=no -rN -m "eval and llm_live" --junitxml="${RUNNER_TEMP}/tier-b-junit.xml"
           codigo=$?
           set -e
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I scripts/ci/tier_b_resumo.py --junit "${RUNNER_TEMP}/tier-b-junit.xml" --codigo "${codigo}"
