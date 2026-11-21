@@ -20,6 +20,7 @@ test_flag_off_build_recusa`).
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import Any
 
@@ -123,10 +124,28 @@ def test_nenhum_modulo_de_src_importa_o_agente_comercial() -> None:
 
 # --- (iii) o grafo não envia; a ação de envio é só dado -------------------------------------------------
 
-#: Palavras (segmentos separados por `_`) que denunciam uma chamada de envio. Por segmento, e não
-#: por substring: `postprocess` ou `passagem` não casam; `send_message` e `dispatch` casam.
-_SEGMENTOS_DE_ENVIO = frozenset({"send", "enviar", "dispatch", "despachar", "publish", "post", "invoke"})
+#: Segmentos do nome da chamada (separados por `_` e por camelCase) que denunciam envio. Casam por
+#: PREFIXO (`sendall`, `sendMessage`, `enviar`, `despachar`) ou, para os curtos, por igualdade
+#: (`post`, `invoke`), para que `postprocess` ou `passagem` não casem.
+_PREFIXOS_DE_ENVIO = ("send", "envia", "dispatch", "despach", "publish")
+_SEGMENTOS_EXATOS_DE_ENVIO = frozenset({"post", "invoke"})
 _CHAMADAS_DE_ENVIO = frozenset({"call_tool", "invoke_tool"})
+
+
+def _segmentos(nome: str) -> list[str]:
+    return [
+        seg.lower()
+        for parte in nome.split("_")
+        for seg in re.findall(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])", parte)
+    ]
+
+
+def _e_envio(nome: str) -> bool:
+    return nome in _CHAMADAS_DE_ENVIO or any(
+        seg.startswith(_PREFIXOS_DE_ENVIO) or seg in _SEGMENTOS_EXATOS_DE_ENVIO for seg in _segmentos(nome)
+    )
+
+
 _IMPORT_VEDADO = (
     "maezo.gateway",
     "maezo.tools",
@@ -172,9 +191,7 @@ def _envios_no_fonte(fonte: str, pacote: str = "maezo.agents.comercial") -> list
         for n in ast.walk(arvore)
         if isinstance(n, ast.Call)
     ]
-    envios = [
-        c for c in chamados if c in _CHAMADAS_DE_ENVIO or _SEGMENTOS_DE_ENVIO & set(c.lower().split("_"))
-    ]
+    envios = [c for c in chamados if _e_envio(c)]
     return envios + [m for m in _modulos_importados(fonte, pacote) if _vedado(m)]
 
 
@@ -184,6 +201,9 @@ def test_o_grafo_comercial_nao_chama_envio_nem_importa_gateway() -> None:
     # Controle: o detector acha uma chamada de envio e um import de gateway plantados.
     assert _envios_no_fonte("client.send_message(x)")
     assert _envios_no_fonte("dispatch(x)")
+    assert _envios_no_fonte("x.sendall(y)")
+    assert _envios_no_fonte("x.sendMessage(y)")
+    assert _envios_no_fonte("enviar_mensagem(y)")
     assert _envios_no_fonte("from maezo.gateway.communications import whatsapp_templates")
     assert _envios_no_fonte("import httpx")
     assert _envios_no_fonte("from ...gateway import effect_classes")
