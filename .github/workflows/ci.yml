@@ -1493,12 +1493,35 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      # Chave do cache Maven = hash dos poms E a versao do Maven do runner. O `install` (e os outros plugins
+      # sem versao no pom) vem do binding padrao do Maven, que muda com a imagem: 3.9.12- liga
+      # maven-install-plugin 3.1.2, 3.9.13+ liga 3.1.4. Com a chave so' pelos poms, o cache salvo com o Maven
+      # antigo nunca e' regravado (hit => "not saving") e TODO run baixava o 3.1.4 da Central (10 artefatos,
+      # medido) — e caia no 429 dela. Versao nova => uma execucao fria E verde regrava o cache (sem
+      # restore-keys: ela baixa tudo uma vez; vermelha, nao salva e a proxima tambem e' fria). Sem `-o`:
+      # dependencia nova continua resolvida (ou falha clara), nunca mascarada. A chave deixa de ser
+      # compartilhada com o job CodeQL java (security.yml, `cache: maven` so' pelos poms, `package` sem
+      # install): antes, quem salvasse primeiro definia o conteudo do cache dos dois.
+      - name: Versao do Maven do runner (entra na chave do cache)
+        # So' o numero da versao (Java/SO/locale/caminho nao mudam a chave). Arquivo GERADO dentro de
+        # `target/` (ignorado pelo .gitignore, nunca versionado), relativo ao workspace como o setup-java le.
+        run: |
+          set -o pipefail
+          mkdir -p src/maezo/portal/engine/java/target
+          mvn -v | head -n 1 | awk '/^Apache Maven [0-9]/ {print $3}' \
+            | tee "$GITHUB_WORKSPACE/src/maezo/portal/engine/java/target/maven-versao-ci.txt"
+          grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' "$GITHUB_WORKSPACE/src/maezo/portal/engine/java/target/maven-versao-ci.txt"
+
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
         with:
           # 17: `maven.compiler.release` do pom (src/maezo/portal/engine/java/pom.xml).
           java-version: "17"
           distribution: temurin
           cache: maven
+          cache-dependency-path: |
+            src/maezo/portal/engine/java/pom.xml
+            src/maezo/portal/engine/read-provider/pom.xml
+            src/maezo/portal/engine/java/target/maven-versao-ci.txt
 
       - name: mvn install (verify + JAR do engine para o provedor)
         run: mvn -B -f src/maezo/portal/engine/java/pom.xml install
