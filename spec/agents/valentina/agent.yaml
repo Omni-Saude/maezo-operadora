@@ -10,8 +10,8 @@ security_zone: phi                             # Zona PHI integral (ADR-0006/D10
 graph: graph.py:build
 prompt_versions:                               # versionados (ADR-0009) — gate de eval no golden
   system: system-v2
-  stratification: stratification-v1            # dossie de estratificacao de risco (care.stratify)
-  care_plan: care-plan-v1                      # dossie de plano de cuidado (care.enroll)
+  stratification: stratification-v2            # dossie de estratificacao de risco (care.stratify)
+  care_plan: care-plan-v2                      # dossie de plano de cuidado (care.enroll)
 model:
   task_default: { tier: fast }                 # gather/assess/montagem do dossie
   reasoning:    { tier: frontier }             # casos clinicos ambiguos / risco alto / plano complexo

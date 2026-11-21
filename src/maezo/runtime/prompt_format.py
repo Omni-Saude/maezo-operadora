@@ -565,6 +565,19 @@ def render_untrusted_block(
     )
 
 
+def sem_chaves_retiradas(facts: Mapping[str, Any], retiradas: Iterable[str]) -> dict[str, Any]:
+    """Copia rasa de `facts` SEM as chaves que o sitio tira do prompt DE PROPOSITO (U1c).
+
+    O sitio recorta so' o que DECIDIU tirar (identificadores, chaves de vinculo), nunca pela lista
+    `permitidos`: assim uma chave NOVA que um montador acrescente a `fatos` chega ao renderizador,
+    e' descartada LA' e aparece no log `prompt_fatos_chaves_fora_da_lista_descartadas` e no
+    contador `maezo_prompt_fatos_descartados_total{agente}` (DL-0191). Recortar pela propria lista
+    `permitidos` calaria esse alarme. COPIA, NUNCA MUTA: `facts` segue intacto para o dossie.
+    """
+    excluidas = frozenset(retiradas)
+    return {chave: valor for chave, valor in facts.items() if chave not in excluidas}
+
+
 def sem_campos_nao_confiaveis(facts: Mapping[str, Any], campos: Iterable[str]) -> dict[str, Any]:
     """Copia rasa de `facts` SEM os campos que viajam em bloco NAO CONFIAVEL.
 
@@ -602,5 +615,6 @@ __all__ = [
     "render_fatos_para_prompt",
     "render_untrusted_block",
     "sem_campos_nao_confiaveis",
+    "sem_chaves_retiradas",
     "stable_prefix_is_byte_stable",
 ]

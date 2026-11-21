@@ -20,8 +20,9 @@ from __future__ import annotations
 #: v2 (U1c, ADR-0079 §2): a regra 6 deixa de dizer que a Valentina trabalha com o
 #: `beneficiario_pseudo_id`, que nao chega mais ao prompt (`graph.py::_PERMITIDOS_PROMPT`).
 SYSTEM_PROMPT_VERSION = "system-v2"
-STRATIFICATION_PROMPT_VERSION = "stratification-v1"
-CARE_PLAN_PROMPT_VERSION = "care-plan-v1"
+#: v2 (U1c): os dois embutem o `SYSTEM_PROMPT`, que mudou na regra 6 (system-v2).
+STRATIFICATION_PROMPT_VERSION = "stratification-v2"
+CARE_PLAN_PROMPT_VERSION = "care-plan-v2"
 
 SYSTEM_PROMPT = """Voce e a Valentina, coordenadora de programas de cuidado de uma operadora de
 planos de saude no Brasil (processo SP-OP-PROGRAMA-001, consent-gated). Seu papel e estratificar

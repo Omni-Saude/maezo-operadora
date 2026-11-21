@@ -205,7 +205,7 @@ from maezo.runtime.error_text import (
 )
 from maezo.runtime.guards import require_iso8601_duration
 from maezo.runtime.inference import InferenceProvider
-from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.prompt_format import render_fatos_para_prompt, sem_chaves_retiradas
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -689,6 +689,11 @@ _PERMITIDOS_PROMPT_DOSSIE: Final[frozenset[str]] = frozenset(
     }
 )
 
+#: U1c: as chaves que este sitio tira do prompt DE PROPOSITO (as da lista acima que ficaram de fora).
+#: O recorte tira SO' estas (`sem_chaves_retiradas`); o resto do fechamento e' do renderizador, que
+#: descarta e CONTA uma chave nova de um montador (log + `maezo_prompt_fatos_descartados_total`).
+_RETIRADAS_DO_PROMPT: Final[frozenset[str]] = frozenset({"numero_contrato"})
+
 
 class FernandoGraph:
     """Wires Fernando's injected dependencies into a compilable `StateGraph[FernandoState]`.
@@ -1065,9 +1070,9 @@ class FernandoGraph:
         }
         intencao = state.get("intencao")
         intencao_validated = intencao if intencao in _VALID_INTENCOES else None
-        # U1c: `facts` segue intacto no retorno; o prompt recebe so' o recorte da lista fechada.
+        # U1c: `facts` segue intacto no retorno; o prompt o recebe sem as chaves retiradas.
         fatos_txt = render_fatos_para_prompt(
-            {chave: valor for chave, valor in facts.items() if chave in _PERMITIDOS_PROMPT_MENSAGEM},
+            sem_chaves_retiradas(facts, _RETIRADAS_DO_PROMPT),
             booleanos=_FATOS_BOOLEANOS_MENSAGEM,
             permitidos=_PERMITIDOS_PROMPT_MENSAGEM,
             agente="fernando",
@@ -1132,9 +1137,9 @@ class FernandoGraph:
             "fonte_regulatoria_sla": state.get("fonte_regulatoria_sla"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
-        # U1c: `facts` segue intacto no retorno; o prompt recebe so' o recorte da lista fechada.
+        # U1c: `facts` segue intacto no retorno; o prompt o recebe sem as chaves retiradas.
         fatos_txt = render_fatos_para_prompt(
-            {chave: valor for chave, valor in facts.items() if chave in _PERMITIDOS_PROMPT_DOSSIE},
+            sem_chaves_retiradas(facts, _RETIRADAS_DO_PROMPT),
             booleanos=_FATOS_BOOLEANOS_DOSSIE,
             permitidos=_PERMITIDOS_PROMPT_DOSSIE,
             agente="fernando",

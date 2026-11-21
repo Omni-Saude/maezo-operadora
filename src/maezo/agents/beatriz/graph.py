@@ -152,7 +152,7 @@ from langgraph.graph import END, START, StateGraph
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.guards import require_number
 from maezo.runtime.inference import InferenceProvider
-from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.prompt_format import render_fatos_para_prompt, sem_chaves_retiradas
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
 
 from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
@@ -500,6 +500,22 @@ _PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(
     }
 )
 
+#: U1c: as chaves que este sitio tira do prompt DE PROPOSITO (as da lista acima que ficaram de fora).
+#: O recorte tira SO' estas (`sem_chaves_retiradas`); o resto do fechamento e' do renderizador, que
+#: descarta e CONTA uma chave nova de um montador (log + `maezo_prompt_fatos_descartados_total`).
+_RETIRADAS_DO_PROMPT: Final[frozenset[str]] = frozenset(
+    {
+        "numero_caso",
+        "tenant_id",
+        "entidade_pseudo_id",
+        "prestador_id",
+        "beneficiario_pseudo_id",
+        "numero_contrato",
+        "feature_snapshot_ref",
+        "resumo_fhir",
+    }
+)
+
 
 class BeatrizGraph:
     """Wires Beatriz's injected dependencies into a compilable `StateGraph[BeatrizState]`."""
@@ -641,8 +657,8 @@ class BeatrizGraph:
         if score_lacuna:
             lacunas.append(score_lacuna)
 
-        # U1c: `facts` segue intacto no dossie; o prompt recebe so' o recorte da lista fechada.
-        fatos_do_prompt = {chave: valor for chave, valor in facts.items() if chave in _PERMITIDOS_PROMPT}
+        # U1c: `facts` segue intacto no dossie; o prompt recebe `facts` sem as chaves retiradas.
+        fatos_do_prompt = sem_chaves_retiradas(facts, _RETIRADAS_DO_PROMPT)
         fatos_txt = render_fatos_para_prompt(
             fatos_do_prompt, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_PROMPT, agente="beatriz"
         )

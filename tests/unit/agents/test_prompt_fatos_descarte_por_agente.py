@@ -27,6 +27,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+import structlog
 
 from maezo.platform.observability import get_metrics_collector
 from maezo.runtime import prompt_format
@@ -315,11 +316,89 @@ def test_todo_agente_do_vocabulario_tem_sitio_de_referencia() -> None:
     assert {s["agente"] for s in _SITIOS} == PROMPT_FATOS_AGENTES
 
 
+#: Sitio -> (atributo da lista de RETIRADAS do modulo, campos de texto livre que vao em bloco
+#: proprio). U1c: o sitio recorta so' o que retira de proposito; retiradas + texto livre =
+#: `DESCARTE_ESPERADO`, e nenhuma retirada esta na lista `permitidos` do sitio.
+_RETIRADAS_POR_SITIO: dict[str, tuple[str, frozenset[str]]] = {
+    "rafael._build_dossier": ("_RETIRADAS_DO_PROMPT", frozenset()),
+    "marina._build_dossier/contas": ("_RETIRADAS_DO_PROMPT_CONTAS", frozenset()),
+    "marina._build_dossier/recurso": ("_RETIRADAS_DO_PROMPT_RECURSO", frozenset()),
+    "marina._build_dossier/reembolso": ("_RETIRADAS_DO_PROMPT_REEMBOLSO", frozenset()),
+    "valentina._build_dossier/stratify": ("_RETIRADAS_DO_PROMPT", frozenset()),
+    "valentina._build_dossier/enroll": ("_RETIRADAS_DO_PROMPT", frozenset()),
+    "gustavo._build_dossier/ans_submit": ("_RETIRADAS_DO_PROMPT_ANS_SUBMIT", frozenset()),
+    "gustavo._build_dossier/nip": (
+        "_RETIRADAS_DO_PROMPT_NIP",
+        frozenset({"tema_nip", "referencia_negativa_original"}),
+    ),
+    "beatriz._build_dossier": ("_RETIRADAS_DO_PROMPT", frozenset()),
+    "carolina._build_dossier": ("_RETIRADAS_DO_PROMPT", frozenset({"motivo_informado"})),
+    "andre._build_dossier/pagto_dossier": ("_RETIRADAS_DO_PROMPT", frozenset()),
+    "andre._build_dossier/adequacao_dossier": ("_RETIRADAS_DO_PROMPT", frozenset()),
+    "fernando._build_message": ("_RETIRADAS_DO_PROMPT", frozenset()),
+    "fernando._build_dossier": ("_RETIRADAS_DO_PROMPT", frozenset()),
+    "lucas._build_message": ("_RETIRADAS_DO_PROMPT", frozenset()),
+}
+
+
+def test_todo_sitio_declara_as_retiradas() -> None:
+    assert set(_RETIRADAS_POR_SITIO) == {s["sitio"] for s in _SITIOS}
+
+
+@pytest.mark.parametrize("sitio", _SITIOS, ids=lambda s: s["sitio"])
+async def test_as_retiradas_do_sitio_sao_o_descarte_esperado(
+    sitio: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib
+
+    modulo = importlib.import_module(f"maezo.agents.{sitio['agente']}.graph")
+    atributo, texto_livre = _RETIRADAS_POR_SITIO[sitio["sitio"]]
+    retiradas = getattr(modulo, atributo)
+    chamadas, _ = await _rodar(sitio, monkeypatch)
+    _, permitidos = chamadas[0]
+
+    assert isinstance(retiradas, frozenset)
+    assert retiradas | texto_livre == DESCARTE_ESPERADO.get(sitio["sitio"], frozenset())
+    assert not retiradas & permitidos
+
+
+@pytest.mark.parametrize("sitio", _SITIOS, ids=lambda s: s["sitio"])
+async def test_chave_nova_num_montador_chega_ao_renderizador_e_e_contada(
+    sitio: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """U1c, nao-vacuidade do ALARME: o sitio recorta so' as retiradas, entao uma chave que um
+    montador passe a mandar chega ao renderizador, sai do prompt, entra no log de descarte (so' o
+    nome) e anda o contador `maezo_prompt_fatos_descartados_total{agente}`. A chave nova e'
+    injetada no ponto em que o recorte do sitio a receberia (`sem_chaves_retiradas`)."""
+    import importlib
+
+    modulo = importlib.import_module(f"maezo.agents.{sitio['agente']}.graph")
+    original = modulo.sem_chaves_retiradas
+
+    def _com_chave_nova(facts: Any, retiradas: Any) -> dict[str, Any]:
+        com_nova: dict[str, Any] = original(
+            {**facts, "chave_nova_sintetica": "SENTINELA-NOVA-0001"}, retiradas
+        )
+        return com_nova
+
+    monkeypatch.setattr(modulo, "sem_chaves_retiradas", _com_chave_nova)
+    antes = _descartes(sitio["agente"])
+
+    with structlog.testing.capture_logs() as logs:
+        chamadas, _ = await _rodar(sitio, monkeypatch)
+
+    chaves, permitidos = chamadas[0]
+    assert "chave_nova_sintetica" in chaves - permitidos  # chega ao renderizador...
+    assert _descartes(sitio["agente"]) == antes + 1  # ...e' contada...
+    eventos = [e for e in logs if e["event"] == "prompt_fatos_chaves_fora_da_lista_descartadas"]
+    assert [e["chaves"] for e in eventos] == [["chave_nova_sintetica"]]  # ...e registrada pelo nome
+    assert "SENTINELA-NOVA-0001" not in repr(logs)
+
+
 async def test_chave_nova_num_montador_e_acusada(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prova de nao-vacuidade (revisao de e9b3c3bd, F1): uma chave nova em
-    `ValentinaGraph._care_facts` fica FORA do prompt (o recorte da lista fechada a tira antes do
-    renderizador, U1c) E faz o teste de referencia falhar. O descarte contado pelo renderizador,
-    para quem nao recorta antes, e' provado em `tests/unit/runtime/test_prompt_format_permitidos.py`."""
+    `ValentinaGraph._care_facts` some do prompt pelo renderizador, que CONTA o descarte, E faz o
+    teste de referencia falhar."""
     from maezo.agents.valentina.graph import ValentinaGraph
 
     original = ValentinaGraph._care_facts
@@ -329,11 +408,13 @@ async def test_chave_nova_num_montador_e_acusada(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(ValentinaGraph, "_care_facts", staticmethod(_com_chave_nova))
     sitio = next(s for s in _SITIOS if s["sitio"] == "valentina._build_dossier/stratify")
+    antes = _descartes("valentina")
 
     chamadas, fatos = await _rodar(sitio, monkeypatch)
 
     chaves, permitidos = chamadas[0]
-    assert "chave_nova_sintetica" not in chaves  # o recorte a tira antes do renderizador...
+    assert "chave_nova_sintetica" in chaves - permitidos  # o renderizador a descarta...
+    assert _descartes("valentina") == antes + 1  # ...conta o descarte...
     assert fatos is not None
     assert "chave_nova_sintetica" in set(fatos) - permitidos  # ...ela segue no dossie...
     assert set(fatos) - permitidos != DESCARTE_ESPERADO.get(sitio["sitio"], frozenset())  # ...e e' acusada

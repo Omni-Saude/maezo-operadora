@@ -24,9 +24,10 @@ SYSTEM_PROMPT_VERSION = "system-v3"
 #: v3 (DL-0191): o texto deixa de pedir campo que nao chega mais ao prompt — guia, lote, conta,
 #: `glosa_id`, CID-10, protocolo, paciente, documentos e resumo FHIR. Os identificadores do caso seguem
 #: no dossie estruturado (`fatos`) e nas variaveis do processo, por codigo; o modelo nao os ve.
-DOSSIER_PROMPT_VERSION = "dossier-v3"
-RECURSO_PROMPT_VERSION = "recurso-v3"
-REEMBOLSO_PROMPT_VERSION = "reembolso-v3"
+#: v4 (U1c): os tres embutem o `SYSTEM_PROMPT`, que mudou na regra 7 (system-v3).
+DOSSIER_PROMPT_VERSION = "dossier-v4"
+RECURSO_PROMPT_VERSION = "recurso-v4"
+REEMBOLSO_PROMPT_VERSION = "reembolso-v4"
 
 #: Frase comum aos tres fluxos (DL-0191): diz ao modelo que os identificadores do caso nao vem no
 #: contexto e que ele nao os cita nem inventa. Generica de proposito: nomear cada identificador

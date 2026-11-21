@@ -140,7 +140,7 @@ from maezo.runtime.error_text import (
     start_unavailable_error,
 )
 from maezo.runtime.inference import InferenceProvider
-from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.prompt_format import render_fatos_para_prompt, sem_chaves_retiradas
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -449,6 +449,11 @@ _PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(
         "lacunas_enriquecimento",
     }
 )
+
+#: U1c: as chaves que este sitio tira do prompt DE PROPOSITO (as da lista acima que ficaram de fora).
+#: O recorte tira SO' estas (`sem_chaves_retiradas`); o resto do fechamento e' do renderizador, que
+#: descarta e CONTA uma chave nova de um montador (log + `maezo_prompt_fatos_descartados_total`).
+_RETIRADAS_DO_PROMPT: Final[frozenset[str]] = frozenset({"beneficiario_pseudo_id"})
 
 
 class ValentinaGraph:
@@ -945,8 +950,8 @@ class ValentinaGraph:
 
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
-        # U1c: `facts` segue intacto no dossie; o prompt recebe so' o recorte da lista fechada.
-        fatos_do_prompt = {chave: valor for chave, valor in facts.items() if chave in _PERMITIDOS_PROMPT}
+        # U1c: `facts` segue intacto no dossie; o prompt recebe `facts` sem as chaves retiradas.
+        fatos_do_prompt = sem_chaves_retiradas(facts, _RETIRADAS_DO_PROMPT)
         fatos_txt = render_fatos_para_prompt(
             fatos_do_prompt, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_PROMPT, agente="valentina"
         )

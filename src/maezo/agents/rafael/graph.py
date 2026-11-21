@@ -81,6 +81,7 @@ from maezo.runtime.error_text import (
 )
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_fatos_para_prompt as render_fatos
+from maezo.runtime.prompt_format import sem_chaves_retiradas
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -446,18 +447,22 @@ _CHAVES_FATOS_PROMPT: Final[tuple[str, ...]] = (
 
 
 #: A mesma lista como `frozenset`, que e' o tipo que o renderizador do runtime exige em
-#: `permitidos` (DL-0191). O recorte de `fatos_para_prompt` continua: e' ele que fixa a ordem e
-#: que deixa o descarte do renderizador valer como alarme (chave inesperada), e nao como rotina
-#: a cada dossie.
+#: `permitidos` (DL-0191).
 _PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(_CHAVES_FATOS_PROMPT)
+
+#: U1c: as chaves que este sitio tira do prompt DE PROPOSITO (DL-0190). O recorte de
+#: `fatos_para_prompt` tira SO' estas: uma chave nova em `fatos` chega ao renderizador, que a
+#: descarta por estar fora de `_PERMITIDOS_PROMPT` e o registra (log + contador) — o alarme.
+_RETIRADAS_DO_PROMPT: Final[frozenset[str]] = frozenset({"numero_guia_tiss", "cid10"})
 
 
 def fatos_para_prompt(facts: dict[str, Any]) -> dict[str, Any]:
-    """Recorta `fatos` pela lista fechada `_CHAVES_FATOS_PROMPT` (DL-0190).
+    """Tira de `fatos` as chaves retiradas de proposito (`_RETIRADAS_DO_PROMPT`, DL-0190).
 
-    So' leitura: o dicionario do dossie nao muda. Chave da lista ausente em `facts` nao entra.
+    So' leitura: o dicionario do dossie nao muda. Mantem a ordem do montador. O resto do
+    fechamento (lista `_PERMITIDOS_PROMPT`) e' do renderizador, que conta o que descarta.
     """
-    return {chave: facts[chave] for chave in _CHAVES_FATOS_PROMPT if chave in facts}
+    return sem_chaves_retiradas(facts, _RETIRADAS_DO_PROMPT)
 
 
 def render_fatos_para_prompt(facts: dict[str, Any]) -> str:
@@ -853,7 +858,8 @@ class RafaelGraph:
         }
         # `render_fatos_para_prompt` no lugar de `fatos={facts}`: ver `_FATOS_BOOLEANOS`.
         # O dicionario `facts` segue intacto no dossie devolvido logo abaixo; o prompt recebe so'
-        # o recorte da lista fechada `_CHAVES_FATOS_PROMPT` (DL-0190: sem guia nem CID-10).
+        # `facts` sem as chaves retiradas (DL-0190: sem guia nem CID-10); o renderizador fecha pela
+        # lista `_CHAVES_FATOS_PROMPT` e conta o que descartar.
         prompt = (
             f"{dossier_prompt()}\n\nroute={route} motivo_auditor={motivo_auditor}\n"
             f"{render_fatos_para_prompt(fatos_para_prompt(facts))}"

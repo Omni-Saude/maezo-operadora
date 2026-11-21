@@ -659,3 +659,41 @@ async def test_lucas_boleto_cru_nunca_chega_ao_prompt(cru: str, monkeypatch: pyt
 
     assert vistos == [None]
     assert cru not in prompt
+
+
+@pytest.mark.parametrize("rotulo", ["****0037\n", "****0037 ", " ****0037"])
+async def test_lucas_rotulo_com_espaco_ou_quebra_nas_pontas(
+    rotulo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`$` aceitava a quebra de linha final e o rotulo ia ao prompt com ela; espaco nas pontas
+    reprovava o rotulo. Agora os dois viram `final 0037`, como a cerca de saida le."""
+    prompt, vistos = await _prompt_do_lucas(_lucas_lembrete(rotulo), monkeypatch)
+
+    assert vistos == ["final 0037"]
+    assert lucas.boleto_no_texto(rotulo) == "boleto final 0037"
+
+
+@pytest.mark.parametrize("referencia", ["", "   ", "\n\t"])
+async def test_gustavo_referencia_so_de_espaco_e_ausente(
+    referencia: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mesma leitura do worker (`tools/workers/nip.py`): referencia so' de espaco nao foi informada."""
+    sitio = next(s for s in SITIOS if s.nome == "gustavo/nip")
+
+    prompt, _, _, _ = await _rodar(
+        sitio, {**sitio.estado, "referencia_negativa_original": referencia}, monkeypatch
+    )
+
+    assert gustavo._REFERENCIA_INFORMADA not in prompt
+
+
+async def test_beatriz_resumo_fhir_nao_chega_ao_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    sitio = next(s for s in SITIOS if s.nome == "beatriz")
+    sentinela = _sentinela("resumo_fhir")
+    resumo = {"resourceType": "Patient", "id": sentinela}
+
+    prompt, chaves, _, dossie = await _rodar(sitio, {**sitio.estado, "summary_facts": resumo}, monkeypatch)
+
+    assert "resumo_fhir" not in chaves
+    assert sentinela not in prompt
+    assert dossie["fatos"]["resumo_fhir"] == resumo

@@ -169,6 +169,7 @@ from maezo.runtime.prompt_format import (
     render_fatos_para_prompt,
     render_untrusted_block,
     sem_campos_nao_confiaveis,
+    sem_chaves_retiradas,
 )
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
@@ -549,6 +550,12 @@ _PERMITIDOS_PROMPT_NIP: Final[frozenset[str]] = frozenset(
         "lacunas_enriquecimento",
     }
 )
+
+#: U1c: as chaves que este sitio tira do prompt DE PROPOSITO (as da lista acima que ficaram de fora).
+#: O recorte tira SO' estas (`sem_chaves_retiradas`); o resto do fechamento e' do renderizador, que
+#: descarta e CONTA uma chave nova de um montador (log + `maezo_prompt_fatos_descartados_total`).
+_RETIRADAS_DO_PROMPT_ANS_SUBMIT: Final[frozenset[str]] = frozenset()
+_RETIRADAS_DO_PROMPT_NIP: Final[frozenset[str]] = frozenset({"numero_nip_ans", "protocolo_ans"})
 
 
 def _texto_livre_redigido(valor: object) -> str | None:
@@ -1008,14 +1015,21 @@ class GustavoGraph:
         # que preserva o prefixo cacheavel e o baseline de eval — e um bloco vazio DIZ que o campo
         # nao trouxe conteudo, em vez de deixar o modelo inferir por que ele sumiu (mesmo principio
         # do `SEM DADO` de `render_fatos_para_prompt`).
-        # U1c: e o recorte da lista fechada do fluxo (sem os numeros da NIP na ANS).
-        fatos_para_prompt = {
-            chave: valor
-            for chave, valor in sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS).items()
-            if chave in permitidos
-        }
+        # U1c: e sem as chaves retiradas do fluxo (os numeros da NIP na ANS); o renderizador fecha
+        # pela lista e conta o que descartar.
+        retiradas = (
+            _RETIRADAS_DO_PROMPT_ANS_SUBMIT
+            if state.get("fluxo") == "ans_submit"
+            else _RETIRADAS_DO_PROMPT_NIP
+        )
+        fatos_para_prompt = sem_chaves_retiradas(
+            sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS), retiradas
+        )
         tema_nip = _texto_livre_redigido(facts.get("tema_nip"))
-        referencia = _REFERENCIA_INFORMADA if facts.get("referencia_negativa_original") else None
+        # Presenca com a mesma leitura do worker (`tools/workers/nip.py`): so' espaco e' ausente.
+        referencia = (
+            _REFERENCIA_INFORMADA if str(facts.get("referencia_negativa_original") or "").strip() else None
+        )
         fatos_txt = render_fatos_para_prompt(
             fatos_para_prompt, booleanos=booleanos, permitidos=permitidos, agente="gustavo"
         )

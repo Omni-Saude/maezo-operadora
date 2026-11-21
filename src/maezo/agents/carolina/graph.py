@@ -174,6 +174,7 @@ from maezo.runtime.prompt_format import (
     render_fatos_para_prompt,
     render_untrusted_block,
     sem_campos_nao_confiaveis,
+    sem_chaves_retiradas,
 )
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
@@ -541,6 +542,11 @@ _PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(
         "lacunas_enriquecimento",
     }
 )
+
+#: U1c: as chaves que este sitio tira do prompt DE PROPOSITO (as da lista acima que ficaram de fora).
+#: O recorte tira SO' estas (`sem_chaves_retiradas`); o resto do fechamento e' do renderizador, que
+#: descarta e CONTA uma chave nova de um montador (log + `maezo_prompt_fatos_descartados_total`).
+_RETIRADAS_DO_PROMPT: Final[frozenset[str]] = frozenset({"prestador_id", "protocolo_cred"})
 
 
 def _texto_livre_redigido(valor: object) -> str | None:
@@ -946,12 +952,11 @@ class CarolinaGraph:
         facts = self._cred_facts(state)
         # HEL-06: `facts` segue INTACTO para o dossie e para a proveniencia (ADR-0007); so' a
         # COPIA que vai ao modelo perde o texto livre, que reaparece logo abaixo demarcado.
-        # U1c: e o recorte da lista fechada (sem o identificador do prestador nem o protocolo).
-        fatos_para_prompt = {
-            chave: valor
-            for chave, valor in sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS).items()
-            if chave in _PERMITIDOS_PROMPT
-        }
+        # U1c: e sem as chaves retiradas (o identificador do prestador e o protocolo); o
+        # renderizador fecha pela lista e conta o que descartar.
+        fatos_para_prompt = sem_chaves_retiradas(
+            sem_campos_nao_confiaveis(facts, _CAMPOS_NAO_CONFIAVEIS), _RETIRADAS_DO_PROMPT
+        )
         motivo_informado = _texto_livre_redigido(facts.get("motivo_informado"))
         fatos_txt = render_fatos_para_prompt(
             fatos_para_prompt,

@@ -26,6 +26,7 @@ from maezo.agents.marina.graph import (
     _PERMITIDOS_PROMPT_CONTAS,
     _PERMITIDOS_PROMPT_RECURSO,
     _PERMITIDOS_PROMPT_REEMBOLSO,
+    _RETIRADAS_DO_PROMPT_RECURSO,
     MarinaGraph,
     MarinaState,
     fatos_para_prompt,
@@ -388,7 +389,7 @@ async def test_as_variaveis_do_processo_seguem_com_guia_nas_contas(
 
 def test_o_recorte_nao_muta_o_dicionario_do_dossie() -> None:
     fatos = {"numero_guia_tiss": GUIA_SINTETICA, "cid10": CID_SINTETICO, "sla_analise": "P5D"}
-    recorte = fatos_para_prompt(fatos, _PERMITIDOS_PROMPT_RECURSO)
+    recorte = fatos_para_prompt(fatos, _RETIRADAS_DO_PROMPT_RECURSO)
 
     assert recorte == {"sla_analise": "P5D"}
     assert fatos["cid10"] == CID_SINTETICO and fatos["numero_guia_tiss"] == GUIA_SINTETICA
