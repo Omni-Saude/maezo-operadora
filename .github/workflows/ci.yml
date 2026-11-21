@@ -2721,7 +2721,11 @@ jobs:
             echo "there — no workflow edit needed."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Full nightly eval run
+      # O alvo `make evals` (`-m eval`) partido em dois passos, sem perder caso: Tier A (replay) bloqueia como
+      # antes; Tier B (ao vivo, `llm_live`) roda com MAEZO_ANTHROPIC_API_KEY e tem resultado proprio no
+      # resumo. A uniao das duas selecoes e' provada igual a do `make evals` lido do Makefile por
+      # tests/unit/ci/test_evals_nightly_tier_b.py.
+      - name: Nightly eval run — Tier A (replay, bloqueante)
         if: steps.guard.outputs.run == 'true'
         run: |
           set -e
@@ -2734,15 +2738,44 @@ jobs:
           if actual != expected:
               sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
           PY
-          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make evals
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/evals -q -m "eval and not llm_live" || [ $? -eq 5 ]
         env:
           LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
           NIGHTLY_EVAL: "1"
+
+      # Tier B (ao vivo). Sem o segredo, todo caso e' pulado e o resumo diz "NAO RODOU". Com
+      # TIER_B_BLOQUEANTE "false" (observacao das primeiras noites com chave), caso abaixo do limiar vira
+      # `::warning::` e nao deixa o job vermelho; erro de coleta ou zero casos falham SEMPRE
+      # (scripts/ci/tier_b_resumo.py). Voltar a bloquear: TIER_B_BLOQUEANTE "true".
+      - name: Nightly eval run — Tier B (ao vivo)
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          set +e
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/evals -q -rA -m "eval and llm_live" --junitxml=tier-b-junit.xml
+          codigo=$?
+          set -e
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I scripts/ci/tier_b_resumo.py --junit tier-b-junit.xml --codigo "${codigo}"
+        env:
+          MAEZO_ANTHROPIC_API_KEY: ${{ secrets.MAEZO_ANTHROPIC_API_KEY }}
+          NIGHTLY_EVAL: "1"
+          TIER_B_BLOQUEANTE: "false"
 
       - name: Upload nightly eval results
         if: always() && steps.guard.outputs.run == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: nightly-eval-results-${{ github.sha }}
-          path: .pytest_cache/
+          path: |
+            .pytest_cache/
+            tier-b-junit.xml
           retention-days: 30
