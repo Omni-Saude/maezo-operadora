@@ -13,13 +13,11 @@ entrada `rco_` de `dmn_versions` (no fato `SHADOW` do AUTH e na auditoria do int
 (`structlog.testing.capture_logs`) ou em rotulo de metrica `maezo_rco*`. So nomes de regra e de decisao, ids,
 codigos fechados e hashes.
 
-ACHADO REGISTRADO (nao corrigido aqui, por instrucao): a auditoria do montador grava `derivacoes` com
-`diasBrutos` e `valorEntregue` — o VALOR da entrada derivada `diasAlemDoPrazoContratual` — na entrada `rco_`
-de `dmn_versions` (`src/maezo/tools/workers/rco_sombra.py:184` `auditoria_das_entradas`, mesclada em
-`src/maezo/tools/workers/_audit_ctx.py:184`, origem `src/maezo/tools/workers/rco_montador.py:1370`). Hoje
-nenhum caminho real o preenche (o intake de contas entrega os termos sem produtor), mas um produtor futuro o
-faria. `test_derivacoes_gravam_o_valor_da_entrada_derivada` fixa o achado como `xfail(strict=True)`: no dia em
-que a auditoria deixar de levar o valor, o teste passa e fica VERMELHO, e quem corrigir o remove.
+DERIVACOES. A auditoria do montador (MZO-TOL) grava em `derivacoes` o valor entregue a tabela e os dias
+brutos de `diasAlemDoPrazoContratual` (`rco_sombra.py` `auditoria_das_entradas`). E calendario do processo,
+CLEAN na cerca PHI, e a regra e sobre variavel LIST. O teste
+`test_derivacoes_so_levam_valor_de_entrada_que_nao_e_dado_de_saude` reprova se uma derivacao nova for de
+nome LIST ou com disposicao PHI.
 
 (2) FALHA ENGOLIDA. Erro do motor, erro inesperado, prazo esgotado e falha de escrita do registro dentro da
 sombra: no AUTH (depois do complete) a tarefa completa uma vez, com as mesmas variaveis, sem falha, sem
@@ -32,7 +30,6 @@ from __future__ import annotations
 import asyncio
 import copy
 import functools
-import json
 from collections.abc import Iterator
 from datetime import date, timedelta
 from types import MappingProxyType
@@ -322,17 +319,16 @@ def test_contas_pelo_harness_nada_do_caso_no_registro_da_sombra() -> None:
     _assert_metricas_limpas()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "ACHADO (nao corrigido): rco_sombra.py:184 auditoria_das_entradas grava derivacoes.valorEntregue e "
-        "diasBrutos (o valor de diasAlemDoPrazoContratual) na entrada rco_ de dmn_versions"
-    ),
-)
-def test_derivacoes_gravam_o_valor_da_entrada_derivada() -> None:
-    """Com o prazo do contrato informado, o valor ENTREGUE a tabela vai a auditoria. Fica `xfail` estrito."""
-    entregue: dict[str, Any] = {}
+def test_derivacoes_so_levam_valor_de_entrada_que_nao_e_dado_de_saude() -> None:
+    """A auditoria do montador (MZO-TOL) grava em `derivacoes` o valor ENTREGUE a tabela e os dias brutos.
+
+    Regra da coordenacao (PR do pin): o registro da sombra nao persiste valor de variavel LIST fora da
+    zona PHI. Hoje so `diasAlemDoPrazoContratual` tem derivacao, e ela e calendario do processo (CLEAN na
+    cerca PHI, sem disposicao). O teste fixa as duas coisas: o valor vai (desenho do MZO-TOL, conferivel
+    pelo auditor) e TODA chave de `derivacoes` e um nome CLEAN sem disposicao. Derivacao nova de nome LIST
+    ou com disposicao PHI reprova aqui, e quem a criar tem de tirar o valor da auditoria antes.
+    """
+    from maezo.platform.validation import phi_completeness as phi
 
     def fatos(versao_k3: tuple[int, int]) -> mt.FatosDoCaso:
         base = _fatos_contas_com_sentinelas(versao_k3)
@@ -349,10 +345,14 @@ def test_derivacoes_gravam_o_valor_da_entrada_derivada() -> None:
     with collect_dmn_versions() as versoes, collect_rco_avaliacoes():
         rco_sombra.avaliar_em_sombra(dmn, PRAZOS, fatos, topico=TOPICO_CONTAS)
     [(_, enviadas)] = dmn.calls
-    entregue["valor"] = enviadas["diasAlemDoPrazoContratual"]
-    assert isinstance(entregue["valor"], int)
+    entregue = enviadas["diasAlemDoPrazoContratual"]
+    assert isinstance(entregue, int)
     gravados = versoes[PRAZOS].get("derivacoes", {})
-    assert entregue["valor"] not in json.loads(json.dumps(_inteiros(gravados)))
+    assert set(gravados) == {"diasAlemDoPrazoContratual"}
+    assert entregue in _inteiros(gravados)
+    for nome in gravados:
+        assert nome not in phi.DISPOSITIONS, nome
+        assert phi.classify(nome) == phi.CLEAN, nome
 
 
 def _inteiros(objeto: Any) -> list[int]:
