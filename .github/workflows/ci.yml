@@ -1523,6 +1523,12 @@ jobs:
             src/maezo/portal/engine/read-provider/pom.xml
             src/maezo/portal/engine/java/target/maven-versao-ci.txt
 
+      # Marcador DEPOIS do restore do cache (setup-java) e antes do 1o mvn. A contagem usa o ctime: o Maven
+      # grava o mtime do .jar/.pom com o Last-Modified do servidor (anos atras), mas o ctime e' a hora em que
+      # o arquivo foi escrito — so' o que for baixado neste run fica mais novo que o marcador.
+      - name: Marcador de inicio (contagem de artefatos baixados)
+        run: touch "$RUNNER_TEMP/maven-inicio.marker"
+
       - name: mvn install (verify + JAR do engine para o provedor)
         run: mvn -B -f src/maezo/portal/engine/java/pom.xml install
 
@@ -1551,6 +1557,35 @@ jobs:
           MAEZO_READ_PROVIDER_IT_DB_USER: postgres
           MAEZO_READ_PROVIDER_IT_DB_PASSWORD: read_provider_it
         run: mvn -B -f src/maezo/portal/engine/read-provider/pom.xml verify
+
+      # SO' LEITURA, nunca falha o job: o que veio da Central neste run (o `-ntp` do setup-java esconde as
+      # transferencias no log). Conta coordenadas groupId:artifactId:versao de .jar/.pom escritos depois do
+      # marcador (ctime), sem o proprio projeto (br/com/maezo, instalado pelo `install`); no summary so' coordenadas.
+      - name: Artefatos Maven baixados neste run (so' leitura)
+        if: always()
+        continue-on-error: true
+        run: |
+          repo="$HOME/.m2/repository"
+          marcador="$RUNNER_TEMP/maven-inicio.marker"
+          if [ ! -d "$repo" ] || [ ! -f "$marcador" ]; then
+            echo "contagem indisponivel (sem repositorio local ou sem marcador)"
+            exit 0
+          fi
+          coordenadas=$(find "$repo" -type f \( -name '*.jar' -o -name '*.pom' \) -cnewer "$marcador" \
+              -not -path "$repo/br/com/maezo/*" -printf '%P\n' \
+            | awk -F/ 'NF >= 4 { g = $1; for (i = 2; i <= NF - 3; i++) g = g "." $i; print g ":" $(NF-2) ":" $(NF-1) }' \
+            | sort -u)
+          total=$(printf '%s\n' "$coordenadas" | grep -c . || true)
+          echo "coordenadas Maven baixadas neste run: $total"
+          if [ "$total" -gt 0 ]; then printf '%s\n' "$coordenadas" | head -n 30; fi
+          {
+            echo "### java-plugin — coordenadas Maven (groupId:artifactId:versao) baixadas da Central neste run: $total"
+            if [ "$total" -gt 0 ]; then
+              echo ""
+              printf '%s\n' "$coordenadas" | head -n 30 | sed 's/^/- /'
+              if [ "$total" -gt 30 ]; then echo "- ... (+$((total - 30)))"; fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   validate-helm:
     name: helm lint + egress NetworkPolicy CI

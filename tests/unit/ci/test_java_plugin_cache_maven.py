@@ -25,6 +25,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 _RAIZ = Path(__file__).resolve().parents[3]
@@ -86,3 +87,105 @@ def test_java_plugin_maven_commands_never_run_offline() -> None:
                 assert not re.search(r"(^|\s)(--offline|-(?![DP])[A-Za-z]*o[A-Za-z]*)(\s|$|[\"'])", linha), (
                     linha
                 )
+
+
+# ------------------- contagem do que veio da Central (so' leitura, `if: always()`, nunca falha o job)
+
+_PASSO_CONTAGEM = "Artefatos Maven baixados neste run (so' leitura)"
+_PASSO_MARCADOR = "Marcador de inicio (contagem de artefatos baixados)"
+
+
+def _indice(passos: list[dict[str, Any]], nome: str) -> int:
+    indices = [i for i, p in enumerate(passos) if p.get("name") == nome]
+    assert len(indices) == 1, (nome, indices)
+    return indices[0]
+
+
+def test_marker_is_after_cache_restore_and_before_the_first_maven_command() -> None:
+    passos = _passos()
+    i_marcador = _indice(passos, _PASSO_MARCADOR)
+    primeiro_mvn = min(i for i, p in enumerate(passos) if re.search(r"\bmvn -B\b", str(p.get("run", ""))))
+    assert _indice_setup_java(passos) < i_marcador < primeiro_mvn
+
+
+def test_count_step_is_last_read_only_and_never_fails_the_job() -> None:
+    passos = _passos()
+    passo = passos[_indice(passos, _PASSO_CONTAGEM)]
+    assert passos[-1] is passo
+    assert passo["if"] == "always()" and passo["continue-on-error"] is True
+    run = str(passo["run"])
+    assert "-cnewer" in run and "-newer " not in run  # ctime: o Maven grava o mtime com o Last-Modified
+    assert '-not -path "$repo/br/com/maezo/*"' in run
+    assert run.count("head -n 30") == 2
+    assert not re.search(r"\b(rm|mv|cp|mvn|curl|wget)\b", run)  # so' leitura
+    resumo = run[
+        run.index("\n{\n") : run.index('\n} >> "$GITHUB_STEP_SUMMARY"')
+    ]  # o bloco que vai ao summary
+    assert "echo" in resumo
+    assert "$repo" not in resumo and "$HOME" not in resumo and "$RUNNER_TEMP" not in resumo
+
+
+def _find_gnu() -> bool:
+    r = subprocess.run(["find", "--version"], capture_output=True, text=True, check=False)
+    return r.returncode == 0 and "GNU" in r.stdout
+
+
+_SO_FIND_GNU = pytest.mark.skipif(
+    not _find_gnu(), reason="o passo usa `find -printf` (GNU), como no runner Linux"
+)
+
+
+@_SO_FIND_GNU
+def test_count_step_counts_only_what_this_run_downloaded(tmp_path: Path) -> None:
+    import os
+    import time
+
+    run = str(_passos()[_indice(_passos(), _PASSO_CONTAGEM)]["run"])
+    repo = tmp_path / "home" / ".m2" / "repository"
+
+    def artefato(rel: str) -> None:
+        caminho = repo / rel
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        caminho.write_text("x", encoding="utf-8")
+        os.utime(caminho, (1_600_000_000, 1_600_000_000))  # mtime antigo, como o Last-Modified da Central
+
+    artefato("org/apache/maven/plugins/maven-install-plugin/3.1.2/maven-install-plugin-3.1.2.jar")  # do cache
+    time.sleep(0.05)
+    (tmp_path / "rt").mkdir()
+    (tmp_path / "rt" / "maven-inicio.marker").touch()
+    time.sleep(0.05)
+    artefato("org/apache/maven/plugins/maven-install-plugin/3.1.4/maven-install-plugin-3.1.4.jar")
+    artefato("org/apache/maven/plugins/maven-install-plugin/3.1.4/maven-install-plugin-3.1.4.pom")
+    artefato("org/apache/maven/maven-parent/43/maven-parent-43.pom")
+    artefato("br/com/maezo/human-command-engine/1.0.0/human-command-engine-1.0.0.jar")  # o proprio projeto
+    resumo = tmp_path / "summary.md"
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path / "home"), "RUNNER_TEMP": str(tmp_path / "rt")}
+    r = subprocess.run(
+        ["bash", "-e", "-c", run],
+        env={**env, "GITHUB_STEP_SUMMARY": str(resumo)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    texto = resumo.read_text(encoding="utf-8")
+    assert "baixadas da Central neste run: 2" in texto, texto
+    assert "- org.apache.maven.plugins:maven-install-plugin:3.1.4" in texto
+    assert "- org.apache.maven:maven-parent:43" in texto
+    assert "3.1.2" not in texto and "br.com.maezo" not in texto and str(tmp_path) not in texto
+
+
+@_SO_FIND_GNU
+def test_count_step_without_local_repository_says_so_and_succeeds(tmp_path: Path) -> None:
+    import os
+
+    run = str(_passos()[_indice(_passos(), _PASSO_CONTAGEM)]["run"])
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "RUNNER_TEMP": str(tmp_path)}
+    r = subprocess.run(
+        ["bash", "-e", "-c", run],
+        env={**env, "GITHUB_STEP_SUMMARY": str(tmp_path / "s.md")},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert r.returncode == 0 and "contagem indisponivel" in r.stdout
