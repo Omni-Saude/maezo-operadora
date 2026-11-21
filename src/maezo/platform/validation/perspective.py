@@ -942,9 +942,9 @@ def check_yaml_defs(paths: Sequence[Path], report: Report) -> None:
 def check_processes_root(root: Path, report: Report) -> None:
     """Run the fence over a whole `spec/processes` root (both tiers).
 
-    Tier A also reads the rco K1 tables directly under `dmn/rco/` (ADR-0075 §(b) point 3): the
-    fence has no exception mechanism, so the D7 vocabulary is EXTENDED to the K1 package rather
-    than the folder being exempted. A vendor table that trips it is fixed upstream, in the rco.
+    Tier A reads every file directly under `dmn/rco/` too: this fence has no exception mechanism. What
+    `make validate-artifacts` hands it is decided upstream (`cli.py`): only the K1 tables of a `fixado`
+    pin that match its manifesto leave that corpus (`tabelas_k1_pinadas`, adendo ao ADR-0040, Proposed).
     (Function-local import: keeps this module's line anchors, cited by ADR-0040/ADR-0075 and the
     SME dossiers, where they are.)
     """

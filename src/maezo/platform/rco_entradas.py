@@ -23,7 +23,14 @@ FAIL-CLOSED (como o leitor do manifesto):
   lida por nenhum pacote pinado aqui. A 1.5.0 (rco aed187d4, PR #174) tem os campos da 1.4.0 e publica o
   valor estruturado de todo termo `parametro` (exatamente um de `valor` com `unidade`, `referencia`,
   `valor_por_contrato` ou `lacuna`; `scripts/k1_entradas.py::erros_parametro`) e o campo OPCIONAL
-  `formula.referencia_por_tipo_guia` (`{guia, data, hora[, lacuna]}`; `erros_referencia_guia`);
+  `formula.referencia_por_tipo_guia` (`{guia, data, hora[, lacuna]}`; `erros_referencia_guia`). A 1.5.1
+  (rco 1c5a2f2d, PR #187, PROG-RCO-38) e a 1.6.0 (rco b8444f52, PR #189, PROG-RCO-39) tem os campos da
+  1.5.0, as mesmas 353 entradas e o mesmo publicador (`scripts/k1_entradas.py`, blob 54d03c50 em aed187d4
+  e b8444f52): a 1.5.1 muda so o texto de `cidSecundarioInformado` e de `regime`; a 1.6.0 muda so
+  `prazoComprovacaoUsoVencido` e traz, nessa formula, a chave OPCIONAL `referencia` (`arquivo#chave`,
+  citacao de onde o termo e definido) em termo que NAO e `parametro` (`VERSOES_COM_REFERENCIA_EM_TERMO`;
+  o rco nao a confere, o leitor a confere como `arquivo#chave`). Recortes e diferencas em
+  `tests/fixtures/rco/entradas-1.6.0-recorte/`;
 - `origem` no conjunto fechado; termo de formula tambem aceita `parametro` (contrato §5);
 - `fallback_nulo` tem de ser `nunca_negar` em TODA entrada: o montador manda nulo quando falta o dado
   e so pode fazer isso porque o fornecedor garante que nulo nunca nega. Outra politica = recusa;
@@ -49,7 +56,7 @@ from typing import Any, Final
 from maezo.platform.rco_manifesto import ManifestoK1, ManifestoK1InvalidoError, anexo_pinado, json_estrito
 
 #: Versoes do dicionario de entradas que o montador conhece (k1-entradas-origem.yaml `versao`).
-VERSOES_SUPORTADAS: Final[frozenset[str]] = frozenset({"1.1.0", "1.2.0", "1.4.0", "1.5.0"})
+VERSOES_SUPORTADAS: Final[frozenset[str]] = frozenset({"1.1.0", "1.2.0", "1.4.0", "1.5.0", "1.5.1", "1.6.0"})
 ORIGENS: Final[frozenset[str]] = frozenset({"tiss", "cadastro", "fora_tiss", "derivado"})
 ORIGENS_TERMO: Final[frozenset[str]] = ORIGENS | {"parametro"}
 TIPOS: Final[frozenset[str]] = frozenset({"string", "integer", "boolean", "double"})
@@ -73,22 +80,30 @@ CAMPOS_ENTRADA: Final[frozenset[str]] = frozenset(
         "tipo",
     }
 )
-#: Campos exatos de cada entrada por versao do dicionario: a 1.2.0 acrescenta `valores_maezo`; a 1.4.0
-#: e a 1.5.0 mantem os da 1.2.0 (`scripts/k1_entradas.py::linhas` no rco d9b8adfa e aed187d4).
+#: Campos exatos de cada entrada por versao do dicionario: a 1.2.0 acrescenta `valores_maezo`; a 1.4.0,
+#: a 1.5.0, a 1.5.1 e a 1.6.0 mantem os da 1.2.0 (`scripts/k1_entradas.py::linhas` no rco d9b8adfa,
+#: aed187d4, 1c5a2f2d e b8444f52; o arquivo e o mesmo nos tres ultimos).
 CAMPOS_ENTRADA_POR_VERSAO: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
     {
         "1.1.0": CAMPOS_ENTRADA,
         "1.2.0": CAMPOS_ENTRADA | {"valores_maezo"},
         "1.4.0": CAMPOS_ENTRADA | {"valores_maezo"},
         "1.5.0": CAMPOS_ENTRADA | {"valores_maezo"},
+        "1.5.1": CAMPOS_ENTRADA | {"valores_maezo"},
+        "1.6.0": CAMPOS_ENTRADA | {"valores_maezo"},
     }
 )
 CAMPOS_FORMULA: Final[frozenset[str]] = frozenset({"formula", "termos"})
 #: Campo opcional de `formula` a partir da 1.4.0 (`scripts/k1_entradas.py::formula_de` no rco d9b8adfa).
 CAMPO_FORMULA_REGIMES: Final[str] = "regimes"
-VERSOES_COM_REGIMES: Final[frozenset[str]] = frozenset({"1.4.0", "1.5.0"})
+VERSOES_COM_REGIMES: Final[frozenset[str]] = frozenset({"1.4.0", "1.5.0", "1.5.1", "1.6.0"})
 #: A partir da 1.5.0 (rco aed187d4): valor estruturado do termo `parametro` e a referencia por tipo de guia.
-VERSOES_COM_VALOR_DE_PARAMETRO: Final[frozenset[str]] = frozenset({"1.5.0"})
+VERSOES_COM_VALOR_DE_PARAMETRO: Final[frozenset[str]] = frozenset({"1.5.0", "1.5.1", "1.6.0"})
+#: A partir da 1.6.0 (rco b8444f52, `prazoComprovacaoUsoVencido`): termo que nao e `parametro` pode trazer
+#: a chave opcional `referencia` (`arquivo#chave` ou lista deles), citacao de onde o termo e definido. Nao e
+#: valor: o montador nunca a le. Antes da 1.6.0 a chave nesse termo e campo desconhecido (recusa).
+VERSOES_COM_REFERENCIA_EM_TERMO: Final[frozenset[str]] = frozenset({"1.6.0"})
+CAMPO_TERMO_REFERENCIA: Final[str] = "referencia"
 CAMPO_FORMULA_REFERENCIA_GUIA: Final[str] = "referencia_por_tipo_guia"
 CAMPOS_REFERENCIA_GUIA: Final[frozenset[str]] = frozenset({"guia", "data", "hora"})
 #: Exatamente um destes num termo `parametro` (1.5.0; `scripts/k1_entradas.py::CAMPOS_PARAMETRO`, na ordem).
@@ -166,6 +181,8 @@ class TermoFormulaK1:
     fonte: str
     #: Valor estruturado do termo `parametro` (dicionario 1.5.0): no maximo um preenchido (nenhum antes da
     #: 1.5.0). `valor` vem com `unidade`; `referencia` e a lista `arquivo#chave` (texto unico: tupla de um).
+    #: Em termo que nao e `parametro` (dicionario 1.6.0), `referencia` e so a citacao de onde o termo e
+    #: definido (`VERSOES_COM_REFERENCIA_EM_TERMO`), nunca valor.
     valor: int | float | None = None
     unidade: str | None = None
     referencia: tuple[str, ...] = ()
@@ -377,6 +394,22 @@ def _ler_valor_parametro(
     return None if texto is None else {campo: texto}
 
 
+def _ler_referencia_citada(
+    termo: Mapping[str, Any], rotulo: str, problemas: list[str]
+) -> dict[str, Any] | None:
+    """`referencia` de termo que nao e `parametro` (1.6.0): ausente = `{}`; presente, `arquivo#chave` (texto)
+    ou lista nao vazia deles (`referencia_arquivo_chave`). O rco nao confere a chave nesse termo
+    (`erros_formulas` so confere a de `parametro`): aqui ela e conferida e so pode RECUSAR (lado seguro)."""
+    if CAMPO_TERMO_REFERENCIA not in termo:
+        return {}
+    bruto = termo[CAMPO_TERMO_REFERENCIA]
+    lista = bruto if isinstance(bruto, list) else [bruto]
+    if not lista or not all(isinstance(r, str) and referencia_arquivo_chave(r) for r in lista):
+        problemas.append(f"{rotulo}.referencia: tem de ser `arquivo#chave` (texto) ou lista nao vazia deles")
+        return None
+    return {"referencia": tuple(lista)}
+
+
 def _ler_referencias_guia(
     no: object, rotulo: str, problemas: list[str]
 ) -> tuple[ReferenciaGuiaK1, ...] | None:
@@ -421,6 +454,7 @@ def _ler_formula(
     *,
     com_regimes: bool = False,
     com_valor_de_parametro: bool = False,
+    com_referencia_em_termo: bool = False,
 ) -> FormulaK1 | None:
     opcionais = {CAMPO_FORMULA_REGIMES} if com_regimes else set()
     if com_valor_de_parametro:
@@ -437,17 +471,22 @@ def _ler_formula(
     for i, item in enumerate(obj["termos"]):
         onde = f"{rotulo}.termos[{i}]"
         parametro = com_valor_de_parametro and isinstance(item, dict) and item.get("origem") == "parametro"
-        extras = (
-            (CAMPOS_VALOR_PARAMETRO | {"unidade"}) & set(item)
-            if parametro and isinstance(item, dict)
-            else set()
-        )
+        citado = com_referencia_em_termo and isinstance(item, dict) and item.get("origem") != "parametro"
+        extras: frozenset[str] = frozenset()
+        if parametro and isinstance(item, dict):
+            extras = (CAMPOS_VALOR_PARAMETRO | {"unidade"}) & set(item)
+        elif citado and isinstance(item, dict):
+            extras = frozenset({CAMPO_TERMO_REFERENCIA}) & set(item)
         termo = _objeto(item, CAMPOS_TERMO | extras, onde, problemas)
         if termo is None:
             continue
         nome = _texto(termo["nome"], f"{onde}.nome", problemas, _NOME)
         fonte = _texto(termo["fonte"], f"{onde}.fonte", problemas)
-        valor = _ler_valor_parametro(termo, onde, problemas) if parametro else {}
+        valor: dict[str, Any] | None = {}
+        if parametro:
+            valor = _ler_valor_parametro(termo, onde, problemas)
+        elif citado:
+            valor = _ler_referencia_citada(termo, onde, problemas)
         if termo["origem"] not in ORIGENS_TERMO:
             problemas.append(f"{onde}.origem: {termo['origem']!r} fora de {sorted(ORIGENS_TERMO)}")
         elif nome is not None and fonte is not None and valor is not None:
@@ -497,6 +536,7 @@ def _ler_entrada(
     *,
     com_regimes: bool = False,
     com_valor_de_parametro: bool = False,
+    com_referencia_em_termo: bool = False,
 ) -> EntradaK1 | None:
     onde = f"entradas[{i}]"
     obj = _objeto(no, campos, onde, problemas)
@@ -531,6 +571,7 @@ def _ler_entrada(
             problemas,
             com_regimes=com_regimes,
             com_valor_de_parametro=com_valor_de_parametro,
+            com_referencia_em_termo=com_referencia_em_termo,
         )
         if formula is None:
             ok = False
@@ -606,6 +647,7 @@ def ler_dicionario_entradas(raw: bytes) -> DicionarioEntradasK1:
                 campos,
                 com_regimes=versao in VERSOES_COM_REGIMES,
                 com_valor_de_parametro=versao in VERSOES_COM_VALOR_DE_PARAMETRO,
+                com_referencia_em_termo=versao in VERSOES_COM_REFERENCIA_EM_TERMO,
             )
             if entrada is None:
                 continue

@@ -27,8 +27,12 @@ mudar um byte quebra o `sha256` fixado no pin. Regra nova ou corrigida se pede n
   - cerca de entradas mortas: `rco/` é varrida, e `UNIQUE` é aceita aqui;
   - registro de aprovações (`spec/aprovacoes-de-regras.yaml`): isenção **provisória**, até a
     decisão pendente do dono **P7** (aprovação em lote por versão do manifesto do K1).
-- Sem isenção: schema DMN, unicidade de id em toda a árvore, cerca de perspectiva (ADR-0040 D7)
-  e classificação PHI das variáveis.
+- Sem isenção: schema DMN, unicidade de id em toda a árvore e classificação PHI das variáveis.
+- Cerca de perspectiva (ADR-0040 D7): lê todo arquivo desta pasta enquanto o pin estiver `sem_pacote`
+  (hoje). Com o pin `fixado`, saem do corpus da cerca só as tabelas de `artifacts` que conferem com o
+  manifesto pinado (`src/maezo/platform/validation/tabelas_k1_pinadas.py`; adendo ao ADR-0040, Proposed).
+  Qualquer divergência do pin, ou arquivo fora dele, volta a ler a pasta inteira. O exemplo sintético
+  nunca sai do corpus.
 
 ## O arquivo que está aqui hoje
 

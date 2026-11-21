@@ -136,8 +136,11 @@ anexos para `config/integrations/rco/k1/` (nunca `exemplos/`), preencher `proven
 `entradas.json` (o anexo `dicionario_entradas` do manifesto) é lido por
 `src/maezo/platform/rco_entradas.py`, depois de `rco_manifesto.anexo_pinado` conferir o sha256. O
 leitor só aceita as versões do dicionário que o montador conhece (`VERSOES_SUPORTADAS`, hoje `1.1.0`,
-`1.2.0` e `1.4.0`; a 1.4.0 traz o campo opcional `formula.regimes`, DL-0183)
-e só a política de nulo `nunca_negar`. Pinar um K1 com dicionário de versão nova exige rever antes o
+`1.2.0`, `1.4.0`, `1.5.0`, `1.5.1` e `1.6.0`; a 1.4.0 traz o campo opcional `formula.regimes`, DL-0183; a
+1.6.0 aceita `referencia` em termo de fórmula que não é `parametro`; diferenças por versão em
+`tests/fixtures/rco/entradas-1.6.0-recorte/README.md`) e só a política de nulo `nunca_negar`. Ler a versão
+não basta para pinar: o montador confere cada fórmula publicada (`conferir_mapeamento`), e a 1.5.1 mudou o
+texto de `regime` e de `cidSecundarioInformado`. Pinar um K1 com dicionário de versão nova exige rever antes o
 montador (`src/maezo/tools/workers/rco_montador.py`): entrada nova sem mapeamento, origem diferente ou
 fórmula publicada diferente da implementada fazem o montador recusar a decisão.
 `rco_entradas.carregar_dicionario_entradas` ainda cruza o arquivo com o manifesto: versão e

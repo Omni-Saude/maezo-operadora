@@ -93,6 +93,14 @@ backtest 2026-10 do rco: 38,9% das autorizacoes solicitadas; `dados-agregados/si
 x `historico/diagnostico/priorizacao/codigos-dominio.csv`). Decisao de outro dominio levanta
 `DominioNaoSuportadoError`: quem chama encaminha o caso para pessoa (plano, risco "montador maior que o
 previsto": "os demais ficam em fila humana").
+
+FORA DO ESCOPO, de proposito: `prazoComprovacaoUsoVencido` (OPME de urgencia). So a recebem decisoes de
+dominios nao mapeados (`urgencia`, `ortopedia-opme`, `otorrino-cabeca-pescoco`), entao nenhum valor dela chega
+a tabela; por isso nao esta em `FORMULAS_PENDENTES`, que lista as pendentes dos dominios mapeados. No
+dicionario 1.6.0 (rco b8444f52, PROG-RCO-39) ela deriva de `prazoApresentacaoContratualDias` (cadastro, o
+prazo do contrato) e de `autorizacaoExtemporanea` (concedida = falso; em analise ou ausente = nulo), e termo
+ausente da nulo (pendente em `exigir_documento`, nunca glosa). Mapear um desses dominios exige implementa-la
+com esses nulos (`tests/unit/tools/workers/test_rco_montador_prazo_comprovacao.py`).
 """
 
 from __future__ import annotations
