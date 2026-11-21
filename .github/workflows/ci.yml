@@ -1493,12 +1493,41 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      # Chave do cache Maven = hash dos poms E a versao do Maven do runner. O `install` (e os outros plugins
+      # sem versao no pom) vem do binding padrao do Maven, que muda com a imagem: 3.9.12- liga
+      # maven-install-plugin 3.1.2, 3.9.13+ liga 3.1.4. Com a chave so' pelos poms, o cache salvo com o Maven
+      # antigo nunca e' regravado (hit => "not saving") e TODO run baixava o 3.1.4 da Central (10 artefatos,
+      # medido) — e caia no 429 dela. Versao nova => uma execucao fria E verde regrava o cache (sem
+      # restore-keys: ela baixa tudo uma vez; vermelha, nao salva e a proxima tambem e' fria). Sem `-o`:
+      # dependencia nova continua resolvida (ou falha clara), nunca mascarada. A chave deixa de ser
+      # compartilhada com o job CodeQL java (security.yml, `cache: maven` so' pelos poms, `package` sem
+      # install): antes, quem salvasse primeiro definia o conteudo do cache dos dois.
+      - name: Versao do Maven do runner (entra na chave do cache)
+        # So' o numero da versao (Java/SO/locale/caminho nao mudam a chave). Arquivo GERADO dentro de
+        # `target/` (ignorado pelo .gitignore, nunca versionado), relativo ao workspace como o setup-java le.
+        run: |
+          set -o pipefail
+          mkdir -p src/maezo/portal/engine/java/target
+          mvn -v | head -n 1 | awk '/^Apache Maven [0-9]/ {print $3}' \
+            | tee "$GITHUB_WORKSPACE/src/maezo/portal/engine/java/target/maven-versao-ci.txt"
+          grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' "$GITHUB_WORKSPACE/src/maezo/portal/engine/java/target/maven-versao-ci.txt"
+
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
         with:
           # 17: `maven.compiler.release` do pom (src/maezo/portal/engine/java/pom.xml).
           java-version: "17"
           distribution: temurin
           cache: maven
+          cache-dependency-path: |
+            src/maezo/portal/engine/java/pom.xml
+            src/maezo/portal/engine/read-provider/pom.xml
+            src/maezo/portal/engine/java/target/maven-versao-ci.txt
+
+      # Marcador DEPOIS do restore do cache (setup-java) e antes do 1o mvn. A contagem usa o ctime: o Maven
+      # grava o mtime do .jar/.pom com o Last-Modified do servidor (anos atras), mas o ctime e' a hora em que
+      # o arquivo foi escrito — so' o que for baixado neste run fica mais novo que o marcador.
+      - name: Marcador de inicio (contagem de artefatos baixados)
+        run: touch "$RUNNER_TEMP/maven-inicio.marker"
 
       - name: mvn install (verify + JAR do engine para o provedor)
         run: mvn -B -f src/maezo/portal/engine/java/pom.xml install
@@ -1528,6 +1557,35 @@ jobs:
           MAEZO_READ_PROVIDER_IT_DB_USER: postgres
           MAEZO_READ_PROVIDER_IT_DB_PASSWORD: read_provider_it
         run: mvn -B -f src/maezo/portal/engine/read-provider/pom.xml verify
+
+      # SO' LEITURA, nunca falha o job: o que veio da Central neste run (o `-ntp` do setup-java esconde as
+      # transferencias no log). Conta coordenadas groupId:artifactId:versao de .jar/.pom escritos depois do
+      # marcador (ctime), sem o proprio projeto (br/com/maezo, instalado pelo `install`); no summary so' coordenadas.
+      - name: Artefatos Maven baixados neste run (so' leitura)
+        if: always()
+        continue-on-error: true
+        run: |
+          repo="$HOME/.m2/repository"
+          marcador="$RUNNER_TEMP/maven-inicio.marker"
+          if [ ! -d "$repo" ] || [ ! -f "$marcador" ]; then
+            echo "contagem indisponivel (sem repositorio local ou sem marcador)"
+            exit 0
+          fi
+          coordenadas=$(find "$repo" -type f \( -name '*.jar' -o -name '*.pom' \) -cnewer "$marcador" \
+              -not -path "$repo/br/com/maezo/*" -printf '%P\n' \
+            | awk -F/ 'NF >= 4 { g = $1; for (i = 2; i <= NF - 3; i++) g = g "." $i; print g ":" $(NF-2) ":" $(NF-1) }' \
+            | sort -u)
+          total=$(printf '%s\n' "$coordenadas" | grep -c . || true)
+          echo "coordenadas Maven baixadas neste run: $total"
+          if [ "$total" -gt 0 ]; then printf '%s\n' "$coordenadas" | head -n 30; fi
+          {
+            echo "### java-plugin — coordenadas Maven (groupId:artifactId:versao) baixadas da Central neste run: $total"
+            if [ "$total" -gt 0 ]; then
+              echo ""
+              printf '%s\n' "$coordenadas" | head -n 30 | sed 's/^/- /'
+              if [ "$total" -gt 30 ]; then echo "- ... (+$((total - 30)))"; fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   validate-helm:
     name: helm lint + egress NetworkPolicy CI
