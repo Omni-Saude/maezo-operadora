@@ -1,4 +1,4 @@
-"""E-SF-37r (escopo (a) aprovado): a entrada por CPF no comercial segue FECHADA, e nada em `src` muda.
+"""E-SF-37r (escopos (a) e (b) aprovados): a entrada por CPF no comercial segue FECHADA.
 
 O que esta linha fixa, cada cerca com controle positivo do detector e caso sem falso positivo:
 

@@ -255,7 +255,8 @@ def validate_intake_descriptor(descriptor: Mapping[str, Any], *, purpose_allowli
     `purpose_allowlist` is the closed, versioned purpose set of the stage (região,
     modalidade, composição do grupo, contato com permissão — TB-03 (1)); its tokens are
     source/DPO-published (GAP), so it is a required argument with no default and an empty
-    set refuses every field. Order: health denylist, prospect shape, purpose allowlist.
+    set refuses every field. Order: health denylist, prospect shape (field limit, free text,
+    document), purpose allowlist.
 
     E-SF-37r (b): no `prospect` stage there is no document/CPF entry (E1), so a field with
     `value_type: "document"` refuses on its own, before and independently of the purpose
