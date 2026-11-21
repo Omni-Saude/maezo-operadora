@@ -135,7 +135,11 @@ def montar_tela_pedido(
             Passo(nome=_TOQUE_1, elementos=tuple(toque_1)),
             Passo(nome=_TOQUE_2, elementos=tuple(toque_2)),
         ),
-        passos_pos_protocolo=(),
+        # E-SF-RT-02: uma pergunta OPCIONAL, so' depois do protocolo (a guarda GUARD_REQUIRES_REASON
+        # recusa a pergunta antes do protocolo ou obrigatoria).
+        passos_pos_protocolo=(
+            Passo(nome="pos_protocolo", elementos=(Elemento(tipo="pergunta_motivo", obrigatorio=False),)),
+        ),
         insumos=frozenset({"tipo_plano", "papel"}),
         rotulos_de_estado=(politica.textos["estado_aguardando"],),
         publicavel=politica.texto_ratificado,
@@ -280,3 +284,88 @@ def rotulo_do_estado(
     if fato_de_fonte_executado:
         return _ROTULO_CANCELADO
     return politica.textos["estado_aguardando"] if politica is not None else _ESTADO_AGUARDANDO
+
+
+# ---------------------------------------------------------------------------------------------------
+# E-SF-RT-02 (RT-05 item 5) — motivo de cancelamento em lista fechada, sem saude, sem vinculo ao titular
+# ---------------------------------------------------------------------------------------------------
+
+CodigoMotivoCancelamento = Literal[
+    "valor_alto",
+    "mudanca_de_cidade",
+    "outro_vinculo",
+    "rede_nao_atende",
+    "atendimento_servico",
+    "prefiro_nao_dizer",
+]
+#: A lista fechada, na ordem da tela. Nenhum codigo de saude (RT-05 item 5): texto livre poderia carregar
+#: dado de saude, por isso nao ha opcao "outro" com campo aberto.
+CODIGOS_MOTIVO: Final[tuple[CodigoMotivoCancelamento, ...]] = (
+    "valor_alto",
+    "mudanca_de_cidade",
+    "outro_vinculo",
+    "rede_nao_atende",
+    "atendimento_servico",
+    "prefiro_nao_dizer",
+)
+
+
+class MotivoForaDaListaError(ValueError):
+    """Valor fora da lista fechada (inclusive texto livre). O codigo e' fixo e o valor nunca e' ecoado."""
+
+    code: Literal["reason_not_in_closed_list"]
+
+    def __init__(self) -> None:
+        super().__init__("reason_not_in_closed_list")
+        self.code = "reason_not_in_closed_list"
+
+
+def rotulos_do_motivo(
+    politica: PoliticaPedidoCancelamento,
+) -> tuple[tuple[CodigoMotivoCancelamento, str], ...]:
+    """(codigo, rotulo) na ordem da tela; os rotulos sao dado da politica (rascunho, NAO_RATIFICADO)."""
+    return tuple((codigo, politica.textos[f"motivo_{codigo}"]) for codigo in CODIGOS_MOTIVO)
+
+
+def codigo_do_motivo(resposta: object) -> CodigoMotivoCancelamento | None:
+    """`None` = pulou (um toque, sem consequencia). Qualquer outro valor fora da lista e' recusado.
+
+    O codigo devolvido NAO entra em `SubmissaoCancelamento` nem nas variaveis de inicio do CANCEL-001:
+    o protocolo ja' foi emitido e nao depende dele. O unico destino admitido e' `ContagemDeMotivos`.
+    """
+    if resposta is None:
+        return None
+    if type(resposta) is str and resposta in CODIGOS_MOTIVO:
+        # Devolve o codigo CANONICO da lista, nunca o objeto recebido.
+        return CODIGOS_MOTIVO[CODIGOS_MOTIVO.index(resposta)]
+    raise MotivoForaDaListaError
+
+
+@dataclass(frozen=True, slots=True)
+class ContagemDeMotivos:
+    """Contagem agregada por codigo, SEM vinculo ao titular (RT-D1 fechado; E35 = B).
+
+    Nao guarda pessoa, contrato, pedido, protocolo, tenant nem instante: so' o numero de respostas por
+    codigo. Modelo puro: nada aqui emite metrica, evento ou grava em banco; ligar um emissor e' ato
+    proprio (o evento catalogado de motivo segue sem emissor, E-SF-35r).
+    """
+
+    por_codigo: tuple[tuple[CodigoMotivoCancelamento, int], ...] = tuple((c, 0) for c in CODIGOS_MOTIVO)
+
+    def __post_init__(self) -> None:
+        # So' a lista fechada, na ordem, com inteiros >= 0: nenhum outro dado cabe aqui.
+        if tuple(c for c, _ in self.por_codigo) != CODIGOS_MOTIVO or any(
+            type(n) is not int or n < 0 for _, n in self.por_codigo
+        ):
+            raise MotivoForaDaListaError
+
+    def somar(self, codigo: object) -> "ContagemDeMotivos":
+        codigo = codigo_do_motivo(codigo)
+        if codigo is None:
+            return self
+        return ContagemDeMotivos(
+            por_codigo=tuple((c, n + 1 if c == codigo else n) for c, n in self.por_codigo)
+        )
+
+    def total(self, codigo: CodigoMotivoCancelamento) -> int:
+        return dict(self.por_codigo)[codigo]

@@ -353,6 +353,14 @@ def carregar_politica_cancelamento(path: Path | None = None) -> PoliticaPedidoCa
                 "botao_toque_1",
                 "botao_toque_2",
                 "estado_aguardando",
+                "pergunta_motivo",
+                "botao_pular_motivo",
+                "motivo_valor_alto",
+                "motivo_mudanca_de_cidade",
+                "motivo_outro_vinculo",
+                "motivo_rede_nao_atende",
+                "motivo_atendimento_servico",
+                "motivo_prefiro_nao_dizer",
             }
         ),
     )
