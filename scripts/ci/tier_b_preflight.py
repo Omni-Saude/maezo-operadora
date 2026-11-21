@@ -60,6 +60,9 @@ def main(argv: Sequence[str] | None = None, *, fabrica: Callable[[], Any] = _pro
         resposta = asyncio.run(fabrica().generate(PROMPT, agent_id="ci-tier-b-preflight"))
     except Exception as erro:  # qualquer falha do provedor = raia quebrada; so' classe e status saem
         manchete = f"Tier B QUEBRADO: preflight falhou ({type(erro).__name__}, status {_status(erro)})"
+    except BaseException as erro:  # cancelamento do runner: mesma linha curta, e propaga
+        print(f"::error::Tier B QUEBRADO: preflight interrompido ({type(erro).__name__})")
+        raise
     else:
         if isinstance(resposta, str) and resposta.strip():
             print("preflight do Tier B: provedor respondeu")

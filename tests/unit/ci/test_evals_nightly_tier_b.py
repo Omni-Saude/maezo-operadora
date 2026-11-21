@@ -146,6 +146,11 @@ def _forma(tokens: list[str], extras: set[str]) -> list[str]:
     return [t for t in tokens if t not in extras]
 
 
+def _forma_confere(tokens: list[str], passo: str, caminho_make: str, expr: str) -> bool:
+    """A cerca de forma: o passo e' o `make evals` (caminho, -q, -m <expr>) mais SO' os extras permitidos."""
+    return _forma(tokens, _EXTRAS_PERMITIDOS[passo]) == [caminho_make, "-q", "-m", expr]
+
+
 def test_steps_have_exactly_the_make_evals_shape_plus_allowed_extras() -> None:
     # `-k`, `--deselect`, segundo caminho, `-x`/`--maxfail` encolheriam a selecao sem mudar o `-m`.
     alvo = re.search(r"^evals:.*\n\t(.+)$", _MAKEFILE.read_text(encoding="utf-8"), re.M)
@@ -154,8 +159,8 @@ def test_steps_have_exactly_the_make_evals_shape_plus_allowed_extras() -> None:
     assert len(make) == 4 and make[1:3] == ["-q", "-m"], make
     a = _tokens_do_pytest(_passo("Nightly eval run — Tier A")["run"])
     b = _tokens_do_pytest(_passo("Nightly eval run — Tier B")["run"])
-    assert _forma(a, _EXTRAS_PERMITIDOS["A"]) == [make[0], "-q", "-m", "eval and not llm_live"], a
-    assert _forma(b, _EXTRAS_PERMITIDOS["B"]) == [make[0], "-q", "-m", "eval and llm_live"], b
+    assert _forma_confere(a, "A", make[0], "eval and not llm_live"), a
+    assert _forma_confere(b, "B", make[0], "eval and llm_live"), b
     assert make[3] == "eval", "a selecao do make evals mudou: reveja a particao A/B"
 
 
@@ -163,8 +168,12 @@ def test_steps_have_exactly_the_make_evals_shape_plus_allowed_extras() -> None:
     "intruso", ["-x", "--maxfail=1", "-k helena", "--deselect tests/evals/a.py::t", "tests/unit"]
 )
 def test_shape_fence_catches_extra_selection_tokens(intruso: str) -> None:
-    b = _tokens_do_pytest(_passo("Nightly eval run — Tier B")["run"]) + shlex.split(intruso)
-    assert _forma(b, _EXTRAS_PERMITIDOS["B"]) != [b[0], "-q", "-m", "eval and llm_live"]
+    alvo = re.search(r"^evals:.*\n\t(.+)$", _MAKEFILE.read_text(encoding="utf-8"), re.M)
+    assert alvo
+    caminho_make = _tokens_do_pytest(alvo.group(1))[0]
+    b = _tokens_do_pytest(_passo("Nightly eval run — Tier B")["run"])
+    assert _forma_confere(b, "B", caminho_make, "eval and llm_live"), "o passo real deveria conferir"
+    assert not _forma_confere(b + shlex.split(intruso), "B", caminho_make, "eval and llm_live")
 
 
 def test_tier_b_step_wiring() -> None:
@@ -452,7 +461,7 @@ def test_preflight_uses_the_evals_provider_path(monkeypatch: pytest.MonkeyPatch)
 def test_preflight_runs_before_the_suite_and_fails_the_step() -> None:
     run = _passo("Nightly eval run — Tier B")["run"]
     i_pf, i_set, i_pytest = run.index("tier_b_preflight.py"), run.index("set +e"), run.index("-m pytest")
-    assert i_pf < i_set < i_pytest, "o preflight roda sob `set -e`, antes da suite"
+    assert run.index("set -e") < i_pf < i_set < i_pytest, "o preflight roda sob `set -e`, antes da suite"
 
 
 def test_summary_says_nights_do_not_count_until_evals_fix(
