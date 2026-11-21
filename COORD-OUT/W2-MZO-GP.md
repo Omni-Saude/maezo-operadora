@@ -1062,3 +1062,14 @@ Ramo `sf-w2/mzo-gp/esf24b`, a partir da main. O PR só abre depois do merge do #
   - O ramo `sf-w2/mzo-gp/esf24b` vai ao remoto quando o `tests/unit` completo × main terminar.
   - Revisão independente: PASS na terceira rodada. As duas primeiras deram FAIL e foram corrigidas: o complemento do auditor podia forjar rótulo do art. 14.
   - Mutação: 17/17 e depois 7/7 + 2/2, todas mortas.
+
+## 2026-11-21 ~04:05Z — #1351 mesclado (main `5950cc4d`); LIMPEZA #1351
+
+- #1351 (E-SF-11 / EP-REG-21a) mesclado; a main `5950cc4d` contém o head `73aedfae`.
+- **LIMPEZA #1351 (CD-149):**
+  - **Ramo para o dono apagar:** `sf-w2/mzo-gp/esf11` @ `73aedfaee5bb942f9d74dc405af4f64b9fb7a0f0`, no remoto. O ramo local fica só registrado.
+  - Ramos locais nunca enviados: nenhum novo (o `sf-w2/mzo-gp/esf24b` vai ao remoto antes do PR).
+  - PR órfão: nenhum.
+  - Título e corpo do #1351 fiéis.
+  - **Disco:** worktree `esf11` removida sem `--force`; check-in cancelado; clone principal em `main` `5950cc4d`.
+- **Próximo:** E-SF-24b. Antes do PR, aplico o ajuste do ROOT: o motivo do catálogo e o complemento do auditor são recusados, com erro tipado, se trouxerem qualquer rótulo do template ("RN 623/2024, art.") ou quebra de linha. O PR abre quando a suíte completa × main fechar. Depois: E-SF-35.
