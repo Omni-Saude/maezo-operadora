@@ -955,3 +955,17 @@ Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos 
   - Condições da T-MZO-A: junções XOR; ids e condições intactos.
   - Aguardo o CI.
 - Fila: RT-02 → 11 → 35, um PR por vez.
+
+## 2026-11-21 ~01:45Z — PRONTO #1346 (E-SF-29-2)
+
+- **PRONTO:** #1346, head `ab611ff733badf6b1d6b7c6aeb76f88f643bfe6c`.
+  - 37 checks verdes e 2 skipped. `integration tests (real engine)` e `bpmn-gates (1-5 + engine pinada)` verdes.
+  - Único vermelho: `flip-path-review-gate`, o esperado da CD-205. `deploy/aws-ecs/envs/dev-sa-east-1/portal-admissao.json` pede aprovação do dono explícito do caminho ou de membro ativo do security-team no head atual.
+  - `live-pytest] PASS`: recurso-nip passed=181; cancel-contas passed=138; cred-ans passed=129; restante passed=965.
+- **Simulação de merge real** numa worktree destacada no sha da main `4a420ba38ef78fd6e937a93d8e651c0caaa4af03`:
+  - Merge sem conflito. `make lint type validate-artifacts` rc=0, com link temporário da `.venv`, removido.
+  - `tests/unit/spec` + `tests/processes/test_bpmn_gates_harness.py`: 896 passed. A main tem 886; os 10 a mais são os testes novos.
+  - Na primeira rodada, 8 testes de resolução de caminho falharam porque a instalação editável da `.venv` aponta para o `src` do clone principal. Com o `src` da simulação na frente do path, tudo passa. É artefato de ambiente, não do PR.
+  - Worktree removida sem `--force`.
+- **4 merges atrás** (#1342–#1345), sem arquivo em comum, não trazidos (CD-155).
+- **Próximo PR**, depois do merge deste: RT-02 (ramo no remoto).
