@@ -1395,3 +1395,9 @@ Ordem: ADD01-03 (PR quando a revisão der PASS) → RT-03 → 17r, um PR por vez
 - Simulação de merge em worktree destacada no sha da main: limpa (cc2e0ad1), só falhas conhecidas de ambiente local; worktree removida.
 - Revisão que cobre o head: independente, PASS sobre 88bf7ade e b1ac060e.
 - PONTO PARA DECISÃO EXPRESSA da coordenação do programa: deriva do CAMINHO da CD-265 (renderizador de prompt) para recorte LOCAL com lista vazia + trava que falha se a lista crescer sem o renderizador; nenhuma lista de telemetria alargada.
+
+## 2026-11-21T13:24Z — LIMPEZA #3 (após merge do #1368 em main b2be8990cabc66a421f0e6e8331a1b468ba2e90b)
+- Worktree local rt03 removida (sem --force); branch local sf-w2/mzo-gp/rt03 apagada com `git branch -d` (aceito).
+- Worktree da simulação de merge e /tmp/pytest-of-root já removidas; check-in do PR cancelado.
+- Branch remota que o dono pode apagar: sf-w2/mzo-gp/rt03 = b1ac060ed5845bad206dc07ce7a7e1be02e87ce3.
+- Ficam: sf-w2/mzo-gp/coord (registro) e sf-w2/mzo-gp/esf17r (próximo PR).
