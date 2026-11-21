@@ -49,7 +49,7 @@ ENGINE_IMAGE = (
 #: Subir o teto e' a unica forma de aceitar achado novo, e fica visivel no diff desta linha.
 BASELINE_CEILING = {
     ("2", "sp-op"): 1,
-    ("4", "sp-op"): 18,
+    ("4", "sp-op"): 14,
     ("3", "corpus-doc"): 1,
     ("2", "corpus-doc"): 11,  # G2-IMPL: corpus CA sem binding (revisao F1; ENGINE-09005 no motor)
 }

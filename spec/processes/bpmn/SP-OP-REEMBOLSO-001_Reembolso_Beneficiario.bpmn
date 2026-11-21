@@ -201,9 +201,9 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     </bpmn:userTask>
     <bpmn:exclusiveGateway id="GW_DecisaoReembolso" name="Decisao humana">
       <bpmn:documentation>SEM flow default de proposito: decisao_reembolso ausente/desconhecida NAO tem caminho — o motor abre incidente (fail-closed). Antes (v0.1.0) o default era APROVAR.</bpmn:documentation>
-      <bpmn:incoming>Flow_UTAnalista_GW</bpmn:incoming>
-      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
-      <bpmn:incoming>Flow_UTAuditor_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_JuncaoDecisao_GW</bpmn:incoming>
+      <!-- E-SF-29-2 (G4 no-gateway-join-fork): as entradas de UT_AnaliseReembolso, UT_CoordenacaoReembolso -->
+      <!-- e UT_RevisaoAuditorMedico chegam pela juncao exclusiva GW_JuncaoDecisaoReembolso. -->
       <bpmn:outgoing>Flow_GWDec_Aprovar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Parcial</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Auditor</bpmn:outgoing>
@@ -234,9 +234,9 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       <bpmn:outgoing>Flow_UT_RegistrarPagamento_AvisoPago</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:exclusiveGateway id="GW_DesfechoPagamento" name="Desfecho (automatico, integral ou parcial)?" default="Flow_Desfecho_Integral">
-      <bpmn:incoming>Flow_AvisoPago_Nao</bpmn:incoming>
-      <bpmn:incoming>Flow_AvisarPago_Next</bpmn:incoming>
-      <bpmn:incoming>Flow_BEAvisoPago_Next</bpmn:incoming>
+      <bpmn:incoming>Flow_JuncaoDesfecho_GW</bpmn:incoming>
+      <!-- E-SF-29-2 (G4 no-gateway-join-fork): as tres entradas (sem aviso, aviso publicado, aviso que falhou) -->
+      <!-- chegam pela juncao exclusiva GW_JuncaoDesfechoPagamento. -->
       <bpmn:outgoing>Flow_Desfecho_Automatico</bpmn:outgoing><bpmn:outgoing>Flow_Desfecho_Parcial</bpmn:outgoing>
       <bpmn:outgoing>Flow_Desfecho_Integral</bpmn:outgoing>
     </bpmn:exclusiveGateway>
@@ -269,7 +269,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       <bpmn:incoming>Flow_PubParcial_End</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:exclusiveGateway id="GW_AvisoAprovado" name="Avisar o beneficiario?" default="Flow_AvisoAprovado_Nao">
-      <bpmn:incoming>Flow_GWDec_Aprovar</bpmn:incoming><bpmn:incoming>Flow_RegistrarAuto_AvisoAprovado</bpmn:incoming>
+      <bpmn:incoming>Flow_JuncaoAvisoAprovado_GW</bpmn:incoming><!-- E-SF-29-2: APROVAR e faixa B chegam pela juncao exclusiva GW_JuncaoAvisoAprovado. -->
       <bpmn:outgoing>Flow_AvisoAprovado_Sim</bpmn:outgoing>
       <bpmn:outgoing>Flow_AvisoAprovado_Nao</bpmn:outgoing>
     </bpmn:exclusiveGateway>
@@ -390,8 +390,8 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       <bpmn:outgoing>Flow_PubPended_WaitDocs</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:eventBasedGateway id="GW_AguardarDocs" name="Aguardar informacao ou documentacao">
-      <bpmn:incoming>Flow_PubPended_WaitDocs</bpmn:incoming>
-      <bpmn:incoming>Flow_GWPend_PrazoExtra</bpmn:incoming>
+      <bpmn:incoming>Flow_JuncaoAguardarDocs_GW</bpmn:incoming>
+      <!-- E-SF-29-2 (G4 no-gateway-join-fork): pendencia publicada e prazo extra chegam pela juncao exclusiva GW_JuncaoAguardarDocs. -->
       <bpmn:outgoing>Flow_Wait_DocsMsg</bpmn:outgoing>
       <bpmn:outgoing>Flow_Wait_Timer</bpmn:outgoing>
     </bpmn:eventBasedGateway>
@@ -474,10 +474,10 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
     <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaAnalise" targetRef="ST_PublishSlaBreach"/>
     <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoReembolso"/>
-    <bpmn:sequenceFlow id="Flow_UTAnalista_GW" sourceRef="UT_AnaliseReembolso" targetRef="GW_DecisaoReembolso"/>
-    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoReembolso" targetRef="GW_DecisaoReembolso"/>
-    <bpmn:sequenceFlow id="Flow_UTAuditor_GW" sourceRef="UT_RevisaoAuditorMedico" targetRef="GW_DecisaoReembolso"/>
-    <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR" sourceRef="GW_DecisaoReembolso" targetRef="GW_AvisoAprovado">
+    <bpmn:sequenceFlow id="Flow_UTAnalista_GW" sourceRef="UT_AnaliseReembolso" targetRef="GW_JuncaoDecisaoReembolso"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoReembolso" targetRef="GW_JuncaoDecisaoReembolso"/>
+    <bpmn:sequenceFlow id="Flow_UTAuditor_GW" sourceRef="UT_RevisaoAuditorMedico" targetRef="GW_JuncaoDecisaoReembolso"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR" sourceRef="GW_DecisaoReembolso" targetRef="GW_JuncaoAvisoAprovado">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_reembolso == 'APROVAR'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWDec_Parcial" name="APROVAR_PARCIAL (somente humano — reducao adversa)" sourceRef="GW_DecisaoReembolso" targetRef="ST_ComunicarReducao">
@@ -503,9 +503,9 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     <bpmn:sequenceFlow id="Flow_AvisoPago_Sim" name="aviso_beneficiario_whatsapp" sourceRef="GW_AvisoPago" targetRef="ST_AvisarPago">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable('aviso_beneficiario_whatsapp') == true}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_AvisoPago_Nao" name="sem aviso (default)" sourceRef="GW_AvisoPago" targetRef="GW_DesfechoPagamento"/>
-    <bpmn:sequenceFlow id="Flow_AvisarPago_Next" sourceRef="ST_AvisarPago" targetRef="GW_DesfechoPagamento"/>
-    <bpmn:sequenceFlow id="Flow_BEAvisoPago_Next" sourceRef="BE_AvisoPagoFalhou" targetRef="GW_DesfechoPagamento"/>
+    <bpmn:sequenceFlow id="Flow_AvisoPago_Nao" name="sem aviso (default)" sourceRef="GW_AvisoPago" targetRef="GW_JuncaoDesfechoPagamento"/>
+    <bpmn:sequenceFlow id="Flow_AvisarPago_Next" sourceRef="ST_AvisarPago" targetRef="GW_JuncaoDesfechoPagamento"/>
+    <bpmn:sequenceFlow id="Flow_BEAvisoPago_Next" sourceRef="BE_AvisoPagoFalhou" targetRef="GW_JuncaoDesfechoPagamento"/>
     <bpmn:sequenceFlow id="Flow_Desfecho_Parcial" name="APROVAR_PARCIAL" sourceRef="GW_DesfechoPagamento" targetRef="ST_PublishParcial">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origem_aprovacao == 'HUMANA' &amp;&amp; decisao_reembolso == 'APROVAR_PARCIAL'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
@@ -533,7 +533,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     <bpmn:sequenceFlow id="Flow_AvisarInfo_Next" sourceRef="ST_AvisarInfo" targetRef="ST_SolicitarDocumentos"/>
     <bpmn:sequenceFlow id="Flow_BEAvisoInfo_Next" sourceRef="BE_AvisoInfoFalhou" targetRef="ST_SolicitarDocumentos"/>
     <bpmn:sequenceFlow id="Flow_Solicitar_PubPended" sourceRef="ST_SolicitarDocumentos" targetRef="ST_PublishReembolsoPended"/>
-    <bpmn:sequenceFlow id="Flow_PubPended_WaitDocs" sourceRef="ST_PublishReembolsoPended" targetRef="GW_AguardarDocs"/>
+    <bpmn:sequenceFlow id="Flow_PubPended_WaitDocs" sourceRef="ST_PublishReembolsoPended" targetRef="GW_JuncaoAguardarDocs"/>
     <bpmn:sequenceFlow id="Flow_Wait_DocsMsg" sourceRef="GW_AguardarDocs" targetRef="ICE_DocsRecebidos"/>
     <bpmn:sequenceFlow id="Flow_Wait_Timer" sourceRef="GW_AguardarDocs" targetRef="ICE_PrazoPendencia"/>
     <bpmn:sequenceFlow id="Flow_DocsOk_Dossie" sourceRef="ICE_DocsRecebidos" targetRef="ST_PrepararDossie"/>
@@ -542,7 +542,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     <bpmn:sequenceFlow id="Flow_GWPend_Cancelar" name="cancelar_solicitacao" sourceRef="GW_PendenciaExpirada" targetRef="ST_PublishCancelada">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_pendencia == 'cancelar_solicitacao'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_GWPend_PrazoExtra" name="conceder_prazo_extra" sourceRef="GW_PendenciaExpirada" targetRef="GW_AguardarDocs">
+    <bpmn:sequenceFlow id="Flow_GWPend_PrazoExtra" name="conceder_prazo_extra" sourceRef="GW_PendenciaExpirada" targetRef="GW_JuncaoAguardarDocs">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_pendencia == 'conceder_prazo_extra'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWPend_SegueAnalise" name="seguir_analise (default)" sourceRef="GW_PendenciaExpirada" targetRef="ST_PrepararDossie"/>
@@ -607,12 +607,40 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
     <bpmn:sequenceFlow id="Flow_GWFaixa_Auto" name="AUTO_APROVAR (L2 — integral; dormente: R-058)" sourceRef="GW_FaixaAuto" targetRef="ST_RegistrarAprovacaoAuto">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${auto_aprovacao.recomendacao == 'AUTO_APROVAR' &amp;&amp; reembolso_auto_liberado == true}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_RegistrarAuto_AvisoAprovado" sourceRef="ST_RegistrarAprovacaoAuto" targetRef="GW_AvisoAprovado"/>
+    <bpmn:sequenceFlow id="Flow_RegistrarAuto_AvisoAprovado" sourceRef="ST_RegistrarAprovacaoAuto" targetRef="GW_JuncaoAvisoAprovado"/>
     <bpmn:sequenceFlow id="Flow_Desfecho_Automatico" name="AUTO_L2 (faixa B)" sourceRef="GW_DesfechoPagamento" targetRef="ST_PublishAprovadoAutomatico">
       <bpmn:documentation>origem_aprovacao e' escrita por ST_ValidarFaixaAuto (HUMANA) em TODA instancia antes de qualquer decisao, e so' ST_RegistrarAprovacaoAuto a troca por AUTO_L2: uma semente da partida nao sobrevive. A aprovacao automatica (faixa B, dormente) so' termina no terminal automatico e NUNCA alcanca o terminal adverso End_ReembolsoParcial (a condicao de Flow_Desfecho_Parcial exige origem HUMANA).</bpmn:documentation>
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origem_aprovacao == 'AUTO_L2'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_PubAutomatico_End" sourceRef="ST_PublishAprovadoAutomatico" targetRef="End_ReembolsoAprovadoAutomatico"/>
+    <!-- E-SF-29-2 (G4 no-gateway-join-fork): juncoes EXCLUSIVAS explicitas antes dos quatro gateways que juntavam e bifurcavam.
+         Uma juncao exclusiva so repassa o token que chega: o comportamento do processo e o mesmo. -->
+    <bpmn:exclusiveGateway id="GW_JuncaoDecisaoReembolso" name="Juncao: decisao humana">
+      <bpmn:incoming>Flow_UTAnalista_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTAuditor_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_JuncaoDecisao_GW</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_JuncaoDecisao_GW" sourceRef="GW_JuncaoDecisaoReembolso" targetRef="GW_DecisaoReembolso"/>
+    <bpmn:exclusiveGateway id="GW_JuncaoDesfechoPagamento" name="Juncao: desfecho do pagamento">
+      <bpmn:incoming>Flow_AvisoPago_Nao</bpmn:incoming>
+      <bpmn:incoming>Flow_AvisarPago_Next</bpmn:incoming>
+      <bpmn:incoming>Flow_BEAvisoPago_Next</bpmn:incoming>
+      <bpmn:outgoing>Flow_JuncaoDesfecho_GW</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_JuncaoDesfecho_GW" sourceRef="GW_JuncaoDesfechoPagamento" targetRef="GW_DesfechoPagamento"/>
+    <bpmn:exclusiveGateway id="GW_JuncaoAvisoAprovado" name="Juncao: aviso de aprovacao">
+      <bpmn:incoming>Flow_GWDec_Aprovar</bpmn:incoming>
+      <bpmn:incoming>Flow_RegistrarAuto_AvisoAprovado</bpmn:incoming>
+      <bpmn:outgoing>Flow_JuncaoAvisoAprovado_GW</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_JuncaoAvisoAprovado_GW" sourceRef="GW_JuncaoAvisoAprovado" targetRef="GW_AvisoAprovado"/>
+    <bpmn:exclusiveGateway id="GW_JuncaoAguardarDocs" name="Juncao: aguardar documentacao">
+      <bpmn:incoming>Flow_PubPended_WaitDocs</bpmn:incoming>
+      <bpmn:incoming>Flow_GWPend_PrazoExtra</bpmn:incoming>
+      <bpmn:outgoing>Flow_JuncaoAguardarDocs_GW</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_JuncaoAguardarDocs_GW" sourceRef="GW_JuncaoAguardarDocs" targetRef="GW_AguardarDocs"/>
   </bpmn:process>
 
   <bpmndi:BPMNDiagram id="Diagram_SP-OP-REEMBOLSO-001">
@@ -816,25 +844,23 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTAnalista_GW" bpmnElement="Flow_UTAnalista_GW">
         <di:waypoint x="1060" y="240"/>
-        <di:waypoint x="1260" y="240"/>
+        <di:waypoint x="1180" y="240"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
         <di:waypoint x="1260" y="540"/>
-        <di:waypoint x="1260" y="540"/>
-        <di:waypoint x="1260" y="240"/>
-        <di:waypoint x="1260" y="240"/>
+        <di:waypoint x="1260" y="400"/>
+        <di:waypoint x="1205" y="400"/>
+        <di:waypoint x="1205" y="265"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTAuditor_GW" bpmnElement="Flow_UTAuditor_GW">
-        <di:waypoint x="1260" y="80"/>
-        <di:waypoint x="1260" y="80"/>
-        <di:waypoint x="1260" y="240"/>
-        <di:waypoint x="1260" y="240"/>
+        <di:waypoint x="1205" y="120"/>
+        <di:waypoint x="1205" y="215"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar">
-        <di:waypoint x="1310" y="240"/>
-        <di:waypoint x="1335" y="240"/>
-        <di:waypoint x="1335" y="105"/>
-        <di:waypoint x="1360" y="105"/>
+        <di:waypoint x="1285" y="215"/>
+        <di:waypoint x="1285" y="172"/>
+        <di:waypoint x="1305" y="172"/>
+        <di:waypoint x="1305" y="130"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Parcial" bpmnElement="Flow_GWDec_Parcial">
         <di:waypoint x="1310" y="240"/>
@@ -916,17 +942,16 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
         <di:waypoint x="2090" y="205"/>
         <di:waypoint x="2195" y="205"/>
         <di:waypoint x="2195" y="200"/>
-        <di:waypoint x="2300" y="200"/>
+        <di:waypoint x="2240" y="200"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_AvisarPago_Next" bpmnElement="Flow_AvisarPago_Next">
         <di:waypoint x="2230" y="200"/>
-        <di:waypoint x="2300" y="200"/>
+        <di:waypoint x="2240" y="200"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_BEAvisoPago_Next" bpmnElement="Flow_BEAvisoPago_Next">
         <di:waypoint x="2228" y="240"/>
-        <di:waypoint x="2264" y="240"/>
-        <di:waypoint x="2264" y="200"/>
-        <di:waypoint x="2300" y="200"/>
+        <di:waypoint x="2265" y="240"/>
+        <di:waypoint x="2265" y="225"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Desfecho_Parcial" bpmnElement="Flow_Desfecho_Parcial">
         <di:waypoint x="2350" y="200"/>
@@ -1020,7 +1045,7 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubPended_WaitDocs" bpmnElement="Flow_PubPended_WaitDocs">
         <di:waypoint x="2000" y="620"/>
-        <di:waypoint x="2060" y="620"/>
+        <di:waypoint x="2005" y="620"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Wait_DocsMsg" bpmnElement="Flow_Wait_DocsMsg">
         <di:waypoint x="2110" y="620"/>
@@ -1053,8 +1078,10 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
         <di:waypoint x="2520" y="680"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWPend_PrazoExtra" bpmnElement="Flow_GWPend_PrazoExtra">
-        <di:waypoint x="2445" y="655"/>
-        <di:waypoint x="2085" y="645"/>
+        <di:waypoint x="2445" y="705"/>
+        <di:waypoint x="2445" y="740"/>
+        <di:waypoint x="2030" y="740"/>
+        <di:waypoint x="2030" y="645"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWPend_SegueAnalise" bpmnElement="Flow_GWPend_SegueAnalise">
         <di:waypoint x="2445" y="655"/>
@@ -1102,8 +1129,10 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_RegistrarAuto_AvisoAprovado" bpmnElement="Flow_RegistrarAuto_AvisoAprovado">
         <di:waypoint x="1200" y="800"/>
-        <di:waypoint x="1385" y="800"/>
-        <di:waypoint x="1385" y="130"/>
+        <di:waypoint x="1340" y="800"/>
+        <di:waypoint x="1340" y="60"/>
+        <di:waypoint x="1305" y="60"/>
+        <di:waypoint x="1305" y="80"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Desfecho_Automatico" bpmnElement="Flow_Desfecho_Automatico">
         <di:waypoint x="2325" y="225"/>
@@ -1113,6 +1142,34 @@ APROVAR exige valor_reembolso_aprovado_cents (&gt; 0). APROVAR_PARCIAL exige val
       <bpmndi:BPMNEdge id="Edge_Flow_PubAutomatico_End" bpmnElement="Flow_PubAutomatico_End">
         <di:waypoint x="2500" y="800"/>
         <di:waypoint x="2560" y="800"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_GW_JuncaoDecisaoReembolso" bpmnElement="GW_JuncaoDecisaoReembolso" isMarkerVisible="true">
+        <dc:Bounds x="1180" y="215" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_JuncaoDecisao_GW" bpmnElement="Flow_JuncaoDecisao_GW">
+        <di:waypoint x="1230" y="240"/>
+        <di:waypoint x="1260" y="240"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_GW_JuncaoDesfechoPagamento" bpmnElement="GW_JuncaoDesfechoPagamento" isMarkerVisible="true">
+        <dc:Bounds x="2240" y="175" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_JuncaoDesfecho_GW" bpmnElement="Flow_JuncaoDesfecho_GW">
+        <di:waypoint x="2290" y="200"/>
+        <di:waypoint x="2300" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_GW_JuncaoAvisoAprovado" bpmnElement="GW_JuncaoAvisoAprovado" isMarkerVisible="true">
+        <dc:Bounds x="1280" y="80" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_JuncaoAvisoAprovado_GW" bpmnElement="Flow_JuncaoAvisoAprovado_GW">
+        <di:waypoint x="1330" y="105"/>
+        <di:waypoint x="1360" y="105"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_GW_JuncaoAguardarDocs" bpmnElement="GW_JuncaoAguardarDocs" isMarkerVisible="true">
+        <dc:Bounds x="2005" y="595" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_JuncaoAguardarDocs_GW" bpmnElement="Flow_JuncaoAguardarDocs_GW">
+        <di:waypoint x="2055" y="620"/>
+        <di:waypoint x="2060" y="620"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

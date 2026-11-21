@@ -138,42 +138,6 @@
       "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
     },
     {
-      "gate": "4",
-      "profile": "sp-op",
-      "file": "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn",
-      "code": "G4-no-gateway-join-fork",
-      "element": "GW_DecisaoReembolso",
-      "message": "Gateway forks and joins",
-      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
-    },
-    {
-      "gate": "4",
-      "profile": "sp-op",
-      "file": "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn",
-      "code": "G4-no-gateway-join-fork",
-      "element": "GW_DesfechoPagamento",
-      "message": "Gateway forks and joins",
-      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
-    },
-    {
-      "gate": "4",
-      "profile": "sp-op",
-      "file": "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn",
-      "code": "G4-no-gateway-join-fork",
-      "element": "GW_AvisoAprovado",
-      "message": "Gateway forks and joins",
-      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
-    },
-    {
-      "gate": "4",
-      "profile": "sp-op",
-      "file": "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn",
-      "code": "G4-no-gateway-join-fork",
-      "element": "GW_AguardarDocs",
-      "message": "Gateway forks and joins",
-      "origem": "Pre-existente no head 211c6ae (bpmnlint:recommended, regra no-gateway-join-fork). Corrigir exige editar o .bpmn (fora deste epico); a baseline so' encolhe."
-    },
-    {
       "gate": "3",
       "profile": "corpus-doc",
       "file": "docs/processes/New_BPMN/Adapted_BPMN/CA_1_COMPRA (com suporte)_v4_adaptado.bpmn",

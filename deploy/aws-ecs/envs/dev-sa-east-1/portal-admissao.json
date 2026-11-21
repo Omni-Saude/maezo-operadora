@@ -53,8 +53,8 @@
  "aguardando_admissao": [
   {
    "process_definition_key": "SP-OP-REEMBOLSO-001",
-   "process_definition_digest": "05c181b93aa347db8439d376277f23b3870a334208ad1f389dcacaad716fefb3",
-   "motivo": "#1149 (R-076, faixa B do R-070 dormente: ST_ValidarFaixaAuto/ST_RegistrarAprovacaoAuto) e 6b019d66 (DEC-30 D14: UT_RegistrarPagamento com analise-contas-pagar) mudaram o BPMN depois da v2 admitida (53db7192...) e ainda NAO foram implantados. O deploy-processes dele cria a v3 do tenant amh: no mesmo corte, repinar a admissao (material-staff-na-aws.md, passo 5, 'Versao nova de processo ja admitido') ou os casos novos somem das filas."
+   "process_definition_digest": "ef5d529c79b4c572e62dee63b82111331d3a5a63e4c1bda63e1993d373236b94",
+   "motivo": "#1149 (R-076, faixa B do R-070 dormente: ST_ValidarFaixaAuto/ST_RegistrarAprovacaoAuto) e 6b019d66 (DEC-30 D14: UT_RegistrarPagamento com analise-contas-pagar) mudaram o BPMN depois da v2 admitida (53db7192...) e ainda NAO foram implantados. O deploy-processes dele cria a v3 do tenant amh: no mesmo corte, repinar a admissao (material-staff-na-aws.md, passo 5, 'Versao nova de processo ja admitido') ou os casos novos somem das filas. E-SF-29-2 (juncoes exclusivas G4, sem mudanca de comportamento) mudou os bytes de novo: o digest acima e o do BPMN com as juncoes; nada aqui admite nada, o repin continua ato do dono no corte."
   }
  ]
 }
