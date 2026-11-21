@@ -91,3 +91,16 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 - CI 37 success / 2 skipped / 0 falhos; mergeable clean.
 - 2 commits atrás da main `0e8b0bed56bb2bb0924901041cf1fd3ccacef489` (merge do #1343, disjunto); `merge-tree` limpo.
 - PRONTO enviado à coordenação do programa, com cópia ao orquestrador. Aguardo merge para a LIMPEZA #1.
+
+## 2026-11-21T00:36Z — LIMPEZA #1 (E-SF-34r, PR #1344 mesclado)
+
+- Main `faea2f74` (merge do #1344); `e169e1428fe2ecaf2952bb2392d1187245f21a9b` é ancestral da main.
+- Ramos:
+  - local `sf-w2/mzo-r2/esf34r` apagado com `git branch -d` (era `e169e142`);
+  - remoto `sf-w2/mzo-r2/esf34r` @ `e169e142` mantido (apagar ramo remoto é recusado);
+  - `sf-w2/mzo-r2/coord` mantido (canal).
+- PRs: nenhum PR órfão desta janela. Abertos do funil: só o #1345 (W2-MZO-GP).
+- Worktrees: `main-limpa` e `ramo-34r` removidas sem `--force`. Resta só a do canal `coord`.
+- Temporários: scripts de mutação, saídas das baterias e cópias dos revisores apagados do scratchpad.
+- Clone principal em `main`, limpo.
+- Estado: 12r, 06r e 32r paradas à espera da decisão do dono sobre o acesso (CD-219).
