@@ -1277,3 +1277,56 @@ Sigo com (A) localmente, num ramo novo a partir da main. O PR só abre com o de 
     - pasta de autonomia e `_hard_frozen` idênticos, com sha256 por arquivo;
     - `effect_classes` intocado.
   - O CAMINHO da RT-03 completa e o da 17r vêm antes de qualquer código delas.
+
+## 2026-11-21 ~06:45Z — CAMINHO E-SF-RT-03 completa e CAMINHO da parte de agente da E-SF-17r
+
+### RT-03 completa (rascunho do copiloto na retenção)
+**Deriva do head:** nada de RT-03 está na main.
+- O mais próximo é `gateway/human/reajuste_contestacao.py` (#1311, módulo puro, protocolo da custódia, prazo como GAP) e `portal/api/meu_plano.py` (#1319, fechado).
+- A ação `retention_staff_assist_draft` está em L1 (#1349); ninguém a usa.
+- A cédula E36 decidiu B por ora (fila humana). Se a pasta abrir: lista de campos com default VAZIO, sem CPT, sem inadimplência, só sintético.
+- A RT-D3 (DPO) não tem resposta.
+- O prazo de 7 dias úteis não tem linha no catálogo de prazos, e DMN nova é ponto de parada.
+
+**Proposta (A), sem agente novo** (a frota e o ADR-0067 ficam intocados; não reusa a identidade `comercial`):
+- **Arquivo novo** `src/maezo/gateway/human/retencao_relacionamento.py`, módulo puro e não montado:
+  - O item da fila não clínica "Relacionamento e renovação" leva o protocolo vindo da custódia, como no #1311. O vencimento fica `None`, com GAP declarado: sem número literal, sem DMN.
+  - O pedido de rascunho devolve, como DADO, a ação `retention_staff_assist_draft` (L1). Quem a avalia é o PEP do gateway, que dá REQUIRE_HUMAN.
+  - O pedido leva os fatos-fonte por lista FECHADA de campos `CAMPOS_DO_RASCUNHO_RETENCAO = frozenset()`, vazia por default (E36). Os fatos passam por `render_fatos_para_prompt(permitidos=CAMPOS_DO_RASCUNHO_RETENCAO, agente=...)`, então hoje nada chega a um modelo. Não há LLM nem texto gerado.
+- **Teste novo** `tests/unit/gateway/test_rt03_retencao_relacionamento.py`, com os testes do plano:
+  - `test_assistente_retencao_sem_ferramenta_decisoria`: nenhum tool, e nenhuma ação de valor, elegibilidade, rescisão ou contestação;
+  - `test_assistente_retencao_sem_zona_phi`: nenhum campo clínico ou de PHI passa a lista fechada; inclui CPT e inadimplência;
+  - o reuso de `test_contract_termination_never_autonomous` (DENY).
+
+**Pontos do ROOT:**
+- **(1) Envio:** o rascunho é só dado. Não há chamada de envio no módulo (cerca por AST), e a entrega ao beneficiário continua ato humano.
+- **(2) Campos ao modelo:** lista fechada vazia e `render_fatos_para_prompt` com `permitidos=` e `agente=`. Texto livre de terceiro não entra, porque não é campo da lista.
+- **(3) Sem oferta e sem fricção no cancelamento:**
+  - nenhuma oferta, desconto, prazo ou promessa gerados, com varredura de tokens no módulo e na saída;
+  - o cancelamento continua sem fricção: o módulo não é chamado por `saida_a_pedido` (cerca de import), e a pergunta de motivo continua opcional e depois do protocolo (#1348);
+  - o Lucas continua sem retenção.
+- **(4) Nada ligado:** módulo não montado, por AST. Não há flag nova; se houver, desligada e com teste.
+
+**Fora da entrega:** a pasta de autonomia, `action-approvals`, `_hard_frozen` e `effect_classes` são só lidos, com sha256 em teste. Também ficam fora:
+- DMN, migração, DL e CODEOWNERS;
+- o agente novo (B), que espera a RT-D3 e o provedor;
+- o prazo de 7 dias úteis, GAP de catálogo.
+
+**Alternativa (B):** só testes do estado fechado, sem módulo novo.
+
+### Parte de agente da 17r
+**Deriva:** o bloco da 17r cobre só o GTM-E-BPMN-06, BPMN e DMN, fora da janela.
+- A parte de agente não tem entrada própria (CD-153/233).
+- O que ela exerceria é `send_prospect_message` (L3) por um despachante, e a classe `comunicacao_prospect` está adiada: ela não está em `effect_classes` e não há despachante (CD-153). O #1340 entregou só a decisão de rota, com a chave em false.
+
+**Proposta (A), só testes do estado fechado** em `tests/unit/agents/test_esf17r_agente_estado_fechado.py`:
+- a ação de envio continua só DADO no modo prospect;
+- `comunicacao_prospect` e `send_prospect_message` continuam ausentes de `effect_classes` (classes e OPERATIONS);
+- a rota comercial do WhatsApp continua com a chave false e sem emissor;
+- nenhum despachante importa o grafo `comercial`;
+- `build` desligado.
+Nenhum arquivo de `src/` muda.
+
+**Alternativa (B):** declarar "nada a construir" e fechar a linha sem PR.
+
+Ordem: ADD01-03 (PR quando a revisão der PASS) → RT-03 → 17r, um PR por vez e no máximo dois do funil abertos.
