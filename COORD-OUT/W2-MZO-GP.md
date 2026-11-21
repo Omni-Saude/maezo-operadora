@@ -1371,3 +1371,15 @@ Ordem: ADD01-03 (PR quando a revisão der PASS) → RT-03 → 17r, um PR por vez
 - **Cercas que podem cruzar com o PR-C do pin** (T-MZO-A):
   - A 17r não varre `spec/processes/dmn/rco` nem `config/integrations/rco`. Ela varre só os `*.py` de `src/` para importadores de `maezo.agents.comercial` e lê `gateway/effect_classes.py`.
   - A RT-03 e a ADD01-03 (já na main) fixam o sha256 de `gateway/effect_classes.py` e de cada arquivo de `spec/policies/autonomy/`. Se o PR-C mudar `effect_classes.py` ("cerca PHI"), esses dois pinos precisam ser atualizados no próprio PR-C.
+
+## 2026-11-21 ~11:55Z — estado (pedido do orquestrador)
+
+- **RT-03** (`rt03` @ `f903a88d`, no remoto):
+  - já tem o de acordo da coordenação do programa e a revisão independente PASS (o FAIL do import relativo foi corrigido e reconfirmado);
+  - falta só fechar a suíte `tests/unit` × main. A bateria, um lado de cada vez por causa do disco, já passou pela RT-03 e está no último lote (`tests/unit/ci` da 17r);
+  - previsão do PR: logo que a bateria fechar, menos de 1 h.
+- **17r** (`esf17r` @ `ccb378f6`, no remoto):
+  - mesmo estado: de acordo e revisão PASS (o FAIL da cerca de imports foi corrigido e reconfirmado; depois, detecção de envio por prefixo);
+  - a suíte (`agents` + `ci`, porque o ramo é só teste) está rodando;
+  - o PR sai depois do da RT-03, um por vez.
+- **Travado:** nada agora. O disco tem 24G livres; mais cedo encheu, por 28G de temporários do pytest, já limpos. O `git branch -d` foi negado no começo do dia; tento de novo na limpeza final.
