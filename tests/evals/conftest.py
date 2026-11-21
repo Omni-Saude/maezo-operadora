@@ -61,7 +61,6 @@ wave table). Provides:
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +69,8 @@ from typing import Any, ClassVar
 import pytest
 
 from maezo.runtime.inference import PhiZoneRoutingError
+
+from ._regra_viva import motivo_do_pulo
 
 # ---------------------------------------------------------------------------
 # ReplayInferenceProvider — Tier A (deterministic, no network, no key)
@@ -361,21 +362,16 @@ def load_golden(agent: str, *, root: Path | None = None) -> list[dict[str, Any]]
 # Tier B (live-LLM) skip gate — mirrors tests/unit/runtime/test_inference_live.py exactly.
 # ---------------------------------------------------------------------------
 
-_HAS_LLM_KEY = bool(os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+# Roda so' com opt-in explicito de execucao (`TIER_B_EXECUCAO` = noturno | manual: o job noturno e o script
+# manual a definem) E credencial pretendida; senao PULA com motivo estavel — qualquer que seja o provedor ou
+# a chave (um `make test`/`pytest` local nunca faz chamada real sem pedir). A regra: `_regra_viva.py`.
+_MOTIVO_DO_PULO = motivo_do_pulo()
 
 #: Apply to any Tier-B (live) eval test/parametrize case. Reuses the existing `llm_live` marker
-#: (`pyproject.toml`) rather than registering a new one — Tier B is "the same live-Anthropic-call
-#: liveness gate, applied to an eval case" structurally, not a new kind of skip.
-live_key_skip = pytest.mark.skipif(
-    not _HAS_LLM_KEY,
-    reason=(
-        "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping Tier-B "
-        "live-LLM eval variant. This is a loud, explicit skip, not a silent pass (mirrors "
-        "tests/unit/runtime/test_inference_live.py): Tier-A (replay) evals are the PR "
-        "merge-blocking gate and are unaffected; Tier-B is nightly-only, threshold-scored, "
-        "non-blocking, and requires a real Anthropic key to ever execute."
-    ),
-)
+#: (`pyproject.toml`) rather than registering a new one. A loud, explicit skip, not a silent pass: Tier-A
+#: (replay) evals are the PR merge-blocking gate and are unaffected. Tier-B calls the graphs with phi=True,
+#: so it only really runs against a PHI-zone provider — see the manual run in tests/evals/README.md.
+live_key_skip = pytest.mark.skipif(_MOTIVO_DO_PULO is not None, reason=_MOTIVO_DO_PULO or "")
 
 
 __all__ = [

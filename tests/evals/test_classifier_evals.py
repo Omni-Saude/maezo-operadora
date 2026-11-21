@@ -20,7 +20,6 @@ import pytest
 from maezo.agents.fernando.graph import build as build_fernando
 from maezo.agents.helena.graph import HelenaGraph, build
 from maezo.agents.lucas.graph import build as build_lucas
-from maezo.runtime.inference import InferenceProvider, InferenceSettings
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -37,6 +36,7 @@ from ._harness import (
     run_mutation_check,
     score_live,
 )
+from ._vivo import exigir_chamada_viva, provedor_vivo
 from .conftest import FakeWhatsAppSender, live_key_skip
 
 HELENA_CASES = load_golden("helena")
@@ -139,8 +139,9 @@ async def test_helena_eval_tier_b_live(case: dict[str, Any]) -> None:
 
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
+    provedor = provedor_vivo()
     graph = HelenaGraph(
-        inference=InferenceProvider(settings=InferenceSettings(provider="anthropic")),
+        inference=provedor,
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
@@ -149,6 +150,9 @@ async def test_helena_eval_tier_b_live(case: dict[str, Any]) -> None:
 
     result = await graph.classify(case["input"]["state"])
 
+    # Antes do limiar: o grafo engole a falha do provedor (falha_tecnica/reenvio); sem isto uma API
+    # morta reprovaria "por limiar" e pareceria queda de qualidade (tests/evals/_vivo.py).
+    exigir_chamada_viva(provedor)
     score = score_live(result, baseline, live["match"])
     assert_live_score(score, live["threshold"])
 

@@ -34,11 +34,11 @@ from typing import Any, Final
 import pytest
 
 from maezo.agents.helena.graph import HelenaGraph, HelenaState
-from maezo.runtime.inference import InferenceProvider, InferenceSettings
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
+from ._vivo import GravadorDeChamadas, exigir_chamada_viva, provedor_vivo
 from .conftest import FakeWhatsAppSender, live_key_skip
 
 _CORPUS: Final[Path] = Path(__file__).resolve().parent / "extracao" / "casos.json"
@@ -78,7 +78,7 @@ def _estado(mensagem: str) -> HelenaState:
     }
 
 
-def _grafo(*, roteador_lucas: bool = False) -> HelenaGraph:
+def _grafo(provedor: GravadorDeChamadas, *, roteador_lucas: bool = False) -> HelenaGraph:
     """Um grafo com o modelo REAL e todo o resto falso.
 
     A DMN e' um duplo VAZIO de proposito: se `classify` chegar a consulta-la, o duplo levanta e o
@@ -86,7 +86,7 @@ def _grafo(*, roteador_lucas: bool = False) -> HelenaGraph:
     tabela deriva dela; misturar as duas coisas produziria uma nota que sobe quando a tabela muda.
     """
     return HelenaGraph(
-        inference=InferenceProvider(settings=InferenceSettings(provider="anthropic")),
+        inference=provedor,
         dmn=FakeDmnTransport(),
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
@@ -168,8 +168,9 @@ async def test_extracao_ao_vivo_contra_o_corpus_rotulado() -> None:
     abaixo sai no stdout do teste e e' o que se leva para a conversa com quem assina a regua —
     "a R2 esta em 0,71" e' uma frase acionavel; "a extracao esta em 0,89" nao e'.
     """
-    grafo = _grafo()
-    grafo_do_roteador = _grafo(roteador_lucas=True)
+    provedor, provedor_do_roteador = provedor_vivo(), provedor_vivo()
+    grafo = _grafo(provedor)
+    grafo_do_roteador = _grafo(provedor_do_roteador, roteador_lucas=True)
     casos = _casos()
 
     notas: list[float] = []
@@ -180,6 +181,10 @@ async def test_extracao_ao_vivo_contra_o_corpus_rotulado() -> None:
     for caso in casos:
         medidor = grafo_do_roteador if caso.get("prompt") == "classify-v7.1" else grafo
         extracao, falha = await medidor._classify_llm(_estado(caso["mensagem"]))
+        # A CHAMADA falhou (provedor/credencial/rede/zona PHI): para ja', antes de qualquer nota — nao e'
+        # extracao ruim, e seguir gastaria as demais chamadas (tests/evals/_vivo.py). Extracao INVALIDA
+        # com a chamada respondida continua contando zero, abaixo.
+        exigir_chamada_viva(provedor, provedor_do_roteador)
         if extracao is None:
             # Extracao INVALIDA conta como zero, nunca como caso pulado: em producao isto vira
             # `falha_tecnica` e o turno inteiro cai em humano. Pular baixaria o denominador e faria

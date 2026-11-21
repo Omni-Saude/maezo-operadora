@@ -2722,8 +2722,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # O alvo `make evals` (`-m eval`) partido em dois passos, sem perder caso: Tier A (replay) bloqueia como
-      # antes; Tier B (ao vivo, `llm_live`) roda com MAEZO_ANTHROPIC_API_KEY e tem resultado proprio no
-      # resumo. A uniao das duas selecoes e' provada igual a do `make evals` lido do Makefile por
+      # antes; Tier B (ao vivo, `llm_live`) so' roda com o opt-in TIER_B_EXECUCAO deste job e credencial, e tem
+      # resultado proprio no resumo. A uniao das duas selecoes e' provada igual a do `make evals` lido do Makefile por
       # tests/unit/ci/test_evals_nightly_tier_b.py.
       - name: Nightly eval run — Tier A (replay, bloqueante)
         id: tier_a
@@ -2744,8 +2744,10 @@ jobs:
           LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
           NIGHTLY_EVAL: "1"
 
-      # Tier B (ao vivo). Sem o segredo, todo caso e' pulado e o resumo diz "NAO RODOU". Com
-      # TIER_B_BLOQUEANTE "false" (observacao das primeiras noites com chave), reprovacao DE LIMIAR em parte
+      # Tier B (ao vivo). Opt-in de execucao: TIER_B_EXECUCAO=noturno (sem ela, todo caso vivo e' pulado e o
+      # preflight/resumo QUEBRAM). Os grafos chamam com phi=True e o CI nao tem provedor na zona PHI: no
+      # estado normal todo caso e' pulado e o resumo diz "NAO RODOU: nao roda no CI" + execucao manual. Com
+      # TIER_B_BLOQUEANTE "false" (observacao, quando houver provedor na zona PHI no CI), reprovacao DE LIMIAR em parte
       # dos casos vira `::warning::` e nao deixa o job vermelho; erro de coleta/fixture, falha que nao e' de
       # limiar (API, credencial), 100% reprovado ou chave presente sem nenhum caso rodado falham SEMPRE
       # (scripts/ci/tier_b_resumo.py). Voltar a bloquear: TIER_B_BLOQUEANTE "true". Sem `-rA`, `--tb=no`, `-rN` e
@@ -2763,8 +2765,8 @@ jobs:
           if actual != expected:
               sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
           PY
-          # Preflight: UMA chamada minima pelo mesmo caminho dos evals; com chave e provedor morto, QUEBRADO
-          # (so' classe do erro e status no log). Sem chave, nao chama nada.
+          # Preflight: UMA chamada minima pelo mesmo caminho dos evals; com credencial e provedor morto, QUEBRADO
+          # (so' classe do erro e status no log). Sem credencial, nao chama nada; sem o opt-in, QUEBRADO.
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I scripts/ci/tier_b_preflight.py
           set +e
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/evals -q --tb=no -rN -m "eval and llm_live" --junitxml="${RUNNER_TEMP}/tier-b-junit.xml"
@@ -2774,21 +2776,23 @@ jobs:
         env:
           MAEZO_ANTHROPIC_API_KEY: ${{ secrets.MAEZO_ANTHROPIC_API_KEY }}
           NIGHTLY_EVAL: "1"
+          # Opt-in explicito: so' este job e o script manual (scripts/dev/tier_b_manual.py) rodam casos llm_live.
+          TIER_B_EXECUCAO: "noturno"
           TIER_B_BLOQUEANTE: "false"
-          # "false" ate' o conserto dos evals vivos (falha de chamada com mensagem propria) entrar: o resumo
-          # avisa que a noite NAO conta para as 7 de observacao. Vira "true" no PR do conserto.
+          # "false": as noites de observacao ficam suspensas ate' existir provedor na zona PHI no CI (o resumo
+          # diz isso em toda noite).
           TIER_B_NOITES_CONTAM: "false"
 
       # Tier A vermelho => o passo B nao roda (sucesso() falso). Fica dito no resumo, para a noite nao ser
-      # contada nas 7 de observacao do Tier B.
+      # contada na observacao do Tier B (hoje suspensa ate' existir provedor na zona PHI no CI).
       - name: TIER B NAO RODOU — Tier A falhou (visible)
         if: failure() && steps.guard.outputs.run == 'true' && steps.tier_a.outcome == 'failure'
         run: |
-          echo "::warning::Tier B NAO RODOU: o Tier A falhou nesta noite; a noite nao conta para a observacao do Tier B"
+          echo "::warning::Tier B NAO RODOU: o Tier A falhou nesta noite (a noite nao conta para a observacao do Tier B)"
           {
             echo "## evals-nightly — Tier B NAO RODOU: o Tier A falhou"
             echo ""
-            echo "Esta noite nao conta para as 7 noites de observacao do Tier B."
+            echo "Esta noite nao conta para a observacao do Tier B (as noites estao suspensas ate existir provedor na zona PHI no CI)."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload nightly eval results

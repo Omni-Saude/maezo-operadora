@@ -68,7 +68,7 @@ from maezo.agents.andre import graph as andre_graph
 from maezo.agents.marina import graph as marina_graph
 from maezo.agents.rafael import graph as rafael_graph
 from maezo.agents.valentina import graph as valentina_graph
-from maezo.runtime.inference import InferenceProvider, InferenceSettings
+from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -84,6 +84,7 @@ from ._harness import (
     run_case,
     run_mutation_check,
 )
+from ._vivo import GravadorDeChamadas, exigir_chamada_viva, exigir_narrativa, provedor_vivo
 from .conftest import live_key_skip
 
 RAFAEL_CASES = load_golden("rafael")
@@ -281,8 +282,9 @@ class _RaisingInference:
         raise RuntimeError("simulated LLM garbage/failure (eval-only, never a real model)")
 
 
-def _live_inference() -> InferenceProvider:
-    return InferenceProvider(settings=InferenceSettings(provider="anthropic"))
+def _live_inference() -> GravadorDeChamadas:
+    """O provedor vivo com gravador de chamadas (tests/evals/_vivo.py) — fonte unica da configuracao."""
+    return provedor_vivo()
 
 
 async def _engine_variables(result: RunResult) -> dict[str, Any]:
@@ -418,8 +420,9 @@ async def test_evl_rafael_03_eval_tier_b_live() -> None:
     # so a plain FakeDmnTransport would reject it loudly (RAF-06).
     dmn = RuleAwareFakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
+    provedor = _live_inference()
     graph = rafael_graph.RafaelGraph(
-        inference=_live_inference(),
+        inference=provedor,
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
@@ -427,6 +430,8 @@ async def test_evl_rafael_03_eval_tier_b_live() -> None:
     )
     compiled = graph.compile_graph().compile()
     result_state = dict(await compiled.ainvoke(cast(rafael_graph.RafaelState, dict(case["input"]["state"]))))
+    exigir_chamada_viva(provedor)
+    exigir_narrativa(result_state.get("dossier"))
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 
@@ -550,8 +555,9 @@ async def test_evl_valentina_05_eval_tier_b_live() -> None:
     case = _valentina_case("EVL-VALENTINA-05")
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
+    provedor = _live_inference()
     graph = valentina_graph.ValentinaGraph(
-        inference=_live_inference(),
+        inference=provedor,
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
@@ -561,6 +567,8 @@ async def test_evl_valentina_05_eval_tier_b_live() -> None:
     result_state = dict(
         await compiled.ainvoke(cast(valentina_graph.ValentinaState, dict(case["input"]["state"])))
     )
+    exigir_chamada_viva(provedor)
+    exigir_narrativa(result_state.get("dossier"))
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 
@@ -716,8 +724,9 @@ async def test_evl_marina_03_eval_tier_b_live() -> None:
     case = _marina_case("EVL-MARINA-03")
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
+    provedor = _live_inference()
     graph = marina_graph.MarinaGraph(
-        inference=_live_inference(),
+        inference=provedor,
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
@@ -725,6 +734,8 @@ async def test_evl_marina_03_eval_tier_b_live() -> None:
     )
     compiled = graph.compile_graph().compile()
     result_state = dict(await compiled.ainvoke(cast(marina_graph.MarinaState, dict(case["input"]["state"]))))
+    exigir_chamada_viva(provedor)
+    exigir_narrativa(result_state.get("dossier"))
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 
@@ -759,13 +770,16 @@ async def test_marina_prompt_v3_tier_b_live_nao_cita_identificador(flow: str) ->
         "cid10": "Q99.9",
         **ids,
     }
+    provedor = _live_inference()
     graph = marina_graph.MarinaGraph(
-        inference=_live_inference(),
+        inference=provedor,
         dmn=FakeDmnTransport(),
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
     )
     dossie = await graph._build_dossier(cast(marina_graph.MarinaState, state), route="human_review")
+    exigir_chamada_viva(provedor)
+    exigir_narrativa(dossie)
     narrativa = dossie["narrativa"]
     assert narrativa.strip()
     for valor in [*ids.values(), "Q99.9"]:
