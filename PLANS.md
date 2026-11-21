@@ -116,6 +116,7 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - **PR em caminho protegido:** o dev em enforcing e os aprovadores dono + auditor-neutro estão desenhados no ADR-0077 §8 e não foram aplicados. `spec/policies/autonomy/` é vedado a esta sessão pelo usuário, e a ROOT leva ao dono a liberação explícita.
   - **Primeiro pin real do K1, pré-requisitos:**
     - cerca de perspectiva para `spec/processes/dmn/rco/`: resolvida sem isenção no #1358 (PR-A, DL-0196). O vocabulário D7 foi estendido só com as duas frases exatas de `geral_prazos_conta.dmn` (rco b8444f52). No PR do pin, com as tabelas dentro do repositório, a varredura das tabelas reais roda no CI SEM `skipif` sobre `spec/processes/dmn/rco/` e dá 0 acerto. Antes de abrir o PR, rodá-la localmente com o clone do rco (ROOT, 21/11/2026);
+    - montador conferido com o dicionario 1.6.0 (b8444f52): `regime` e `cidSecundarioInformado` pelo texto da 1.5.1, as demais formulas byte a byte (DL-0197). Feito, sem pin;
     - PHI: no MESMO PR do pin, porque a cerca recusa nome que ainda não está na árvore (`test_validation_phi_completeness.py:3343-3347`, `:3765-3767`):
       - uma entrada no CORPUS_DELTA_LOG por nome novo (simulação em b8444f52: 362 nomes novos, 324 CLEAN e 38 SHAPE-SUSPECT, nenhum LISTED);
       - os pinos de contagem atualizados;

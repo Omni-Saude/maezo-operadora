@@ -109,7 +109,7 @@ def test_texto_antigo_num_dicionario_novo_e_recusado(dic: DicionarioEntradasK1, 
         decisao = rec.manifesto().decisoes[DECISAO]
         problemas = mt.conferir_mapeamento(mutado, decisao.dominio, decisao.entradas)
         assert f"{nome}: formula do dicionario diverge da implementada; reveja o montador" in problemas
-        with pytest.raises(mt.MontadorEntradasError):
+        with pytest.raises(mt.MontadorEntradasError, match="diverge da implementada"):
             mt.montar_entradas(decisao, mutado, mt.FatosDoCaso(guia={}, versao_k3_pinada=(1, 15)))
 
 
@@ -125,7 +125,7 @@ def test_texto_novo_num_dicionario_1_5_0_e_recusado(nome: str) -> None:
     )
     decisao = rec.manifesto().decisoes[DECISAO]
     problemas = mt.conferir_mapeamento(mutado, decisao.dominio, decisao.entradas)
-    assert any("diverge da implementada" in p for p in problemas)
+    assert f"{nome}: formula do dicionario diverge da implementada; reveja o montador" in problemas
 
 
 # --- regime (1.5.1) ---------------------------------------------------------------------------------------
@@ -277,3 +277,14 @@ def test_prazo_de_comprovacao_da_1_6_0_nao_entra_no_montador() -> None:
     assert "prazoComprovacaoUsoVencido" not in mt.FORMULAS
     assert "prazoComprovacaoUsoVencido" not in mt.FORMULAS_PENDENTES
     assert all("prazoComprovacaoUsoVencido" not in mapa for mapa in mt.MAPEAMENTOS.values())
+
+
+def test_revisoes_fora_de_ordem_sao_recusadas_na_construcao() -> None:
+    """`vigente` le as revisoes em ordem: fora de ordem ou com `desde` repetido, a construcao recusa."""
+    impl = mt.FORMULAS["regime"]
+    (revisao,) = impl.revisoes
+    anterior = dataclasses.replace(revisao, desde=(1, 5, 0))
+    with pytest.raises(ValueError, match="fora de ordem"):
+        dataclasses.replace(impl, revisoes=(revisao, anterior))
+    with pytest.raises(ValueError, match="fora de ordem"):
+        dataclasses.replace(impl, revisoes=(revisao, revisao))

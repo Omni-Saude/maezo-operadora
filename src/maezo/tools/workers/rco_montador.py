@@ -77,7 +77,7 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    codigo nem configuracao; sem `valor` no pacote (1.4.0, ou `lacuna`) o caso de 1 dia fica nulo (nulo vai a
    regulacao, nunca nega).
 12. `regime` e `cidSecundarioInformado` (dicionario 1.4.0, publicadas sem mudanca na 1.5.0, rco aed187d4;
-   DL-0184; texto novo na 1.5.1, rco 1c5a2f2d, sem mudanca na 1.6.0, rco b8444f52, guardado em
+   DL-0184; texto novo na 1.5.1, rco 1c5a2f2d, sem mudanca na 1.6.0, rco b8444f52, DL-0197, guardado em
    `_FormulaImplementada.revisoes`): calculadas EXATAMENTE pela formula publicada, so de elementos da guia
    TISS entregues em `FatosDoCaso.tiss` (`CAMPOS_TERMO_TISS`). `regime`: Tabela 41 (`regimeInternacao` `1`
    internacao, `2` hospital-dia) e Tabela 76 (`regimeAtendimento` `03` internacao, `01` ambulatorial, `04`
@@ -344,6 +344,13 @@ class _FormulaImplementada:
     #: dicionario daquela versao em diante, o texto conferido e o calculo sao os da revisao (`vigente`).
     #: `texto` e `calcular` acima seguem valendo para os dicionarios anteriores a primeira revisao.
     revisoes: tuple[_RevisaoFormula, ...] = ()
+
+    def __post_init__(self) -> None:
+        # `vigente` le as revisoes em ordem: fora de ordem, ou duas com o mesmo `desde`, uma versao pegaria o
+        # texto errado sem erro nenhum. Recusa na construcao (revisao da DL-0197).
+        desdes = [revisao.desde for revisao in self.revisoes]
+        if desdes != sorted(set(desdes)):
+            raise ValueError(f"revisoes fora de ordem crescente de `desde`: {desdes}")
 
     def vigente(self, versao: tuple[int, int, int]) -> tuple[str, _Calculo]:
         """O texto EXATO que o dicionario `versao` tem de publicar e o calculo que o segue."""
