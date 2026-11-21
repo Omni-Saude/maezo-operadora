@@ -201,7 +201,7 @@ motor, prazo de 5 s) vira codigo de desfecho; qualquer outra excecao vira log ER
 `maezo_rco_sombra_total{desfecho="erro_de_programacao"}`, sem mudar o desfecho do worker. Rastro so na
 auditoria: a entrada `rco_` de `dmn_versions` leva `derivacoes` (`diasBrutos`, `toleranciaAplicada`,
 `valorEntregue`, `motivoTolerancia`), `entradasNulas`, `versaoDicionarioEntradas` e
-`origemAvaliacao=sombra_montador`; nunca chave de negocio, guia, lote, beneficiario ou prestador. Inerte enquanto o pin do rco estiver `sem_pacote`. Hoje os
+`origemAvaliacao=sombra_montador`; nunca chave de negocio, guia, lote, beneficiario ou prestador. Com o pin fixado (K1 b8444f52) a sombra roda em todo intake: UMA chamada sincrona ao motor, limitada a `PRAZO_SOMBRA_S` (5 s), dentro da tarefa; o deploy do motor leva os 237 DMN do rco (236 tabelas pinadas e o exemplo sintetico); nenhum efeito na decisao (`efeito_k1_habilitado` segue falso). Hoje os
 termos de `diasAteApresentacao` nao tem produtor neste processo (o contrato nao traz as datas da guia nem o
 prazo do contrato do prestador, e `data_recebimento_lote` pode ser o padrao de HOJE do intake): entram
 nulos, e nulo nunca nega nem glosa. Nenhuma variavel de entrada ou saida deste contrato mudou.

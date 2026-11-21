@@ -407,6 +407,23 @@ def test_intake_com_pin_real_avalia_so_em_sombra_e_nao_muda_a_saida(monkeypatch:
     assert at.efeito_k1_habilitado() is False
 
 
+def test_intake_com_pin_sem_pacote_nao_chama_o_motor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cobertura do estado `sem_pacote` (o pin antes do K1, ou de qualquer ambiente que volte a ele): o
+    intake nao faz chamada nenhuma ao motor, conta `sem_pacote` e a saida e identica a sem transporte."""
+    monkeypatch.setattr(
+        rco_pin,
+        "rco_rules_pin",
+        lambda: rco_pin.RcoRulesPin(estado="sem_pacote", tables=MappingProxyType({})),
+    )
+    desfechos: list[str] = []
+    monkeypatch.setattr(rco_sombra, "record_rco_sombra", desfechos.append)
+    dmn = _dmn()
+    out = contas.identify_glosa_entry(_variaveis_contas(), dmn=dmn)
+    assert dmn.calls == []
+    assert desfechos == [rco_sombra.SEM_PACOTE]
+    assert out == contas.identify_glosa_entry(_variaveis_contas())
+
+
 async def test_harness_grava_a_auditoria_do_montador_e_completa_igual(
     pin_com_prazos: rco_pin.RcoRulesPin,
 ) -> None:

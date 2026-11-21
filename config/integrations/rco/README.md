@@ -6,8 +6,9 @@ O Maezo recebe o pacote K1 byte a byte (contrato `docs/programa/contrato-k1.md` 
 pin `rules.lock.json`, no formato de `config/integrations/amh/contracts.lock.json`:
 
 - os DMN em `spec/processes/dmn/rco/<arquivo>.dmn`, pasta plana (`decisoes[].caminho_consumidor`);
-- o manifesto e os anexos em `config/integrations/rco/k1/` (pasta plana): `manifesto.json`,
-  `vocabulario.json`, `entradas.json` e `k6-filas.json`, com os nomes que o manifesto der;
+- o manifesto e os anexos em `config/integrations/rco/k1/` (plana, salvo as provas): `manifesto.json`,
+  `vocabulario.json`, `entradas.json` e `k6-filas.json`, com os nomes que o manifesto der, e as provas do
+  motor em `k1/provas/<id>/` (os arquivos de `provas[].arquivos`, desde o formato 2.1.0);
 - **os exemplos do pacote (`exemplos/<id>.json`) ficam fora do lock e fora da árvore**: são material de
   teste do rco (contrato §3). Os testes do leitor usam um pacote sintético
   (`tests/unit/platform/rco_k1_sintetico.py`).
@@ -129,7 +130,8 @@ deploy no motor: `version`/`deploymentId` do motor ainda não são cruzados com 
 
 O pin não se edita à mão para "consertar" digest. Ele muda só quando: (1) o rco publica um K1 novo
 — copiar `k1/dmn/*.dmn` byte a byte para `spec/processes/dmn/rco/` e `k1/manifesto.json` mais os
-anexos para `config/integrations/rco/k1/` (nunca `exemplos/`), preencher `provenance` (de `origem`),
+anexos para `config/integrations/rco/k1/`, e cada `k1/provas/<id>/` de `provas[]` byte a byte para
+`config/integrations/rco/k1/provas/<id>/` (nunca `exemplos/`), preencher `provenance` (de `origem`),
 `manifest_pin` (o `sha256` é o conteúdo de `manifesto.sha256`) e `artifacts` (de `decisoes[]`) e passar
 `estado` para `fixado`; ou (2) entra ou sai um exemplo sintético declarado. O sha256 de cada entrada é
 `sha256:` seguido do hex de `sha256sum <arquivo>` na árvore.

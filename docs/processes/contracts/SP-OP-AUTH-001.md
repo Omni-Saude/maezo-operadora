@@ -419,8 +419,10 @@ decisao `rco_geral_elegibilidade` (`src/maezo/tools/workers/auth_rco.py`):
   segundo append na cadeia de auditoria do tenant (teto de 3 s; so com pin real do K1) e o registro K1 so e
   gravado depois dele (teto de 5 s). Nada disso segura o bloqueio da tarefa; o tempo entra na duracao medida do
   topico.
-- **Inerte hoje:** o pin do rco de producao esta em `sem_pacote`; a sombra so avalia algo com o primeiro pin
-  real do K1.
+- **Com o pin fixado (K1 b8444f52):** a sombra roda em toda tarefa, DEPOIS do complete: ate 3 chamadas ao
+  motor (os dois membros da composicao e a elegibilidade), um append do fato `SHADOW` na cadeia de auditoria e
+  as insercoes do registro K1 (`modo=sombra`); o deploy do motor leva os 237 DMN do rco (236 tabelas pinadas e
+  o exemplo sintetico). Nenhum efeito na decisao: `efeito_k1_habilitado` segue falso.
 
 ## Variaveis de saida
 

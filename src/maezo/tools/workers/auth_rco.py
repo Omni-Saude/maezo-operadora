@@ -20,7 +20,11 @@ Nada disto toca o resultado do worker: a tarefa ja completou quando a sombra rod
 cadeia de auditoria (decisao `SHADOW`, dedup `{tenant}:sombra:{task_id}`, com o `dmn_versions` das tabelas
 `rco_`, a auditoria do montador e `composicaoK1`), o registro observacional de decisoes K1 em
 `modo=sombra` e as metricas. A composicao e registrada com `modo=sombra` (`rco_sombra`): nenhum aviso do K6 e
-enfileirado. INERTE em producao enquanto o pin do rco estiver em `sem_pacote`.
+enfileirado. Com o pin fixado (K1 b8444f52) isto roda em toda tarefa: DEPOIS do complete, ate 3 chamadas ao
+motor (os dois membros da composicao e a elegibilidade, num orcamento de `PRAZO_SOMBRA_AUTH_S`), um append do
+fato `SHADOW` na cadeia de auditoria e as insercoes do registro K1 (`modo=sombra`); o deploy do motor leva os
+237 DMN do rco (as 236 tabelas pinadas e o exemplo sintetico). Nenhum efeito na decisao:
+`efeito_k1_habilitado` segue falso e nem e lido aqui.
 
 FATOS DO CASO (`fatos_carencia_cpt_auth`), conferidos contra as regras do montador (`rco_montador`):
 
