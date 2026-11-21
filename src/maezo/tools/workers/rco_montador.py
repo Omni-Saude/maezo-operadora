@@ -62,7 +62,8 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    data tem padrao: em particular, nunca a data de hoje que `contas._normalize_data_recebimento_lote`
    usa quando o lote nao traz o recebimento.
 11. `urgenciaAposVinteQuatroHorasCobertura` (dicionario 1.4.0, K1 2.3.0, DL-0183; leitura do pacote no
-   dicionario 1.5.0, rco aed187d4): calculada EXATAMENTE pela formula publicada. Decide primeiro pelas DATAS
+   dicionario 1.5.0, rco aed187d4; formula e bloco sem mudanca na 1.5.1 e na 1.6.0, rco 1c5a2f2d e
+   b8444f52): calculada EXATAMENTE pela formula publicada. Decide primeiro pelas DATAS
    (dias corridos entre a data de referencia do atendimento e o inicio da cobertura): 2 ou mais ->
    verdadeiro; 0 ou menos -> falso; 1 -> pelas horas so com as DUAS horas (cadastro e guia) e o parametro
    `horasMinimasUrgencia`, senao nulo. Nenhuma hora e inferida. A data (e a hora) de referencia vem do TIPO
@@ -76,16 +77,20 @@ REGRAS DURAS (coordenacao do programa, 16/11/2026):
    codigo nem configuracao; sem `valor` no pacote (1.4.0, ou `lacuna`) o caso de 1 dia fica nulo (nulo vai a
    regulacao, nunca nega).
 12. `regime` e `cidSecundarioInformado` (dicionario 1.4.0, publicadas sem mudanca na 1.5.0, rco aed187d4;
-   DL-0184): calculadas EXATAMENTE pela formula publicada, so de elementos da guia TISS entregues em
-   `FatosDoCaso.tiss` (`CAMPOS_TERMO_TISS`). `regime`: Tabela 41 (`regimeInternacao` `1` internacao, `2`
-   hospital-dia) e Tabela 76 (`regimeAtendimento` `03` internacao, `01` ambulatorial, `04` pronto-socorro),
-   codigo exato; os demais codigos (e qualquer outra forma) sao nulos, e os dois termos presentes com regimes
-   diferentes tambem (a formula nao diz qual vale). `cidSecundarioInformado`: mais de um elemento
-   `diagnostico` de `dadosSaidaInternacao` (0 a 4, `st_texto4`); sem a lista (guia de resumo de internacao
-   nao extraida ou sem o grupo de saida), nulo. `cidIgualDlpDeclarada` e `motivoIsencaoCarencia` seguem
-   pendentes (nulas): o termo de cadastro de cada uma (`cidDeclaradoCpt`, `isencaoCadastro`) nao tem fonte
-   no K3 (o contrato AMH nunca entrega o CID da CPT nem a isencao de carencia), e o montador nao inventa
-   campo de cadastro.
+   DL-0184; texto novo na 1.5.1, rco 1c5a2f2d, sem mudanca na 1.6.0, rco b8444f52, DL-0197, guardado em
+   `_FormulaImplementada.revisoes`): calculadas EXATAMENTE pela formula publicada, so de elementos da guia
+   TISS entregues em `FatosDoCaso.tiss` (`CAMPOS_TERMO_TISS`). `regime`: Tabela 41 (`regimeInternacao` `1`
+   internacao, `2` hospital-dia) e Tabela 76 (`regimeAtendimento` `03` internacao, `01` ambulatorial, `04`
+   pronto-socorro), codigo exato; os demais codigos (e qualquer outra forma) sao nulos, e os dois termos
+   presentes com regimes diferentes tambem (a formula nao diz qual vale). Desde a 1.5.1 o regime vem da guia
+   do item e regimes derivados divergentes entre as guias da entrada dao nulo: os dois termos presentes so dao
+   regime quando derivam o mesmo (um com regime e o outro num dos demais codigos, que na 1.4.0/1.5.0 dava o
+   regime, passa a nulo). `cidSecundarioInformado`: mais de um elemento `diagnostico` de
+   `dadosSaidaInternacao` (0 a 4, `st_texto4`); sem a lista (guia de resumo de internacao nao extraida ou sem
+   o grupo de saida) ou com a lista vazia (sem o principal), nulo; o texto da 1.5.1 publica exatamente isso.
+   `cidIgualDlpDeclarada` e `motivoIsencaoCarencia` seguem pendentes (nulas): o termo de cadastro de cada uma
+   (`cidDeclaradoCpt`, `isencaoCadastro`) nao tem fonte no K3 (o contrato AMH nunca entrega o CID da CPT nem
+   a isencao de carencia), e o montador nao inventa campo de cadastro.
 
 ESCOPO DESTA ENTREGA: framework + os dominios `regras-gerais` (transversal: toda guia passa por
 elegibilidade, carencia e CPT) e `diarias-taxas` (maior volume de autorizacao no agregado real do
@@ -306,11 +311,14 @@ def carater_tuss23() -> Mapping[str, str]:
 
 
 # --- formulas publicadas (derivacao.formula) -------------------------------------------------------
+_Calculo = Callable[[Mapping[str, object]], tuple[object, MotivoNulo | None]]
+
+
 @dataclass(frozen=True, slots=True)
 class _FormulaImplementada:
     texto: str  # o texto EXATO de `formula.formula` no dicionario
     termos: tuple[tuple[str, str], ...]  # (nome, origem) de cada termo, na ordem do dicionario
-    calcular: Callable[[Mapping[str, object]], tuple[object, MotivoNulo | None]]
+    calcular: _Calculo
     #: Primeira versao do dicionario que publica esta formula. Dicionario anterior sem a formula: a
     #: entrada e nula por desenho (nunca calculada por uma formula que aquele pacote nao publicou).
     desde: tuple[int, int, int] = (1, 1, 0)
@@ -332,6 +340,34 @@ class _FormulaImplementada:
     #: A formula le `formula.referencia_por_tipo_guia` (1.5.0). Bloco publicado para formula sem este campo,
     #: ou com tipo de guia ou elemento do XSD que o montador nao conhece, faz o montador recusar.
     referencia_por_tipo_guia: bool = False
+    #: Textos publicados DEPOIS de `texto` (o da versao `desde`), em ordem crescente de `desde`: num
+    #: dicionario daquela versao em diante, o texto conferido e o calculo sao os da revisao (`vigente`).
+    #: `texto` e `calcular` acima seguem valendo para os dicionarios anteriores a primeira revisao.
+    revisoes: tuple[_RevisaoFormula, ...] = ()
+
+    def __post_init__(self) -> None:
+        # `vigente` le as revisoes em ordem: fora de ordem, ou duas com o mesmo `desde`, uma versao pegaria o
+        # texto errado sem erro nenhum. Recusa na construcao (revisao da DL-0197).
+        desdes = [revisao.desde for revisao in self.revisoes]
+        if desdes != sorted(set(desdes)):
+            raise ValueError(f"revisoes fora de ordem crescente de `desde`: {desdes}")
+
+    def vigente(self, versao: tuple[int, int, int]) -> tuple[str, _Calculo]:
+        """O texto EXATO que o dicionario `versao` tem de publicar e o calculo que o segue."""
+        texto, calcular = self.texto, self.calcular
+        for revisao in self.revisoes:
+            if versao >= revisao.desde:
+                texto, calcular = revisao.texto, revisao.calcular
+        return texto, calcular
+
+
+@dataclass(frozen=True, slots=True)
+class _RevisaoFormula:
+    """Texto novo de uma formula ja implementada, publicado a partir de `desde`, com o calculo que o segue."""
+
+    desde: tuple[int, int, int]
+    texto: str  # o texto EXATO de `formula.formula` no dicionario `desde` em diante
+    calcular: _Calculo
 
 
 # --- tolerancia do prazo de apresentacao da conta (MZO-TOL, decisao do dono PROG-COORD-22) ----------
@@ -561,9 +597,10 @@ def _dias_ate_recurso(termos: Mapping[str, object]) -> tuple[int | None, MotivoN
 
 
 #: Tipos de guia do Maezo (`FatosDoCaso.tipo_guia`) -> o `guia` de `formula.referencia_por_tipo_guia`
-#: publicado no pacote (dicionario 1.5.0, rco aed187d4). O ELEMENTO da data e o da hora vem do pacote;
-#: aqui fica so o nome de cada tipo de guia. Item publicado com data (nao lacuna) sem tipo aqui, ou `guia`
-#: daqui que o pacote renomeie, fazem o montador recusar (`conferir_mapeamento`).
+#: publicado no pacote (dicionario 1.5.0, rco aed187d4; o mesmo na 1.5.1 e na 1.6.0, rco 1c5a2f2d e b8444f52).
+#: O ELEMENTO da data e o da hora vem do pacote; aqui fica so o nome de cada tipo de guia. Item publicado
+#: com data (nao lacuna) sem tipo aqui, ou `guia` daqui que o pacote renomeie, fazem o montador recusar
+#: (`conferir_mapeamento`).
 TIPO_GUIA_SOLICITACAO_SP_SADT: Final[str] = "solicitacao_sp_sadt"
 TIPO_GUIA_SOLICITACAO_INTERNACAO: Final[str] = "solicitacao_internacao"
 TIPO_GUIA_CONSULTA: Final[str] = "consulta"
@@ -667,7 +704,8 @@ def _urgencia_apos_vinte_quatro_horas(termos: Mapping[str, object]) -> tuple[obj
     return decorrido >= timedelta(hours=minimo), None
 
 
-#: `regime` (dicionario 1.4.0/1.5.0, rco aed187d4 `docs/dicionario/comum/regime.entrada.yaml`): o codigo de
+#: `regime` (dicionario 1.4.0/1.5.0, rco aed187d4, e 1.5.1/1.6.0, rco 1c5a2f2d e b8444f52,
+#: `docs/dicionario/comum/regime.entrada.yaml`; as clausulas por codigo sao as mesmas nas quatro): o codigo de
 #: cada termo que a formula publicada lista, com o regime que ela lhe da. Casamento EXATO com o codigo TISS
 #: (texto): `regimeInternacao` e da Tabela 41 (`dm_regimeInternacao`, 1 caractere) e `regimeAtendimento` da
 #: Tabela 76 (`dm_regimeAtendimento`, 2 caracteres). Codigo fora daqui (os "demais codigos" da formula:
@@ -685,7 +723,8 @@ def _ausente(valor: object) -> bool:
 
 
 def _regime(termos: Mapping[str, object]) -> tuple[str | None, MotivoNulo | None]:
-    """`regime` pela formula publicada no dicionario K1 1.4.0 (sem mudanca na 1.5.0, rco aed187d4):
+    """`regime` pela formula publicada no dicionario K1 1.4.0 (sem mudanca na 1.5.0, rco aed187d4; a 1.5.1
+    trocou o texto, `_regime_por_guia`):
     internacao se `regimeInternacao = 1` OU `regimeAtendimento = 03`; hospital_dia se `regimeInternacao = 2`;
     ambulatorial se `regimeAtendimento = 01`; pronto_socorro se `regimeAtendimento = 04`; nulo nos demais.
 
@@ -722,6 +761,43 @@ def _regime(termos: Mapping[str, object]) -> tuple[str | None, MotivoNulo | None
     return regimes.pop(), None
 
 
+def _regime_por_guia(termos: Mapping[str, object]) -> tuple[str | None, MotivoNulo | None]:
+    """`regime` pela formula publicada no dicionario K1 1.5.1 (rco 1c5a2f2d, PR #187, PROG-RCO-38; sem
+    mudanca na 1.6.0, rco b8444f52): "o regime vem da guia do item": `regimeInternacao` (Tab 41) nas guias
+    de solicitacao e de resumo de internacao, `regimeAtendimento` (Tab 76) nas de SP/SADT e de consulta; as
+    clausulas por codigo sao as da 1.4.0 (`REGIME_POR_REGIME_*`, codigo exato, os demais codigos nulos); "se
+    a entrada for montada com mais de uma guia e os regimes derivados divergirem, nulo".
+
+    Cada termo presente e o elemento de UMA guia (o XSD so tem `regimeInternacao` nas de internacao e
+    `regimeAtendimento` nas de SP/SADT e de consulta), e o regime de cada um e derivado so do seu codigo. Um
+    termo: o regime dele (codigo sem valor na formula: nulo). Os dois: a entrada foi montada com duas guias;
+    mesmo regime: ele; regimes diferentes: nulo. Um codigo com regime e o outro sem (`1` com `02`): tambem
+    NULO, porque o texto nao diz se "regime nulo" diverge de um regime, e a duvida nunca vira valor (na
+    1.4.0/1.5.0, `_regime`, a clausula com OU dava o regime). Codigo que nao e texto: nulo. Termo sem
+    produtor no Maezo conta como ausente. Nunca deduz o regime do tipo da guia nem de outro elemento."""
+    derivados: list[str | None] = []
+    motivo_ausente = MotivoNulo.TERMO_AUSENTE
+    for nome, tabela in (
+        ("regimeInternacao", REGIME_POR_REGIME_INTERNACAO),
+        ("regimeAtendimento", REGIME_POR_REGIME_ATENDIMENTO),
+    ):
+        valor = termos.get(nome)
+        if _ausente(valor):
+            if valor is SEM_PRODUTOR:
+                motivo_ausente = MotivoNulo.TERMO_SEM_PRODUTOR
+            continue
+        if not isinstance(valor, str):
+            return None, MotivoNulo.TERMO_INVALIDO
+        derivados.append(tabela.get(valor))
+    if not derivados:
+        return None, motivo_ausente
+    if len(set(derivados)) > 1:
+        return None, MotivoNulo.TERMOS_EM_CONFLITO
+    if derivados[0] is None:
+        return None, MotivoNulo.CODIGO_FORA_DA_FORMULA
+    return derivados[0], None
+
+
 #: `ctm_internacaoDadosSaida/diagnostico` no XSD TISS 4.03.00: de 0 a 4 ocorrencias de `st_texto4` (a fonte
 #: do termo `diagnostico` publicada no dicionario).
 MAXIMO_DIAGNOSTICOS_SAIDA: Final[int] = 4
@@ -729,19 +805,24 @@ TAMANHO_MAXIMO_DIAGNOSTICO: Final[int] = 4
 
 
 def _cid_secundario_informado(termos: Mapping[str, object]) -> tuple[bool | None, MotivoNulo | None]:
-    """`cidSecundarioInformado` pela formula publicada no dicionario K1 1.4.0 (sem mudanca na 1.5.0, rco
+    """`cidSecundarioInformado` pelas formulas publicadas no dicionario K1 1.4.0 (sem mudanca na 1.5.0, rco
     aed187d4): quantidade de elementos `diagnostico` de `dadosSaidaInternacao` maior que 1; nulo se a guia de
-    resumo de internacao nao foi extraida.
+    resumo de internacao nao foi extraida; e 1.5.1 (rco 1c5a2f2d, PR #187, PROG-RCO-38; sem mudanca na
+    1.6.0, rco b8444f52): nulo se a guia de resumo de internacao nao foi extraida, se `dadosSaidaInternacao`
+    esta ausente ou se nao ha nenhum elemento `diagnostico` (sem o CID principal); com o principal presente,
+    verdadeiro se ha ao menos um `diagnostico` alem do primeiro (ocorrencias 2 a 4) e falso se ha so o
+    primeiro. O mesmo calculo serve as duas: o texto da 1.5.1 publica o que a regra provisoria abaixo ja
+    fazia.
 
     O termo e a LISTA dos elementos, na ordem da guia, entregue pelo worker que leu a guia de resumo de
     internacao; `None` (ou a chave ausente) = guia nao extraida ou sem o grupo de saida: nulo. Lista vazia
     (o grupo de saida sem nenhum `diagnostico`, que o XSD admite): NULO, nao falso. O texto da formula daria
     falso (0 nao e maior que 1), mas a descricao publicada define falso como "traz so o principal"; sem nem o
     principal e dado ausente, e falso aqui levaria a glosa (OMNI-GERAL-MEX-0002) por falta de dado.
-    PROVISORIO (aprovado pela coordenacao em 18/11/2026, DL-0184): vale ate o rco corrigir o texto da formula
-    no dicionario (pergunta com a trilha rco); quando o texto publicado mudar, `conferir_mapeamento` recusa o
-    pacote e esta regra e revista contra o texto novo. Lista
-    fora da forma do XSD (mais de 4 itens, item que nao e texto de 1 a 4 caracteres): nulo, nunca contada."""
+    Na 1.4.0/1.5.0 isso era PROVISORIO (aprovado pela coordenacao em 18/11/2026, DL-0184), ate o rco
+    corrigir o texto; a 1.5.1 o corrigiu e publica exatamente esse nulo ("se nao ha nenhum elemento
+    diagnostico"). Lista fora da forma do XSD (mais de 4 itens, item que nao e texto de 1 a 4 caracteres):
+    nulo, nunca contada."""
     valor = termos.get("diagnostico")
     if valor is None or valor is SEM_PRODUTOR:
         return None, _motivo_do_termo(valor)
@@ -823,6 +904,22 @@ FORMULAS: Final[Mapping[str, _FormulaImplementada]] = MappingProxyType(
             termos=(("regimeInternacao", "tiss"), ("regimeAtendimento", "tiss")),
             calcular=_regime,
             desde=(1, 4, 0),
+            revisoes=(
+                _RevisaoFormula(
+                    desde=(1, 5, 1),
+                    texto=(
+                        "o regime vem da guia do item: regimeInternacao (Tab 41) nas guias de solicitação "
+                        "e de resumo de internação; regimeAtendimento (Tab 76) nas guias SP/SADT e de "
+                        "consulta. internacao se regimeInternacao = 1 ou regimeAtendimento = 03; "
+                        "hospital_dia se regimeInternacao = 2; ambulatorial se regimeAtendimento = 01; "
+                        "pronto_socorro se regimeAtendimento = 04; nulo nos demais códigos "
+                        "(regimeAtendimento 02 e 05, regimeInternacao 3). Se a entrada for montada com mais "
+                        "de uma guia e os regimes derivados divergirem, nulo (a TISS não define precedência "
+                        "entre guias)"
+                    ),
+                    calcular=_regime_por_guia,
+                ),
+            ),
         ),
         "cidSecundarioInformado": _FormulaImplementada(
             texto=(
@@ -832,6 +929,18 @@ FORMULAS: Final[Mapping[str, _FormulaImplementada]] = MappingProxyType(
             termos=(("diagnostico", "tiss"),),
             calcular=_cid_secundario_informado,
             desde=(1, 4, 0),
+            revisoes=(
+                _RevisaoFormula(
+                    desde=(1, 5, 1),
+                    texto=(
+                        "nulo se a guia de resumo de internação não foi extraída, se dadosSaidaInternacao "
+                        "está ausente ou se não há nenhum elemento diagnostico (sem o CID principal); com o "
+                        "principal presente, true se há ao menos um diagnostico além do primeiro "
+                        "(ocorrências 2 a 4) e false se há só o primeiro"
+                    ),
+                    calcular=_cid_secundario_informado,
+                ),
+            ),
         ),
     }
 )
@@ -849,9 +958,10 @@ FORMULAS_PENDENTES: Final[Mapping[str, str]] = MappingProxyType(
         "registroAnvisaItem": "L-prog-rco-04 (7): elemento ausente (false) x nao extraido (nulo)",
         "reinternacaoMesmaCausa": "L-prog-rco-04 (8); sem produtor do historico de internacoes no Maezo",
         "visitaNaDataDaAlta": "L-prog-rco-04 (4): elemento do XSD que marca a guia encerrada por alta",
-        # Dicionario 1.3.0/1.4.0 (rco d9b8adfa; DL-0183), conferidas na 1.5.0 (rco aed187d4; DL-0184): o termo
-        # de cadastro nao tem fonte no K3 (o contrato AMH, pinado ou nao, nunca entrega o CID da CPT nem a
-        # isencao de carencia) e o montador nao inventa campo de cadastro. Nulas ate o K3 publicar o termo.
+        # Dicionario 1.3.0/1.4.0 (rco d9b8adfa; DL-0183), conferidas na 1.5.0 (rco aed187d4; DL-0184) e sem
+        # mudanca na 1.5.1 e na 1.6.0 (rco 1c5a2f2d e b8444f52): o termo de cadastro nao tem fonte no K3 (o
+        # contrato AMH, pinado ou nao, nunca entrega o CID da CPT nem a isencao de carencia) e o montador nao
+        # inventa campo de cadastro. Nulas ate o K3 publicar o termo.
         "cidIgualDlpDeclarada": (
             "cidDeclaradoCpt sem fonte no K3: as rotas de CPT e de carencia nunca entregam o CID "
             "(minimizacao do contrato AMH); diagnosticoPrincipal sem produtor"
@@ -872,7 +982,11 @@ CAMPOS_TERMO_CADASTRO: Final[Mapping[str, str]] = MappingProxyType(
 )
 #: Chave, em `FatosDoCaso.tiss`, dos termos de origem `tiss` (elementos da guia, nao entradas do dicionario).
 #: `regimeInternacao`: o codigo da Tabela 41 de `dadosInternacao` da solicitacao de internacao ou de
-#: `ctm_internacaoDados` do resumo; `regimeAtendimento`: o da Tabela 76 de `ctm_sp-sadtAtendimento`;
+#: `ctm_internacaoDados` do resumo; `regimeAtendimento`: o da Tabela 76 de `ctm_sp-sadtAtendimento` (e, desde
+#: a 1.5.1, rco 1c5a2f2d, tambem de `ctm_consultaAtendimento`). Contrato do produtor (nenhum worker do
+#: Maezo os entrega hoje): cada termo e o elemento de uma guia de onde a entrada foi montada, nunca de guia
+#: alheia ao item, e duas guias do mesmo tipo nao se combinam num termo so (o termo e um codigo, nao
+#: uma lista);
 #: `diagnostico`: a LISTA dos `diagnostico` de `dadosSaidaInternacao` do resumo de internacao (DL-0184).
 CAMPOS_TERMO_TISS: Final[Mapping[str, str]] = MappingProxyType(
     {
@@ -1104,7 +1218,7 @@ def conferir_mapeamento(
                         f"{nome}: formula implementada nao publicada no dicionario {dicionario.versao}"
                     )
             elif (
-                publicada.formula != impl.texto
+                publicada.formula != impl.vigente(versao_dicionario(dicionario))[0]
                 or tuple((t.nome, t.origem) for t in publicada.termos) != impl.termos
             ):
                 problemas.append(f"{nome}: formula do dicionario diverge da implementada; reveja o montador")
@@ -1243,7 +1357,7 @@ def _montar_uma(
             termos[condicao] = (
                 referencia if condicao == CONDICAO_REFERENCIA_GUIA else _condicao(condicao, fatos)
             )
-        calculado, motivo = impl.calcular(termos)
+        calculado, motivo = impl.vigente(versao_dicionario(dicionario))[1](termos)
         valor, motivo = (None, motivo) if motivo is not None else _validar(entrada, calculado)
         if impl.ajuste is None:
             return valor, motivo

@@ -115,7 +115,17 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
     - **LACUNA do dono:** o registro de aditivo aceito por prestador (versão, data de aceite, vigência e regras cobertas).
     - **PR em caminho protegido:** o dev em enforcing e os aprovadores dono + auditor-neutro estão desenhados no ADR-0077 §8 e não foram aplicados. `spec/policies/autonomy/` é vedado a esta sessão pelo usuário, e a ROOT leva ao dono a liberação explícita.
   - **Primeiro pin real do K1, pré-requisitos:**
-    - isenção da cerca de perspectiva para `spec/processes/dmn/rco/`;
+    - cerca de perspectiva para `spec/processes/dmn/rco/`: resolvida sem isenção no #1358 (PR-A, DL-0196). O vocabulário D7 foi estendido só com as duas frases exatas de `geral_prazos_conta.dmn` (rco b8444f52). No PR do pin, com as tabelas dentro do repositório, a varredura das tabelas reais roda no CI SEM `skipif` sobre `spec/processes/dmn/rco/` e dá 0 acerto. Antes de abrir o PR, rodá-la localmente com o clone do rco (ROOT, 21/11/2026);
+    - montador conferido com o dicionario 1.6.0 (b8444f52): `regime` e `cidSecundarioInformado` pelo texto da 1.5.1, as demais formulas byte a byte (DL-0197). Feito, sem pin;
+    - PHI: no MESMO PR do pin, porque a cerca recusa nome que ainda não está na árvore (`test_validation_phi_completeness.py:3343-3347`, `:3765-3767`):
+      - uma entrada no CORPUS_DELTA_LOG por nome novo (simulação em b8444f52: 362 nomes novos, 324 CLEAN e 38 SHAPE-SUSPECT, nenhum LISTED);
+      - os pinos de contagem atualizados;
+      - para cada um dos 38: `Disposition` `DRAFT/verify (DPO)`, sem revisão do DPO, o slot no manifesto `spec/policies/phi/phi-dispositions-migration.yaml` (CODEOWNERS) e a linha em `docs/review-queue.md`;
+      - o pino `rco_touched` atualizado;
+    - catálogo do termo de negativa, pré-condições para quando for pinado (revisão do #1359, ROOT 21/11/2026):
+      - o leitor do catálogo pinado é o ÚNICO construtor de `FundamentoDoTermo`, ou a porta confere a pertinência ao catálogo carregado (hoje confere só a autoconsistência);
+      - cerca para o chamador honrar `modo`: um rascunho nunca é enviado nem registrado como entregue;
+      - a recusa de rótulo cobre as lacunas Cc, U+2800, U+201A e as variantes;
     - provas executadas sem divergência;
     - 2.0.0 fail-closed até o 5c;
     - pin real exige provas[] executadas com sucesso no CIB Seven; formato < 2.1 ou provas vazias recusados no gate e no runtime (decisão da ROOT, 16/11/2026); a execução acontece no shard de integração do PR que muda o pin.
@@ -133,7 +143,7 @@ Programa aprovado pelo dono em 14/11/2026: integrar `regras-contratos-operadora`
       - **5b:** provas do pacote, quando a trilha rco publicar o formato de `provas[]` (PROG-RCO-8).
     - **Primeiro pin real do K1:** o pin não vai a `fixado` sem duas condições:
       - provar no motor implantado (CIB Seven 2.1.0, perfil `deployed-runtime-compatibility`) a tabela-verdade do teste unário booleano (`false, null` → 0 1 1; `null, true` → 1 0 1; `not(false)` → 1 0 1; `true` → 1 0 0; `false` → 0 1 0; `null` → 0 0 1; branch rco `prog/rco/teste-unario-booleano`), com qualquer divergência barrando o pin;
-      - ter a isenção da cerca de perspectiva para `spec/processes/dmn/rco/`.
+      - ter a isenção da cerca de perspectiva para `spec/processes/dmn/rco/`. Superado no #1358 (DL-0196): a cerca ficou sem isenção, com o vocabulário estendido.
     - **Unidade proposta, sem OK ainda:** gravar `sha256Yaml` no runtime, depois do #1250.
     - **#1259 (intertrava T1 de `carencia_check`), incorporado pelo dono (`bf01634c`):**
       - o caso de integração `inst_f` ficou sem veredito no run 43857174139 da `main`;

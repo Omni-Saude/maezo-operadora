@@ -8,8 +8,10 @@ versao, medidas nos dicionarios completos e fixadas aqui sobre os recortes:
 - 1.5.0 -> 1.5.1: so `cidSecundarioInformado` e `regime` mudam (texto de `de_onde` e de `formula.formula`);
 - 1.5.1 -> 1.6.0: so `prazoComprovacaoUsoVencido` muda; dois termos de cadastro passam a trazer `referencia`.
 
-Ler a versao nao e pinar: o montador confere a formula publicada (`conferir_mapeamento`) e, desde a 1.5.1,
-recusa `regime` e `cidSecundarioInformado` ate ser revisto (fixado abaixo, para o PR do pin).
+Ler a versao nao e pinar: o montador confere a formula publicada (`conferir_mapeamento`). Ele guarda o
+texto EXATO de `regime` e de `cidSecundarioInformado` de cada versao (`_FormulaImplementada.revisoes`,
+revisto contra a 1.5.1) e aceita a 1.5.1 e a 1.6.0 em toda decisao mapeada (fixado abaixo, para o PR do
+pin); o calculo de cada texto esta em `tests/unit/tools/workers/test_rco_montador_regime_cid_1_5_1.py`.
 """
 
 from __future__ import annotations
@@ -223,19 +225,22 @@ def test_termo_de_cadastro_so_ganha_referencia(campo: str) -> None:
         _ler(dados)
 
 
-# --- o montador ainda nao aceita a 1.5.1+ (para o PR do pin) -----------------------------------------
+# --- o montador aceita a 1.5.1+ (para o PR do pin) ----------------------------------------------------
 
 
 @pytest.mark.parametrize("versao", ["1.5.1", "1.6.0"])
-def test_montador_recusa_so_as_formulas_que_mudaram_na_1_5_1(versao: str) -> None:
-    """Fixa o trabalho que falta ao PR do pin: o montador guarda o texto EXATO da formula (1.4.0/1.5.0) e
-    recusa (`MontadorEntradasError`, nunca valor) a decisao cujas formulas mudaram. Quando o montador for
-    revisto contra o texto da 1.5.1, este teste muda junto."""
+def test_montador_confere_toda_decisao_mapeada_com_a_1_5_1_em_diante(versao: str) -> None:
+    """O montador foi revisto contra o texto da 1.5.1: as formulas que mudaram conferem byte a byte com o
+    texto publicado e nenhuma decisao mapeada e recusada (ate essa revisao, este teste fixava a recusa)."""
     dic = _ler(_bruto(versao))
     problemas: set[str] = set()
     for decisao in rec.manifesto().decisoes.values():
         if decisao.dominio in mt.MAPEAMENTOS:
             problemas.update(mt.conferir_mapeamento(dic, decisao.dominio, decisao.entradas))
-    assert problemas == {
-        f"{nome}: formula do dicionario diverge da implementada; reveja o montador" for nome in MUDAM_NA_1_5_1
-    }
+    assert problemas == set()
+    numero = (1, 5, 1) if versao == "1.5.1" else (1, 6, 0)
+    for nome in MUDAM_NA_1_5_1:
+        formula = dic.entradas[nome].formula
+        assert formula is not None
+        assert mt.FORMULAS[nome].vigente(numero)[0] == formula.formula, nome
+        assert mt.FORMULAS[nome].texto != formula.formula, nome  # o texto da 1.5.0 segue so para a 1.5.0
