@@ -37,6 +37,7 @@ it broke were exactly the two this file had asserted without measuring:
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import NamedTuple
@@ -151,7 +152,13 @@ class TestNonVacuity:
         rco_touched = {p.name for p in dmn_touched if p.parent.name == "rco"}
         # 70 -> 71 com `funnel_deadline_catalog.dmn` (E-SF-08) — ver o CORPUS_DELTA_LOG.
         assert len(dmn_touched) - len(rco_touched) == 71  # VW4/GP11: +suppression_routing
-        assert rco_touched == {"rco_exemplo_sintetico.dmn"}
+        # K1 b8444f52 (primeiro pin real, #1365): as 236 tabelas do pin + o exemplo sintetico, que
+        # segue em exemplos_sinteticos. Os nomes vem do lock, nao de uma lista copiada.
+        lock_path = _REPO_ROOT / "config/integrations/rco/rules.lock.json"
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        pinados = {Path(item["path"]).name for item in lock["artifacts"]}
+        assert len(pinados) == 236
+        assert rco_touched == pinados | {"rco_exemplo_sintetico.dmn"}
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -3215,6 +3222,4774 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=1,
         reason=("E-SF-08: +1 dmn_output_name em funnel_deadline_catalog.dmn; nome ja' no corpus."),
     ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="classeAdverso",
+        name_delta=0,
+        occurrence_delta=236,
+        reason=(
+            "K1 b8444f52, primeiro pin real (sombra): `classeAdverso` e' saida obrigatoria do vocabulario "
+            "do K1 (config/integrations/rco/k1/vocabulario.json saidas_obrigatorias), declarada pelas 236 "
+            "tabelas do pacote (+236 dmn_output_name em spec/processes/dmn/rco/). Nome ja' no corpus "
+            "(#1223, exemplo sintetico)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="decisao",
+        name_delta=0,
+        occurrence_delta=236,
+        reason=(
+            "K1 b8444f52, primeiro pin real (sombra): `decisao` e' saida obrigatoria do vocabulario do K1 "
+            "(config/integrations/rco/k1/vocabulario.json saidas_obrigatorias), declarada pelas 236 tabelas"
+            " do pacote (+236 dmn_output_name em spec/processes/dmn/rco/). Nome ja' no corpus (#1223, "
+            "exemplo sintetico)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="fila",
+        name_delta=0,
+        occurrence_delta=236,
+        reason=(
+            "K1 b8444f52, primeiro pin real (sombra): `fila` e' saida obrigatoria do vocabulario do K1 "
+            "(config/integrations/rco/k1/vocabulario.json saidas_obrigatorias), declarada pelas 236 tabelas"
+            " do pacote (+236 dmn_output_name em spec/processes/dmn/rco/). Nome ja' no corpus (#1223, "
+            "exemplo sintetico)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="imc",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "K1 b8444f52, primeiro pin real (sombra): +2 dmn_input_expression de `imc` (dicionario 1.6.0: "
+            "tipo double, origem fora_tiss) em bariat_dut_banda.dmn, bariat_dut_gastroplastia.dmn. Nome ja'"
+            " no corpus, CLEAN."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="abdomeAventalPerdaPonderalDocumentado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`abdomeAventalPerdaPonderalDocumentado` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) "
+            "em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acaoPacote",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): saida `acaoPacote` do "
+            "manifesto em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acaoPagamento",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): saida `acaoPagamento` "
+            "do manifesto em 2 tabelas de spec/processes/dmn/rco/ (+2 dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acessoCobradoDuasVezes",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`acessoCobradoDuasVezes` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acimaCalendarioPuericultura",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`acimaCalendarioPuericultura` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acimaLimiteCodigo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`acimaLimiteCodigo` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acimaLimiteEstatistico",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`acimaLimiteEstatistico` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acimaLimiteLesoes",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`acimaLimiteLesoes` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acimaPlanoCurso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`acimaPlanoCurso` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acimaUnidadeTuss",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`acimaUnidadeTuss` do dicionario 1.6.0 (tipo boolean, origem derivado) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acrescimoSemClausula",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`acrescimoSemClausula` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="acrescimoUrgenciaCobrado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`acrescimoUrgenciaCobrado` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="adicionaisHorario",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`adicionaisHorario` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="analgesiaPorCateter",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`analgesiaPorCateter` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="anestesistaNaEquipe",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`anestesistaNaEquipe` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="anexoRadioterapiaCompleto",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`anexoRadioterapiaCompleto` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de"
+            " spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="articulacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `articulacao` "
+            "do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="atoAcimaDuracaoMinima",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`atoAcimaDuracaoMinima` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="autorizacaoExtemporanea",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`autorizacaoExtemporanea` do dicionario 1.6.0 (tipo string, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="avisoItensNaoIncluidos",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`avisoItensNaoIncluidos` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="beneficiarioNeonato",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`beneficiarioNeonato` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="blocosHistologicos",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`blocosHistologicos` do dicionario 1.6.0 (tipo integer, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="bulaExigeTeste",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`bulaExigeTeste` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="campoConvencionalMesmoCurso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`campoConvencionalMesmoCurso` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="caraterAtendimento",
+        name_delta=1,
+        occurrence_delta=96,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`caraterAtendimento` do dicionario 1.6.0 (tipo string, origem tiss) em 96 tabelas de "
+            "spec/processes/dmn/rco/ (+96 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="carenciaContratualDias",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`carenciaContratualDias` do dicionario 1.6.0 (tipo integer, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="categoriaOpme",
+        name_delta=1,
+        occurrence_delta=14,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `categoriaOpme`"
+            " do dicionario 1.6.0 (tipo string, origem derivado) em 14 tabelas de spec/processes/dmn/rco/ "
+            "(+14 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="causaEncaminhamento",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): saida "
+            "`causaEncaminhamento` do manifesto em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="causaExterna",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `causaExterna` "
+            "do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cboExecutante",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `cboExecutante`"
+            " do dicionario 1.6.0 (tipo string, origem tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cidDut109",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `cidDut109` do dicionario 1.6.0 (tipo boolean, "
+            "origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cidEspasticidadeDut8",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `cidEspasticidadeDut8` do dicionario 1.6.0 (tipo"
+            " boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cidExcecaoDescompressao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `cidExcecaoDescompressao` do dicionario 1.6.0 "
+            "(tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cidFinalidadeEstetica",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `cidFinalidadeEstetica` do dicionario 1.6.0 "
+            "(tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cidGrupoF84",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `cidGrupoF84` do dicionario 1.6.0 (tipo boolean,"
+            " origem derivado) em 4 tabelas de spec/processes/dmn/rco/ (+4 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cidIgualDlpDeclarada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `cidIgualDlpDeclarada` do dicionario 1.6.0 (tipo"
+            " boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cidNaDlpDeclarada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `cidNaDlpDeclarada` do dicionario 1.6.0 (tipo "
+            "boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cidNeoplasia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `cidNeoplasia` do dicionario 1.6.0 (tipo "
+            "boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cidPrincipal",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `cidPrincipal` do dicionario 1.6.0 (tipo string,"
+            " origem tiss) em 4 tabelas de spec/processes/dmn/rco/ (+4 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cidSecundarioInformado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `cidSecundarioInformado` do dicionario 1.6.0 "
+            "(tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cirurgiaBariatricaPrevia",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`cirurgiaBariatricaPrevia` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 2 tabelas "
+            "de spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cirurgiaNaInternacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`cirurgiaNaInternacao` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cirurgiaNaMesmaConta",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`cirurgiaNaMesmaConta` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cirurgiaRevisional",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`cirurgiaRevisional` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="classeAlergeno",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`classeAlergeno` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="classeChildPugh",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`classeChildPugh` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="classeConsulta",
+        name_delta=1,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`classeConsulta` do dicionario 1.6.0 (tipo string, origem derivado) em 5 tabelas de "
+            "spec/processes/dmn/rco/ (+5 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="classeGenet",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `classeGenet` "
+            "do dicionario 1.6.0 (tipo string, origem derivado) em 2 tabelas de spec/processes/dmn/rco/ (+2"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="classeItemNutricao",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`classeItemNutricao` do dicionario 1.6.0 (tipo string, origem cadastro) em 3 tabelas de "
+            "spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="classeMaterial",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`classeMaterial` do dicionario 1.6.0 (tipo string, origem cadastro) em 3 tabelas de "
+            "spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="classeProcedimento",
+        name_delta=1,
+        occurrence_delta=8,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`classeProcedimento` do dicionario 1.6.0 (tipo string, origem derivado) em 8 tabelas de "
+            "spec/processes/dmn/rco/ (+8 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="classeTerapia",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `classeTerapia`"
+            " do dicionario 1.6.0 (tipo string, origem derivado) em 3 tabelas de spec/processes/dmn/rco/ "
+            "(+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="clausulaExameAdicional",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `clausulaExameAdicional` do dicionario 1.6.0 "
+            "(tipo boolean, origem cadastro) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="clausulaItensInclusos",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`clausulaItensInclusos` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cobradoAParte",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `cobradoAParte`"
+            " do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ "
+            "(+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cobrancaIdentica",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`cobrancaIdentica` do dicionario 1.6.0 (tipo boolean, origem derivado) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cobrancaIncluidaSeparada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`cobrancaIncluidaSeparada` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cobrancasAnteriores730d",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`cobrancasAnteriores730d` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="codigoItem",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `codigoItem` do"
+            " dicionario 1.6.0 (tipo string, origem tiss) em 2 tabelas de spec/processes/dmn/rco/ (+2 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="codigoPacote",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `codigoPacote` "
+            "do dicionario 1.6.0 (tipo string, origem derivado) em 4 tabelas de spec/processes/dmn/rco/ (+2"
+            " dmn_input_expression, +2 dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="codigoPrincipal",
+        name_delta=1,
+        occurrence_delta=23,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`codigoPrincipal` do dicionario 1.6.0 (tipo string, origem tiss) em 23 tabelas de "
+            "spec/processes/dmn/rco/ (+23 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="codigoProcedimento",
+        name_delta=1,
+        occurrence_delta=134,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`codigoProcedimento` do dicionario 1.6.0 (tipo string, origem tiss) em 134 tabelas de "
+            "spec/processes/dmn/rco/ (+134 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="codigoProcedimentoPrincipal",
+        name_delta=1,
+        occurrence_delta=7,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`codigoProcedimentoPrincipal` do dicionario 1.6.0 (tipo string, origem tiss) em 7 tabelas de "
+            "spec/processes/dmn/rco/ (+7 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="codigoSecundario",
+        name_delta=1,
+        occurrence_delta=25,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`codigoSecundario` do dicionario 1.6.0 (tipo string, origem tiss) em 25 tabelas de "
+            "spec/processes/dmn/rco/ (+25 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="codigoSecundarioOutraData",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`codigoSecundarioOutraData` do dicionario 1.6.0 (tipo string, origem derivado) em 3 tabelas de"
+            " spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="complicacaoCidSecundario",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `complicacaoCidSecundario` do dicionario 1.6.0 "
+            "(tipo boolean, origem derivado) em 2 tabelas de spec/processes/dmn/rco/ (+2 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="componenteRepetidoMesmoAto",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`componenteRepetidoMesmoAto` do dicionario 1.6.0 (tipo boolean, origem derivado) em 2 tabelas "
+            "de spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="conselhoExecutante",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`conselhoExecutante` do dicionario 1.6.0 (tipo string, origem tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="conselhoProfissional",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`conselhoProfissional` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="consultaMesmaEspecialidadeOutroProfissional",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`consultaMesmaEspecialidadeOutroProfissional` do dicionario 1.6.0 (tipo boolean, origem "
+            "derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="consultasNutricaoNoDia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`consultasNutricaoNoDia` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="contagemAcimaDoParametro",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`contagemAcimaDoParametro` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="contextoTcthAlogenico",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`contextoTcthAlogenico` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="contraindicacaoDut",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`contraindicacaoDut` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="contraindicacaoDut24",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`contraindicacaoDut24` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cptObesidadeAtiva",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`cptObesidadeAtiva` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cptVigente",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `cptVigente` do"
+            " dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="criterioDut69",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `criterioDut69`"
+            " do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ "
+            "(+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="criterioDutInformado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`criterioDutInformado` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="criterioGrupoI",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`criterioGrupoI` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="criterioGrupoII",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`criterioGrupoII` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="criterioRevisaoAtendido",
+        name_delta=1,
+        occurrence_delta=6,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`criterioRevisaoAtendido` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 6 tabelas de"
+            " spec/processes/dmn/rco/ (+6 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="criteriosDutAtendidos",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`criteriosDutAtendidos` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="cursoRegistrado",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`cursoRegistrado` do dicionario 1.6.0 (tipo boolean, origem derivado) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="dataAtendimento",
+        name_delta=1,
+        occurrence_delta=223,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`dataAtendimento` do dicionario 1.6.0 (tipo string, origem tiss) em 223 tabelas de "
+            "spec/processes/dmn/rco/ (+223 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="dataExecucao",
+        name_delta=1,
+        occurrence_delta=10,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `dataExecucao` "
+            "do dicionario 1.6.0 (tipo integer, origem tiss) em 10 tabelas de spec/processes/dmn/rco/ (+10 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="dataExecucaoInformada",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`dataExecucaoInformada` do dicionario 1.6.0 (tipo boolean, origem derivado) em 3 tabelas de "
+            "spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="declaracaoCriterioDut",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`declaracaoCriterioDut` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="declaracaoEmergencia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`declaracaoEmergencia` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="deficienciaCadastro",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`deficienciaCadastro` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="descricaoCirurgicaAnexada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`descricaoCirurgicaAnexada` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="descricaoCitaAnuloNucleoplastia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`descricaoCitaAnuloNucleoplastia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="descricaoProgramacaoDispositivo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`descricaoProgramacaoDispositivo` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="destinoDiretoUti",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`destinoDiretoUti` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diagnosticoCLN2Confirmado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `diagnosticoCLN2Confirmado` do dicionario 1.6.0 "
+            "(tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diariaIncluiImobilizacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diariaIncluiImobilizacao` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diariaSoParaExame",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `diariaSoParaExame` do dicionario 1.6.0 (tipo "
+            "boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diariaUtiMesmaData",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diariaUtiMesmaData` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasAlemDoPrazoContratual",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diasAlemDoPrazoContratual` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de"
+            " spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasAposCirurgia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diasAposCirurgia` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasAteApresentacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diasAteApresentacao` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasAteRecurso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diasAteRecurso` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasDesdeFimImpedimento",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diasDesdeFimImpedimento` do dicionario 1.6.0 (tipo integer, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasDesdeUltimaColonoscopia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diasDesdeUltimaColonoscopia` do dicionario 1.6.0 (tipo integer, origem cadastro) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasDesdeUltimoExame",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `diasDesdeUltimoExame` do dicionario 1.6.0 (tipo"
+            " integer, origem cadastro) em 4 tabelas de spec/processes/dmn/rco/ (+4 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasDesdeUltimoMesmoCodigo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diasDesdeUltimoMesmoCodigo` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasInternacao",
+        name_delta=1,
+        occurrence_delta=12,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diasInternacao` do dicionario 1.6.0 (tipo integer, origem derivado) em 12 tabelas de "
+            "spec/processes/dmn/rco/ (+12 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasUteisComunicacao",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diasUteisComunicacao` do dicionario 1.6.0 (tipo integer, origem fora_tiss) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="diasUteisDesdeNotificacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`diasUteisDesdeNotificacao` do dicionario 1.6.0 (tipo integer, origem fora_tiss) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="documentacaoCompleta",
+        name_delta=1,
+        occurrence_delta=22,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`documentacaoCompleta` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 22 tabelas de "
+            "spec/processes/dmn/rco/ (+22 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="documentacaoDut",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`documentacaoDut` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="documentacaoOpmeNaoRecebidaNoPrazo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`documentacaoOpmeNaoRecebidaNoPrazo` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="doencaRestritaFigado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`doencaRestritaFigado` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="doseExcedeAdministrada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`doseExcedeAdministrada` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="enquadramentoDut110",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`enquadramentoDut110` do dicionario 1.6.0 (tipo string, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="enquadramentoDut118",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`enquadramentoDut118` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="enquadramentoDut24",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`enquadramentoDut24` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="enquadramentoLegal",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): saida "
+            "`enquadramentoLegal` do manifesto em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="episodioEmPacote",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`episodioEmPacote` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="escoreEcu",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `escoreEcu` do "
+            "dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="especimeStatus",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`especimeStatus` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="etapa",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `etapa` do "
+            "dicionario 1.6.0 (tipo string, origem fora_tiss) em 2 tabelas de spec/processes/dmn/rco/ (+2 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="etiquetaRastreabilidade",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`etiquetaRastreabilidade` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 4 tabelas de"
+            " spec/processes/dmn/rco/ (+4 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="evidenciaOperadora",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`evidenciaOperadora` do dicionario 1.6.0 (tipo string, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="exameBaseNaGuia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `exameBaseNaGuia` do dicionario 1.6.0 (tipo "
+            "boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="examesNoPeriodo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `examesNoPeriodo` do dicionario 1.6.0 (tipo "
+            "integer, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="excedeLimiteCardio",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`excedeLimiteCardio` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="excedeLimiteFiltroBarreira",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`excedeLimiteFiltroBarreira` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="excedeLimiteNefro",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`excedeLimiteNefro` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="excedeLimitePlast",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`excedeLimitePlast` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="excedenteSobreDias",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`excedenteSobreDias` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="execucoesAnteriores",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`execucoesAnteriores` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="execucoesAnterioresMesmoCodigo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`execucoesAnterioresMesmoCodigo` do dicionario 1.6.0 (tipo integer, origem cadastro) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="execucoesEmOutraGuiaNoDia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`execucoesEmOutraGuiaNoDia` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de"
+            " spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="executanteGeneticaMedica",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`executanteGeneticaMedica` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="extratoCobradoAParte",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`extratoCobradoAParte` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="familiaDiariaTaxa",
+        name_delta=1,
+        occurrence_delta=7,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`familiaDiariaTaxa` do dicionario 1.6.0 (tipo string, origem derivado) em 7 tabelas de "
+            "spec/processes/dmn/rco/ (+7 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="familiaImgac",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `familiaImgac` "
+            "do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="familiaImunob",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `familiaImunob`"
+            " do dicionario 1.6.0 (tipo string, origem derivado) em 4 tabelas de spec/processes/dmn/rco/ "
+            "(+4 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="familiaMednuc",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `familiaMednuc`"
+            " do dicionario 1.6.0 (tipo string, origem derivado) em 3 tabelas de spec/processes/dmn/rco/ "
+            "(+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="familiaPacote",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `familiaPacote`"
+            " do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="familiaPrincipal",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`familiaPrincipal` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="familiaProcedimento",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`familiaProcedimento` do dicionario 1.6.0 (tipo string, origem derivado) em 4 tabelas de "
+            "spec/processes/dmn/rco/ (+4 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="familiaSecundario",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`familiaSecundario` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="faseTratamentoDistinta",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`faseTratamentoDistinta` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="fatorAcrescimoTecnica",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`fatorAcrescimoTecnica` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="fatorReducao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `fatorReducao` "
+            "do dicionario 1.6.0 (tipo double, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="fichaAnestesicaCompleta",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`fichaAnestesicaCompleta` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="finalidadeCateter",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`finalidadeCateter` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="finalidadeComDut",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`finalidadeComDut` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="finalidadeEsteticaDeclarada",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`finalidadeEsteticaDeclarada` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 2 "
+            "tabelas de spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="finalidadeImplanteDentario",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`finalidadeImplanteDentario` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="finalidadeLaser",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`finalidadeLaser` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="finalidadeNtrk",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`finalidadeNtrk` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="frequenciaAcimaDoGatilho",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`frequenciaAcimaDoGatilho` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="gapMedioDb",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `gapMedioDb` do"
+            " dicionario 1.6.0 (tipo double, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="gastrostomiaEndoscopicaPrevia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`gastrostomiaEndoscopicaPrevia` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="gatilhoClinicoRevisao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`gatilhoClinicoRevisao` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="graduacaoWagner",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`graduacaoWagner` do dicionario 1.6.0 (tipo integer, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="grauParticipacao",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`grauParticipacao` do dicionario 1.6.0 (tipo string, origem tiss) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="grauQueimadura",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`grauQueimadura` do dicionario 1.6.0 (tipo integer, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="grauWagner",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `grauWagner` do"
+            " dicionario 1.6.0 (tipo integer, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="grupoCarencia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `grupoCarencia`"
+            " do dicionario 1.6.0 (tipo string, origem cadastro) em 1 tabela de spec/processes/dmn/rco/ (+1"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="grupoCidPrincipal",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `grupoCidPrincipal` do dicionario 1.6.0 (tipo "
+            "string, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="grupoHemocomponente",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`grupoHemocomponente` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="grupoNeoplasia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`grupoNeoplasia` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="grupoRepeticaoGenet",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`grupoRepeticaoGenet` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="grupoTuss63Compativel",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`grupoTuss63Compativel` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="habilitacaoObstetricaExecutante",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`habilitacaoObstetricaExecutante` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="horarioCoincidente",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`horarioCoincidente` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="horasAnestesiaAcimaAssistencia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`horasAnestesiaAcimaAssistencia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="horasRpaAcimaDoTermo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`horasRpaAcimaDoTermo` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="idRegra",
+        name_delta=1,
+        occurrence_delta=236,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): saida `idRegra` do "
+            "manifesto em 236 tabelas de spec/processes/dmn/rco/ (+236 dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="idadeBeneficiario",
+        name_delta=1,
+        occurrence_delta=12,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`idadeBeneficiario` do dicionario 1.6.0 (tipo integer, origem cadastro) em 12 tabelas de "
+            "spec/processes/dmn/rco/ (+12 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="idadeBeneficiarioMeses",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`idadeBeneficiarioMeses` do dicionario 1.6.0 (tipo integer, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="imperativoClinicoDeclarado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`imperativoClinicoDeclarado` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="indicacaoAblacao",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`indicacaoAblacao` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="indicacaoAguda",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`indicacaoAguda` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="indicacaoAmbulatorial",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`indicacaoAmbulatorial` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="indicacaoHerniaDiscal",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`indicacaoHerniaDiscal` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="indicacaoMedicoAssistente",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`indicacaoMedicoAssistente` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 2 tabelas "
+            "de spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="indicacaoSmf",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `indicacaoSmf` "
+            "do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ "
+            "(+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="inicioEsquema",
+        name_delta=1,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `inicioEsquema`"
+            " do dicionario 1.6.0 (tipo boolean, origem derivado) em 5 tabelas de spec/processes/dmn/rco/ "
+            "(+5 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="internacaoObstetricaComAcompanhante",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`internacaoObstetricaComAcompanhante` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1"
+            " tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="internacaoProgramadaOuComplicacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`internacaoProgramadaOuComplicacao` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="internacaoVinculada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`internacaoVinculada` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="itemCoberturaFerida",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`itemCoberturaFerida` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="itemCobradoAParteGenet",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`itemCobradoAParteGenet` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="itemDut10",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `itemDut10` do "
+            "dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="itemDut44",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `itemDut44` do "
+            "dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="itemDut60",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `itemDut60` do "
+            "dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="itemDut68",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `itemDut68` do "
+            "dicionario 1.6.0 (tipo integer, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="itemIncluidoConsulta",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`itemIncluidoConsulta` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="itemInclusoCobradoAParte",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`itemInclusoCobradoAParte` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="itemRotinaLeitoUti",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`itemRotinaLeitoUti` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="justificativaAnestesiologista",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `justificativaAnestesiologista` do dicionario "
+            "1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="justificativaHematologista",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `justificativaHematologista` do dicionario 1.6.0"
+            " (tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="justificativaQuantidade",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `justificativaQuantidade` do dicionario 1.6.0 "
+            "(tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="justificativaRepeticao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `justificativaRepeticao` do dicionario 1.6.0 "
+            "(tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="justificativaReteste",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `justificativaReteste` do dicionario 1.6.0 (tipo"
+            " boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="justificativaTecnicaAnexada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `justificativaTecnicaAnexada` do dicionario "
+            "1.6.0 (tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="justificativaTrocaCurativo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `justificativaTrocaCurativo` do dicionario 1.6.0"
+            " (tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="kitAcimaDaOperacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`kitAcimaDaOperacao` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="laudoAnatomopatologicoAnexado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `laudoAnatomopatologicoAnexado` do dicionario "
+            "1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="limiarViaOsseaDb",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`limiarViaOsseaDb` do dicionario 1.6.0 (tipo double, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="localizacaoImrt",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`localizacaoImrt` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="maiorLesaoMm",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `maiorLesaoMm` "
+            "do dicionario 1.6.0 (tipo integer, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ "
+            "(+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="medicamentoAlvo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `medicamentoAlvo` do dicionario 1.6.0 (tipo "
+            "string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="medicamentoEstimulo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `medicamentoEstimulo` do dicionario 1.6.0 (tipo "
+            "string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="medicamentoNoSubitem",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `medicamentoNoSubitem` do dicionario 1.6.0 (tipo"
+            " boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="medicamentoUnicoInterferon",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `medicamentoUnicoInterferon` do dicionario 1.6.0"
+            " (tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="mesmaEspecialidadeAcimaNoDia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`mesmaEspecialidadeAcimaNoDia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela"
+            " de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="mesmaHoraInicial",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`mesmaHoraInicial` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="mesmoExecutante",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`mesmoExecutante` do dicionario 1.6.0 (tipo boolean, origem derivado) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="mesmoProfissionalCirurgia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`mesmoProfissionalCirurgia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de"
+            " spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="metodoDeteccao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`metodoDeteccao` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="metodoIndicado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`metodoIndicado` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="microscopioEletronico",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`microscopioEletronico` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="mieloablacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `mieloablacao` "
+            "do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ "
+            "(+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="modalidadePagamento",
+        name_delta=1,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): saida "
+            "`modalidadePagamento` do manifesto em 5 tabelas de spec/processes/dmn/rco/ (+5 "
+            "dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="motivoAae",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): saida `motivoAae` do "
+            "manifesto em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="motivoExtemporaneidade",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`motivoExtemporaneidade` do dicionario 1.6.0 (tipo string, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="motivoIsencaoCarencia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`motivoIsencaoCarencia` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="motivoTab38",
+        name_delta=1,
+        occurrence_delta=236,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): saida `motivoTab38` do "
+            "manifesto em 236 tabelas de spec/processes/dmn/rco/ (+236 dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="natIndividualNaConta",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`natIndividualNaConta` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="neurologiaOuRelatorio",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`neurologiaOuRelatorio` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="notaFiscalFornecedor",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `notaFiscalFornecedor` do dicionario 1.6.0 (tipo"
+            " boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="observacaoAcimaLimite",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `observacaoAcimaLimite` do dicionario 1.6.0 "
+            "(tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="opmeAcimaReferencia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`opmeAcimaReferencia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="opmeAutorizada",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`opmeAutorizada` do dicionario 1.6.0 (tipo boolean, origem derivado) em 3 tabelas de "
+            "spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="opmeNaConta",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `opmeNaConta` "
+            "do dicionario 1.6.0 (tipo boolean, origem derivado) em 2 tabelas de spec/processes/dmn/rco/ "
+            "(+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="opmeNaGuia",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `opmeNaGuia` do"
+            " dicionario 1.6.0 (tipo boolean, origem derivado) em 2 tabelas de spec/processes/dmn/rco/ (+2 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="opmeNaLista",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `opmeNaLista` "
+            "do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de spec/processes/dmn/rco/ (+1"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="opmeSolicitada",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`opmeSolicitada` do dicionario 1.6.0 (tipo boolean, origem derivado) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="ordemOlho",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `ordemOlho` do "
+            "dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="outroNivelRadiocirurgiaCurso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`outroNivelRadiocirurgiaCurso` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela"
+            " de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="p24NatMesmaGuia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`p24NatMesmaGuia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="pacoteContratado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`pacoteContratado` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="painelNaConta",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `painelNaConta`"
+            " do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ "
+            "(+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="parAngioTerapeutica",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`parAngioTerapeutica` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="parArtroRM",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `parArtroRM` do"
+            " dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="parErgometricoEcg",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`parErgometricoEcg` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="parEstresse",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `parEstresse` "
+            "do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="parExameBase",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `parExameBase` do dicionario 1.6.0 (tipo "
+            "boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="parOximetriaConsulta",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`parOximetriaConsulta` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="parPolissonografia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`parPolissonografia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="parUltrassom",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `parUltrassom` "
+            "do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="partoInicialNaGuia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`partoInicialNaGuia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="pedidoCompleto",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`pedidoCompleto` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="pedidosExtemporaneos12mPrestador",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`pedidosExtemporaneos12mPrestador` do dicionario 1.6.0 (tipo integer, origem cadastro) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="percentualContratualConforme",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`percentualContratualConforme` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela"
+            " de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="perfusionistaNaEquipe",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`perfusionistaNaEquipe` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="planejamentoNaJanela",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`planejamentoNaJanela` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="planoSoAmbulatorial",
+        name_delta=1,
+        occurrence_delta=6,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`planoSoAmbulatorial` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 6 tabelas de "
+            "spec/processes/dmn/rco/ (+6 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="planoSoHospitalar",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`planoSoHospitalar` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="plaquetasAfereseNaConta",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`plaquetasAfereseNaConta` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="prazoComprovacaoUsoVencido",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`prazoComprovacaoUsoVencido` do dicionario 1.6.0 (tipo boolean, origem derivado) em 3 tabelas "
+            "de spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="prazoDocumentoVencido",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`prazoDocumentoVencido` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="prescricaoEChecagem",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`prescricaoEChecagem` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="prestadorAptoMetodo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`prestadorAptoMetodo` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="prestadorComPacote",
+        name_delta=1,
+        occurrence_delta=15,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`prestadorComPacote` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 15 tabelas de "
+            "spec/processes/dmn/rco/ (+15 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="procedimentoAdicional",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`procedimentoAdicional` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="procedimentoAlcancadoCpt",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`procedimentoAlcancadoCpt` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="procedimentoCirurgicoAdicional",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`procedimentoCirurgicoAdicional` do dicionario 1.6.0 (tipo boolean, origem derivado) em 4 "
+            "tabelas de spec/processes/dmn/rco/ (+4 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="procedimentoCirurgicoNaGuia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`procedimentoCirurgicoNaGuia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="procedimentoMesmoAto",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`procedimentoMesmoAto` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="procedimentoOrtopedicoNaGuia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`procedimentoOrtopedicoNaGuia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela"
+            " de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="procedimentoPrincipalNaGuia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`procedimentoPrincipalNaGuia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="profissaoExecutante",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`profissaoExecutante` do dicionario 1.6.0 (tipo string, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidade",
+        name_delta=1,
+        occurrence_delta=17,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `quantidade` do"
+            " dicionario 1.6.0 (tipo integer, origem tiss) em 17 tabelas de spec/processes/dmn/rco/ (+17 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeAcimaAutorizada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeAcimaAutorizada` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de"
+            " spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeAcimaDasUnidades",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeAcimaDasUnidades` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeAcimaDoPedido",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeAcimaDoPedido` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeAcimaDocumentada",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeAcimaDocumentada` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 2 tabelas"
+            " de spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeAcimaLimite",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeAcimaLimite` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeAcimaPorPeso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeAcimaPorPeso` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeAcimaPorUnidade",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeAcimaPorUnidade` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de"
+            " spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeAcimaPrescrita",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeAcimaPrescrita` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeDia",
+        name_delta=1,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `quantidadeDia`"
+            " do dicionario 1.6.0 (tipo integer, origem derivado) em 5 tabelas de spec/processes/dmn/rco/ "
+            "(+5 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeEpisodio",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeEpisodio` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeExamesRmSessao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `quantidadeExamesRmSessao` do dicionario 1.6.0 "
+            "(tipo integer, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeMarcasIndicadas",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeMarcasIndicadas` do dicionario 1.6.0 (tipo integer, origem derivado) em 3 tabelas "
+            "de spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeNiveis",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeNiveis` do dicionario 1.6.0 (tipo integer, origem tiss) em 4 tabelas de "
+            "spec/processes/dmn/rco/ (+4 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeNoAno",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeNoAno` do dicionario 1.6.0 (tipo integer, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeProfissional",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeProfissional` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeSolicitada",
+        name_delta=1,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeSolicitada` do dicionario 1.6.0 (tipo integer, origem tiss) em 5 tabelas de "
+            "spec/processes/dmn/rco/ (+5 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeTaxaRadiofarmaco",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeTaxaRadiofarmaco` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="quantidadeVideoartroscopicos",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`quantidadeVideoartroscopicos` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela"
+            " de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="radiofarmacoComoMatMed",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`radiofarmacoComoMatMed` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="reconhecimentoFalaPct",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`reconhecimentoFalaPct` do dicionario 1.6.0 (tipo double, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="reconhecimentoSentencasPct",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`reconhecimentoSentencasPct` do dicionario 1.6.0 (tipo double, origem fora_tiss) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="reducaoAcrescimoInformado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`reducaoAcrescimoInformado` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de"
+            " spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="reducaoAcrescimoMaiorQueUm",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`reducaoAcrescimoMaiorQueUm` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="regime",
+        name_delta=1,
+        occurrence_delta=24,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `regime` do "
+            "dicionario 1.6.0 (tipo string, origem derivado) em 24 tabelas de spec/processes/dmn/rco/ (+24 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="regimeAtendimento",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`regimeAtendimento` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="regimeAtendimentoTiss",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`regimeAtendimentoTiss` do dicionario 1.6.0 (tipo string, origem tiss) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="regimeHospitalDia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`regimeHospitalDia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="regimeTerapia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `regimeTerapia`"
+            " do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="registroAnvisaInformado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`registroAnvisaInformado` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="registroAnvisaItem",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`registroAnvisaItem` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="registroAnvisaMedicamento",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `registroAnvisaMedicamento` do dicionario 1.6.0 "
+            "(tipo boolean, origem cadastro) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="registroAnvisaVigente",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`registroAnvisaVigente` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="registroEletrodoProntuario",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `registroEletrodoProntuario` do dicionario 1.6.0"
+            " (tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="registroTransfusionalCompleto",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`registroTransfusionalCompleto` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="reinternacaoJanela",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`reinternacaoJanela` do dicionario 1.6.0 (tipo boolean, origem derivado) em 3 tabelas de "
+            "spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="reinternacaoMesmaCausa",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`reinternacaoMesmaCausa` do dicionario 1.6.0 (tipo boolean, origem derivado) em 3 tabelas de "
+            "spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="relatorioHistoriaClinica",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`relatorioHistoriaClinica` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de"
+            " spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="relatorioIndicacaoAtual",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`relatorioIndicacaoAtual` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="relatorioMedicoAnexado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`relatorioMedicoAnexado` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="repeticaoDentroJanela",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`repeticaoDentroJanela` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="repeticaoNaJanela",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`repeticaoNaJanela` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="requisicaoTransfusional",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`requisicaoTransfusional` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="retornoDentroPrazo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`retornoDentroPrazo` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="riscoCirurgicoAsa",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`riscoCirurgicoAsa` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="saldoCarenciaDias",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`saldoCarenciaDias` do dicionario 1.6.0 (tipo integer, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="segmentacaoCompativel",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`segmentacaoCompativel` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 3 tabelas de "
+            "spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="segmentacaoOdontologica",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`segmentacaoOdontologica` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="segmentacaoPlano",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`segmentacaoPlano` do dicionario 1.6.0 (tipo string, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="sessoesAnoContrato",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`sessoesAnoContrato` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="sessoesNaJanelaAcimaDoGatilho",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`sessoesNaJanelaAcimaDoGatilho` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="sessoesNoCiclo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`sessoesNoCiclo` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="sessoesSemana",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `sessoesSemana`"
+            " do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de spec/processes/dmn/rco/ "
+            "(+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="sexoBeneficiario",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`sexoBeneficiario` do dicionario 1.6.0 (tipo string, origem cadastro) em 3 tabelas de "
+            "spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="sinalAuditoria",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): saida `sinalAuditoria` "
+            "do manifesto em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="sinalConta",
+        name_delta=1,
+        occurrence_delta=4,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `sinalConta` do"
+            " dicionario 1.6.0 (tipo boolean, origem derivado) em 4 tabelas de spec/processes/dmn/rco/ (+4 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="situacaoCadastral",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`situacaoCadastral` do dicionario 1.6.0 (tipo string, origem cadastro) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="situacaoPedido",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`situacaoPedido` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 3 tabelas de "
+            "spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="solicitanteEspecialidadeDut110",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`solicitanteEspecialidadeDut110` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="statusEspecime",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`statusEspecime` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="subitemDut65",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `subitemDut65` "
+            "do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="substanciaMedicamento",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `substanciaMedicamento` do dicionario 1.6.0 "
+            "(tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="substituicaoCorpoVertebralNaGuia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`substituicaoCorpoVertebralNaGuia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="taxaSemExame",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "SHAPE-SUSPECT: Disposition DRAFT/verify (DPO) com a recomendacao escrita da engenharia "
+            "(phi_completeness.DISPOSITIONS), linha no manifesto e na fila; NAO houve revisao do DPO. K1 "
+            "b8444f52, primeiro pin real (sombra): entrada `taxaSemExame` do dicionario 1.6.0 (tipo "
+            "boolean, origem derivado) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tcthAutorizadoVinculado",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`tcthAutorizadoVinculado` do dicionario 1.6.0 (tipo boolean, origem derivado) em 2 tabelas de "
+            "spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tecnicaAssociadaNaFicha",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`tecnicaAssociadaNaFicha` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tecnicaUtilizada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`tecnicaUtilizada` do dicionario 1.6.0 (tipo string, origem tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="temaComposicao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`temaComposicao` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="temaImunob",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `temaImunob` do"
+            " dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="temaOncoqt",
+        name_delta=1,
+        occurrence_delta=7,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `temaOncoqt` do"
+            " dicionario 1.6.0 (tipo string, origem derivado) em 7 tabelas de spec/processes/dmn/rco/ (+7 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tempoObesidadeMeses",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`tempoObesidadeMeses` do dicionario 1.6.0 (tipo integer, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tempoTratamentoClinicoMeses",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`tempoTratamentoClinicoMeses` do dicionario 1.6.0 (tipo integer, origem fora_tiss) em 2 "
+            "tabelas de spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="terapiaEmCurso",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`terapiaEmCurso` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 3 tabelas de "
+            "spec/processes/dmn/rco/ (+3 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tipoAnestesia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `tipoAnestesia`"
+            " do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ "
+            "(+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tipoCateter",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `tipoCateter` "
+            "do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tipoEspecime",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `tipoEspecime` "
+            "do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1"
+            " dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tipoPerdaAuditiva",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`tipoPerdaAuditiva` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tipoTcth",
+        name_delta=1,
+        occurrence_delta=3,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `tipoTcth` do "
+            "dicionario 1.6.0 (tipo string, origem fora_tiss) em 3 tabelas de spec/processes/dmn/rco/ (+3 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tipoTransacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `tipoTransacao`"
+            " do dicionario 1.6.0 (tipo string, origem tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 "
+            "dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="tmoProposto",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `tmoProposto` "
+            "do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ "
+            "(+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="transfusaoEfetivada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`transfusaoEfetivada` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="transplanteNaInternacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`transplanteNaInternacao` do dicionario 1.6.0 (tipo string, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="unidadesHemocomponente",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`unidadesHemocomponente` do dicionario 1.6.0 (tipo integer, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="unidadesPlaquetasNoGrupo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`unidadesPlaquetasNoGrupo` do dicionario 1.6.0 (tipo integer, origem fora_tiss) em 1 tabela de"
+            " spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="urgenciaAposVinteQuatroHorasCobertura",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`urgenciaAposVinteQuatroHorasCobertura` do dicionario 1.6.0 (tipo boolean, origem derivado) em"
+            " 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="utiNaoPrevista",
+        name_delta=1,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`utiNaoPrevista` do dicionario 1.6.0 (tipo boolean, origem derivado) em 5 tabelas de "
+            "spec/processes/dmn/rco/ (+5 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="variantePacote",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): saida `variantePacote` "
+            "do manifesto em 2 tabelas de spec/processes/dmn/rco/ (+2 dmn_output_name)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="viaAcessoInformada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`viaAcessoInformada` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="viaAcessoSecundario",
+        name_delta=1,
+        occurrence_delta=8,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`viaAcessoSecundario` do dicionario 1.6.0 (tipo string, origem tiss) em 8 tabelas de "
+            "spec/processes/dmn/rco/ (+8 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="viaAlteradaAposAutorizacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`viaAlteradaAposAutorizacao` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="visitaMesmoProfissionalDia",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`visitaMesmoProfissionalDia` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela "
+            "de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="visitaNaDataDaAlta",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`visitaNaDataDaAlta` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 tabela de "
+            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-11-21",
+        pr="#1365",
+        name="visitaPreAnestesicaNaInternacao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
+            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
+            "`visitaPreAnestesicaNaInternacao` do dicionario 1.6.0 (tipo boolean, origem derivado) em 1 "
+            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+        ),
+    ),
 )
 
 
@@ -3224,9 +7999,10 @@ class TestBuckets:
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
-        expected_clean = expected_names - 6 - 15
+        expected_clean = expected_names - 6 - 53  # #1365: SHAPE_SUSPECT 15 -> 53 (K1)
         assert (
-            expected_clean == 419  # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
+            expected_clean == 743  # K1 b8444f52 (#1365): +362 nomes (+324 CLEAN, +38 SHAPE) / +2312 ocorr.
+            # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # R-076 faixa B dormente (#1149): +16 CLEAN (fatos da faixa, origem_*, R-058)
         # DL-0163: +3 CLEAN (aguardando_resposta, data_pagamento, valor aprovado de volta)
@@ -3246,7 +8022,7 @@ class TestBuckets:
         #   classeAdverso, fila)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
-            SHAPE_SUSPECT: 15,
+            SHAPE_SUSPECT: 53,  # #1365: +38 do K1, cada um com Disposition DRAFT/verify (DPO)
             CLEAN: expected_clean,
         }
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
@@ -3287,7 +8063,8 @@ class TestBuckets:
         # DEC-31 D31-2 (#1198): +6 nomes (DMN pagto_comite_coordenacao e os fatos da rodada)
         # ADR-0075 / exemplo sintetico rco (#1223): +4 nomes
         # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
-        assert len(live_sweep.names) == expected_names == 440
+        # K1 b8444f52 (#1365): +362 nomes (+324 CLEAN, +38 SHAPE) / +2312 ocorr.
+        assert len(live_sweep.names) == expected_names == 802
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
@@ -3313,7 +8090,8 @@ class TestBuckets:
         # DEC-31 D31-2 (#1198): +17 (6 nomes novos +14, decisao_pagamento +2, quorum_comite +1); nomes: +6
         # ADR-0075 / exemplo sintetico rco (#1223): +5 (4 nomes novos +4, decisao +1); nomes: +4
         # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
-        assert len(live_sweep.refs) == expected_refs == 1893
+        # K1 b8444f52 (#1365): +362 nomes (+324 CLEAN, +38 SHAPE) / +2312 ocorr.
+        assert len(live_sweep.refs) == expected_refs == 4205
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -3364,18 +8142,56 @@ class TestBuckets:
         assert live_sweep.by_bucket()[SHAPE_SUSPECT] == (
             "auditor_id",
             "cid10",
+            "cidDut109",
+            "cidEspasticidadeDut8",
+            "cidExcecaoDescompressao",
+            "cidFinalidadeEstetica",
+            "cidGrupoF84",
+            "cidIgualDlpDeclarada",
+            "cidNaDlpDeclarada",
+            "cidNeoplasia",
+            "cidPrincipal",
+            "cidSecundarioInformado",
+            "clausulaExameAdicional",
+            "complicacaoCidSecundario",
             "detalhes_requisicao",
+            "diagnosticoCLN2Confirmado",
             "diagnostico_oncologico_confirmado",
             "diagnostico_tea_ou_neurodesenvolvimento",
+            "diariaSoParaExame",
+            "diasDesdeUltimoExame",
+            "exameBaseNaGuia",
+            "examesNoPeriodo",
             "exames_convencionais_inconclusivos",
             "fundamentacao_contratual",
             "fundamentacao_legal",
+            "grupoCidPrincipal",
             "has_cid10_codes",
             "info_solicitada",
             "justificativa",
+            "justificativaAnestesiologista",
+            "justificativaHematologista",
+            "justificativaQuantidade",
+            "justificativaRepeticao",
+            "justificativaReteste",
+            "justificativaTecnicaAnexada",
+            "justificativaTrocaCurativo",
+            "laudoAnatomopatologicoAnexado",
+            "medicamentoAlvo",
+            "medicamentoEstimulo",
+            "medicamentoNoSubitem",
+            "medicamentoUnicoInterferon",
+            "notaFiscalFornecedor",
+            "observacaoAcimaLimite",
+            "parExameBase",
             "parecer_auditor",
+            "quantidadeExamesRmSessao",
+            "registroAnvisaMedicamento",
+            "registroEletrodoProntuario",
             "sintoma_codigo",
             "sintoma_reconhecido",
+            "substanciaMedicamento",
+            "taxaSemExame",
             "texto_ao_beneficiario",
         )
 
@@ -3446,6 +8262,131 @@ class TestBuckets:
                 "triage_redflag_mental_health.dmn:22 (dmn_input_expression)",
                 "triage_redflag_pediatric.dmn:22 (dmn_input_expression)",
             ],
+            # K1 b8444f52 (#1365): as 38 perguntas do pacote, uma linha por ocorrencia.
+            "cidDut109": [
+                "consult_dut.dmn:16 (dmn_input_expression)",
+            ],
+            "cidEspasticidadeDut8": [
+                "teresp_dut.dmn:25 (dmn_input_expression)",
+            ],
+            "cidExcecaoDescompressao": [
+                "coluna_excludentes.dmn:22 (dmn_input_expression)",
+            ],
+            "cidFinalidadeEstetica": [
+                "teresp_cobertura.dmn:19 (dmn_input_expression)",
+            ],
+            "cidGrupoF84": [
+                "teresp_autorizacao.dmn:22 (dmn_input_expression)",
+                "teresp_cobertura.dmn:16 (dmn_input_expression)",
+                "teresp_dut.dmn:28 (dmn_input_expression)",
+                "teresp_limite_quantidade.dmn:16 (dmn_input_expression)",
+            ],
+            "cidIgualDlpDeclarada": [
+                "geral_cpt.dmn:22 (dmn_input_expression)",
+            ],
+            "cidNaDlpDeclarada": [
+                "geral_cpt.dmn:19 (dmn_input_expression)",
+            ],
+            "cidNeoplasia": [
+                "genet_compatibilidade.dmn:13 (dmn_input_expression)",
+            ],
+            "cidPrincipal": [
+                "cirger_compatibilidade.dmn:13 (dmn_input_expression)",
+                "compatibilidade_orl.dmn:13 (dmn_input_expression)",
+                "compatibilidade_ortop.dmn:13 (dmn_input_expression)",
+                "transpl_dut_tcth.dmn:19 (dmn_input_expression)",
+            ],
+            "cidSecundarioInformado": [
+                "geral_itens_inclusos.dmn:25 (dmn_input_expression)",
+            ],
+            "clausulaExameAdicional": [
+                "imgac_pacote.dmn:19 (dmn_input_expression)",
+            ],
+            "complicacaoCidSecundario": [
+                "bariat_pacote_desvios.dmn:13 (dmn_input_expression)",
+                "coluna_pacote_desvios.dmn:13 (dmn_input_expression)",
+            ],
+            "diagnosticoCLN2Confirmado": [
+                "clin_dut.dmn:34 (dmn_input_expression)",
+            ],
+            "diariaSoParaExame": [
+                "exfunc_pacote.dmn:19 (dmn_input_expression)",
+            ],
+            "diasDesdeUltimoExame": [
+                "exfunc_limite_quantidade.dmn:13 (dmn_input_expression)",
+                "imgac_limite_intervalo.dmn:13 (dmn_input_expression)",
+                "imgconv_limite_intervalo.dmn:13 (dmn_input_expression)",
+                "imgconv_limite_intervalo_us.dmn:13 (dmn_input_expression)",
+            ],
+            "exameBaseNaGuia": [
+                "imgac_pacote.dmn:13 (dmn_input_expression)",
+            ],
+            "examesNoPeriodo": [
+                "mednuc_limite_quantidade.dmn:19 (dmn_input_expression)",
+            ],
+            "grupoCidPrincipal": [
+                "urg_enquadramento.dmn:16 (dmn_input_expression)",
+            ],
+            "justificativaAnestesiologista": [
+                "anestdor_compatibilidade.dmn:19 (dmn_input_expression)",
+            ],
+            "justificativaHematologista": [
+                "hemot_limite_quantidade.dmn:16 (dmn_input_expression)",
+            ],
+            "justificativaQuantidade": [
+                "anestdor_limite_quantidade.dmn:16 (dmn_input_expression)",
+            ],
+            "justificativaRepeticao": [
+                "lab_limite_quantidade.dmn:25 (dmn_input_expression)",
+            ],
+            "justificativaReteste": [
+                "lab_limite_quantidade.dmn:22 (dmn_input_expression)",
+            ],
+            "justificativaTecnicaAnexada": [
+                "coluna_opme_solicitacao.dmn:13 (dmn_input_expression)",
+            ],
+            "justificativaTrocaCurativo": [
+                "clin_limite_quantidade.dmn:31 (dmn_input_expression)",
+            ],
+            "laudoAnatomopatologicoAnexado": [
+                "plast_compatibilidade.dmn:16 (dmn_input_expression)",
+            ],
+            "medicamentoAlvo": [
+                "anatpat_dut.dmn:19 (dmn_input_expression)",
+            ],
+            "medicamentoEstimulo": [
+                "lab_cobertura.dmn:16 (dmn_input_expression)",
+            ],
+            "medicamentoNoSubitem": [
+                "imunob_dut.dmn:16 (dmn_input_expression)",
+            ],
+            "medicamentoUnicoInterferon": [
+                "clin_glosa.dmn:13 (dmn_input_expression)",
+            ],
+            "notaFiscalFornecedor": [
+                "coluna_opme_prova_uso.dmn:19 (dmn_input_expression)",
+            ],
+            "observacaoAcimaLimite": [
+                "consult_limite_quantidade.dmn:31 (dmn_input_expression)",
+            ],
+            "parExameBase": [
+                "imgconv_excludentes.dmn:10 (dmn_input_expression)",
+            ],
+            "quantidadeExamesRmSessao": [
+                "imgac_pacote.dmn:16 (dmn_input_expression)",
+            ],
+            "registroAnvisaMedicamento": [
+                "lab_cobertura.dmn:19 (dmn_input_expression)",
+            ],
+            "registroEletrodoProntuario": [
+                "teresp_excludentes.dmn:16 (dmn_input_expression)",
+            ],
+            "substanciaMedicamento": [
+                "clin_dut.dmn:31 (dmn_input_expression)",
+            ],
+            "taxaSemExame": [
+                "mednuc_glosa.dmn:10 (dmn_input_expression)",
+            ],
         }
 
     def test_every_pinned_provenance_line_really_carries_the_name(self, live_sweep: Sweep) -> None:
@@ -3464,11 +8405,11 @@ class TestBuckets:
     def test_render_buckets_shows_all_three_with_provenance(self, live_sweep: Sweep) -> None:
         rendered = render_buckets(live_sweep)
         assert f"## {LISTED} (6)" in rendered
-        assert f"## {SHAPE_SUSPECT} (15)" in rendered
+        assert f"## {SHAPE_SUSPECT} (53)" in rendered  # #1365: +38 (K1)
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (419)"
+            f"## {CLEAN} (743)"  # K1 b8444f52 (#1365): +362 nomes (+324 CLEAN, +38 SHAPE) / +2312 ocorr.
             in rendered  # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
             # ADR-0075 / exemplo sintetico rco (#1223): +4
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
@@ -3486,7 +8427,8 @@ class TestBuckets:
         # would stay green after an edit that renamed the constant's VALUE to
         # "RATIFICADO pelo DPO", which is exactly the laundering this asserts
         # against.
-        assert rendered.count("DRAFT/verify (DPO)") == 15  # DL-0163: +5 perguntas dos textos do reembolso
+        # DL-0163: +5 perguntas dos textos do reembolso; #1365: +38 perguntas do K1
+        assert rendered.count("DRAFT/verify (DPO)") == 53
 
 
 # ---------------------------------------------------------------------------
