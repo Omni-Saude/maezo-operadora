@@ -16,7 +16,7 @@ O que faz
 2. Roda o MESMO preflight do noturno (`scripts/ci/tier_b_preflight.py`, phi=True), so' o Tier B
    (`pytest tests/evals -m "eval and llm_live"`) e o MESMO resumo (`scripts/ci/tier_b_resumo.py`).
 3. Grava SO' o resumo (ids e resultados; nenhuma saida de modelo) em `<saida>/resumo.md`, que comeca pela
-   REGIAO efetiva da zona PHI (sa-east-1; us-east-1 so' com a excecao regional do DPO ligada em
+   REGIAO efetiva da zona PHI (a do transporte regional do runtime; a da excecao so' com ela ligada em
    `MAEZO_PHI_EXCECAO_REGIONAL`). `--saida` dentro do repositorio e' recusada (o resumo nunca e' commitado).
    O junit fica num diretorio temporario e e' apagado. No TERMINAL, os logs INFO do provedor mostram o id do
    modelo e o host do endpoint (nunca o DPA ref); nada disso vai para o resumo.
@@ -70,6 +70,7 @@ def saida_recusada(saida: Path) -> str | None:
 
 def regiao_efetiva() -> str:
     """A regiao que o `bedrock_br` vai usar, pela MESMA regra do runtime (`excecao_regional`)."""
+    from maezo.runtime.inference.br_regional import BedrockBrRegionalTransport
     from maezo.runtime.inference.excecao_regional import (
         ENV_PHI_EXCECAO_REGIONAL,
         REGIAO_EXCECAO,
@@ -78,7 +79,7 @@ def regiao_efetiva() -> str:
 
     if excecao_ativa():
         return f"{REGIAO_EXCECAO} (EXCECAO REGIONAL do DPO ligada em {ENV_PHI_EXCECAO_REGIONAL})"
-    return "sa-east-1"
+    return BedrockBrRegionalTransport.REGIAO  # a unica regiao aceita pelo transporte, sem copia literal
 
 
 def _credencial_aws() -> bool:

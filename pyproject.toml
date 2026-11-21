@@ -256,7 +256,7 @@ pythonpath = ["."]
 markers = [
     "integration: exige stack docker-compose (engine real — sem mock de engine, ADR-0011)",
     "eval: avaliacao de qualidade de agente contra golden dataset (gate de CI)",
-    "llm_live: real Anthropic API call (T1.7); skipped loudly without MAEZO_ANTHROPIC_API_KEY/ANTHROPIC_API_KEY",
+    "llm_live: chamada real a modelo; fora do `make test`. Tier B (tests/evals): so' com TIER_B_EXECUCAO=noturno|manual e credencial (tests/evals/_regra_viva.py); tests/unit/runtime/test_inference_live.py: pulo proprio sem MAEZO_ANTHROPIC_API_KEY/ANTHROPIC_API_KEY",
     "root_fixture: exige fixture PRIVADO fornecido pelo ROOT (variavel de ambiente + manifesto); DESELECIONADO pelo lane global -m integration salvo MAEZO_ROOT_FIXTURES=1 — ver tests/integration/conftest.py::pytest_collection_modifyitems; nunca skip, nunca deselect escondido",
     "chaos: T3.3 seam-level fault-injection / cross-process resilience suite (tests/integration/chaos/); PG-only (no cibseven), runs in the dedicated `chaos` CI job — see docs/design/T3.3-chaos-resilience.md",
     "performance: medicao de latencia/carga (R-086, p95 do AUTH); sempre junto de `integration` (engine real) — selecao explicita com -m performance; ver tests/load/README.md",

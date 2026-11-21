@@ -34,12 +34,54 @@ Selecao = tuple[str, str]  # (caminho, expressao -m)
 
 
 @pytest.fixture(autouse=True)
-def _sem_provedor_do_ambiente(monkeypatch: pytest.MonkeyPatch) -> None:
+def _sem_provedor_do_ambiente(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # `tests/evals/_vivo.py` le MAEZO_INFERENCE_PROVIDER (como o runtime): um valor herdado
     # da maquina (`.env`, sessao do dev) mudaria o desfecho ou faria chamada real; quem precisa, define.
     monkeypatch.delenv("MAEZO_INFERENCE_PROVIDER", raising=False)
+    # Cada teste deste arquivo roda sem credencial AWS do ambiente (nem a cadeia: perfil, SSO, conteiner,
+    # IMDS); quem precisa de credencial, SIMULA. Vale tambem para os subprocessos (herdam este os.environ).
+    _sem_aws_do_ambiente(monkeypatch, tmp_path)
     # O opt-in de execucao do job noturno (como no ci.yml); quem testa o caminho SEM opt-in, remove.
     monkeypatch.setenv("TIER_B_EXECUCAO", "noturno")
+
+
+#: Fontes de credencial AWS que o boto3/botocore le do ambiente.
+_AWS_DO_AMBIENTE = (
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_SECURITY_TOKEN",
+    "AWS_PROFILE",
+    "AWS_DEFAULT_PROFILE",
+    "AWS_WEB_IDENTITY_TOKEN_FILE",
+    "AWS_ROLE_ARN",
+    "AWS_ROLE_SESSION_NAME",
+    "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+    "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+    "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+    "AWS_BEARER_TOKEN_BEDROCK",  # chave de API do Bedrock (botocore), fora de get_credentials()
+    "AWS_CREDENTIAL_FILE",
+)
+
+
+def _sem_aws_do_ambiente(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import os as _os
+
+    for nome in (*_AWS_DO_AMBIENTE, *[k for k in _os.environ if k.startswith("AWS_ENDPOINT_URL")]):
+        monkeypatch.delenv(nome, raising=False)
+    monkeypatch.setenv("BOTO_CONFIG", str(tmp_path / "sem-boto-config"))  # ~/.boto do BotoProvider
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "sem-config-aws"))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "sem-credenciais-aws"))
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+
+
+def test_every_test_here_runs_without_aws_credentials_from_the_environment() -> None:
+    import os as _os
+
+    import boto3  # type: ignore[import-untyped]  # extra [bedrock], como em br_regional.py
+
+    assert not [n for n in _AWS_DO_AMBIENTE if n in _os.environ]
+    assert boto3.Session().get_credentials() is None  # nada resolvivel pela cadeia
 
 
 def _jobs() -> dict[str, Any]:
@@ -1164,6 +1206,71 @@ def test_summary_rule_is_imported_not_copied_and_needs_no_maezo() -> None:
         [sys.executable, "-I", "-c", codigo], cwd=_RAIZ, capture_output=True, text=True, timeout=60
     )
     assert r.returncode == 0 and r.stdout.strip() == "True", r.stderr[-2000:]
+
+
+def test_decide_without_the_execution_argument_is_broken() -> None:
+    # Quem esquecer de passar `execucao` cai em QUEBRADO, nunca num opt-in implicito.
+    c = tb.Contagem(casos=[("t::c", tb.APROVADO)])
+    v = tb.decidir(0, c, chave_presente=True, bloqueante=False)
+    assert v.saida == 1 and "sem opt-in de execucao" in v.manchete
+
+
+def test_manual_default_region_comes_from_the_runtime_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    from maezo.runtime import inference
+    from maezo.runtime.inference.br_regional import BedrockBrRegionalTransport
+    from maezo.runtime.inference.excecao_regional import (
+        ENV_PHI_EXCECAO_REGIONAL,
+        REGIAO_EXCECAO,
+        ROTA_EXCECAO_US,
+    )
+
+    # A regra que o runtime USA (`_regiao_da_zona_phi`), nos dois estados da excecao do DPO.
+    monkeypatch.delenv(ENV_PHI_EXCECAO_REGIONAL, raising=False)
+    assert manual.regiao_efetiva() == BedrockBrRegionalTransport.REGIAO == inference._regiao_da_zona_phi()
+    monkeypatch.setenv(ENV_PHI_EXCECAO_REGIONAL, ROTA_EXCECAO_US)
+    assert inference._regiao_da_zona_phi() == REGIAO_EXCECAO
+    assert manual.regiao_efetiva().startswith(f"{REGIAO_EXCECAO} ")
+    assert "sa-east-1" not in (_RAIZ / "scripts/dev/tier_b_manual.py").read_text(encoding="utf-8")
+
+
+def test_with_anthropic_key_and_opt_in_phi_true_is_refused_before_any_network_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Chave Anthropic presente + opt-in: phi=True continua recusado pela FACHADA (ADR-0006) — QUEBRADO, e
+    # nem o backend Anthropic nem o transporte HTTP sao alcancados.
+    import asyncio
+
+    import httpx
+
+    from maezo.runtime.inference.errors import PhiZoneRoutingError
+    from maezo.runtime.inference.providers import AnthropicInferenceProvider
+
+    alcancado: list[str] = []
+
+    async def _backend(self: object, *a: object, **k: object) -> str:
+        alcancado.append("backend")
+        raise AssertionError("o backend Anthropic nao pode ser chamado com phi=True")
+
+    async def _rede(self: object, *a: object, **k: object) -> object:
+        alcancado.append("rede")
+        raise AssertionError("nenhuma requisicao HTTP pode sair com phi=True")
+
+    monkeypatch.setattr(AnthropicInferenceProvider, "generate", _backend)
+    monkeypatch.setattr(httpx.AsyncClient, "send", _rede)
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    monkeypatch.setenv("TIER_B_EXECUCAO", "noturno")
+
+    g = _vivo.provedor_vivo()
+    with pytest.raises(PhiZoneRoutingError):
+        asyncio.run(g.generate("x", phi=True, agent_id="t"))
+    with pytest.raises(AssertionError, match=r"^LIVE CALL FAILED: PhiZoneRoutingError$"):
+        _vivo.exigir_chamada_viva(g)
+
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "s.md"))
+    assert pf.main([]) == 1  # a fabrica REAL do preflight, pela mesma rota
+    saida = capsys.readouterr().out + (tmp_path / "s.md").read_text(encoding="utf-8")
+    assert "Tier B QUEBRADO: preflight falhou (PhiZoneRoutingError" in saida
+    assert alcancado == []
 
 
 def test_manual_run_refuses_an_output_inside_the_repository(tmp_path: Path) -> None:

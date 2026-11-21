@@ -276,8 +276,8 @@ simulador do dev ja' usa com dado sintetico e `phi=True`).
 
 **Nao crie o segredo `MAEZO_ANTHROPIC_API_KEY` no repositorio.** Com o provedor `anthropic` (nao
 `phi_capable`) todo caso vivo sai `LIVE CALL FAILED: PhiZoneRoutingError`; o segredo so' tornaria o noturno
-vermelho, sem medir nada. As 7 noites de observacao do Tier B ficam suspensas ate' existir provedor PHI no CI
-(decisao do dono).
+vermelho, sem medir nada. As noites de observacao do Tier B ficam suspensas ate' existir provedor na zona PHI
+no CI (decisao do dono).
 
 **Pre-requisitos** (nenhum valor e' copiado para ca'):
 
