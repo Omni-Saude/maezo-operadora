@@ -1,0 +1,30 @@
+{
+  "origem_repo": "Omni-Saude/regras-contratos-operadora",
+  "gerador": [
+    "git archive <commit> docs scripts regras dmn validacao | tar -x -C <copia>",
+    "python3 scripts/consolidar_fragmentos.py --raiz <copia>  # regenera docs/dicionario-dados.yaml (derivado) a partir dos fragmentos do commit",
+    "python3 scripts/k1_entradas.py --raiz <copia> --impressao  # = versoes[versao] de docs/programa/k1-entradas-origem.yaml do commit",
+    "entradas.json como scripts/pacote.py o escreve (linha 447): legivel({versao, sha256_conteudo: hash_canonico(versao, linhas, metadados), entradas: linhas}); a geracao do 1.5.0 em aed187d4 por este mesmo caminho da exatamente k1-2.3.0-recorte/ORIGEM.json entradas_json_sha256",
+    "recorte: so as 39 entradas de k1-2.3.0-recorte/entradas-recorte.json (dominios regras-gerais e diarias-taxas, os do montador) mais prazoComprovacaoUsoVencido (urgencia, nao mapeado), na mesma ordem, com a mesma versao e o mesmo sha256_conteudo (o do dicionario COMPLETO), serializado como scripts/pacote.py::legivel"
+  ],
+  "versoes": {
+    "1.5.1": {
+      "commit": "1c5a2f2d72eaafc46183b3f0ed80e5296852ee0f",
+      "commit_nota": "merge do PR #187 do rco em main (PROG-RCO-38, commit 5656d53f)",
+      "impressao": "sha256:37d65f89fc5c8c32da05025494126fe6698f1704559e71ae5ead0ba37a291623",
+      "sha256_conteudo": "sha256:9f6eb652fd893becede3f02e6a11c212feee4f17bf5672887ac937d2f56a4e7d",
+      "entradas_json_sha256": "sha256:79e257dbe2f0fec3486fa4a807af0e037320a668a2e32ea35c116d9c7554e87a",
+      "arquivo": "entradas-1.5.1-recorte.json",
+      "sha256": "sha256:f5e7a53a803b33b15393674a4cb518b19b2e0aeb31eb4bbfb57dca4c8ce7799b"
+    },
+    "1.6.0": {
+      "commit": "b8444f52e33eda556b5d2dab7837b046d5bd769e",
+      "commit_nota": "merge do PR #189 do rco em main (PROG-RCO-39, commit 0670ac3e)",
+      "impressao": "sha256:fcc462e4555218d7dd5e02dd55201801475c1566468e5732175243fc6245edb1",
+      "sha256_conteudo": "sha256:1aff5670aadc8037c7142b68ce669cc4fe4078c4cfd45c20e447da7491daafab",
+      "entradas_json_sha256": "sha256:3d67a1fcd1bcd445f09ce4eb546d1bdacdc5763d7e9c4ff851caedc0eca88775",
+      "arquivo": "entradas-1.6.0-recorte.json",
+      "sha256": "sha256:46d61d472364c1f2a8ebb7ff5f36cd991431aae6430fd7947ff11baa7677882f"
+    }
+  }
+}

@@ -8,7 +8,9 @@ no commit aed187d4 (`erros_parametro` e `erros_referencia_guia`): chave com `Non
 A prova roda o MESMO conjunto de exemplos pelo leitor do Maezo (o caminho inteiro,
 `ler_dicionario_entradas` sobre o recorte real do pacote) e pela funcao do proprio rco, carregada da fonte
 no commit (copia byte a byte em `tests/fixtures/rco/fonte-aed187d4/k1_entradas.py.txt`, conferida pelo id
-de blob do git, `git rev-parse aed187d4:scripts/k1_entradas.py`). Sem rede e sem dependencia nova: o
+de blob do git, `git rev-parse aed187d4:scripts/k1_entradas.py`). O arquivo e o MESMO blob no commit
+b8444f52 (dicionario 1.6.0, o do primeiro pin real; `COMMITS_RCO_COM_ESTE_BLOB`): a copia vale para os dois e
+nao ha segunda pasta de fonte. Sem rede e sem dependencia nova: o
 modulo do rco so importa a biblioteca padrao e `yaml`. Cada exemplo traz tambem o veredicto esperado, com a
 linha de `validacao/teste_k1_entradas.py` do rco que o estabelece quando ha uma.
 
@@ -40,6 +42,14 @@ FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "rco"
 FONTE_RCO = FIXTURES / "fonte-aed187d4" / "k1_entradas.py.txt"
 #: `git rev-parse aed187d4:scripts/k1_entradas.py` no rco (Omni-Saude/regras-contratos-operadora).
 BLOB_RCO = "54d03c50d943aa37ce7c93441078ed340e3e2afd"
+#: Commits do rco em que `git rev-parse <commit>:scripts/k1_entradas.py` da `BLOB_RCO` (conferido no rco,
+#: 21/11/2026): aed187d4 (dicionario 1.5.0) e b8444f52 (1.6.0). O publicador nao mudou entre eles.
+COMMITS_RCO_COM_ESTE_BLOB = (
+    "aed187d4bada72e365381b48c6e96921d34c8815",
+    "b8444f52e33eda556b5d2dab7837b046d5bd769e",
+)
+RECORTE_1_6_0 = FIXTURES / "entradas-1.6.0-recorte" / "entradas-1.6.0-recorte.json"
+PRAZO = "prazoComprovacaoUsoVencido"
 RECORTE = FIXTURES / "k1-2.3.0-recorte" / "entradas-recorte.json"
 URGENCIA = "urgenciaAposVinteQuatroHorasCobertura"
 PARAMETRO = "horasMinimasUrgencia"
@@ -253,3 +263,44 @@ def test_as_condicoes_copiadas_sao_as_do_rco() -> None:
     assert 'g = str(r["guia"] or "").strip()' in fonte
     assert ent.ORDEM_CAMPOS_VALOR_PARAMETRO == ("valor", "referencia", "valor_por_contrato", "lacuna")
     assert 'CAMPOS_PARAMETRO = ("valor", "referencia", "valor_por_contrato", "lacuna")' in fonte
+
+
+# --- dicionario 1.6.0 (rco b8444f52): `referencia` em termo de cadastro ---------------------------------
+def _prazo_1_6_0() -> tuple[dict[str, Any], dict[str, Any]]:
+    dados: dict[str, Any] = json.loads(RECORTE_1_6_0.read_text(encoding="utf-8"))
+    entrada = next(e for e in dados["entradas"] if e["nome_dmn"] == PRAZO)
+    return dados, entrada
+
+
+def _rco_aceita_formula(rco: ModuleType, entrada: dict[str, Any]) -> bool:
+    """`erros_formulas` do publicador sobre a entrada, na forma do dicionario de dados dele (`derivacao`)."""
+    campos = {PRAZO: {"origem": entrada["origem"], "derivacao": copy.deepcopy(entrada["formula"])}}
+    erros: list[str] = rco.erros_formulas(campos, {"derivadas_sem_formula_legado": []})
+    return erros == []
+
+
+def test_o_1_6_0_publicado_e_aceito_pelos_dois(rco: ModuleType) -> None:
+    dados, entrada = _prazo_1_6_0()
+    assert _rco_aceita_formula(rco, entrada)
+    assert _maezo_aceita(dados)
+
+
+@pytest.mark.parametrize("referencia", ["sem-chave", "#chave", [], 5])
+def test_referencia_malformada_em_termo_de_cadastro_e_so_mais_estrita(
+    rco: ModuleType, referencia: Any
+) -> None:
+    """O publicador nao confere `referencia` fora do termo `parametro` (`erros_formulas`, linhas 259-264): o
+    Maezo a confere como `arquivo#chave` e so recusa a mais, o lado seguro."""
+    dados, entrada = _prazo_1_6_0()
+    termo = next(t for t in entrada["formula"]["termos"] if t["nome"] == "autorizacaoExtemporanea")
+    termo["referencia"] = referencia
+    assert _rco_aceita_formula(rco, entrada)
+    assert not _maezo_aceita(dados)
+
+
+def test_a_fonte_copiada_vale_para_o_commit_do_dicionario_1_6_0() -> None:
+    """A copia (blob `BLOB_RCO`) cobre o commit do recorte 1.6.0: e o mesmo publicador nos dois commits."""
+    assert _blob_git(FONTE_RCO.read_bytes()) == BLOB_RCO
+    origem = json.loads((RECORTE_1_6_0.parent / "ORIGEM.json").read_text(encoding="utf-8"))
+    assert origem["versoes"]["1.6.0"]["commit"] in COMMITS_RCO_COM_ESTE_BLOB
+    assert COMMITS_RCO_COM_ESTE_BLOB[0].startswith("aed187d4") and FONTE_RCO.parent.name == "fonte-aed187d4"

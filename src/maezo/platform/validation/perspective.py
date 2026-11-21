@@ -39,10 +39,10 @@ Fail-closed
 -----------
 Every hit is a `Report.error` (blocking; `Report` has no downgradeable
 "warning"). An unreadable or malformed file is an error, never a silent skip.
-**There is no exception mechanism**: no allowlist file, no inline waiver, no
-`historico:` block. The only disambiguations are lexical (the ±40-character
-object requirement and actor cue of R2-CTX) and structural (which surface
-each tier reads) — and both apply identically to every file.
+**There is no exception mechanism**: no allowlist file, no inline waiver, no `historico:` block. The only
+disambiguations are lexical (R2-CTX's ±40-char object and actor cue, adjacent negation, `DECISAO_PAGADOR` for
+X4 and, for X2 only, the exact-phrase allowlist `RECEBIMENTO_PELO_PAGADOR`, a constant here, not a file) and
+structural (which surface each tier reads) — all applied identically to every file, never per file or block.
 
 Where historical references go
 ------------------------------
@@ -523,6 +523,21 @@ PISTA_DE_ATOR = r"\b(prestador(es)?|beneficiario(s)?|titular|contratante|credenc
 #: fonte pagadora" is untouched.
 DECISAO_PAGADOR = r"\b(conceder|deferir|indeferir|julgar|responder)\b"
 
+#: Absolves X2 only INSIDE one of these exact folded phrases: the operadora RECEIVING the prestador's
+#: recurso de glosa (the payer's act), counted from the demonstrativo it emitted. X2 exists for the
+#: opposite reading (the prestador receiving or reading the demonstrativo). The two phrases are the
+#: only X2 hits in the 236 K1 tables of rco b8444f52 (`dmn/regras-gerais/geral_prazos_conta.dmn`
+#: :4 decision `<description>` and :15 input `label` `in_diasAteRecurso`; ADR-0075 §(b) point 3:
+#: the D7 vocabulary is EXTENDED to the K1 package, not the folder exempted). Exact text, not a
+#: pattern: a match outside the phrase, or a phrase with any other wording, still scores. Both ends are word
+#: boundaries (`\b`): a phrase glued to a longer word ("...demonstrativos") is not absolved, while a phrase
+#: followed by more words ("... o demonstrativo da operadora") is, since the phrase itself is intact.
+#: Each phrase is already folded (`fold(p) == p`), because the comparison runs on the folded line.
+RECEBIMENTO_PELO_PAGADOR = (
+    "recurso de glosa recebido mais de 30 dias apos o demonstrativo",
+    "entre o demonstrativo de analise da conta e o recebimento do lote de recurso de glosa",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ProseRule:
@@ -534,6 +549,7 @@ class ProseRule:
     near: re.Pattern[str] | None = None
     actor_absolves: bool = False
     decision_absolves: re.Pattern[str] | None = None
+    phrase_absolves: re.Pattern[str] | None = None
 
 
 def _rule(
@@ -544,6 +560,7 @@ def _rule(
     near: str | None = None,
     actor_absolves: bool = False,
     decision_absolves: str | None = None,
+    phrase_absolves: tuple[str, ...] = (),
 ) -> ProseRule:
     return ProseRule(
         rule_id=rule_id,
@@ -552,6 +569,12 @@ def _rule(
         near=re.compile(near) if near is not None else None,
         actor_absolves=actor_absolves,
         decision_absolves=re.compile(decision_absolves) if decision_absolves is not None else None,
+        # `\b` at both ends: a phrase that runs on into a longer word ("...demonstrativos") is not the phrase.
+        phrase_absolves=(
+            re.compile(r"\b(?:" + "|".join(map(re.escape, phrase_absolves)) + r")\b")
+            if phrase_absolves
+            else None
+        ),
     )
 
 
@@ -617,6 +640,7 @@ R2_CTX_RULES: tuple[ProseRule, ...] = (
         r"|recebiment[a-z]*|recebid[oa]s?)\b",
         near=r"\bdemonstrativo\b",
         actor_absolves=True,
+        phrase_absolves=RECEBIMENTO_PELO_PAGADOR,
     ),
     _rule("X3", R2_CTX, r"\bregistra(r)? reenvio\b", actor_absolves=True),
     _rule("X4", R2_CTX, r"\bpleito\b", actor_absolves=True, decision_absolves=DECISAO_PAGADOR),
@@ -640,6 +664,11 @@ def _has_near(folded: str, match: re.Match[str], pattern: re.Pattern[str]) -> bo
     return pattern.search(folded, start, end) is not None
 
 
+def _inside_phrase(folded: str, match: re.Match[str], pattern: re.Pattern[str]) -> bool:
+    """True when the match lies wholly inside one occurrence of an exact phrase (no window)."""
+    return any(p.start() <= match.start() and match.end() <= p.end() for p in pattern.finditer(folded))
+
+
 def _is_negated(folded: str, match: re.Match[str]) -> bool:
     return NEGACAO.search(folded, 0, match.start()) is not None
 
@@ -656,6 +685,8 @@ def _scan_prose(text: str, rules: Iterable[ProseRule]) -> Iterator[tuple[str, st
             if rule.actor_absolves and _is_negated(folded, match):
                 continue
             if rule.decision_absolves is not None and _has_near(folded, match, rule.decision_absolves):
+                continue
+            if rule.phrase_absolves is not None and _inside_phrase(folded, match, rule.phrase_absolves):
                 continue
             yield rule.rule_class, rule.rule_id, text[match.start() : match.end()]
 

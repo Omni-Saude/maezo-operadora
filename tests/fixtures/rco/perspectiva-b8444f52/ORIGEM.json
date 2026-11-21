@@ -1,0 +1,12 @@
+{
+  "origem_repo": "Omni-Saude/regras-contratos-operadora",
+  "origem_commit": "b8444f52e33eda556b5d2dab7837b046d5bd769e",
+  "arquivos": {
+    "geral_prazos_conta.dmn": {
+      "origem": "repo:dmn/regras-gerais/geral_prazos_conta.dmn",
+      "blob_git": "469585109b50e4a2977b2a6913e7c1f06b1290de",
+      "sha256": "sha256:3aaa2f90fa23656969685ed6ac4861fc7ae2e0fa88c50281933979bf51228c2d"
+    }
+  },
+  "medicao": "cerca de perspectiva (Tier A) sobre os 236 dmn/**/*.dmn do commit: 2 hits R2-CTX X2, ambos nesta tabela (linha 4, <description> da decisao; linha 15, label da entrada in_diasAteRecurso), antes da extensao do vocabulario; 0 depois (perspective.RECEBIMENTO_PELO_PAGADOR)"
+}
