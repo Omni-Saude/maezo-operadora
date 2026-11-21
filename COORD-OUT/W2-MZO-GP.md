@@ -1359,3 +1359,15 @@ Ordem: ADD01-03 (PR quando a revisão der PASS) → RT-03 → 17r, um PR por vez
   - RT-03 (`rt03` @ `f903a88d`; a revisão pegou a falha de import relativo na cerca, corrigida);
   - 17r (`esf17r` @ `ccb378f6`; a revisão pegou import relativo e `from maezo import X` na cerca (iii), corrigidos; detecção de envio por prefixo de segmento).
   - A suíte × main das duas está rodando.
+
+## 2026-11-21 ~10:00Z — #1366 mesclado (main `5be0f801`); LIMPEZA #1366
+
+- #1366 (E-SF-ADD01-03) mesclado; a main `5be0f801` contém o head `41424fa3`.
+- **LIMPEZA #1366 (CD-149):**
+  - **Ramo para o dono apagar:** `sf-w2/mzo-gp/add0103` @ `41424fa3d6c8dc4f59eefd6759d2fe6018a655cc`. O ramo local fica só registrado.
+  - PR órfão: nenhum. Título e corpo do #1366 fiéis.
+  - **Disco:** worktree `add0103` removida sem `--force`; check-in cancelado; clone principal em `main` `5be0f801`.
+- **Próximos** (até dois PRs abertos): RT-03 e 17r, quando a suíte × main fechar.
+- **Cercas que podem cruzar com o PR-C do pin** (T-MZO-A):
+  - A 17r não varre `spec/processes/dmn/rco` nem `config/integrations/rco`. Ela varre só os `*.py` de `src/` para importadores de `maezo.agents.comercial` e lê `gateway/effect_classes.py`.
+  - A RT-03 e a ADD01-03 (já na main) fixam o sha256 de `gateway/effect_classes.py` e de cada arquivo de `spec/policies/autonomy/`. Se o PR-C mudar `effect_classes.py` ("cerca PHI"), esses dois pinos precisam ser atualizados no próprio PR-C.
