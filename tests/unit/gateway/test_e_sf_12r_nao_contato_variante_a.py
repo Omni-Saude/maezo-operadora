@@ -14,6 +14,8 @@ duplicadas — `test_e_sf_12r_reused_guards_are_still_present` falha se alguma s
 from __future__ import annotations
 
 import ast
+import json
+import subprocess
 import typing
 import xml.etree.ElementTree as ET
 from collections.abc import Collection, Mapping
@@ -24,6 +26,8 @@ import pytest
 from pydantic import BaseModel
 
 from maezo.gateway import effect_pep
+from maezo.gateway.commercial_suppression_admission import A6_ADMISSION_ID, ADMISSION_RECORD_SCHEMA
+from maezo.gateway.communications.outbound_gate import OutboundGate
 from maezo.gateway.communications.whatsapp_templates import RegistroDeTemplates, registro_de_producao
 from maezo.gateway.vendor_suppression import (
     SLA_BUSINESS_DAYS,
@@ -92,6 +96,50 @@ def _beneficiario_alcancavel(registro: RegistroDeTemplates) -> bool:
     return _BENEFICIARIO in registro.oposicao_executavel_para
 
 
+def _e_registro_a6(objeto: object) -> bool:
+    """Objeto JSON com `admission_id == "A6"` (com ou sem o schema da família de admissões)."""
+    return isinstance(objeto, dict) and objeto.get("admission_id") == A6_ADMISSION_ID
+
+
+def _contem_registro_a6(objeto: object) -> bool:
+    """Percorre dicts/listas em qualquer profundidade procurando um registro de admissão A6."""
+    pendentes: list[object] = [objeto]
+    while pendentes:
+        atual = pendentes.pop()
+        if _e_registro_a6(atual):
+            return True
+        if isinstance(atual, dict):
+            pendentes.extend(atual.values())
+        elif isinstance(atual, list):
+            pendentes.extend(atual)
+    return False
+
+
+def _registros_a6_em(caminhos: Collection[Path]) -> list[Path]:
+    """Arquivos JSON que carregam um registro de admissão A6 — pelo CONTEÚDO, não pelo nome.
+
+    O registro é identificado por `schema == ADMISSION_RECORD_SCHEMA` e `admission_id == "A6"`
+    (`commercial_suppression_admission.py`); basta o `admission_id` para acusar. JSON ilegível é ignorado.
+    """
+    achados: list[Path] = []
+    for caminho in caminhos:
+        try:
+            conteudo = json.loads(caminho.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+        if _contem_registro_a6(conteudo):
+            achados.append(caminho)
+    return achados
+
+
+def _json_versionados() -> list[Path]:
+    """Só os `.json` rastreados pelo git (rápido; ignora .venv, caches e não-versionados)."""
+    saida = subprocess.run(
+        ["git", "ls-files", "-z", "*.json"], cwd=_REPO, capture_output=True, check=True
+    ).stdout.decode("utf-8")
+    return [_REPO / nome for nome in saida.split("\0") if nome]
+
+
 # --------------------------------------------------------------------------- autotestes
 
 
@@ -117,7 +165,10 @@ def test_detector_de_timers_acusa_entrada_violadora() -> None:
     achados = _timers_do_bpmn(xml)
     assert achados["BT_Lembrete50"] == ("${t_lembrete_iso}", False)
     assert achados["BT_Timeout100"] == ("", True)
-    assert achados != dict(_TIMERS_ESPERADOS)
+    # timeDuration no lugar de timeDate: a expressão sai vazia e diverge da entrada esperada para o id.
+    assert achados["BT_Timeout100"] != _TIMERS_ESPERADOS["BT_Timeout100"]
+    # o timer de 80% ausente é acusado.
+    assert set(_TIMERS_ESPERADOS) - set(achados) == {"BT_Escala80"}
 
 
 def test_detector_de_categoria_acusa_modelo_com_beneficiario() -> None:
@@ -134,6 +185,23 @@ def test_detector_de_alcance_acusa_registro_aberto_a_beneficiario() -> None:
     assert not _beneficiario_alcancavel(RegistroDeTemplates())
 
 
+def test_detector_de_registro_a6_acusa_arquivo_violador(tmp_path: Path) -> None:
+    violador = tmp_path / "violador.json"
+    violador.write_text(
+        json.dumps({"itens": [{"schema": ADMISSION_RECORD_SCHEMA, "admission_id": A6_ADMISSION_ID}]}),
+        encoding="utf-8",
+    )
+    so_o_id = tmp_path / "so_o_id.json"
+    so_o_id.write_text(json.dumps({"admission_id": A6_ADMISSION_ID}), encoding="utf-8")
+    limpo = tmp_path / "limpo.json"
+    limpo.write_text(
+        json.dumps({"schema": ADMISSION_RECORD_SCHEMA, "admission_id": "A5", "a_id": "A6"}), encoding="utf-8"
+    )
+    ilegivel = tmp_path / "ilegivel.json"
+    ilegivel.write_text("{nao é json", encoding="utf-8")
+    assert _registros_a6_em([violador, so_o_id, limpo, ilegivel]) == [violador, so_o_id]
+
+
 # --------------------------------------------------------------------------- estado fechado
 
 
@@ -146,6 +214,10 @@ def test_chave_supp_fora_das_duas_listas_e_espelhos_em_paridade() -> None:
     assert _violacoes_das_listas(listas) == []
 
 
+_MOTIVO_PERTINENCIA = "not in allowed set"
+_MOTIVO_FORMATO = "invalid format; must match SP-OP-<DOMAIN>-<NNN>"
+
+
 def test_ensure_allowed_recusa_a_chave_supp() -> None:
     with pytest.raises(ProcessKeyNotAllowedError):
         ensure_allowed(_CHAVE)
@@ -153,10 +225,33 @@ def test_ensure_allowed_recusa_a_chave_supp() -> None:
         ProcessAllowlist().ensure_allowed(_CHAVE)
 
 
-def test_ensure_allowed_recusa_por_pertinencia_e_nao_por_formato() -> None:
+@pytest.mark.parametrize(
+    "validar", [ensure_allowed, ProcessAllowlist().ensure_allowed], ids=["modulo", "instancia"]
+)
+def test_ensure_allowed_recusa_por_pertinencia_e_nao_por_formato(
+    validar: typing.Callable[[str], None],
+) -> None:
     """A recusa vem da lista, não do formato: a chave tem a forma válida SP-OP-<DOMINIO>-<NNN>."""
     assert process_allowlist._PROCESS_KEY_PATTERN.match(_CHAVE)
-    ensure_allowed("SP-OP-ESCALATION-001")  # controle: uma chave da lista passa
+    with pytest.raises(ProcessKeyNotAllowedError) as recusa:
+        validar(_CHAVE)
+    assert recusa.value.process_key == _CHAVE
+    assert recusa.value.reason == _MOTIVO_PERTINENCIA
+    # controle: chave malformada cai no ramo de formato, com o outro motivo.
+    with pytest.raises(ProcessKeyNotAllowedError) as malformada:
+        validar("sp-op-supp-001")
+    assert malformada.value.reason == _MOTIVO_FORMATO
+    validar("SP-OP-ESCALATION-001")  # controle: uma chave da lista passa
+
+
+def test_tenant_nao_consegue_acrescentar_a_chave_supp() -> None:
+    """Chaves extras do tenant têm de estar no universo conhecido; SUPP não está, e o construtor recusa."""
+    with pytest.raises(ProcessKeyNotAllowedError) as recusa:
+        ProcessAllowlist(tenant_allowed_keys=frozenset({_CHAVE}))
+    assert recusa.value.process_key == _CHAVE
+    assert recusa.value.reason == "keys not in KNOWN_PROCESS_KEYS universe"
+    with pytest.raises(ProcessKeyNotAllowedError):
+        ProcessAllowlist(tenant_allowed_keys={_CHAVE, "SP-OP-ESCALATION-001"})
 
 
 def test_temporizadores_50_80_100_inalterados() -> None:
@@ -186,12 +281,18 @@ def test_registro_vazio_nao_alcanca_beneficiario() -> None:
     assert RegistroDeTemplates().oposicao_executavel_para == frozenset()
 
 
+def test_composicao_de_producao_do_gate_fechada_para_beneficiario() -> None:
+    """A composição de PRODUÇÃO (`OutboundGate.de_producao`), não só o registro solto, fica fechada."""
+    gate = OutboundGate.de_producao(supressao=None)
+    registro = gate._registro
+    assert registro.oposicao_executavel_para == frozenset()
+    assert not _beneficiario_alcancavel(registro)
+
+
 def test_nenhum_registro_de_admissao_a6_versionado() -> None:
-    achados = [
-        p.relative_to(_REPO).as_posix()
-        for p in _REPO.glob("**/A6-ADMISSION-RECORD*.json")
-        if ".git" not in p.parts and ".venv" not in p.parts
-    ]
+    versionados = _json_versionados()
+    assert versionados, "git ls-files não listou nenhum .json — varredura não provaria nada"
+    achados = [p.relative_to(_REPO).as_posix() for p in _registros_a6_em(versionados)]
     assert achados == []
 
 
@@ -232,17 +333,59 @@ _REUSED: Mapping[str, frozenset[str]] = {
 }
 
 
+_MARCAS_QUE_DESLIGAM = frozenset({"skip", "skipif", "xfail"})
+
+
+def _desligada(funcao: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Verdadeiro se a função leva `pytest.mark.skip` / `skipif` / `xfail` (com ou sem chamada)."""
+    for decorador in funcao.decorator_list:
+        alvo = decorador.func if isinstance(decorador, ast.Call) else decorador
+        partes = ast.unparse(alvo).split(".")
+        if len(partes) >= 2 and partes[-2] == "mark" and partes[-1] in _MARCAS_QUE_DESLIGAM:
+            return True
+    return False
+
+
 def _funcoes_definidas(caminho: Path) -> frozenset[str]:
+    """Testes de módulo (corpo do módulo, nome `test_*`) que rodam: aninhados e desligados não contam."""
     arvore = ast.parse(caminho.read_text(encoding="utf-8"))
     return frozenset(
-        n.name for n in ast.walk(arvore) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
+        n.name
+        for n in arvore.body
+        if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
+        and n.name.startswith("test_")
+        and not _desligada(n)
     )
 
 
 def test_detector_de_reuso_acusa_guarda_ausente(tmp_path: Path) -> None:
     arquivo = tmp_path / "t.py"
-    arquivo.write_text("def test_a() -> None:\n    pass\n", encoding="utf-8")
-    assert {"test_a", "test_b"} - _funcoes_definidas(arquivo) == {"test_b"}
+    arquivo.write_text(
+        "import pytest\n"
+        "def test_a() -> None:\n    pass\n"
+        "def _apoio() -> None:\n    def test_aninhado() -> None:\n        pass\n"
+        "@pytest.mark.skip(reason='x')\ndef test_pulado() -> None:\n    pass\n"
+        "@pytest.mark.skipif(True, reason='x')\ndef test_condicional() -> None:\n    pass\n"
+        "@pytest.mark.xfail\nasync def test_falha_esperada() -> None:\n    pass\n"
+        "@pytest.mark.parametrize('x', [1])\ndef test_parametrizado(x: int) -> None:\n    pass\n",
+        encoding="utf-8",
+    )
+    referenciados = {
+        "test_a",
+        "test_b",
+        "test_aninhado",
+        "test_pulado",
+        "test_condicional",
+        "test_falha_esperada",
+        "test_parametrizado",
+    }
+    assert referenciados - _funcoes_definidas(arquivo) == {
+        "test_b",
+        "test_aninhado",
+        "test_pulado",
+        "test_condicional",
+        "test_falha_esperada",
+    }
 
 
 def test_e_sf_12r_reused_guards_are_still_present() -> None:
