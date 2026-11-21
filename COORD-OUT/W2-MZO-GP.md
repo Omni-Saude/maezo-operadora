@@ -1112,3 +1112,17 @@ Ramo `sf-w2/mzo-gp/esf24b`, a partir da main. O PR só abre depois do merge do #
   - Sem DL.
   - O corpo registra: flag desligada, pino do catálogo `None`, nomes provisórios até o contrato-k2, receita do `hash_entrada` a fixar no k2, e o `flip-path-review-gate` vermelho esperado.
 - Aguardo o CI. Esta é a última linha da fila; a 29-3 segue bloqueada.
+
+## 2026-11-21 ~06:00Z — PRONTO #1359 (E-SF-24b parcial, CD-231)
+
+- **PRONTO:** #1359, head `b6f176d7ff647400f2ccbbd1583e452b23aca9b2`.
+  - 36 checks verdes e 2 skipped, todos completos; unit e CodeQL verdes.
+  - Único vermelho: `flip-path-review-gate`, o esperado. `spec/policies/ans/templates/termo-negativa.v1.txt` (regra `/spec/policies/ans/`) pede aprovação de dono qualificado no head atual. Por isso o `mergeable_state` aparece como blocked.
+  - `live-pytest] PASS`: recurso-nip passed=181; cancel-contas passed=138; cred-ans passed=129; restante passed=965.
+- **Simulação de merge real** numa worktree destacada no sha da main `30960cd16055447fe3dc7471d00ad83b6a1d5f85` (já com o #1358):
+  - Merge sem conflito. `make lint type validate-artifacts` rc=0, com link temporário da `.venv`, removido.
+  - `tests/unit/sec` + `tests/unit/tools/workers`: 5940 passed.
+  - Worktree removida sem `--force`.
+- **`tests/unit` completo × main** (6 lotes): nenhuma falha só do ramo; as falhas comuns são de ambiente (sem `helm`, clone raso, `uv` offline, processo root).
+- Sem arquivo em comum com a main; não trazida (CD-155). Sem novo push, conforme pedido do ROOT.
+- **Pré-condições da unidade que pinar o catálogo** (pedidas pelo ROOT; vão no relatório final para a T-MZO-A): pertinência ao catálogo, cerca para o chamador honrar `modo`, e as lacunas restantes da recusa de rótulo.
