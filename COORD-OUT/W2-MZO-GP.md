@@ -984,3 +984,15 @@ Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos 
   - Nenhum caminho do PR tem dono no CODEOWNERS.
   - Aguardo o CI.
 - Fila: 11 → 35, um PR por vez.
+
+## 2026-11-21 ~02:45Z — PRONTO #1348 (E-SF-RT-02)
+
+- **PRONTO:** #1348, head `34b2803376126783802a184f3e852bbd7c26a0e6`; `mergeable_state` = clean.
+  - 37 checks verdes e 2 skipped, nenhum vermelho.
+  - `live-pytest] PASS`: recurso-nip passed=181; cancel-contas passed=138; cred-ans passed=129; restante passed=965.
+- **Simulação de merge real** numa worktree destacada no sha da main `3757ca3d7b193b5be0d3f290f34b0651b7398f75`:
+  - Merge sem conflito. `make lint type validate-artifacts` rc=0, com link temporário da `.venv`, removido.
+  - `tests/unit/{processes,platform}`: 7714 passed, 15 failed. As 15 são as mesmas na main local, nos testes `test_a2a_outbox_relay_deployment` e `test_webhook_receiver_whatsapp_env` (falha de ambiente local).
+  - Worktree removida sem `--force`.
+- **6 merges atrás** (#1342–#1347), sem arquivo em comum, não trazidos (CD-155).
+- **Próximo PR**, depois do merge deste: E-SF-11 (21a; ramo no remoto).
