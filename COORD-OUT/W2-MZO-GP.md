@@ -1408,3 +1408,8 @@ Ordem: ADD01-03 (PR quando a revisão der PASS) → RT-03 → 17r, um PR por vez
 - Revisão que cobre o head: independente, PASS sobre ccb378f6 (após reparos f903a88d→871f406f→ccb378f6 pelo autor, revisados).
 - Simulação de merge sobre b2be8990: tests/unit/agents 9071 passed; worktree removida.
 - Sem push novo enquanto a ROOT sucessora não tiver escrita no repositório.
+
+## 2026-11-21T14:15Z — E-SF-33r FECHADA SEM PR (decisão da ROOT sucessora sobre a prévia CD-280)
+- Estado fechado afirmado na main b2be8990 por tests/governance/test_omni_provenance_guard.py, tests/governance/test_cleanroom_records.py e tests/governance/test_omni_trust_receipt.py (entrados pelo #1281, sem mudança depois).
+- Ativação espera o ato da CORE-09 (jurídico e titular). #6 e #11 fechados por CORE-06/E18 e LGPD art. 11. #3/#8/#12: GAP de atestação.
+- Decididas na mesma resposta: 37r (a) + 09r + 04r (a,b,d) num PR só com três testes novos; 37r (b) depois, PR próprio. Achado da regex sem acento (politica.py:28) enviado à T-MZO-A, sem conserto.
