@@ -13,11 +13,21 @@ entrada `rco_` de `dmn_versions` (no fato `SHADOW` do AUTH e na auditoria do int
 (`structlog.testing.capture_logs`) ou em rotulo de metrica `maezo_rco*`. So nomes de regra e de decisao, ids,
 codigos fechados e hashes.
 
+(1b) ENTRADA LIST. As tabelas do AUTH leem entradas LIST na cerca PHI (`grupoCarencia`, `cptVigente`, ...).
+Hoje nenhum adaptador do K3 v1.16 as produz (entram nulas); o teste
+`test_auth_entrada_list_com_valor_chega_a_tabela_e_nao_sai_da_sombra` as preenche com valor valido e
+distintivo (`grupoCarencia = parto_a_termo`, `cptVigente = true`) e prova que o valor chega ao motor e nao
+aparece em nenhuma saida da sombra: nem como texto, nem como par nome-da-entrada/valor. Booleano nao escapa
+da busca: so pode aparecer sob uma chave da lista fechada `CHAVES_BOOLEANAS`. As chaves da entrada `rco_` de
+`dmn_versions` e as colunas do registro K1 sao listas FECHADAS: chave nova reprova ate ser revista aqui.
+O intake de contas nao le entrada LIST (`rco_geral_prazos_conta`: datas, dias, tipo de transacao).
+
 DERIVACOES. A auditoria do montador (MZO-TOL) grava em `derivacoes` o valor entregue a tabela e os dias
-brutos de `diasAlemDoPrazoContratual` (`rco_sombra.py` `auditoria_das_entradas`). E calendario do processo,
-CLEAN na cerca PHI, e a regra e sobre variavel LIST. O teste
-`test_derivacoes_so_levam_valor_de_entrada_que_nao_e_dado_de_saude` reprova se uma derivacao nova for de
-nome LIST ou com disposicao PHI.
+brutos de toda formula com ajuste (`rco_montador.FORMULAS[...].ajuste`; hoje so
+`diasAlemDoPrazoContratual`, `rco_sombra.py` `auditoria_das_entradas`). E calendario do processo, CLEAN na
+cerca PHI, e a regra e sobre variavel LIST. O teste
+`test_derivacoes_so_levam_valor_de_entrada_que_nao_e_dado_de_saude` reprova se uma formula com ajuste for de
+nome que o sweep vivo da cerca PHI nao conta CLEAN, ou com disposicao PHI.
 
 (2) FALHA ENGOLIDA. Erro do motor, erro inesperado, prazo esgotado e falha de escrita do registro dentro da
 sombra: no AUTH (depois do complete) a tarefa completa uma vez, com as mesmas variaveis, sem falha, sem
@@ -31,7 +41,9 @@ import asyncio
 import copy
 import functools
 from collections.abc import Iterator
+from dataclasses import fields
 from datetime import date, timedelta
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -40,7 +52,16 @@ import structlog
 
 from maezo.platform import observability
 from maezo.platform import rco_ativacao as at
-from maezo.platform.rco_registro import AvaliacaoRegra, ContextoDecisao, contexto_da_tarefa, montar_linha
+from maezo.platform.rco_registro import (
+    COLUNAS,
+    AvaliacaoRegra,
+    ContextoDecisao,
+    LinhaDecisao,
+    contexto_da_tarefa,
+    montar_linha,
+)
+from maezo.platform.validation import phi_completeness as phi
+from maezo.platform.validation.result import Report
 from maezo.tools.workers import auth_rco, contas, rco_pin, rco_sombra
 from maezo.tools.workers import harness as harness_mod
 from maezo.tools.workers import rco_montador as mt
@@ -70,14 +91,99 @@ FICT = {
     "numero_lote_tiss": "FICT-SENTINELA-LOTE-0004",
 }
 CHAVE_NEGOCIO = "FICT-SENTINELA-CHAVE-0005"
+#: Valores das entradas LIST do AUTH (K3 v1.16): validos no dominio do dicionario 1.6.0 para chegar ao motor
+#: e distintivos (nenhuma saida da sombra os escreve por desenho). `parto_a_termo` revela gestacao.
+GRUPO_CARENCIA_SENTINELA = "parto_a_termo"
+CPT_VIGENTE_SENTINELA = True
 TEXTOS = (
     DATA_SENTINELA,
     DATA_SENTINELA.replace("-", ""),
     RECEBIMENTO_SENTINELA,
     CHAVE_NEGOCIO,
+    GRUPO_CARENCIA_SENTINELA,
     *FICT.values(),
 )
 INTEIROS = (DIAS_SENTINELA,)
+#: Lista FECHADA das chaves que podem levar booleano em qualquer saida da sombra (codigo fechado do proprio
+#: registro, nunca valor de entrada). Booleano sob outra chave (ou solto numa lista) e achado.
+CHAVES_BOOLEANAS = frozenset(
+    {
+        "amostrada",  # coluna do registro K1: a linha entrou na amostra (sombra: sempre false)
+        "exige_aditivo",  # AvaliacaoRegra: atributo da regra pinada, nao do caso
+        "sombra",  # AvaliacaoRegra: avaliacao feita pela sombra
+        "peloPadrao",  # composicaoK1: o vencedor saiu da ordem padrao da composicao
+    }
+)
+#: Os motivos de nulo do montador: unico valor que uma entrada da tabela pode ter como valor de chave numa
+#: saida (`entradasNulas`). Qualquer outro valor sob o nome de uma entrada LIST e vazamento.
+MOTIVOS_NULO = frozenset(m.value for m in mt.MotivoNulo)
+#: Lista FECHADA das chaves da entrada `rco_` de `dmn_versions` (e das sub-chaves); chave nova reprova ate
+#: ser revista aqui (ela poderia levar valor de entrada).
+CHAVES_DMN_VERSIONS = frozenset(
+    {
+        "version",
+        "id",
+        "deploymentId",
+        "shaDmn",
+        "versaoRegra",
+        "ativacaoPacote",
+        "exigeAditivo",
+        "idRegra",
+        "estadoManual",
+        "ativacaoEfetiva",
+        "modo",
+        "derivacoes",
+        "entradasNulas",
+        "versaoDicionarioEntradas",
+        "origemAvaliacao",
+        "composicaoK1",
+        "sinaisAuditoria",
+    }
+)
+CHAVES_COMPOSICAO_K1 = frozenset({"nome", "modo", "desfecho", "decisaoVencedora", "motivo", "peloPadrao"})
+CHAVES_DERIVACAO = frozenset({"diasBrutos", "toleranciaAplicada", "valorEntregue", "motivoTolerancia"})
+#: As colunas do registro K1 (`rco_decisao_regra`), lista FECHADA e na ordem do INSERT.
+COLUNAS_REGISTRO = (
+    "tenant",
+    "chave_idempotencia",
+    "id_regra",
+    "versao_regra",
+    "sha_dmn",
+    "decision_key",
+    "decisao",
+    "classe_adverso",
+    "motivo_tab38",
+    "fila",
+    "estado_manual",
+    "ativacao_pacote",
+    "ativacao_efetiva",
+    "modo",
+    "acao",
+    "amostrada",
+    "motivo_amostra",
+    "id_chave_amostra",
+    "ordinal",
+)
+CAMPOS_AVALIACAO = (
+    "decision_key",
+    "id_regra",
+    "versao_regra",
+    "sha_dmn",
+    "decisao",
+    "classe_adverso",
+    "motivo_tab38",
+    "fila",
+    "estado_manual",
+    "ativacao_pacote",
+    "ativacao_efetiva",
+    "modo",
+    "exige_aditivo",
+    "revisao_inicial_decisoes",
+    "amostra_posterior_pct",
+    "conferencia_negativa_admin_decisoes",
+    "alertas",
+    "sombra",
+)
 
 ROW_PRAZOS = {
     "decisao": "glosar",
@@ -126,13 +232,39 @@ def _pin_real(monkeypatch: pytest.MonkeyPatch) -> rco_pin.RcoRulesPin:
 # --- a busca: valor estruturado, nunca substring de hash ----------------------------------------------------
 
 
+@functools.cache
+def _sweep_vivo() -> phi.Sweep:
+    """O sweep da cerca PHI sobre a arvore real `spec/processes` (o mesmo dos testes da cerca)."""
+    relatorio = Report()
+    sweep = phi.sweep_processes_root(Path(__file__).resolve().parents[4] / "spec" / "processes", relatorio)
+    assert relatorio.ok, [achado.render() for achado in relatorio.findings]
+    return sweep
+
+
+@functools.cache
+def _nomes_list() -> frozenset[str]:
+    """As entradas das tabelas pinadas deste arquivo que a cerca PHI NAO conta CLEAN (sweep vivo, que ja
+    inclui as disposicoes que elevam um nome)."""
+    pin = rco_pin.rco_rules_pin()
+    entradas: set[str] = set()
+    for chave in (PRAZOS, *RCO_AUTH):
+        decisao = pin.tables[chave].decisao
+        assert decisao is not None, chave
+        entradas.update(decisao.entradas)
+    sweep = _sweep_vivo()
+    return frozenset(n for n in entradas if sweep.bucket(n) != phi.CLEAN)
+
+
 def _vazamentos(objeto: Any) -> list[str]:
-    """Onde um sentinela aparece num objeto (dict/list/str/int, recursivo). Inteiros por IGUALDADE (um
-    `7919` dentro de um hash hex nao e vazamento), textos por substring."""
+    """Onde um sentinela aparece num objeto (dict/list/str/int/bool, recursivo). Inteiros por IGUALDADE (um
+    `7919` dentro de um hash hex nao e vazamento), textos por substring, booleanos so sob chave de
+    `CHAVES_BOOLEANAS`, e o nome de uma entrada LIST como chave so com um motivo de nulo como valor."""
     achados: list[str] = []
 
-    def andar(valor: Any, caminho: str) -> None:
+    def andar(valor: Any, caminho: str, chave: str | None = None) -> None:
         if isinstance(valor, bool):
+            if chave not in CHAVES_BOOLEANAS:
+                achados.append(f"{caminho}={valor} (booleano fora de CHAVES_BOOLEANAS)")
             return
         if isinstance(valor, int):
             if valor in INTEIROS:
@@ -140,9 +272,11 @@ def _vazamentos(objeto: Any) -> list[str]:
         elif isinstance(valor, str):
             achados.extend(f"{caminho}~{t}" for t in TEXTOS if t in valor)
         elif isinstance(valor, dict):
-            for chave, sub in valor.items():
-                andar(str(chave), f"{caminho}.<chave>")
-                andar(sub, f"{caminho}.{chave}")
+            for k, sub in valor.items():
+                andar(str(k), f"{caminho}.<chave>")
+                if k in _nomes_list() and sub not in MOTIVOS_NULO:
+                    achados.append(f"{caminho}.{k}={sub!r} (par entrada LIST/valor)")
+                andar(sub, f"{caminho}.{k}", str(k))
         elif isinstance(valor, (list, tuple, set, frozenset)):
             for i, sub in enumerate(valor):
                 andar(sub, f"{caminho}[{i}]")
@@ -167,10 +301,33 @@ def _assert_metricas_limpas() -> None:
 
 
 def _assert_registro_limpo(chamadas: list[tuple[AvaliacaoRegra, ContextoDecisao]]) -> None:
+    """Linha do registro K1 e avaliacao: listas FECHADAS de colunas e de campos, e nenhum sentinela neles
+    (booleano so sob `CHAVES_BOOLEANAS`)."""
     assert chamadas, "nenhuma linha de registro: o teste nao provaria nada"
+    assert COLUNAS == COLUNAS_REGISTRO
+    assert tuple(f.name for f in fields(LinhaDecisao)) == COLUNAS_REGISTRO
+    assert tuple(f.name for f in fields(AvaliacaoRegra)) == CAMPOS_AVALIACAO
     for avaliacao, contexto in chamadas:
-        assert not _vazamentos(montar_linha(avaliacao, contexto, None).params())
+        linha = dict(zip(COLUNAS, montar_linha(avaliacao, contexto, None).params(), strict=True))
+        assert not _vazamentos(linha), _vazamentos(linha)
+        campos = {f.name: getattr(avaliacao, f.name) for f in fields(AvaliacaoRegra)}
+        assert not _vazamentos(campos), _vazamentos(campos)
         assert not _vazamentos(repr(avaliacao))
+
+
+def _assert_dmn_versions_fechado(versoes: Any, decisoes: Any) -> None:
+    """A entrada `rco_` de `dmn_versions`: chaves em lista FECHADA; `entradasNulas` so nome de entrada da
+    tabela com motivo de nulo; `derivacoes` so formula com ajuste, com as chaves do registro MZO-TOL."""
+    assert set(versoes) == set(decisoes)
+    for chave in decisoes:
+        entrada = versoes[chave]
+        assert set(entrada) <= CHAVES_DMN_VERSIONS, set(entrada) - CHAVES_DMN_VERSIONS
+        assert set(entrada.get("composicaoK1", {})) <= CHAVES_COMPOSICAO_K1
+        assert set(entrada.get("entradasNulas", {}).values()) <= MOTIVOS_NULO
+        com_ajuste = {n for n, f in mt.FORMULAS.items() if f.ajuste}
+        for nome, registro in entrada.get("derivacoes", {}).items():
+            assert nome in com_ajuste, nome
+            assert set(registro) == CHAVES_DERIVACAO, set(registro)
 
 
 class _Registro:
@@ -257,6 +414,7 @@ def test_contas_sentinelas_chegam_a_tabela_e_nao_saem_da_sombra() -> None:
     for registro in versoes[PRAZOS].get("derivacoes", {}).values():
         assert registro["valorEntregue"] is None and registro["diasBrutos"] is None
     assert not _vazamentos(versoes), _vazamentos(versoes)
+    _assert_dmn_versions_fechado(versoes, {PRAZOS})
     assert set(avaliacoes) == {PRAZOS}
     contexto = contexto_da_tarefa(tenant="amh", task_id="t-1", decision_key=PRAZOS, business_key="CONTAS-x")
     _assert_registro_limpo([(avaliacoes[PRAZOS], contexto)])
@@ -313,6 +471,7 @@ def test_contas_pelo_harness_nada_do_caso_no_registro_da_sombra() -> None:
     assert [chave for chave, _ in dmn.calls] == [PRAZOS]
     entrada = sink.emitted[0][0].dmn_versions[PRAZOS]
     assert not _vazamentos(entrada), _vazamentos(entrada)
+    _assert_dmn_versions_fechado({PRAZOS: entrada}, {PRAZOS})
     _assert_registro_limpo(registro.chamadas)
     da_sombra = [e for e in logs if str(e["event"]).startswith("rco_")]
     assert da_sombra and not _vazamentos(da_sombra), _vazamentos(da_sombra)
@@ -323,12 +482,19 @@ def test_derivacoes_so_levam_valor_de_entrada_que_nao_e_dado_de_saude() -> None:
     """A auditoria do montador (MZO-TOL) grava em `derivacoes` o valor ENTREGUE a tabela e os dias brutos.
 
     Regra da coordenacao (PR do pin): o registro da sombra nao persiste valor de variavel LIST fora da
-    zona PHI. Hoje so `diasAlemDoPrazoContratual` tem derivacao, e ela e calendario do processo (CLEAN na
-    cerca PHI, sem disposicao). O teste fixa as duas coisas: o valor vai (desenho do MZO-TOL, conferivel
-    pelo auditor) e TODA chave de `derivacoes` e um nome CLEAN sem disposicao. Derivacao nova de nome LIST
-    ou com disposicao PHI reprova aqui, e quem a criar tem de tirar o valor da auditoria antes.
+    zona PHI. So formula com `ajuste` grava derivacao (`rco_montador._montar_uma`); hoje so
+    `diasAlemDoPrazoContratual`, calendario do processo (CLEAN na cerca PHI, sem disposicao). O teste fixa
+    as duas coisas: o valor vai (desenho do MZO-TOL, conferivel pelo auditor) e TODA formula com ajuste
+    (nao so a do prazo da conta) e um nome que o sweep vivo da cerca conta CLEAN, sem disposicao. Formula
+    com ajuste nova de nome LIST ou com disposicao PHI reprova aqui, e quem a criar tem de tirar o valor da
+    auditoria antes.
     """
-    from maezo.platform.validation import phi_completeness as phi
+    com_ajuste = {n for n, f in mt.FORMULAS.items() if f.ajuste}
+    assert com_ajuste, "nenhuma formula com ajuste: o invariante nao provaria nada"
+    sweep = _sweep_vivo()
+    for nome in com_ajuste:
+        assert nome not in phi.DISPOSITIONS, nome
+        assert sweep.bucket(nome) == phi.CLEAN, (nome, sweep.bucket(nome))
 
     def fatos(versao_k3: tuple[int, int]) -> mt.FatosDoCaso:
         base = _fatos_contas_com_sentinelas(versao_k3)
@@ -349,10 +515,9 @@ def test_derivacoes_so_levam_valor_de_entrada_que_nao_e_dado_de_saude() -> None:
     assert isinstance(entregue, int)
     gravados = versoes[PRAZOS].get("derivacoes", {})
     assert set(gravados) == {"diasAlemDoPrazoContratual"}
+    assert set(gravados) <= com_ajuste
     assert entregue in _inteiros(gravados)
-    for nome in gravados:
-        assert nome not in phi.DISPOSITIONS, nome
-        assert phi.classify(nome) == phi.CLEAN, nome
+    _assert_dmn_versions_fechado(versoes, {PRAZOS})
 
 
 def _inteiros(objeto: Any) -> list[int]:
@@ -423,11 +588,95 @@ def test_auth_sentinela_chega_a_tabela_e_nao_sai_da_sombra() -> None:
     assert dedup == "amh:sombra:task-sentinela-1"
     assert set(fato.dmn_versions) == set(RCO_AUTH)
     assert not _vazamentos(fato.dmn_versions), _vazamentos(fato.dmn_versions)
+    _assert_dmn_versions_fechado(fato.dmn_versions, RCO_AUTH)
     assert not _vazamentos(fato.details), _vazamentos(fato.details)
     assert sorted(a.decision_key for a, _ in registro.chamadas) == sorted(RCO_AUTH)
     _assert_registro_limpo(registro.chamadas)
     da_sombra = [e for e in logs if str(e["event"]).startswith("rco_")]
     assert da_sombra and not _vazamentos(da_sombra), _vazamentos(da_sombra)
+    _assert_metricas_limpas()
+
+
+def _com_entradas_list(original: Any) -> Any:
+    """`auth_rco.fatos_carencia_cpt_auth` com os fatos K3 v1.16 que nenhum adaptador produz ainda: o grupo de
+    carencia e a CPT vigente do beneficiario na data do atendimento (entradas LIST das tabelas do AUTH)."""
+
+    def fatos(process_vars: Any) -> Any:
+        montar = original(process_vars)
+
+        def com_k3(versao_k3: tuple[int, int]) -> mt.FatosDoCaso:
+            base = montar(versao_k3)
+            return mt.FatosDoCaso(
+                guia=base.guia,
+                versao_k3_pinada=max(versao_k3, mt.VERSAO_K3_ENTRADAS),
+                k3=mt.FatosK3V116(
+                    data_atendimento=DATA_SENTINELA,
+                    grupo=GRUPO_CARENCIA_SENTINELA,
+                    tem_cpt_vigente=CPT_VIGENTE_SENTINELA,
+                ),
+                carater_atendimento_guia=base.carater_atendimento_guia,
+                tiss=base.tiss,
+                tipo_guia=base.tipo_guia,
+                termos_sem_produtor=base.termos_sem_produtor,
+            )
+
+        return com_k3
+
+    return fatos
+
+
+def test_auth_entrada_list_com_valor_chega_a_tabela_e_nao_sai_da_sombra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entradas LIST com VALOR (nao nulo) nas tabelas pinadas de carencia e CPT, pelo harness do AUTH: o
+    motor as recebe e nenhuma saida da sombra as leva (fato `SHADOW`, `dmn_versions`, registro K1, logs,
+    metricas), nem como texto, nem como booleano, nem como par nome-da-entrada/valor."""
+    nomes_list = _nomes_list()
+    assert {"grupoCarencia", "cptVigente"} <= nomes_list, nomes_list
+    monkeypatch.setattr(
+        auth_rco, "fatos_carencia_cpt_auth", _com_entradas_list(auth_rco.fatos_carencia_cpt_auth)
+    )
+    monkeypatch.setattr(mt, "lacuna_saldo_fechada", lambda: True)
+    dmn = _motor(None, auth=True)
+    registro = _Registro()
+    h, transport, sink = _harness_auth(dmn, registro)
+    with structlog.testing.capture_logs() as logs:
+        asyncio.run(h._handle(_task(TOPICO_AUTH, _variaveis_auth())))
+    assert transport.failures == [] and len(transport.completed) == 1
+    rco = dict((k, v) for k, v in dmn.calls if k.startswith("rco_"))
+    # nao vacuo: as entradas LIST chegaram com o valor as duas tabelas da composicao
+    for chave in (CARENCIA, CPT):
+        assert rco[chave]["grupoCarencia"] == GRUPO_CARENCIA_SENTINELA, (chave, rco[chave])
+        assert rco[chave]["cptVigente"] is CPT_VIGENTE_SENTINELA, (chave, rco[chave])
+    # ...e nao saem
+    [fato] = [r for r, _ in sink.emitted if r.decision == harness_mod.AUDIT_DECISION_SOMBRA]
+    assert set(fato.dmn_versions) == set(RCO_AUTH)
+    _assert_dmn_versions_fechado(fato.dmn_versions, RCO_AUTH)
+    for chave in (CARENCIA, CPT):
+        nulas = fato.dmn_versions[chave].get("entradasNulas", {})
+        assert "grupoCarencia" not in nulas and "cptVigente" not in nulas, nulas
+    assert not _vazamentos(fato.dmn_versions), _vazamentos(fato.dmn_versions)
+    assert not _vazamentos(fato.details), _vazamentos(fato.details)
+    assert not _vazamentos(repr(fato)), _vazamentos(repr(fato))
+    assert sorted(a.decision_key for a, _ in registro.chamadas) == sorted(RCO_AUTH)
+    _assert_registro_limpo(registro.chamadas)
+    da_sombra = [e for e in logs if str(e["event"]).startswith("rco_")]
+    assert da_sombra and not _vazamentos(da_sombra), _vazamentos(da_sombra)
+    _assert_metricas_limpas()
+    # a sombra chamada direto, com os mesmos fatos: TODO log emitido durante ela fica limpo
+    dmn = _motor(None, auth=False)
+    with (
+        structlog.testing.capture_logs() as logs,
+        collect_dmn_versions() as versoes,
+        collect_rco_avaliacoes() as avaliacoes,
+    ):
+        auth_rco.avaliar_em_sombra_auth(dmn, _variaveis_auth(), topico=TOPICO_AUTH)
+    assert dict(dmn.calls)[CPT]["cptVigente"] is CPT_VIGENTE_SENTINELA
+    assert logs and not _vazamentos(logs), _vazamentos(logs)
+    assert not _vazamentos(versoes), _vazamentos(versoes)
+    _assert_dmn_versions_fechado(versoes, RCO_AUTH)
+    contexto = contexto_da_tarefa(tenant="amh", task_id="t-1", decision_key=CPT, business_key=CHAVE_NEGOCIO)
+    _assert_registro_limpo([(avaliacoes[k], contexto) for k in RCO_AUTH])
     _assert_metricas_limpas()
 
 
