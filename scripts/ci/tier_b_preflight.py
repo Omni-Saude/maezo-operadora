@@ -12,8 +12,9 @@ chamam. Com o provedor `anthropic` atual (nao `phi_capable`) a fachada recusa an
 Contrato
 --------
 * Sempre importa o provedor dos evals (prova, ate' sem chave, que `python -I` acha `maezo` no venv do job).
-* Sem credencial viva (`MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY`, ou `MAEZO_INFERENCE_PROVIDER` da zona
-  PHI na execucao manual): nao chama nada, sai 0 (o resumo dira' "NAO RODOU").
+* Sem chave (`MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY`) E sem provedor real nomeado alem de `anthropic`
+  (`MAEZO_INFERENCE_PROVIDER`): nao chama nada, sai 0 (o resumo dira' "NAO RODOU"). Provedor real nomeado
+  sem credencial utilizavel (ex.: `bedrock_br` sem os portoes): QUEBRADO, como qualquer falha de chamada.
 * Com chave: chamada falhou ou resposta vazia => "Tier B QUEBRADO: preflight ..." no resumo, `::error::` e
   saida 1, nos dois modos; com `PhiZoneRoutingError`, tambem a linha estavel da zona PHI. So' a classe do
   erro e o status HTTP — nunca a chave, nunca o corpo da resposta nem a mensagem do provedor. O resumo
@@ -47,6 +48,15 @@ def _status(erro: BaseException) -> str:
     return "sem status"
 
 
+def _classe(erro: BaseException) -> str:
+    # `provedor_vivo()` embrulha a falha de CONSTRUCAO (provedor real nomeado sem credencial utilizavel) em
+    # `AssertionError("LIVE CALL FAILED: <Classe>")` encadeada: o preflight nomeia a classe de origem.
+    causa = erro.__cause__
+    if isinstance(erro, AssertionError) and causa is not None:
+        return type(causa).__name__
+    return type(erro).__name__
+
+
 def _provedor_dos_evals() -> Callable[[], Any]:
     from tests.evals._vivo import provedor_vivo
 
@@ -73,8 +83,8 @@ def main(argv: Sequence[str] | None = None, *, fabrica: Callable[[], Any] | None
     try:
         resposta = asyncio.run(fabrica().generate(PROMPT, phi=True, agent_id="ci-tier-b-preflight"))
     except Exception as erro:  # qualquer falha do provedor = raia quebrada; so' classe e status saem
-        zona_phi = type(erro).__name__ == ERRO_ZONA_PHI
-        manchete = f"Tier B QUEBRADO: preflight falhou ({type(erro).__name__}, status {_status(erro)})"
+        zona_phi = _classe(erro) == ERRO_ZONA_PHI
+        manchete = f"Tier B QUEBRADO: preflight falhou ({_classe(erro)}, status {_status(erro)})"
     except BaseException as erro:  # cancelamento do runner: mesma linha curta, e propaga
         print(f"::error::Tier B QUEBRADO: preflight interrompido ({type(erro).__name__})")
         raise

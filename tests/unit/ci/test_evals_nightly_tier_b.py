@@ -776,6 +776,119 @@ def test_a_named_real_cloud_provider_is_a_credential_a_test_double_is_not(
     assert _vivo.credencial_viva_presente() is conta and tb.chave_presente() is conta
 
 
+# ------------- regra de ROOT (21/11): "NAO RODOU" so' sem chave E sem provedor nomeado; provedor real
+# nomeado (nao anthropic) sem credencial utilizavel => LIVE CALL FAILED / QUEBRADO, nunca "NAO RODOU".
+
+#: O que torna uma credencial "utilizavel": chave Anthropic, portoes da zona PHI, qualquer credencial AWS.
+_CREDENCIAIS = (
+    "MAEZO_ANTHROPIC_API_KEY",
+    "ANTHROPIC_API_KEY",
+    *manual.PORTOES,
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_PROFILE",
+    "AWS_DEFAULT_PROFILE",
+)
+
+
+def _sem_credencial_nenhuma(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    for nome in _CREDENCIAIS:
+        monkeypatch.delenv(nome, raising=False)
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "sem-config"))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "sem-credenciais"))
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+
+
+@pytest.mark.parametrize("provedor", ["bedrock_br", "br_resident"])
+def test_named_phi_provider_without_usable_credential_is_live_call_failed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, provedor: str
+) -> None:
+    _sem_credencial_nenhuma(monkeypatch, tmp_path)
+    monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", provedor)
+    assert _vivo.credencial_viva_presente() is True and tb.chave_presente() is True  # nao e' pulado
+    with pytest.raises(AssertionError, match=r"^LIVE CALL FAILED: InferenceConfigError$") as falha:
+        _vivo.provedor_vivo()
+    assert type(falha.value.__cause__).__name__ == "InferenceConfigError"
+
+
+def test_named_general_zone_provider_without_key_is_live_call_failed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import asyncio
+
+    from maezo.runtime.inference.errors import PhiZoneRoutingError
+
+    _sem_credencial_nenhuma(monkeypatch, tmp_path)
+    monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", "bedrock")
+    g = _vivo.provedor_vivo()
+    with pytest.raises(PhiZoneRoutingError):  # recusado pela fachada antes da rede (ADR-0006)
+        asyncio.run(g.generate("x", phi=True))
+    with pytest.raises(AssertionError, match=r"^LIVE CALL FAILED: PhiZoneRoutingError$"):
+        _vivo.exigir_chamada_viva(g)
+
+
+def test_preflight_with_named_phi_provider_without_gates_is_broken(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _sem_credencial_nenhuma(monkeypatch, tmp_path)
+    monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", "bedrock_br")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "s.md"))
+    assert pf.main([]) == 1
+    saida = capsys.readouterr().out + (tmp_path / "s.md").read_text(encoding="utf-8")
+    assert "Tier B QUEBRADO: preflight falhou (InferenceConfigError, status sem status)" in saida
+    assert "NAO RODOU" not in saida and "nenhuma chamada feita" not in saida
+
+
+def _tier_b_de_verdade(tmp_path: Path, provedor: str) -> tuple[int, str]:
+    """A selecao REAL do noturno + o resumo REAL, sem credencial nenhuma; sem rede (falha antes)."""
+    import os as _os
+
+    env = {
+        k: v
+        for k, v in _os.environ.items()
+        if k not in _CREDENCIAIS and not k.startswith(("PYTHON", "PYTEST_", "MAEZO_INFERENCE_"))
+    }
+    env.update(
+        AWS_CONFIG_FILE=str(tmp_path / "sem-config"),
+        AWS_SHARED_CREDENTIALS_FILE=str(tmp_path / "sem-credenciais"),
+        AWS_EC2_METADATA_DISABLED="true",
+        NIGHTLY_EVAL="1",
+        TIER_B_BLOQUEANTE="false",
+        GITHUB_STEP_SUMMARY=str(tmp_path / "s.md"),
+    )
+    if provedor:
+        env["MAEZO_INFERENCE_PROVIDER"] = provedor
+    junit = tmp_path / "j.xml"
+    suite = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/evals", "-q", "--tb=no", "-rN", "-p", "no:cacheprovider",
+         "-m", "eval and llm_live", f"--junitxml={junit}"],
+        cwd=_RAIZ, env=env, capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    resumo = subprocess.run(
+        [sys.executable, "-I", "scripts/ci/tier_b_resumo.py", "--junit", str(junit), "--codigo",
+         str(suite.returncode)],
+        cwd=_RAIZ, env=env, capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    return resumo.returncode, (tmp_path / "s.md").read_text(encoding="utf-8") + suite.stdout[-2000:]
+
+
+def test_real_tier_b_without_key_and_without_provider_does_not_run(tmp_path: Path) -> None:
+    codigo, texto = _tier_b_de_verdade(tmp_path, "")
+    assert codigo == 0, texto
+    assert re.search(r"Tier B NAO RODOU: .* \(\d+ caso\(s\) pulado\(s\)\)", texto), texto
+    assert "LIVE CALL FAILED" not in texto and "QUEBRADO" not in texto
+
+
+def test_real_tier_b_with_named_phi_provider_without_credential_is_broken(tmp_path: Path) -> None:
+    codigo, texto = _tier_b_de_verdade(tmp_path, "bedrock_br")
+    assert codigo == 1, texto
+    assert re.search(
+        r"Tier B QUEBRADO: \d+ caso\(s\) com LIVE CALL FAILED \(InferenceConfigError\)", texto
+    ), texto
+    assert "NAO RODOU" not in texto and "pulados 0" in texto
+
+
 def test_manual_run_drops_inherited_python_and_pytest_variables(tmp_path: Path) -> None:
     env = manual.ambiente_da_execucao(
         {"PYTEST_ADDOPTS": "-rA -s", "PYTHONPATH": "/x", "PYTHONSTARTUP": "/y", "HOME": "/h"},

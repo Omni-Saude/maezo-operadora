@@ -15,6 +15,9 @@ Contrato
 * `exigir_chamada_viva(...)` roda ANTES de qualquer limiar ou checagem de vazamento: falha com a
   mensagem estavel `LIVE CALL FAILED: <ClasseDoErro>` se alguma chamada ao provedor levantou, ou com
   `LIVE CALL FAILED: NenhumaChamadaAoProvedor` se nenhuma chamada aconteceu.
+* Provedor real NOMEADO alem de `anthropic` (`bedrock`, `bedrock_br`, `br_resident`) conta como credencial
+  pretendida: o caso RODA, e sem credencial utilizavel `provedor_vivo()` falha com `LIVE CALL FAILED:
+  <ClasseDoErro>` (QUEBRADO), nunca "NAO RODOU" — "NAO RODOU" e' so' sem chave E sem provedor nomeado.
 * `exigir_narrativa(...)`: os testes de nao-vazamento so' checam vazamento sobre narrativa GERADA.
 O resumo do noturno (`scripts/ci/tier_b_resumo.py`) le essas mensagens: elas nunca contam como "limiar".
 """
@@ -73,7 +76,14 @@ class GravadorDeChamadas(InferenceProvider):
     classe da excecao. Nao muda nada da chamada; so' observa — e repropaga a excecao."""
 
     def __init__(self) -> None:
-        super().__init__(settings=configuracao_viva())
+        configuracao = configuracao_viva()  # provedor de teste: ja' levanta LIVE CALL FAILED: ProvedorNaoVivo
+        try:
+            super().__init__(settings=configuracao)
+        except Exception as erro:
+            # Provedor real NOMEADO sem credencial utilizavel (ex.: `bedrock_br` sem os portoes da zona PHI ou
+            # sem sessao AWS): quem nomeou quis rodar => LIVE CALL FAILED (QUEBRADO), nunca "NAO RODOU".
+            # So' a classe do erro sai; a mensagem do provedor fica na causa encadeada.
+            raise AssertionError(f"{LIVE_CALL_FAILED}: {type(erro).__name__}") from erro
         self.chamadas: list[str | None] = []
 
     async def generate(
