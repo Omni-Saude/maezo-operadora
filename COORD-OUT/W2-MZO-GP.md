@@ -1330,3 +1330,17 @@ Nenhum arquivo de `src/` muda.
 **Alternativa (B):** declarar "nada a construir" e fechar a linha sem PR.
 
 Ordem: ADD01-03 (PR quando a revisão der PASS) → RT-03 → 17r, um PR por vez e no máximo dois do funil abertos.
+
+## 2026-11-21 ~08:20Z — PR #1366 (E-SF-ADD01-03) aberto; RT-03 e 17r no remoto, sem PR
+
+- **PR #1366 (E-SF-ADD01-03, variante A)**, head `41424fa3`:
+  - revisão independente PASS (12 mutações mortas; N1 e N4 corrigidos);
+  - `tests/unit` completo × main sem falha só do ramo;
+  - sem arquivo em comum com a main `b239a531`;
+  - o corpo registra: o teto cresce em um nome (ação do #1349), sem LLM nem provedor (SC-03.D1), a deriva da recusa clínica por construção, e a pasta de autonomia e `effect_classes` só lidos, com sha256.
+  - Aguardo o CI.
+- No remoto, sem PR, na fila:
+  - `sf-w2/mzo-gp/rt03` @ `2ae0e10b` (RT-03, de acordo A);
+  - `sf-w2/mzo-gp/esf17r` @ `e187d7c5` (17r, de acordo A, três cercas novas).
+  - Para as duas faltam a revisão independente e a suíte × main antes do PR.
+- **Disco:** a bateria completa encheu o volume. A causa eram 28G em `/tmp/pytest-of-root`, temporários do pytest das rodadas do dia; removidos com nenhum pytest ativo. As baterias agora rodam um lado de cada vez.
