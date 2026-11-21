@@ -1383,3 +1383,8 @@ Ordem: ADD01-03 (PR quando a revisão der PASS) → RT-03 → 17r, um PR por vez
   - a suíte (`agents` + `ci`, porque o ramo é só teste) está rodando;
   - o PR sai depois do da RT-03, um por vez.
 - **Travado:** nada agora. O disco tem 24G livres; mais cedo encheu, por 28G de temporários do pytest, já limpos. O `git branch -d` foi negado no começo do dia; tento de novo na limpeza final.
+
+## 2026-11-21T12:52Z — RT-03 #1368: revisão que cobre o head (CD-276)
+- Head b1ac060e (commits 88bf7ade recorte local + b1ac060e trava da lista). Revisão independente (subagente que não escreveu nem reparou código; só mutou em worktree descartável) sobre f903a88d..88bf7ade E b1ac060e: PASS, sem bloqueantes. 7 mutações capturadas, incl. 2 tentativas de enganar o detector novo (pegas pela contagem pinada da cerca DL-0191 + sem_zona_phi).
+- Ponto para decisão EXPRESSA da coordenação do programa: deriva do CAMINHO da CD-265 (fatos via render_fatos_para_prompt com permitidos=/agente=) para recorte LOCAL (lista fechada vazia, MappingProxyType, sem importar maezo.runtime), porque a cerca DL-0191 exige agente= literal e não há agente. Trava: teste falha se a lista crescer sem o renderizador. Nenhuma das três listas fechadas de telemetria foi alargada.
+- Simulação de merge em main 5be0f801: limpa (cc2e0ad1); só as falhas conhecidas de ambiente local (helm render, audit_anchor root). CI: unidades verdes; integração em curso.
