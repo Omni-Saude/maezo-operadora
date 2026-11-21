@@ -1073,3 +1073,13 @@ Ramo `sf-w2/mzo-gp/esf24b`, a partir da main. O PR só abre depois do merge do #
   - Título e corpo do #1351 fiéis.
   - **Disco:** worktree `esf11` removida sem `--force`; check-in cancelado; clone principal em `main` `5950cc4d`.
 - **Próximo:** E-SF-24b. Antes do PR, aplico o ajuste do ROOT: o motivo do catálogo e o complemento do auditor são recusados, com erro tipado, se trouxerem qualquer rótulo do template ("RN 623/2024, art.") ou quebra de linha. O PR abre quando a suíte completa × main fechar. Depois: E-SF-35.
+
+## 2026-11-21 ~04:10Z — PR #1355 (E-SF-35) aberto (CD-240)
+
+- A LIMPEZA #1351 já está gravada na entrada anterior (commit `c6e5e0cb`).
+- Usei a vaga do teto com o que estava pronto primeiro: **PR #1355 (E-SF-35 / EP-CORE-06F)**, head `290594618a5d4fb4d4353252700182bd1fb07de0`, só o arquivo de teste novo.
+  - 10 merges atrás (#1342–#1351), sem arquivo em comum, não trazidos (CD-155).
+  - Aguardo o CI.
+- **E-SF-24b:** o ramo local `sf-w2/mzo-gp/esf24b` @ `8099ca98` ainda não foi ao remoto. O PR abre depois do merge do #1355.
+  - Já aplicada a recusa de rótulo do template pedida pelo ROOT.
+  - Aguardo a revisão independente dessa última mudança e o `tests/unit` completo × main.
