@@ -1,0 +1,18 @@
+# Fundamento do art. 14 vem de FundamentoDoTermo de catalogo pinado (sem catalogo pinado, a composicao recusa); parecer juridico pendente para ligar.
+RN 623/2024, art. 14 — motivo da negativa de autorização do procedimento:
+$motivo
+
+RN 623/2024, art. 14 — cláusula contratual ou o dispositivo legal que a justifique:
+$fundamento
+
+RN 623/2024, art. 16:
+Ao beneficiário de plano de saúde é assegurada a faculdade de requerer a reanálise de sua solicitação, a qual será apreciada pela Ouvidoria da operadora, instituída na forma da Resolução Normativa n° 323, de 3 de abril de 2013, ou norma que vier a sucedê-la.
+
+RN 623/2024, art. 16, § 1° — elementos mínimos:
+I - facultar expressamente ao beneficiário o exercício do requerimento de reanálise, competindo à Ouvidoria a avaliação em segunda instância dentro da estrutura da operadora;
+
+II - listar cada um dos canais de atendimento da Ouvidoria para o exercício da faculdade de requerer reanálise; e
+$canais_ouvidoria
+
+III - dar ciência sobre o prazo ordinário de resposta da reanálise pela Ouvidoria não superior a sete dias úteis contados do requerimento do beneficiário.
+$prazo_reanalise_dias_uteis dias úteis
