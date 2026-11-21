@@ -938,3 +938,20 @@ Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos 
 - **3 merges atrás** (#1342, #1343, #1344), sem arquivo em comum, não trazidos (CD-155).
 - **Arquivo:** `tests/unit/spec/test_sp_op_reembolso_001_prazo_legal_fence.py` (novo; único).
 - **Próximo**, depois do merge: 29-2 (ramo no remoto; condições da T-MZO-A e o digest em `aguardando_admissao`, CD-205).
+
+## 2026-11-21 ~01:10Z — #1345 mesclado (main `4a420ba3`); LIMPEZA #1345; PR #1346 (29-2) aberto
+
+- #1345 (E-SF-29-1) mesclado; a main `4a420ba3` contém o head `b15a3ece`.
+- **LIMPEZA #1345 (CD-149):**
+  - **Ramo para o dono apagar:** `sf-w2/mzo-gp/esf29-1` @ `b15a3ecefef8b6bb720a074503089b686ec49189`, no remoto. O ramo local fica só registrado.
+  - Ramos locais nunca enviados: nenhum novo.
+  - PR órfão: nenhum.
+  - Título e corpo do #1345 fiéis.
+  - **Disco:** worktree `esf29` removida sem `--force`; check-in agendado cancelado; clone principal em `main` `4a420ba3`.
+- **PR #1346 (E-SF-29-2)** aberto: head `ab611ff733badf6b1d6b7c6aeb76f88f643bfe6c`.
+  - 4 merges atrás (#1342–#1345), sem arquivo em comum, não trazidos (CD-155).
+  - Corpo conforme a CD-205: só a linha do digest em `aguardando_admissao` (`05c181b9…` → `ef5d529c…`) mais uma frase no `motivo`; `admitidos` byte-idêntico; NÃO admite nada.
+  - Checagem de CODEOWNERS em `/deploy/` esperada vermelha.
+  - Condições da T-MZO-A: junções XOR; ids e condições intactos.
+  - Aguardo o CI.
+- Fila: RT-02 → 11 → 35, um PR por vez.
