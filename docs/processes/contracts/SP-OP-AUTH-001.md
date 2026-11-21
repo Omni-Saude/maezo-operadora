@@ -765,35 +765,48 @@ worker e' a de antes deste pacote. O texto clinico continua redigido (ADR-0006).
 **Mapeamento a confirmar pelo juridico (COUNSEL):** motivo = `justificativa_clinica`;
 clausula/dispositivo = `fundamentacao_dut` (o guard de completude ja exige os dois). Canais
 da Ouvidoria e prazo de reanalise NAO existem como configuracao do tenant neste build — o
-auditor os inclui no termo manual.
+auditor os inclui no termo manual. Este mapeamento vale so' para o termo manual; o termo
+versionado abaixo nao le `fundamentacao_dut` (E-SF-24b, CD-231).
 
-**Termo da negativa versionado (E-SF-24, EP-PROC-07a, parte a; DARK).** O texto do termo sai
-de um template versionado, `spec/policies/ans/templates/termo-negativa.v0.txt` (diretorio
-com dono no CODEOWNERS), sem prosa propria: rotulos que citam a norma, os campos do registro
-humano (pelo mapeamento acima, **ainda nao confirmado pelo juridico** — o proprio template
-diz isso na primeira linha, de metadado) e o art. 16, caput, da RN 623 verbatim. O render
-(`maezo.tools.workers.denial_term`) e' puro e deterministico (mesmo input, mesmo sha256), nao
-decide nem altera `decisao_auditor`, so' compoe o termo de uma NEGAR com proveniencia humana
-(o criterio do guard, `auditor_id` nao vazio ou `human_approved is True`, porem mais estrito:
-`auditor_id` so' de caracteres de largura zero conta como vazio; senao, `ERR_DENIAL_NOT_HUMAN`)
-e recusa com codigo tipado:
-`ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO` (template ausente ou com sha256 fora do pino),
-`ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE` (falta motivo ou clausula/dispositivo) e
+**Termo da negativa versionado (E-SF-24, EP-PROC-07a; DARK).** O texto do termo sai de um
+template versionado, `spec/policies/ans/templates/termo-negativa.v1.txt` (diretorio com dono no
+CODEOWNERS; E-SF-24b parcial, CD-231). O v0 (`termo-negativa.v0.txt`) fica versionado e
+intacto, mas a composicao so' aceita o v1. O v1 nao tem prosa propria: rotulos que citam a
+norma, o art. 16, caput, e, num bloco proprio com titulo ("RN 623/2024, art. 16, § 1° —
+elementos mínimos:"), os incisos I, II e III do § 1° verbatim do texto-base
+`docs/compliance/legal/textos-base/RN-623-2024.md` (conferidos byte a byte por teste). Os
+canais da Ouvidoria vem logo abaixo do inciso II e o prazo logo abaixo do III.
+
+**Porta do fundamento (E-SF-24b parcial; fechada).** O motivo e a clausula contratual ou o
+dispositivo legal do art. 14 vem so' de um `FundamentoDoTermo` (`id_regra`, `versao_regra`,
+`motivo_texto`, `clausula_contratual`, `dispositivo_legal`, `hash_do_catalogo`) de um catalogo
+pinado, que vira do repositorio de regras e ainda nao existe
+(`CATALOGO_DE_FUNDAMENTOS_SHA256 = None`). Sem pino, a composicao recusa sempre
+(`ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO`): porta fechada por construcao. Com pino, um
+fundamento de tipo errado, com campo vazio ou quebra de linha, sem clausula nem dispositivo, ou
+com hash diferente do pino e' `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO`. A composicao NAO le
+`fundamentacao_dut`, que nunca substitui o fundamento; a `justificativa_clinica` do auditor
+entra so' como complemento do motivo (faltando, `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE`). O
+guard de completude do worker continua exigindo os campos do registro como antes.
+
+O render (`maezo.tools.workers.denial_term`) e' puro e deterministico (mesmo input, mesmo
+sha256), nao decide nem altera `decisao_auditor`, so' compoe o termo de uma NEGAR com
+proveniencia humana (o criterio do guard, `auditor_id` nao vazio ou `human_approved is True`,
+porem mais estrito: `auditor_id` so' de caracteres de largura zero conta como vazio; senao,
+`ERR_DENIAL_NOT_HUMAN`). Demais recusas tipadas:
+`ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO` (template ausente, fora do pino ou o v0) e
 `ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE` (faltam os canais da Ouvidoria ou o prazo da
 reanalise, de 1 a 7 dias uteis; art. 16, § 1o, II e III). Nenhum codigo de producao chama o
 render. Com a bandeira ligada, o registro da negativa ganha so' o pino do template:
 
 | Variavel | Tipo | Valor | Significado |
 |---|---|---|---|
-| `termo_negativa_template_versao` | string | `v0` | versao do template que o termo manual deve usar |
+| `termo_negativa_template_versao` | string | `v1` | versao do template que o termo manual deve usar |
 | `termo_negativa_template_sha256` | string | sha256 dos bytes do template | qual texto exato, sem carregar o termo (que contem o motivo clinico, PHI) |
 
-O estado continua `entrega_manual_pendente`. **Ligar a bandeira tem pre-condicao:** a
-confirmacao juridica do mapeamento do art. 14 acima e da completude dos elementos minimos do
-art. 16, § 1o (o template v0 cita o caput e os incisos II e III; nao cita o inciso I, a
-segunda instancia na Ouvidoria). Um campo proprio para a clausula contratual ou o
-dispositivo legal nas tres UTs de decisao (parte b) depende da confirmacao juridica do
-mapeamento acima e muda o contrato de formulario do portal; nao entra aqui.
+O estado continua `entrega_manual_pendente`. **Ligar a bandeira tem pre-condicao:** o parecer do juridico
+sobre o termo v1 e o catalogo de fundamentos revisado e pinado (CD-231); os dois ficam fora
+desta entrega. Nada aqui muda a decisao de negar, que continua humana.
 
 **Fora deste pacote (declarado):** o canal real com comprovante (e o seu estado
 `entregue_com_recibo`), uma User Task de confirmacao da entrega manual (exige contrato de

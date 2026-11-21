@@ -1,9 +1,9 @@
-"""E-SF-24 (EP-PROC-07a, parte a) — cercas do termo da negativa (RN 623/2024 art. 14 e 16).
+"""E-SF-24 (EP-PROC-07a) — cercas do termo da negativa (RN 623/2024 art. 14 e 16).
 
-E1 a E4 do plano, sobre o mapeamento VIGENTE do contrato SP-OP-AUTH-001 (a confirmar pelo
-jurídico): motivo = `justificativa_clinica`; cláusula contratual ou dispositivo legal =
-`fundamentacao_dut`. O campo próprio para a cláusula (parte b) depende dessa confirmação e não
-entra aqui. Fixtures sintéticas; nenhum dado real.
+E1 a E4 do plano. Desde a E-SF-24b (parcial, CD-231) o template é o v1 e o fundamento do art. 14
+vem só de um `FundamentoDoTermo` de catálogo pinado. Não há catálogo neste build, então estas
+cercas pinam um catálogo SINTÉTICO só no teste (fixture autouse); a porta fechada sem pino é
+provada em `test_termo_negativa_v1_porta.py`. Fixtures sintéticas; nenhum dado real.
 """
 
 from __future__ import annotations
@@ -23,10 +23,12 @@ from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN
 from maezo.tools.workers.denial_term import (
     DENIAL_TERM_TEMPLATE,
     ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE,
+    ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO,
     ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE,
     ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO,
     DenialTermRefusalError,
     DenialTermTemplate,
+    FundamentoDoTermo,
     load_denial_term_template,
     render_denial_term,
 )
@@ -44,6 +46,28 @@ _GENERATOR_NAME = re.compile(
 )
 
 _CANAIS = ("Telefone sintetico 0800 000 0000", "Formulario sintetico da Ouvidoria")
+
+#: Pino SINTÉTICO de catálogo, só para os testes (o catálogo real virá do repositório de regras).
+_CATALOGO_SINTETICO = hashlib.sha256(b"catalogo sintetico de fundamentos - teste").hexdigest()
+
+
+@pytest.fixture(autouse=True)
+def _catalogo_sintetico_pinado(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(denial_term, "CATALOGO_DE_FUNDAMENTOS_SHA256", _CATALOGO_SINTETICO)
+
+
+def _fundamento(**overrides: Any) -> FundamentoDoTermo:
+    campos: dict[str, Any] = {
+        "id_regra": "REGRA-SINTETICA-001",
+        "versao_regra": "1",
+        "motivo_texto": "Motivo sintetico do catalogo",
+        "clausula_contratual": "Clausula sintetica 9.9 — teste",
+        "dispositivo_legal": None,
+        "hash_do_catalogo": _CATALOGO_SINTETICO,
+    }
+    campos.update(overrides)
+    return FundamentoDoTermo(**campos)
+
 
 #: E4 — frases genéricas vedadas: a negativa nunca é justificada por fórmula sem o motivo real.
 _GENERIC_PHRASES = (
@@ -79,6 +103,7 @@ def _template() -> DenialTermTemplate:
 
 
 def _render(record: dict[str, Any] | None = None, **kwargs: Any) -> denial_term.RenderedDenialTerm:
+    kwargs.setdefault("fundamento", _fundamento())
     kwargs.setdefault("canais_ouvidoria", _CANAIS)
     kwargs.setdefault("prazo_reanalise_dias_uteis", 7)
     return render_denial_term(record if record is not None else _negar(), _template(), **kwargs)
@@ -87,23 +112,72 @@ def _render(record: dict[str, Any] | None = None, **kwargs: Any) -> denial_term.
 # --- E1 ------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("field", ["justificativa_clinica", "fundamentacao_dut"])
 @pytest.mark.parametrize("blank", [None, "", "   ", "\u200b", 9])
-def test_negativa_exige_clausula_contratual_ou_dispositivo_legal(field: str, blank: object) -> None:
-    """Art. 14: sem motivo ou sem cláusula/dispositivo (mapeamento vigente) não há termo."""
+def test_sem_o_complemento_clinico_do_auditor_nao_ha_termo(blank: object) -> None:
+    """A justificativa clínica do auditor complementa o motivo do catálogo; faltando, não há termo."""
     with pytest.raises(DenialTermRefusalError) as refused:
-        _render(_negar(**{field: blank}))
+        _render(_negar(justificativa_clinica=blank))
     assert refused.value.code == ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE
-    assert refused.value.missing == (field,)
+    assert refused.value.missing == ("justificativa_clinica",)
 
 
-def test_o_mapeamento_do_art_14_e_exigido_tambem_pelo_guard_do_worker() -> None:
-    # O render e o guard de completude exigem os mesmos campos do art. 14 (sem divergência).
-    assert {"justificativa_clinica", "fundamentacao_dut"} <= set(_REQUIRED_DENIAL_FIELDS)
-    assert {field for _, field in denial_term._FUNDAMENTO_FIELDS} == {
-        "justificativa_clinica",
-        "fundamentacao_dut",
+@pytest.mark.parametrize(
+    ("overrides", "missing"),
+    [
+        (
+            {"clausula_contratual": None, "dispositivo_legal": None},
+            ("clausula_contratual|dispositivo_legal",),
+        ),
+        ({"clausula_contratual": "   "}, ("clausula_contratual",)),
+        ({"clausula_contratual": None, "dispositivo_legal": "\u200b"}, ("dispositivo_legal",)),
+        ({"motivo_texto": ""}, ("motivo_texto",)),
+        ({"motivo_texto": "linha 1\nlinha forjada"}, ("motivo_texto",)),
+        ({"id_regra": None}, ("id_regra",)),
+        ({"versao_regra": 1}, ("versao_regra",)),
+        ({"hash_do_catalogo": ""}, ("hash_do_catalogo",)),
+        ({"hash_do_catalogo": "0" * 64}, ("hash_do_catalogo",)),
+    ],
+)
+def test_negativa_exige_clausula_contratual_ou_dispositivo_legal(
+    overrides: dict[str, Any], missing: tuple[str, ...]
+) -> None:
+    """Art. 14: o fundamento do catálogo precisa de motivo e de cláusula OU dispositivo, com hash
+    conferido; qualquer falha é recusa tipada, nunca texto inventado."""
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(fundamento=_fundamento(**overrides))
+    assert refused.value.code == ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO
+    assert refused.value.missing == missing
+
+
+def test_fundamentacao_dut_nunca_substitui_o_fundamento() -> None:
+    """A composição não lê `fundamentacao_dut`: preenchida, ela não abre a porta nem entra no termo."""
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(_negar(), fundamento=None)
+    assert refused.value.code == ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO
+    texto = _render(_negar(fundamentacao_dut="DUT sintetica que nao pode aparecer")).texto
+    assert "DUT sintetica" not in texto
+    assert texto == _render(_negar(fundamentacao_dut=None)).texto
+    arvore = ast.parse(Path(denial_term.__file__).read_text(encoding="utf-8"))
+    docstrings = {
+        id(n.body[0].value)
+        for n in ast.walk(arvore)
+        if isinstance(n, ast.Module | ast.FunctionDef | ast.ClassDef)
+        and n.body
+        and isinstance(n.body[0], ast.Expr)
+        and isinstance(n.body[0].value, ast.Constant)
     }
+    lidos = [
+        n.value
+        for n in ast.walk(arvore)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings
+    ]
+    assert not [v for v in lidos if "fundamentacao_dut" in v]
+
+
+def test_o_guard_do_worker_continua_exigindo_os_campos_do_registro() -> None:
+    # O guard de completude da decisão humana não muda; a composição só lê o complemento clínico.
+    assert {"justificativa_clinica", "fundamentacao_dut"} <= set(_REQUIRED_DENIAL_FIELDS)
+    assert denial_term._COMPLEMENTO_DO_MOTIVO == "justificativa_clinica"
 
 
 # --- E2 ------------------------------------------------------------------------------------------
@@ -145,7 +219,9 @@ def test_template_alterado_ou_ausente_e_recusado(tmp_path: Path) -> None:
         assert refused.value.code == ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO
     forged = DenialTermTemplate(versao="v0", sha256=DENIAL_TERM_TEMPLATE.sha256, texto="$motivo")
     with pytest.raises(DenialTermRefusalError) as refused:
-        render_denial_term(_negar(), forged, canais_ouvidoria=_CANAIS, prazo_reanalise_dias_uteis=7)
+        render_denial_term(
+            _negar(), forged, fundamento=_fundamento(), canais_ouvidoria=_CANAIS, prazo_reanalise_dias_uteis=7
+        )
     assert refused.value.code == ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO
 
 
@@ -153,10 +229,12 @@ def test_template_coerente_mas_fora_do_pino_e_recusado() -> None:
     """Um template forjado com sha256 coerente com o próprio texto não passa: vale só o pino."""
     texto = "$motivo $fundamento $canais_ouvidoria $prazo_reanalise_dias_uteis"
     forged = DenialTermTemplate(
-        versao="v9", sha256=hashlib.sha256(texto.encode("utf-8")).hexdigest(), texto=texto
+        versao="v1", sha256=hashlib.sha256(texto.encode("utf-8")).hexdigest(), texto=texto
     )
     with pytest.raises(DenialTermRefusalError) as refused:
-        render_denial_term(_negar(), forged, canais_ouvidoria=_CANAIS, prazo_reanalise_dias_uteis=7)
+        render_denial_term(
+            _negar(), forged, fundamento=_fundamento(), canais_ouvidoria=_CANAIS, prazo_reanalise_dias_uteis=7
+        )
     assert refused.value.code == ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO
 
 
@@ -169,20 +247,22 @@ def _rn623_artigo(numero: int) -> str:
 
 
 def test_o_template_cita_o_art_16_verbatim_e_nao_tem_prosa_propria() -> None:
-    """CD-192, ajuste 1: o caput do art. 16 e cada trecho citado do art. 14 e do art. 16 batem
-    byte a byte com `docs/compliance/legal/textos-base/RN-623-2024.md`; o resto é rótulo, slot
-    ou metadado. O pacote do funil não tem snapshot próprio da RN 623 para comparar."""
+    """CD-192, ajuste 1, e CD-231 (A): o caput do art. 16, os incisos I, II e III do § 1° e cada
+    trecho citado do art. 14 e do art. 16 batem byte a byte com
+    `docs/compliance/legal/textos-base/RN-623-2024.md`; o resto é rótulo, slot ou metadado."""
     texto = _TEMPLATE_PATH.read_text(encoding="utf-8")
     art14, art16 = _rn623_artigo(14), _rn623_artigo(16)
     caput16 = art16.splitlines()[0].removeprefix("Art. 16. ")
+    incisos = tuple(linha for linha in art16.splitlines() if re.match(r"(I|II|III) - ", linha))
+    assert len(incisos) == 3  # controle: o texto-base tem os três incisos do § 1°
     assert caput16.encode("utf-8") in texto.encode("utf-8")
     citados = {"14": art14, "16": art16}
-    rotulo = re.compile(r"RN 623/2024, art\. (14|16)(?:, § 1°, (?:II|III))?(?: — (.+))?:")
+    rotulo = re.compile(r"RN 623/2024, art\. (14|16)(?:, § 1°)?(?: — (.+))?:")
     linhas = texto.splitlines()
-    assert linhas[0].startswith("# ") and "NAO confirmado pelo juridico" in linhas[0]
+    assert linhas[0].startswith("# ") and "FundamentoDoTermo" in linhas[0]
     rotulos = 0
     for linha in linhas[1:]:
-        if linha in ("", caput16) or re.fullmatch(r"\$\w+", linha):
+        if linha in ("", caput16, *incisos) or re.fullmatch(r"\$\w+", linha):
             continue
         if linha == "$prazo_reanalise_dias_uteis dias úteis":
             assert "dias úteis" in art16
@@ -192,11 +272,11 @@ def test_o_template_cita_o_art_16_verbatim_e_nao_tem_prosa_propria() -> None:
         rotulos += 1
         if casou.group(2):
             assert casou.group(2).encode("utf-8") in citados[casou.group(1)].encode("utf-8"), linha
-    assert rotulos == 5  # controle: a varredura viu os cinco rótulos
+    assert rotulos == 4  # controle: a varredura viu os quatro rótulos
 
 
 def test_o_metadado_do_template_nao_entra_no_termo() -> None:
-    assert "NAO confirmado" not in _render().texto
+    assert "FundamentoDoTermo" not in _render().texto
     assert not [linha for linha in _render().texto.splitlines() if linha.startswith("#")]
 
 
@@ -238,15 +318,22 @@ def test_render_da_negativa_e_puro_e_completo() -> None:
         DENIAL_TERM_TEMPLATE.sha256,
     )
     assert "$" not in first.texto
-    for expected in ("Motivo sintetico para teste", "Clausula sintetica 9.9 — teste", *_CANAIS):
+    for expected in (
+        "Motivo sintetico do catalogo\nMotivo sintetico para teste",
+        "Clausula sintetica 9.9 — teste",
+        *_CANAIS,
+    ):
         assert expected in first.texto
     assert first.texto.rstrip().endswith("\n7 dias úteis")
     # Só os campos do art. 14 entram: nem o CID nem o auditor vão para o termo.
     assert "Z00.0" not in first.texto and "auditor-sintetico-01" not in first.texto
     lowered = first.texto.lower()
     assert not [p for p in _GENERIC_PHRASES if p in lowered]
-    # Entrada diferente, termo diferente (o sha256 depende do conteúdo).
-    assert _render(_negar(fundamentacao_dut="Outra clausula sintetica")).sha256 != first.sha256
+    # Fundamento diferente, termo diferente (o sha256 depende do conteúdo).
+    outro = _render(fundamento=_fundamento(clausula_contratual="Outra clausula sintetica"))
+    assert outro.sha256 != first.sha256
+    com_os_dois = _render(fundamento=_fundamento(dispositivo_legal="Dispositivo sintetico")).texto
+    assert "Clausula sintetica 9.9 — teste\nDispositivo sintetico\n" in com_os_dois
 
 
 def test_o_render_nao_usa_relogio_acaso_nem_io() -> None:
@@ -336,11 +423,11 @@ def test_render_e_worker_nao_produzem_nem_alteram_a_decisao() -> None:
 
 # --- flag desligada (CD-192, ajuste 3; CD-193, item 3) -------------------------------------------
 
-#: Pré-condição DECLARADA para ligar `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE`: a confirmação jurídica de
-#: que `fundamentacao_dut` atende à "cláusula contratual ou o dispositivo legal" do art. 14 da
-#: RN 623. Enquanto ela não existe, a flag fica desligada e estes testes pinam o estado fechado.
+#: Pré-condição DECLARADA para ligar `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` (CD-231): o parecer do
+#: jurídico sobre o termo v1 e o catálogo revisado de fundamentos, pinado. Enquanto não existem, a
+#: flag fica desligada e estes testes pinam o estado fechado.
 PRECONDICAO_PARA_LIGAR_A_FLAG = (
-    "confirmacao juridica do mapeamento do art. 14 (fundamentacao_dut) e da completude do art. 16, § 1o"
+    "parecer do juridico sobre o termo v1 e catalogo de fundamentos revisado e pinado"
 )
 
 
@@ -350,8 +437,8 @@ def test_estado_fechado_flag_desligada_ate_a_confirmacao_juridica(monkeypatch: p
     monkeypatch.delenv("MAEZO_AUTH_DENIAL_WRITTEN_NOTICE", raising=False)
     assert WorkerRuntimeSettings().auth_denial_written_notice is False, PRECONDICAO_PARA_LIGAR_A_FLAG
     contrato = (_ROOT / "docs/processes/contracts/SP-OP-AUTH-001.md").read_text(encoding="utf-8")
-    assert "Ligar a bandeira tem pre-condicao:** a\nconfirmacao juridica" in contrato
-    assert "completude dos elementos minimos do\nart. 16" in contrato
+    assert "Ligar a bandeira tem pre-condicao:** o parecer do juridico" in contrato
+    assert "catalogo de fundamentos revisado e pinado" in contrato
     result = SendDenialNoticeWorker().execute(_negar())
     assert "entrega_negativa_status" not in result
     assert not [k for k in result if k.startswith("termo_negativa_")]
