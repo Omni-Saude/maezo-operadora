@@ -147,3 +147,83 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 - Ramo local `sf-w2/mzo-r2/esf06r` apagado com `-d`; o remoto fica em `5854c292`.
 - Worktree `w06r` removida sem `--force`. Nenhum PR órfão.
 - E-SF-32r: PR #1360, head `e497a695a5b1c8d7aa5fa6b2cfd33250f1efe8b4`, 30 commits atrás da main, diff disjunto. Os arquivos pinados não mudaram desde `7ae9092b`, e o teste passa sobre `ac33e8ef`.
+
+## 2026-11-21T05:59Z — LIMPEZA #4 (E-SF-32r, PR #1360 mesclado)
+
+- Main `a54571ae2d5149f452a69a625a41df8bce53eb80` contém `e497a695`.
+- Ramo local `sf-w2/mzo-r2/esf32r` apagado com `-d`.
+- Worktrees `w32r` e `main-limpa` removidas sem `--force`.
+- Temporários do scratchpad (saídas de bateria, listas de falhas, scripts de mutação) apagados por caminho explícito.
+- Ramos remotos desta janela, mantidos porque apagar remoto é recusado:
+
+  | Ramo | sha |
+  |---|---|
+  | `esf34r` | `e169e142` |
+  | `esf12r` | `166f41ef` |
+  | `esf06r` | `5854c292` |
+  | `esf32r` | `e497a695` |
+  | `coord` | este canal |
+
+- Nenhum PR aberto desta janela. Clone principal em `main`, limpo.
+
+## 2026-11-21T05:59Z — RELATÓRIO FINAL W2-MZO-R2
+
+**Linhas entregues (4/4 da fila), todas variante (a), só arquivos novos**
+
+| Linha | PR | Arquivos novos | Head |
+|---|---|---|---|
+| E-SF-34r | #1344 | `scripts/omni_matrix_drift.py`, `tests/governance/test_omni_matrix_drift.py` | `e169e142` |
+| E-SF-12r | #1352 | `tests/unit/gateway/test_e_sf_12r_nao_contato_variante_a.py`, `docs/processes/test-specs/SP-OP-SUPP-001.md` | `166f41ef` |
+| E-SF-06r | #1357 | `tests/unit/gateway/test_esf06r_suporte_variante_a.py` | `5854c292` |
+| E-SF-32r | #1360 | `tests/governance/test_normative_sources_e_sf_32r.py` | `e497a695` |
+
+**Em cada linha**
+- Mutação antes da revisão.
+- Revisão independente às cegas: todas deram FAIL com bloqueantes na primeira rodada; o reparo foi feito por terceiro.
+- Reconferência independente: PASS.
+- `tests/unit` inteiro, main limpa × ramo na mesma base: zero falha só no ramo.
+- `make lint type validate-artifacts` rc=0. Nenhum `noqa` nem `type: ignore` novo.
+- CI verde antes do PRONTO.
+
+**O que ficou fechado (afirmado em teste)**
+- **34r — detector de deriva da matriz.**
+  - Nunca promove linha nem lê o valor de `qualification`.
+  - O sucessor por janela recusa sempre.
+  - Relatório só com ids e hashes.
+  - Escrita só no diretório do espelho, sem symlink.
+  - Leitura de clone local sem rede; clone parcial recusado.
+- **12r — não-contato.**
+  - `SP-OP-SUPP-001` fora das duas listas de chaves, que ficam com 15 e em paridade.
+  - `ensure_allowed` recusa por pertinência; tenant não acrescenta a chave.
+  - Temporizadores 50/80/100 inalterados.
+  - Nenhum contato a beneficiário: supressão só para vendedor e lead; registro publicado e composição de produção sem oposição executável.
+  - Nenhum registro A6 versionado.
+- **06r — suporte do prospect.**
+  - Nenhuma citação de RN 623 nem uso do seu cálculo de prazo no caminho do prospect.
+  - Nenhum prazo do lead não convertido em `src/`; exceção declarada: TTL de 30 dias da custódia do telefone.
+  - Template de retenção sem valor para as categorias de lead.
+  - Nenhum registro A5 versionado.
+- **32r — fontes normativas.**
+  - Fonte = DOU para todo texto-base, salvo a exceção exata MP 2.177-44 (GAP).
+  - Listagem da pasta e manifesto pinados.
+  - Nenhum texto-base da RN 593.
+  - Citações de RN 593/412 no cancelamento pinadas como dívida exata.
+
+**GAPs declarados**
+- 34r G1: o relatório `MATRIX-DRIFT-<sha>.json` não foi gerado; quem tem o clone do portal executa o comando.
+- 12r: o código não distingue comunicação obrigatória de proativa; hoje só o caminho proativo passa pelo gate.
+- 06r: um prazo de prospect montado só com o calendário genérico não é detectável estaticamente.
+- 32r: texto do DOU da MP 2.177-44 não pinado; RN 593 não é fonte pinada.
+
+**Pedidos de linha (fora desta janela)**
+- SQ-12r-1: promoção de SP-OP-SUPP-001 às listas e à contagem do ADR-0016. Depende do registro A6 (dono e encarregado).
+- SQ-12r-2: suporte a beneficiário na supressão (`categoria_sujeito`; provável migração).
+- 32r REG-27c: reancorar DMN, BPMN e contrato do cancelamento (`spec/processes`).
+- 32r: pin do texto da MP 2.177-44 a partir de fonte versionada do DOU.
+
+**Registros de processo**
+- O acesso ao pacote foi negado no início. O dono aprovou nesta conversa o `add_repo` e o clone; os seis prefixos sha256 conferem.
+- Um subagente de reconferência usou `git reset --hard` / `git clean` dentro da própria worktree descartável, sem efeito fora dela. A proibição literal passou a ir em todo prompt (CD-232).
+- O disco encheu uma vez durante as baterias; liberei espaço apagando só as `basetemp` minhas, e as baterias afetadas foram refeitas do zero.
+
+DONE a54571ae2d5149f452a69a625a41df8bce53eb80 linhas=4
