@@ -7,10 +7,18 @@ de um template versionado. Não envia, não grava e não decide nada.
 
 E-SF-24b (parcial, CD-231): o template vigente é o v1. Ele traz o caput do art. 16 e, num bloco
 próprio com título, os incisos I, II e III do § 1º verbatim do texto-base versionado. O fundamento
-do art. 14 (motivo, cláusula contratual ou dispositivo legal) vem só de um `FundamentoDoTermo` de
-um catálogo pinado. O catálogo ainda não existe (`CATALOGO_DE_FUNDAMENTOS_SHA256 is None`), então
-a composição recusa sempre: porta fechada por construção. `fundamentacao_dut` nunca é lida aqui
-nem substitui o fundamento; a `justificativa_clinica` do auditor entra só como complemento do motivo.
+do art. 14 (motivo, cláusula contratual e/ou dispositivos legais) vem só de um `FundamentoDoTermo`
+de um catálogo pinado, que o repositório de regras vai publicar. O catálogo ainda não existe
+(`CATALOGO_DE_FUNDAMENTOS_SHA256 is None`), então a composição recusa sempre: porta fechada por
+construção. `fundamentacao_dut` nunca é lida aqui nem substitui o fundamento; a
+`justificativa_clinica` do auditor entra só como complemento do motivo.
+
+Dois modos, pelo `status_juridico` do fundamento (com os dois hashes conferidos):
+`aprovado_juridico` compõe o termo para ENTREGA; `pendente` compõe só um RASCUNHO para a pessoa
+que entrega à mão, com a marca `MARCA_RASCUNHO` fora do texto (nunca no texto ao beneficiário);
+`devolvido` ou hash divergente é recusa tipada. O render não registra entrega em nenhum modo.
+Os nomes de campo do catálogo são PROVISÓRIOS até o contrato-k2 do repositório de regras sair:
+ficam todos no bloco "Mapeamento provisório do contrato-k2" abaixo, e só nele.
 
 - O template mora em `spec/policies/ans/templates/` (diretório com dono no CODEOWNERS) e é
   aceito só se o sha256 dos bytes bater com o pino de `DENIAL_TERM_TEMPLATE` (versão + sha256).
@@ -25,9 +33,10 @@ nem substitui o fundamento; a `justificativa_clinica` do auditor entra só como 
   `auditor_id` só de caracteres de largura zero conta como vazio (`is_blank`).
 - Fundamento: sem catálogo pinado, `ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO`; com pino, um
   `FundamentoDoTermo` de tipo errado, com campo vazio ou quebra de linha, sem cláusula nem
-  dispositivo, ou com `hash_do_catalogo` diferente do pino é `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO`.
-  Sem `justificativa_clinica` (o complemento do auditor), `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE`.
-  Os canais da Ouvidoria e o prazo da
+  dispositivo, com status desconhecido, com `hash_do_catalogo` diferente do pino ou com
+  `hash_entrada` diferente do hash da própria entrada é `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO`;
+  status `devolvido` é `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_DEVOLVIDO`. Sem `justificativa_clinica`
+  (o complemento do auditor), `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE`. Os canais da Ouvidoria e o prazo da
   reanálise (art. 16, § 1º, II e III) são dados da operadora, não do processo; faltando, a recusa
   é `ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE`. Nada aqui inventa texto para preencher a falta.
 - Puro e determinístico: o mesmo input dá o mesmo texto e o mesmo sha256. Sem relógio, sem acaso,
@@ -41,9 +50,10 @@ nem substitui o fundamento; a `justificativa_clinica` do auditor entra só como 
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from string import Template
 from typing import Any
@@ -56,14 +66,24 @@ __all__ = [
     "DENIAL_TERM_TEMPLATE",
     "ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO",
     "ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE",
+    "ERR_AUTH_DENIAL_TERM_FUNDAMENTO_DEVOLVIDO",
     "ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO",
     "ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE",
     "ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO",
     "DenialTermRefusalError",
+    "MARCA_RASCUNHO",
+    "MODO_ENTREGA",
+    "MODO_RASCUNHO",
+    "STATUS_APROVADO_JURIDICO",
+    "STATUS_DEVOLVIDO",
+    "STATUS_PENDENTE",
+    "ClausulaContratual",
     "DenialTermTemplate",
+    "DispositivoLegal",
     "FundamentoDoTermo",
     "RenderedDenialTerm",
     "TemplatePin",
+    "hash_da_entrada",
     "load_denial_term_template",
     "render_denial_term",
 ]
@@ -73,6 +93,7 @@ ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE = "ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSEN
 ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE = "ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE"
 ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO = "ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO"
 ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO = "ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO"
+ERR_AUTH_DENIAL_TERM_FUNDAMENTO_DEVOLVIDO = "ERR_AUTH_DENIAL_TERM_FUNDAMENTO_DEVOLVIDO"
 
 #: Teto do art. 16, § 1º, III: "não superior a sete dias úteis".
 _PRAZO_REANALISE_MAX_DIAS_UTEIS = 7
@@ -105,21 +126,6 @@ DENIAL_TERM_TEMPLATE = TemplatePin(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class FundamentoDoTermo:
-    """Fundamento do art. 14 vindo de uma regra de um catálogo pinado (nunca texto livre).
-
-    O art. 14 pede "a cláusula contratual ou o dispositivo legal": ao menos um dos dois.
-    """
-
-    id_regra: str
-    versao_regra: str
-    motivo_texto: str
-    clausula_contratual: str | None
-    dispositivo_legal: str | None
-    hash_do_catalogo: str
-
-
 class DenialTermRefusalError(ValueError):
     """Recusa tipada do render: o termo não é composto, e a recusa diz por quê."""
 
@@ -141,10 +147,138 @@ class DenialTermTemplate:
 
 @dataclass(frozen=True, slots=True)
 class RenderedDenialTerm:
+    """Termo composto. `modo` diz se é para ENTREGA ou só RASCUNHO de quem entrega à mão; a marca
+    do rascunho fica em `marca`, fora de `texto` (o texto nunca carrega a marca)."""
+
     texto: str
     sha256: str
     template_versao: str
     template_sha256: str
+    modo: str
+    marca: str | None
+
+
+# --- Mapeamento provisório do contrato-k2 -----------------------------------------------------
+# ÚNICO ponto que conhece a forma da entrada do catálogo de fundamentos (bloco k2/termo-negativa
+# do repositório de regras, chave id_regra + versão × modelo de contrato). Os nomes são
+# PROVISÓRIOS até o contrato-k2 sair; quando sair, muda-se só este bloco.
+
+STATUS_PENDENTE = "pendente"
+STATUS_APROVADO_JURIDICO = "aprovado_juridico"
+STATUS_DEVOLVIDO = "devolvido"
+_STATUS_JURIDICOS = frozenset({STATUS_PENDENTE, STATUS_APROVADO_JURIDICO, STATUS_DEVOLVIDO})
+
+MODO_ENTREGA = "entrega"
+MODO_RASCUNHO = "rascunho"
+
+#: Marca do rascunho de fundamento pendente. Vai em `RenderedDenialTerm.marca`, nunca no texto.
+MARCA_RASCUNHO = "fundamento sem revisão jurídica"
+
+
+@dataclass(frozen=True, slots=True)
+class DispositivoLegal:
+    id_fonte: str
+    localizador: str
+    rotulo: str
+
+
+@dataclass(frozen=True, slots=True)
+class ClausulaContratual:
+    ancora: str
+    secao: str
+    texto: str
+    versao_contrato: str
+
+
+@dataclass(frozen=True, slots=True)
+class FundamentoDoTermo:
+    """Entrada do catálogo pinado de fundamentos do art. 14 (nunca texto livre).
+
+    O art. 14 pede "a cláusula contratual ou o dispositivo legal": ao menos uma cláusula ou um
+    dispositivo. `hash_entrada` é o sha256 da própria entrada (`hash_da_entrada`);
+    `hash_do_catalogo`, o do catálogo inteiro, conferido contra `CATALOGO_DE_FUNDAMENTOS_SHA256`.
+    """
+
+    id_regra: str
+    versao_regra: str
+    modelo_contrato: str
+    motivo_texto: str
+    clausula_contratual: ClausulaContratual | None
+    dispositivos_legais: tuple[DispositivoLegal, ...]
+    status_juridico: str
+    hash_do_catalogo: str
+    hash_entrada: str
+
+
+_CAMPOS_DE_TEXTO = ("id_regra", "versao_regra", "modelo_contrato", "motivo_texto", "status_juridico")
+_HASHES = ("hash_do_catalogo", "hash_entrada")
+
+
+def hash_da_entrada(fundamento: FundamentoDoTermo) -> str:
+    """sha256 da forma canônica da entrada (todos os campos menos os dois hashes)."""
+    entrada = {k: v for k, v in asdict(fundamento).items() if k not in _HASHES}
+    canonica = json.dumps(entrada, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return _sha256(canonica.encode("utf-8"))
+
+
+def _linhas_do_fundamento(fundamento: FundamentoDoTermo) -> list[str]:
+    linhas = []
+    if fundamento.clausula_contratual is not None:
+        clausula = fundamento.clausula_contratual
+        linhas.append(f"{clausula.secao.strip()} — {clausula.texto.strip()}")
+    linhas.extend(d.rotulo.strip() for d in fundamento.dispositivos_legais)
+    return linhas
+
+
+def _campos_invalidos(fundamento: FundamentoDoTermo) -> list[str]:
+    invalidos = [
+        nome for nome in (*_CAMPOS_DE_TEXTO, *_HASHES) if not _linha_valida(getattr(fundamento, nome))
+    ]
+    if fundamento.status_juridico not in _STATUS_JURIDICOS and "status_juridico" not in invalidos:
+        invalidos.append("status_juridico")
+    clausula = fundamento.clausula_contratual
+    if clausula is not None and (
+        not isinstance(clausula, ClausulaContratual)
+        or not all(_linha_valida(getattr(clausula, f.name)) for f in fields(ClausulaContratual))
+    ):
+        invalidos.append("clausula_contratual")
+    dispositivos = fundamento.dispositivos_legais
+    if not isinstance(dispositivos, tuple) or not all(
+        isinstance(d, DispositivoLegal)
+        and all(_linha_valida(getattr(d, f.name)) for f in fields(DispositivoLegal))
+        for d in dispositivos
+    ):
+        invalidos.append("dispositivos_legais")
+    elif clausula is None and not dispositivos:
+        invalidos.append("clausula_contratual|dispositivos_legais")
+    return invalidos
+
+
+def _linha_valida(value: Any) -> bool:
+    return isinstance(value, str) and not is_blank(value) and "\n" not in value and "\r" not in value
+
+
+def _fundamento(value: Any) -> tuple[str, str, str]:
+    """Confere a porta e devolve (motivo, fundamento, modo); recusa tipada em qualquer falha."""
+    pino = CATALOGO_DE_FUNDAMENTOS_SHA256
+    if pino is None:
+        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO)
+    if not isinstance(value, FundamentoDoTermo):
+        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, ("fundamento",))
+    invalidos = _campos_invalidos(value)
+    if invalidos:
+        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, invalidos)
+    if not _SHA256_HEX.fullmatch(pino) or value.hash_do_catalogo != pino:
+        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, ("hash_do_catalogo",))
+    if value.hash_entrada != hash_da_entrada(value):
+        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, ("hash_entrada",))
+    if value.status_juridico == STATUS_DEVOLVIDO:
+        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_DEVOLVIDO)
+    modo = MODO_ENTREGA if value.status_juridico == STATUS_APROVADO_JURIDICO else MODO_RASCUNHO
+    return value.motivo_texto.strip(), "\n".join(_linhas_do_fundamento(value)), modo
+
+
+# --- fim do mapeamento provisório ---------------------------------------------------------------
 
 
 def _sha256(data: bytes) -> str:
@@ -168,36 +302,6 @@ def _human_denial(record: Mapping[str, Any]) -> bool:
         return False
     auditor_id = record.get("auditor_id")
     return record.get("human_approved") is True or (isinstance(auditor_id, str) and not is_blank(auditor_id))
-
-
-def _linha_valida(value: Any) -> bool:
-    return isinstance(value, str) and not is_blank(value) and "\n" not in value and "\r" not in value
-
-
-def _fundamento(value: Any) -> tuple[str, str]:
-    """Confere a porta e devolve (motivo, fundamento) do catálogo; recusa tipada em qualquer falha."""
-    pino = CATALOGO_DE_FUNDAMENTOS_SHA256
-    if pino is None:
-        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO)
-    if not isinstance(value, FundamentoDoTermo):
-        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, ("fundamento",))
-    invalidos = [
-        nome
-        for nome in ("id_regra", "versao_regra", "motivo_texto", "hash_do_catalogo")
-        if not _linha_valida(getattr(value, nome))
-    ]
-    citados = [
-        nome for nome in ("clausula_contratual", "dispositivo_legal") if getattr(value, nome) is not None
-    ]
-    invalidos += [nome for nome in citados if not _linha_valida(getattr(value, nome))]
-    if not citados:
-        invalidos.append("clausula_contratual|dispositivo_legal")
-    if invalidos:
-        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, invalidos)
-    if not _SHA256_HEX.fullmatch(pino) or value.hash_do_catalogo != pino:
-        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, ("hash_do_catalogo",))
-    fundamento = "\n".join(str(getattr(value, nome)).strip() for nome in citados)
-    return value.motivo_texto.strip(), fundamento
 
 
 def _canais(value: Any) -> str | None:
@@ -238,7 +342,7 @@ def render_denial_term(
     if not _human_denial(record):
         raise DenialTermRefusalError(ERR_DENIAL_NOT_HUMAN)
 
-    motivo, fundamento_texto = _fundamento(fundamento)
+    motivo, fundamento_texto, modo = _fundamento(fundamento)
 
     complemento = record.get(_COMPLEMENTO_DO_MOTIVO)
     if is_blank(complemento):
@@ -268,4 +372,6 @@ def render_denial_term(
         sha256=_sha256(texto.encode("utf-8")),
         template_versao=template.versao,
         template_sha256=template.sha256,
+        modo=modo,
+        marca=MARCA_RASCUNHO if modo == MODO_RASCUNHO else None,
     )

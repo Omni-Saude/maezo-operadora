@@ -9,6 +9,7 @@ mesmo com um fundamento perfeito. Nenhum teste aqui pina catálogo. Fixtures sin
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import hashlib
 import re
@@ -23,9 +24,12 @@ from maezo.tools.workers.denial_term import (
     DENIAL_TERM_TEMPLATE,
     ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO,
     ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO,
+    ClausulaContratual,
     DenialTermRefusalError,
+    DispositivoLegal,
     FundamentoDoTermo,
     TemplatePin,
+    hash_da_entrada,
     load_denial_term_template,
     render_denial_term,
 )
@@ -58,14 +62,24 @@ def _negar() -> dict[str, Any]:
 
 
 def _fundamento_perfeito(hash_do_catalogo: str) -> FundamentoDoTermo:
-    return FundamentoDoTermo(
+    fundamento = FundamentoDoTermo(
         id_regra="REGRA-SINTETICA-001",
         versao_regra="1",
+        modelo_contrato="MODELO-SINTETICO-A",
         motivo_texto="Motivo sintetico do catalogo",
-        clausula_contratual="Clausula sintetica 9.9 — teste",
-        dispositivo_legal="Dispositivo sintetico",
+        clausula_contratual=ClausulaContratual(
+            ancora="ancora-sintetica", secao="Clausula sintetica 9.9", texto="teste", versao_contrato="1"
+        ),
+        dispositivos_legais=(
+            DispositivoLegal(
+                id_fonte="FONTE-SINTETICA", localizador="art. 1", rotulo="Dispositivo sintetico"
+            ),
+        ),
+        status_juridico="aprovado_juridico",
         hash_do_catalogo=hash_do_catalogo,
+        hash_entrada="",
     )
+    return dataclasses.replace(fundamento, hash_entrada=hash_da_entrada(fundamento))
 
 
 # --- (A) template v1 -----------------------------------------------------------------------------
@@ -159,22 +173,71 @@ def test_sem_catalogo_nada_substitui_o_fundamento(fundamento: Any) -> None:
     assert refused.value.code == ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO
 
 
-def test_o_fundamento_e_um_objeto_fechado_com_os_seis_campos() -> None:
+def test_o_fundamento_e_um_objeto_fechado_com_os_campos_do_catalogo() -> None:
     assert [f.name for f in dataclasses.fields(FundamentoDoTermo)] == [
         "id_regra",
         "versao_regra",
+        "modelo_contrato",
         "motivo_texto",
         "clausula_contratual",
-        "dispositivo_legal",
+        "dispositivos_legais",
+        "status_juridico",
         "hash_do_catalogo",
+        "hash_entrada",
     ]
+    assert [f.name for f in dataclasses.fields(ClausulaContratual)] == [
+        "ancora",
+        "secao",
+        "texto",
+        "versao_contrato",
+    ]
+    assert [f.name for f in dataclasses.fields(DispositivoLegal)] == ["id_fonte", "localizador", "rotulo"]
     fundamento = _fundamento_perfeito("0" * 64)
     campo, valor = "hash_do_catalogo", "a" * 64
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(fundamento, campo, valor)
     assert fundamento.hash_do_catalogo == "0" * 64
-    # Com slots não há `__dict__`: nenhum campo além dos seis.
-    assert not hasattr(fundamento, "__dict__")
+    # Com slots não há `__dict__`: nenhum campo além dos declarados.
+    for objeto in (fundamento, fundamento.clausula_contratual, fundamento.dispositivos_legais[0]):
+        assert not hasattr(objeto, "__dict__")
+
+
+#: Nomes de campo PROVISÓRIOS do contrato-k2: só o bloco do mapeamento pode lê-los. `texto` sai
+#: da varredura porque também é campo do template e do termo composto (nomes do próprio módulo).
+_CAMPOS_K2 = frozenset(
+    f.name
+    for cls in (FundamentoDoTermo, ClausulaContratual, DispositivoLegal)
+    for f in dataclasses.fields(cls)
+) - {
+    f.name
+    for cls in (denial_term.DenialTermTemplate, denial_term.RenderedDenialTerm)
+    for f in dataclasses.fields(cls)
+}
+
+
+def test_o_mapeamento_provisorio_do_contrato_k2_fica_num_unico_ponto() -> None:
+    """Até o contrato-k2 sair, só o bloco marcado em `denial_term.py` lê campos do catálogo; nenhum
+    outro módulo de `src/` conhece os tipos do catálogo."""
+    fonte = Path(denial_term.__file__).read_text(encoding="utf-8")
+    linhas = fonte.splitlines()
+    inicio = next(i for i, linha in enumerate(linhas, 1) if "Mapeamento provisório do contrato-k2" in linha)
+    fim = next(i for i, linha in enumerate(linhas, 1) if "fim do mapeamento provisório" in linha)
+    assert inicio < fim
+    arvore = ast.parse(fonte)
+    leituras = [
+        (n.attr, n.lineno) for n in ast.walk(arvore) if isinstance(n, ast.Attribute) and n.attr in _CAMPOS_K2
+    ]
+    assert leituras  # controle: a varredura vê as leituras do bloco
+    assert not [(attr, linha) for attr, linha in leituras if not inicio < linha < fim]
+    tipos = {"FundamentoDoTermo", "ClausulaContratual", "DispositivoLegal", "hash_da_entrada"}
+    for path in sorted((_ROOT / "src").rglob("*.py")):
+        if path.resolve() == Path(denial_term.__file__).resolve():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        nomes = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        nomes |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        nomes |= {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
+        assert not nomes & tipos, path
 
 
 def test_a_recusa_por_catalogo_vem_antes_de_ler_o_fundamento(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -191,4 +254,5 @@ def test_a_recusa_por_catalogo_vem_antes_de_ler_o_fundamento(monkeypatch: pytest
     )
     assert "Motivo sintetico do catalogo\nMotivo sintetico para teste\n" in termo.texto
     assert "Clausula sintetica 9.9 — teste\nDispositivo sintetico\n" in termo.texto
+    assert termo.modo == "entrega"
     assert _TITULO_DO_BLOCO in termo.texto

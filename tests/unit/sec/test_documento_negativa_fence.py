@@ -9,6 +9,7 @@ provada em `test_termo_negativa_v1_porta.py`. Fixtures sintéticas; nenhum dado 
 from __future__ import annotations
 
 import ast
+import dataclasses
 import hashlib
 import re
 from dataclasses import fields
@@ -23,12 +24,19 @@ from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN
 from maezo.tools.workers.denial_term import (
     DENIAL_TERM_TEMPLATE,
     ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE,
+    ERR_AUTH_DENIAL_TERM_FUNDAMENTO_DEVOLVIDO,
     ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO,
     ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE,
     ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO,
+    MARCA_RASCUNHO,
+    MODO_ENTREGA,
+    MODO_RASCUNHO,
+    ClausulaContratual,
     DenialTermRefusalError,
     DenialTermTemplate,
+    DispositivoLegal,
     FundamentoDoTermo,
+    hash_da_entrada,
     load_denial_term_template,
     render_denial_term,
 )
@@ -56,17 +64,29 @@ def _catalogo_sintetico_pinado(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(denial_term, "CATALOGO_DE_FUNDAMENTOS_SHA256", _CATALOGO_SINTETICO)
 
 
+_CLAUSULA = ClausulaContratual(
+    ancora="ancora-sintetica", secao="Clausula sintetica 9.9", texto="teste", versao_contrato="1"
+)
+
+
 def _fundamento(**overrides: Any) -> FundamentoDoTermo:
+    """Entrada sintética do catálogo; `hash_entrada` é recalculado salvo quando o teste o fixa."""
     campos: dict[str, Any] = {
         "id_regra": "REGRA-SINTETICA-001",
         "versao_regra": "1",
+        "modelo_contrato": "MODELO-SINTETICO-A",
         "motivo_texto": "Motivo sintetico do catalogo",
-        "clausula_contratual": "Clausula sintetica 9.9 — teste",
-        "dispositivo_legal": None,
+        "clausula_contratual": _CLAUSULA,
+        "dispositivos_legais": (),
+        "status_juridico": "aprovado_juridico",
         "hash_do_catalogo": _CATALOGO_SINTETICO,
+        "hash_entrada": "",
     }
     campos.update(overrides)
-    return FundamentoDoTermo(**campos)
+    fundamento = FundamentoDoTermo(**campos)
+    if "hash_entrada" not in overrides:
+        fundamento = dataclasses.replace(fundamento, hash_entrada=hash_da_entrada(fundamento))
+    return fundamento
 
 
 #: E4 — frases genéricas vedadas: a negativa nunca é justificada por fórmula sem o motivo real.
@@ -121,32 +141,81 @@ def test_sem_o_complemento_clinico_do_auditor_nao_ha_termo(blank: object) -> Non
     assert refused.value.missing == ("justificativa_clinica",)
 
 
+_DISPOSITIVO = DispositivoLegal(
+    id_fonte="FONTE-SINTETICA", localizador="art. 1", rotulo="Dispositivo sintetico"
+)
+
+
 @pytest.mark.parametrize(
     ("overrides", "missing"),
     [
         (
-            {"clausula_contratual": None, "dispositivo_legal": None},
-            ("clausula_contratual|dispositivo_legal",),
+            {"clausula_contratual": None, "dispositivos_legais": ()},
+            ("clausula_contratual|dispositivos_legais",),
         ),
-        ({"clausula_contratual": "   "}, ("clausula_contratual",)),
-        ({"clausula_contratual": None, "dispositivo_legal": "\u200b"}, ("dispositivo_legal",)),
+        ({"clausula_contratual": dataclasses.replace(_CLAUSULA, secao="   ")}, ("clausula_contratual",)),
+        ({"clausula_contratual": "Clausula em texto livre"}, ("clausula_contratual",)),
+        ({"dispositivos_legais": [_DISPOSITIVO]}, ("dispositivos_legais",)),
+        ({"dispositivos_legais": ("Dispositivo em texto livre",)}, ("dispositivos_legais",)),
+        (
+            {"dispositivos_legais": (dataclasses.replace(_DISPOSITIVO, rotulo="\u200b"),)},
+            ("dispositivos_legais",),
+        ),
         ({"motivo_texto": ""}, ("motivo_texto",)),
         ({"motivo_texto": "linha 1\nlinha forjada"}, ("motivo_texto",)),
         ({"id_regra": None}, ("id_regra",)),
         ({"versao_regra": 1}, ("versao_regra",)),
+        ({"modelo_contrato": " "}, ("modelo_contrato",)),
+        ({"status_juridico": "aprovado"}, ("status_juridico",)),
         ({"hash_do_catalogo": ""}, ("hash_do_catalogo",)),
         ({"hash_do_catalogo": "0" * 64}, ("hash_do_catalogo",)),
+        ({"hash_entrada": "0" * 64}, ("hash_entrada",)),
     ],
 )
 def test_negativa_exige_clausula_contratual_ou_dispositivo_legal(
     overrides: dict[str, Any], missing: tuple[str, ...]
 ) -> None:
-    """Art. 14: o fundamento do catálogo precisa de motivo e de cláusula OU dispositivo, com hash
-    conferido; qualquer falha é recusa tipada, nunca texto inventado."""
+    """Art. 14: o fundamento do catálogo precisa de motivo e de cláusula OU dispositivo, com os dois
+    hashes conferidos; qualquer falha é recusa tipada, nunca texto inventado."""
     with pytest.raises(DenialTermRefusalError) as refused:
         _render(fundamento=_fundamento(**overrides))
     assert refused.value.code == ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO
     assert refused.value.missing == missing
+
+
+def test_entrada_alterada_depois_do_hash_e_recusada() -> None:
+    adulterada = dataclasses.replace(_fundamento(), motivo_texto="Motivo trocado depois do hash")
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(fundamento=adulterada)
+    assert refused.value.code == ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO
+    assert refused.value.missing == ("hash_entrada",)
+
+
+def test_fundamento_devolvido_pelo_juridico_e_recusado() -> None:
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(fundamento=_fundamento(status_juridico="devolvido"))
+    assert refused.value.code == ERR_AUTH_DENIAL_TERM_FUNDAMENTO_DEVOLVIDO
+
+
+def test_aprovado_juridico_e_para_entrega_e_pendente_so_rascunho_com_a_marca_fora_do_texto() -> None:
+    entrega = _render()
+    rascunho = _render(fundamento=_fundamento(status_juridico="pendente"))
+    assert (entrega.modo, entrega.marca) == (MODO_ENTREGA, None)
+    assert (rascunho.modo, rascunho.marca) == (MODO_RASCUNHO, MARCA_RASCUNHO)
+    assert MARCA_RASCUNHO == "fundamento sem revisão jurídica"
+    # A marca nunca entra no texto ao beneficiário; o texto é o mesmo nos dois modos.
+    for termo in (entrega, rascunho):
+        assert "revisão jurídica" not in termo.texto.lower()
+        assert "rascunho" not in termo.texto.lower()
+    assert rascunho.texto == entrega.texto
+
+
+def test_o_rascunho_nao_vira_termo_entregue_no_registro() -> None:
+    """O render não registra nada: o worker continua só com o pino e `entrega_manual_pendente`."""
+    _render(fundamento=_fundamento(status_juridico="pendente"))
+    result = SendDenialNoticeWorker(written_notice=True).execute(_negar())
+    assert result["entrega_negativa_status"] == "entrega_manual_pendente"
+    assert not [k for k in result if "rascunho" in k or "modo" in k]
 
 
 def test_fundamentacao_dut_nunca_substitui_o_fundamento() -> None:
@@ -330,10 +399,17 @@ def test_render_da_negativa_e_puro_e_completo() -> None:
     lowered = first.texto.lower()
     assert not [p for p in _GENERIC_PHRASES if p in lowered]
     # Fundamento diferente, termo diferente (o sha256 depende do conteúdo).
-    outro = _render(fundamento=_fundamento(clausula_contratual="Outra clausula sintetica"))
+    outro = _render(fundamento=_fundamento(clausula_contratual=dataclasses.replace(_CLAUSULA, texto="outro")))
     assert outro.sha256 != first.sha256
-    com_os_dois = _render(fundamento=_fundamento(dispositivo_legal="Dispositivo sintetico")).texto
-    assert "Clausula sintetica 9.9 — teste\nDispositivo sintetico\n" in com_os_dois
+    segundo = dataclasses.replace(_DISPOSITIVO, rotulo="Outro dispositivo sintetico")
+    com_os_tres = _render(fundamento=_fundamento(dispositivos_legais=(_DISPOSITIVO, segundo))).texto
+    assert (
+        "Clausula sintetica 9.9 — teste\nDispositivo sintetico\nOutro dispositivo sintetico\n" in com_os_tres
+    )
+    so_dispositivo = _render(
+        fundamento=_fundamento(clausula_contratual=None, dispositivos_legais=(_DISPOSITIVO,))
+    )
+    assert "justifique:\nDispositivo sintetico\n" in so_dispositivo.texto
 
 
 def test_o_render_nao_usa_relogio_acaso_nem_io() -> None:
@@ -403,7 +479,14 @@ def test_render_e_worker_nao_produzem_nem_alteram_a_decisao() -> None:
     snapshot = dict(record)
     rendered = _render(record)
     assert record == snapshot
-    assert {f.name for f in fields(rendered)} == {"texto", "sha256", "template_versao", "template_sha256"}
+    assert {f.name for f in fields(rendered)} == {
+        "texto",
+        "sha256",
+        "template_versao",
+        "template_sha256",
+        "modo",
+        "marca",
+    }
     for flag in (False, True):
         worker_input = _negar()
         out = SendDenialNoticeWorker(written_notice=flag).execute(worker_input)

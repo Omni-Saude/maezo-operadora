@@ -778,16 +778,26 @@ elementos mínimos:"), os incisos I, II e III do § 1° verbatim do texto-base
 canais da Ouvidoria vem logo abaixo do inciso II e o prazo logo abaixo do III.
 
 **Porta do fundamento (E-SF-24b parcial; fechada).** O motivo e a clausula contratual ou o
-dispositivo legal do art. 14 vem so' de um `FundamentoDoTermo` (`id_regra`, `versao_regra`,
-`motivo_texto`, `clausula_contratual`, `dispositivo_legal`, `hash_do_catalogo`) de um catalogo
-pinado, que vira do repositorio de regras e ainda nao existe
-(`CATALOGO_DE_FUNDAMENTOS_SHA256 = None`). Sem pino, a composicao recusa sempre
-(`ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO`): porta fechada por construcao. Com pino, um
-fundamento de tipo errado, com campo vazio ou quebra de linha, sem clausula nem dispositivo, ou
-com hash diferente do pino e' `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO`. A composicao NAO le
-`fundamentacao_dut`, que nunca substitui o fundamento; a `justificativa_clinica` do auditor
-entra so' como complemento do motivo (faltando, `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE`). O
-guard de completude do worker continua exigindo os campos do registro como antes.
+dispositivo legal do art. 14 vem so' de um `FundamentoDoTermo` de um catalogo pinado, que o
+repositorio de regras vai publicar (chave `id_regra` + versao x modelo de contrato) e que ainda
+nao existe (`CATALOGO_DE_FUNDAMENTOS_SHA256 = None`). Campos: `id_regra`, `versao_regra`,
+`modelo_contrato`, `motivo_texto`, `clausula_contratual` (opcional: `ancora`, `secao`, `texto`,
+`versao_contrato`), `dispositivos_legais` (lista, cada um com `id_fonte`, `localizador`,
+`rotulo`), `status_juridico` (`pendente` | `aprovado_juridico` | `devolvido`),
+`hash_do_catalogo` e `hash_entrada`. Pelo menos uma clausula ou um dispositivo. **Os nomes sao
+provisorios** ate o contrato-k2 do repositorio de regras sair, e ficam todos num unico bloco de
+`denial_term.py` ("Mapeamento provisorio do contrato-k2"), cercado por teste.
+
+Sem pino, a composicao recusa sempre (`ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO`): porta fechada
+por construcao. Com pino e os dois hashes conferidos, `aprovado_juridico` compoe o termo para
+ENTREGA; `pendente` compoe so' um RASCUNHO para quem entrega a mao, com a marca "fundamento sem
+revisão jurídica" fora do texto (nunca no texto ao beneficiario) e sem registrar termo entregue;
+`devolvido` e' `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_DEVOLVIDO`. Tipo errado, campo vazio ou com quebra
+de linha, status desconhecido, nem clausula nem dispositivo, ou hash divergente e'
+`ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO`. A composicao NAO le `fundamentacao_dut`, que nunca
+substitui o fundamento; a `justificativa_clinica` do auditor entra so' como complemento do motivo
+(faltando, `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE`). O guard de completude do worker continua
+exigindo os campos do registro como antes.
 
 O render (`maezo.tools.workers.denial_term`) e' puro e deterministico (mesmo input, mesmo
 sha256), nao decide nem altera `decisao_auditor`, so' compoe o termo de uma NEGAR com
