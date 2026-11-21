@@ -15,7 +15,7 @@ Como funciona:
   ("nunca CPF, nome, CNS"); ler esses trechos acusaria a propria proibicao.
 - Falha se o trecho pede um campo do vocabulario cuja chave NAO esta em `permitidos`.
 
-Para adotar num agente novo (U1c): uma linha na tabela de
+Para adotar num agente novo: uma linha na tabela de
 `tests/unit/agents/test_prompt_template_contrato.py`.
 """
 
@@ -33,6 +33,12 @@ VOCABULARIO_DE_CAMPOS: Final[Mapping[str, str]] = {
     "numero_conta": r"\bconta(s)? TISS\b|\bn[uú]mero da conta\b|/conta\b|\bconta/",
     "glosa_id": r"\bglosa_id\b|\bid(entificador)? da glosa\b",
     "protocolo_reembolso": r"\bprotocolos?\b",
+    # U1c: chaves de vinculo dos outros sete agentes
+    "numero_nip_ans": r"\bn[uú]mero da NIP\b|\bnumero_nip_ans\b",
+    "ordem_pagamento_id": r"\bordem de pagamento\b|\bordem_pagamento_id\b",
+    "numero_contrato": r"\bn[uú]mero do contrato\b|\bnumero_contrato\b",
+    "numero_caso": r"\bn[uú]mero do caso\b|\bnumero_caso\b",
+    "feature_snapshot_ref": r"\bponteiros?\b|\bsnapshot\b",
     # identificacao direta e indireta da pessoa
     "relacao_com_titular": r"\bpaciente\b|\btitular\b|\bdependente\b",
     "nome": r"\bnome\b",

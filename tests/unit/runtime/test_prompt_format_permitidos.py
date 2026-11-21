@@ -507,31 +507,31 @@ def _pares_booleanos_permitidos() -> list[tuple[str, dict[str, str], frozenset[s
         ("marina-contas", marina._FATOS_BOOLEANOS_CONTAS, marina._PERMITIDOS_PROMPT_CONTAS),
         ("marina-recurso", marina._FATOS_BOOLEANOS_RECURSO, marina._PERMITIDOS_PROMPT_RECURSO),
         ("marina-reembolso", marina._FATOS_BOOLEANOS_REEMBOLSO, marina._PERMITIDOS_PROMPT_REEMBOLSO),
-        ("valentina", valentina._FATOS_BOOLEANOS, valentina._PERMITIDOS_LEGADO_U1C),
+        ("valentina", valentina._FATOS_BOOLEANOS, valentina._PERMITIDOS_PROMPT),
         (
             "gustavo-ans",
             gustavo._FATOS_BOOLEANOS_ANS_SUBMIT,
-            gustavo._PERMITIDOS_LEGADO_U1C_ANS_SUBMIT,
+            gustavo._PERMITIDOS_PROMPT_ANS_SUBMIT,
         ),
-        ("gustavo-nip", gustavo._FATOS_BOOLEANOS_NIP, gustavo._PERMITIDOS_LEGADO_U1C_NIP),
-        ("beatriz", beatriz._FATOS_BOOLEANOS, beatriz._PERMITIDOS_LEGADO_U1C),
-        ("carolina", carolina._FATOS_BOOLEANOS, carolina._PERMITIDOS_LEGADO_U1C),
+        ("gustavo-nip", gustavo._FATOS_BOOLEANOS_NIP, gustavo._PERMITIDOS_PROMPT_NIP),
+        ("beatriz", beatriz._FATOS_BOOLEANOS, beatriz._PERMITIDOS_PROMPT),
+        ("carolina", carolina._FATOS_BOOLEANOS, carolina._PERMITIDOS_PROMPT),
         (
             "andre",
             {**andre._FATOS_BOOLEANOS_PAGTO, **andre._FATOS_BOOLEANOS_ADEQUACAO},
-            andre._PERMITIDOS_LEGADO_U1C,
+            andre._PERMITIDOS_PROMPT,
         ),
         (
             "fernando-mensagem",
             fernando._FATOS_BOOLEANOS_MENSAGEM,
-            fernando._PERMITIDOS_LEGADO_U1C_MENSAGEM,
+            fernando._PERMITIDOS_PROMPT_MENSAGEM,
         ),
         (
             "fernando-dossie",
             fernando._FATOS_BOOLEANOS_DOSSIE,
-            fernando._PERMITIDOS_LEGADO_U1C_DOSSIE,
+            fernando._PERMITIDOS_PROMPT_DOSSIE,
         ),
-        ("lucas", lucas._FATOS_BOOLEANOS_MENSAGEM, lucas._PERMITIDOS_LEGADO_U1C),
+        ("lucas", lucas._FATOS_BOOLEANOS_MENSAGEM, lucas._PERMITIDOS_PROMPT),
     ]
 
 

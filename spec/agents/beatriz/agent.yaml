@@ -10,8 +10,8 @@ reports_to: "coordenacao-investigacao@amh"   # gestor humano = coordenacao de in
 security_zone: phi                            # PHI integral (CDC/TISS/feature store) na Zona PHI (ADR-0006: Beatriz e Zona PHI)
 graph: graph.py:build
 prompt_versions:                              # versionados (ADR-0009) — gate de eval no golden
-  system: system-v1
-  dossier: dossier-v1                         # dossie de investigacao (corpus que sera selado p/ a UT humana)
+  system: system-v2
+  dossier: dossier-v2                         # dossie de investigacao (corpus que sera selado p/ a UT humana)
 model:
   task_default: { tier: fast }                # gather/montagem do dossie
   reasoning:    { tier: frontier }            # casos com muitos indicadores / dossie complexo

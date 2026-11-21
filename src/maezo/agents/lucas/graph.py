@@ -174,7 +174,7 @@ from maezo.runtime.error_text import (
     start_unavailable_error,
 )
 from maezo.runtime.inference import InferenceProvider
-from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.prompt_format import render_fatos_para_prompt, sem_chaves_retiradas
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -1049,7 +1049,9 @@ _CNAB_REF_DATADA: Final[re.Pattern[str]] = re.compile(r"^amh-billing:(\d{4})-(\d
 #: APRESENTACAO (decisao do dono de 09/10/2026, teste real): o WhatsApp le' asterisco como negrito e
 #: comia parte do rotulo (`****0037` chegava `**0037`). Os fatos continuam guardando o rotulo mascarado;
 #: o texto ao beneficiario diz "boleto final 0037" — so' os digitos do rotulo, nunca asterisco.
-_BOLETO_MASCARADO: Final[re.Pattern[str]] = re.compile(r"^\*{2,}(\d{2,6})$")
+#: `\A`/`\Z` (U1c): `$` aceitaria uma quebra de linha no fim e o rotulo sairia com ela; os
+#: chamadores tiram o espaco das pontas antes (`"****0037 "` e `"****0037\n"` -> `0037`).
+_BOLETO_MASCARADO: Final[re.Pattern[str]] = re.compile(r"\A\*{2,}(\d{2,6})\Z")
 #: Rotulo mascarado escrito pelo MODELO (rota de rascunho), com ou sem o "final" na frente: vira a forma
 #: de apresentacao antes da cerca, que confere os digitos com os fatos.
 _BOLETO_MASCARADO_NO_RASCUNHO: Final[re.Pattern[str]] = re.compile(
@@ -1071,14 +1073,22 @@ def _data_dos_fatos(state: LucasState) -> str | None:
 
 
 def _rotulo_boleto(state: LucasState) -> str | None:
-    rotulo = str(state.get("numero_boleto") or "")
+    rotulo = str(state.get("numero_boleto") or "").strip()
     return rotulo if _BOLETO_MASCARADO.match(rotulo) else None
+
+
+def _boleto_para_o_prompt(state: LucasState) -> str | None:
+    """U1c: o boleto como o PROMPT o ve — o rotulo mascarado (`_rotulo_boleto`) na forma de
+    apresentacao (`"****0037"` -> `"final 0037"`), ou `None` quando o estado nao traz rotulo mascarado
+    (numero inteiro, `SIM-...` da simulada, texto qualquer). Nunca o valor cru."""
+    rotulo = _rotulo_boleto(state)
+    return _boleto_do_rascunho_sem_asterisco(rotulo) if rotulo is not None else None
 
 
 def boleto_no_texto(rotulo: object) -> str | None:
     """`"****0037"` -> `"boleto final 0037"`; `None` para o que nao e' rotulo mascarado (o `SIM-...` da
     simulada, vazio, lixo). E' a UNICA forma em que um boleto chega ao beneficiario."""
-    achado = _BOLETO_MASCARADO.match(rotulo) if isinstance(rotulo, str) else None
+    achado = _BOLETO_MASCARADO.match(rotulo.strip()) if isinstance(rotulo, str) else None
     return f"boleto final {achado.group(1)}" if achado else None
 
 
@@ -3329,11 +3339,12 @@ class RespostaRecusadaError(RuntimeError):
         self.response_kind = response_kind
 
 
-#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
-#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
-#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
-#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
-_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+#: DL-0191 / U1c (ADR-0079 §2): as UNICAS chaves de `fatos` que chegam ao prompt do rascunho.
+#: Lista FECHADA, igual as chaves de hoje: nenhuma e' identificador da pessoa. `numero_boleto` fica
+#: porque a mensagem cita o boleto, mas o PROMPT so' recebe o rotulo mascarado na forma de
+#: apresentacao ("final 0037", `_boleto_para_o_prompt`), nunca o valor cru do estado: um numero
+#: inteiro (linha digitavel, nosso numero) ou um texto qualquer nesse campo vira `None` (SEM DADO).
+_PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(
     {
         "tipo_solicitacao",
         "competencia",
@@ -3344,6 +3355,12 @@ _PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
         "vencimento",
     }
 )
+
+#: U1c: as chaves que este sitio tira do prompt DE PROPOSITO (as da lista acima que ficaram de fora).
+#: O recorte tira SO' estas (`sem_chaves_retiradas`); o resto do fechamento e' do renderizador, que
+#: descarta e CONTA uma chave nova de um montador (log + `maezo_prompt_fatos_descartados_total`).
+#: Vazia: nenhuma chave sai inteira; o boleto vai mascarado (`_boleto_para_o_prompt`).
+_RETIRADAS_DO_PROMPT: Final[frozenset[str]] = frozenset()
 
 
 class LucasGraph:
@@ -4388,13 +4405,15 @@ class LucasGraph:
                 facts["vencimento"] = vencimento
         # O modelo ve' o boleto na forma de apresentacao ("final 0037"): asterisco no rascunho vira negrito
         # no WhatsApp. A cerca continua recebendo o rotulo mascarado dos fatos (`facts`).
-        fatos_do_prompt = dict(facts)
-        if isinstance(facts.get("numero_boleto"), str):
-            fatos_do_prompt["numero_boleto"] = _boleto_do_rascunho_sem_asterisco(facts["numero_boleto"])
+        # U1c: o prompt recebe `facts` sem as chaves retiradas, e o boleto SO' como rotulo mascarado — antes
+        # ia o valor cru do estado, e um numero inteiro ou um texto qualquer no campo chegava ao modelo.
+        fatos_do_prompt = sem_chaves_retiradas(facts, _RETIRADAS_DO_PROMPT)
+        if "numero_boleto" in fatos_do_prompt:
+            fatos_do_prompt["numero_boleto"] = _boleto_para_o_prompt(state)
         fatos_txt = render_fatos_para_prompt(
             fatos_do_prompt,
             booleanos=_FATOS_BOOLEANOS_MENSAGEM,
-            permitidos=_PERMITIDOS_LEGADO_U1C,
+            permitidos=_PERMITIDOS_PROMPT,
             agente="lucas",
         )
         prompt = f"{message_prompt()}\n\n{fatos_txt}"

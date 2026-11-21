@@ -157,7 +157,7 @@ from maezo.runtime.error_text import (
     start_unavailable_error,
 )
 from maezo.runtime.inference import InferenceProvider
-from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.prompt_format import render_fatos_para_prompt, sem_chaves_retiradas
 from maezo.runtime.start_outcome import (
     notify_start_failure as emit_start_failure_notice,
 )
@@ -703,13 +703,31 @@ _PERMITIDOS_PROMPT_POR_FLUXO: Final[dict[str, frozenset[str]]] = {
 }
 
 
-def fatos_para_prompt(facts: dict[str, Any], permitidos: frozenset[str]) -> dict[str, Any]:
-    """Recorta `fatos` pela lista fechada do fluxo (DL-0191), na ordem do montador.
+#: U1c: as chaves que cada fluxo tira do prompt DE PROPOSITO (DL-0191, mesmas razoes da lista
+#: acima). O recorte tira SO' estas; o resto do fechamento e' do renderizador, pela lista do fluxo.
+_RETIRADAS_DO_PROMPT_CONTAS: Final[frozenset[str]] = frozenset(
+    {"numero_guia_tiss", "numero_lote_tiss", "numero_conta"}
+)
+_RETIRADAS_DO_PROMPT_RECURSO: Final[frozenset[str]] = frozenset({"numero_guia_tiss", "cid10", "glosa_id"})
+_RETIRADAS_DO_PROMPT_REEMBOLSO: Final[frozenset[str]] = frozenset(
+    {"numero_guia_tiss", "protocolo_reembolso", "relacao_com_titular"}
+)
+_RETIRADAS_DO_PROMPT_POR_FLUXO: Final[dict[str, frozenset[str]]] = {
+    "contas": _RETIRADAS_DO_PROMPT_CONTAS,
+    "recurso": _RETIRADAS_DO_PROMPT_RECURSO,
+    "reembolso": _RETIRADAS_DO_PROMPT_REEMBOLSO,
+}
 
-    So' leitura: o dicionario do dossie nao muda. O renderizador do runtime aplica a mesma lista
-    de novo; recortar antes faz o descarte dele valer como alarme, e nao como rotina.
+
+def fatos_para_prompt(facts: dict[str, Any], retiradas: frozenset[str]) -> dict[str, Any]:
+    """Tira de `fatos` as chaves que o fluxo retira de proposito (DL-0191), na ordem do montador.
+
+    So' leitura: o dicionario do dossie nao muda. NAO recorta pela lista `permitidos`: uma chave
+    nova num montador chega ao renderizador, que a descarta e a registra (log
+    `prompt_fatos_chaves_fora_da_lista_descartadas` e contador
+    `maezo_prompt_fatos_descartados_total{agente="marina"}`) — o alarme de chave inesperada (U1c).
     """
-    return {chave: valor for chave, valor in facts.items() if chave in permitidos}
+    return sem_chaves_retiradas(facts, retiradas)
 
 
 class MarinaGraph:
@@ -1292,10 +1310,11 @@ class MarinaGraph:
         motivo_humano = state.get("motivo_humano") if route == "human_review" else None
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
         booleanos = _FATOS_BOOLEANOS_POR_FLUXO.get(flow, _FATOS_BOOLEANOS_CONTAS)
-        # DL-0191: `facts` segue intacto no dossie devolvido abaixo; o prompt recebe so' o
-        # recorte da lista fechada do fluxo (sem guia nem CID-10).
+        # DL-0191: `facts` segue intacto no dossie devolvido abaixo; o prompt recebe `facts` sem
+        # as chaves retiradas do fluxo (sem guia nem CID-10) e o renderizador fecha pela lista.
         permitidos = _PERMITIDOS_PROMPT_POR_FLUXO.get(flow, _PERMITIDOS_PROMPT_CONTAS)
-        fatos_do_prompt = fatos_para_prompt(facts, permitidos)
+        retiradas = _RETIRADAS_DO_PROMPT_POR_FLUXO.get(flow, _RETIRADAS_DO_PROMPT_CONTAS)
+        fatos_do_prompt = fatos_para_prompt(facts, retiradas)
         fatos_txt = render_fatos_para_prompt(
             fatos_do_prompt, booleanos=booleanos, permitidos=permitidos, agente="marina"
         )

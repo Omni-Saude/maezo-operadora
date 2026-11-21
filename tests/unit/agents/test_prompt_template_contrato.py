@@ -1,6 +1,6 @@
 """DL-0191: o texto de cada prompt so' pede ao modelo campo que a lista fechada do sitio manda.
 
-Ver `tests/support/contrato_do_prompt.py`. Para adotar outro agente (U1c), acrescente UMA linha a
+Ver `tests/support/contrato_do_prompt.py`. Para adotar outro agente, acrescente UMA linha a
 `_TEMPLATES`: (sitio, funcao do template, lista do sitio, marcador de inicio, marcador de fim).
 """
 
@@ -10,10 +10,24 @@ from collections.abc import Callable
 
 import pytest
 
+from maezo.agents.andre import graph as andre
+from maezo.agents.andre import prompts as andre_prompts
+from maezo.agents.beatriz import graph as beatriz
+from maezo.agents.beatriz import prompts as beatriz_prompts
+from maezo.agents.carolina import graph as carolina
+from maezo.agents.carolina import prompts as carolina_prompts
+from maezo.agents.fernando import graph as fernando
+from maezo.agents.fernando import prompts as fernando_prompts
+from maezo.agents.gustavo import graph as gustavo
+from maezo.agents.gustavo import prompts as gustavo_prompts
+from maezo.agents.lucas import graph as lucas
+from maezo.agents.lucas import prompts as lucas_prompts
 from maezo.agents.marina import graph as marina
 from maezo.agents.marina import prompts as marina_prompts
 from maezo.agents.rafael import graph as rafael
 from maezo.agents.rafael import prompts as rafael_prompts
+from maezo.agents.valentina import graph as valentina
+from maezo.agents.valentina import prompts as valentina_prompts
 from tests.support.contrato_do_prompt import (
     VOCABULARIO_DE_CAMPOS,
     campos_pedidos_fora_da_lista,
@@ -44,6 +58,47 @@ _TEMPLATES: list[_Template] = [
         "Tarefa:",
         "REGRAS DURAS:",
     ),
+    # U1c: os outros sete agentes do dossie (o fim e' o comeco das proibicoes, que NOMEIAM o dado).
+    (
+        "valentina.stratify",
+        valentina_prompts.stratification_prompt,
+        valentina._PERMITIDOS_PROMPT,
+        "Tarefa:",
+        "Cada",
+    ),
+    (
+        "valentina.enroll",
+        valentina_prompts.care_plan_prompt,
+        valentina._PERMITIDOS_PROMPT,
+        "Tarefa:",
+        "O plano",
+    ),
+    (
+        "gustavo.ans",
+        gustavo_prompts.dossier_prompt,
+        gustavo._PERMITIDOS_PROMPT_ANS_SUBMIT,
+        "Tarefa:",
+        "Cite os",
+    ),
+    ("gustavo.nip", gustavo_prompts.dossier_prompt, gustavo._PERMITIDOS_PROMPT_NIP, "Tarefa:", "Cite os"),
+    (
+        "fernando.msg",
+        fernando_prompts.message_prompt,
+        fernando._PERMITIDOS_PROMPT_MENSAGEM,
+        "Tarefa:",
+        "NUNCA",
+    ),
+    (
+        "fernando.dossie",
+        fernando_prompts.dossier_prompt,
+        fernando._PERMITIDOS_PROMPT_DOSSIE,
+        "Tarefa:",
+        "Cite os",
+    ),
+    ("andre.dossier", andre_prompts.dossier_prompt, andre._PERMITIDOS_PROMPT, "Tarefa:", "Cite os"),
+    ("beatriz.dossier", beatriz_prompts.dossier_prompt, beatriz._PERMITIDOS_PROMPT, "Tarefa:", "NAO acuse"),
+    ("carolina.dossier", carolina_prompts.dossier_prompt, carolina._PERMITIDOS_PROMPT, "Tarefa:", "Cite os"),
+    ("lucas.message", lucas_prompts.message_prompt, lucas._PERMITIDOS_PROMPT, "Tarefa:", "TOM DA CONVERSA"),
 ]
 
 
@@ -72,6 +127,11 @@ REGRAS DURAS: nunca cite a guia."""
         ("o glosa_id e o CID-10", ["cid10", "glosa_id"]),
         ("o protocolo de reembolso e o paciente", ["protocolo_reembolso", "relacao_com_titular"]),
         ("os documentos enviados e o resumo FHIR", ["documentos_refs", "patient_facts"]),
+        ("o numero da NIP e a ordem de pagamento", ["numero_nip_ans", "ordem_pagamento_id"]),
+        (
+            "o numero do contrato, o numero do caso e os ponteiros",
+            ["feature_snapshot_ref", "numero_caso", "numero_contrato"],
+        ),
         ("o tipo de lote", []),
     ],
 )

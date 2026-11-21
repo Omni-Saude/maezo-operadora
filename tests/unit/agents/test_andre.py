@@ -256,13 +256,13 @@ def test_andre_agent_yaml_owns_sp_op_pagto_001() -> None:
     assert data["id"] == "andre"
     assert data["security_zone"] == "phi"
     assert "SP-OP-PAGTO-001" in str(data)
-    assert data["prompt_versions"] == {"system": "system-v1", "dossier": "dossier-v1"}
+    assert data["prompt_versions"] == {"system": "system-v1", "dossier": "dossier-v2"}
 
 
 def test_andre_prompt_versions_match_agent_yaml() -> None:
     from maezo.agents.andre.graph import PROMPT_VERSIONS
 
-    assert PROMPT_VERSIONS == {"system": "system-v1", "dossier": "dossier-v1"}
+    assert PROMPT_VERSIONS == {"system": "system-v1", "dossier": "dossier-v2"}
 
 
 # ---------------------------------------------------------------------------

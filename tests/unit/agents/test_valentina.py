@@ -1007,7 +1007,7 @@ async def test_task_enroll_uses_care_plan_prompt_version() -> None:
     _register_sla(dmn)
     compiled = _graph(dmn=dmn).compile_graph().compile()
     result = await compiled.ainvoke(_consented_state(task="enroll"))
-    assert result["dossier"]["prompt_version"] == "care-plan-v1"
+    assert result["dossier"]["prompt_version"] == "care-plan-v2"
     assert result["dossier"]["task"] == "enroll"
 
 
@@ -1019,7 +1019,7 @@ async def test_default_task_stratify_uses_stratification_prompt_version() -> Non
     state = _consented_state()
     del state["task"]  # type: ignore[misc]
     result = await compiled.ainvoke(state)
-    assert result["dossier"]["prompt_version"] == "stratification-v1"
+    assert result["dossier"]["prompt_version"] == "stratification-v2"
     assert result["dossier"]["task"] == "stratify"
 
 

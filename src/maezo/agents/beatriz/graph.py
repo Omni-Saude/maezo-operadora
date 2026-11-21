@@ -152,7 +152,7 @@ from langgraph.graph import END, START, StateGraph
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.guards import require_number
 from maezo.runtime.inference import InferenceProvider
-from maezo.runtime.prompt_format import render_fatos_para_prompt
+from maezo.runtime.prompt_format import render_fatos_para_prompt, sem_chaves_retiradas
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
 
 from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
@@ -478,29 +478,41 @@ _FATOS_BOOLEANOS: Final[dict[str, str]] = {
 }
 
 
-#: DL-0191: lista de permissao LEGADA do renderizador de fatos — EXATAMENTE as chaves que este
-#: sitio manda ao prompt hoje, sem mudanca de comportamento. Existe para que todo sitio declare
-#: `permitidos` (cerca AST em `tests/unit/runtime/test_prompt_format_permitidos.py`). A poda
-#: contra a lista "nunca entra" do ADR-0079 e' a unidade U1c, separada desta.
-_PERMITIDOS_LEGADO_U1C: Final[frozenset[str]] = frozenset(
+#: DL-0191 / U1c (ADR-0079 §2): as UNICAS chaves de `fatos` que chegam ao prompt da narrativa.
+#: Lista FECHADA: as chaves de hoje de `_facts`, nenhuma nova, MENOS os identificadores e as chaves
+#: de vinculo do caso — `numero_caso`, `tenant_id`, `entidade_pseudo_id`, `prestador_id`,
+#: `beneficiario_pseudo_id`, `numero_contrato` —, o ponteiro `feature_snapshot_ref` (aponta para os
+#: indicadores DA entidade investigada) e `resumo_fhir` (a projecao fechada do resumo FHIR: tipo do
+#: recurso e o id pseudonimo do paciente, nada que a narrativa use). Nenhum serve a narrativa, que
+#: resume o caso, os indicadores observados e as lacunas; o investigador os ve no dossie
+#: (`fatos`, selado na cadeia de custodia) — a minimizacao e' do prompt.
+_PERMITIDOS_PROMPT: Final[frozenset[str]] = frozenset(
     {
-        "numero_caso",
-        "tenant_id",
         "origem_encaminhamento",
         "entidade_tipo",
-        "entidade_pseudo_id",
-        "prestador_id",
-        "beneficiario_pseudo_id",
-        "numero_contrato",
         "competencia",
         "n_evidencia",
         "indicadores_presentes",
         "score_indicadores",
         "intensidade_investigacao",
         "indicio_fraude_sinalizado",
+        "lacunas",
+    }
+)
+
+#: U1c: as chaves que este sitio tira do prompt DE PROPOSITO (as da lista acima que ficaram de fora).
+#: O recorte tira SO' estas (`sem_chaves_retiradas`); o resto do fechamento e' do renderizador, que
+#: descarta e CONTA uma chave nova de um montador (log + `maezo_prompt_fatos_descartados_total`).
+_RETIRADAS_DO_PROMPT: Final[frozenset[str]] = frozenset(
+    {
+        "numero_caso",
+        "tenant_id",
+        "entidade_pseudo_id",
+        "prestador_id",
+        "beneficiario_pseudo_id",
+        "numero_contrato",
         "feature_snapshot_ref",
         "resumo_fhir",
-        "lacunas",
     }
 )
 
@@ -645,8 +657,10 @@ class BeatrizGraph:
         if score_lacuna:
             lacunas.append(score_lacuna)
 
+        # U1c: `facts` segue intacto no dossie; o prompt recebe `facts` sem as chaves retiradas.
+        fatos_do_prompt = sem_chaves_retiradas(facts, _RETIRADAS_DO_PROMPT)
         fatos_txt = render_fatos_para_prompt(
-            facts, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_LEGADO_U1C, agente="beatriz"
+            fatos_do_prompt, booleanos=_FATOS_BOOLEANOS, permitidos=_PERMITIDOS_PROMPT, agente="beatriz"
         )
         prompt = f"{dossier_prompt()}\n\n{fatos_txt}"
         try:
