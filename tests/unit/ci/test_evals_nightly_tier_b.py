@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 import yaml
+from scripts.ci import tier_b_preflight as pf
 from scripts.ci import tier_b_resumo as tb
 
 _RAIZ = Path(__file__).resolve().parents[3]
@@ -371,3 +372,97 @@ def test_corrupt_or_missing_junit_always_fails(
     assert tb.main(["--junit", str(junit), "--codigo", "0"]) == 1
     assert "QUEBRADO" in resumo.read_text(encoding="utf-8")
     assert tb.main(["--junit", str(tmp_path / "nao-existe.xml"), "--codigo", "0"]) == 1
+
+
+# ------------------------------------------------------------------------- preflight de vivacidade (B)
+
+
+class _SdkStatusError(Exception):
+    status_code = 401
+
+
+class _Provedor:
+    def __init__(self, resposta: object = "ok", erro: BaseException | None = None) -> None:
+        self.resposta, self.erro, self.chamadas = resposta, erro, 0
+
+    async def generate(self, prompt: str, *, agent_id: str | None = None) -> object:
+        self.chamadas += 1
+        if self.erro is not None:
+            raise self.erro
+        return self.resposta
+
+
+def _erro_do_provedor() -> BaseException:
+    # Como o `AnthropicInferenceProvider` faz: InferenceProviderError com a mensagem do SDK (que traz o
+    # corpo da resposta) e o erro do SDK, com status, como causa.
+    from maezo.runtime.inference.errors import InferenceProviderError
+
+    try:
+        raise _SdkStatusError("CORPO-SECRETO-DA-RESPOSTA")
+    except _SdkStatusError as sdk:
+        erro = InferenceProviderError(
+            "anthropic", "API error (401): CORPO-SECRETO-DA-RESPOSTA", retryable=False
+        )
+        erro.__cause__ = sdk
+        return erro
+
+
+def test_preflight_without_key_makes_no_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    p = _Provedor()
+    assert pf.main([], fabrica=lambda: p) == 0 and p.chamadas == 0
+
+
+def test_preflight_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    p = _Provedor("ok")
+    assert pf.main([], fabrica=lambda: p) == 0 and p.chamadas == 1
+
+
+@pytest.mark.parametrize("resposta", ["", "   ", None])
+def test_preflight_empty_answer_is_broken(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, resposta: object
+) -> None:
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "s.md"))
+    assert pf.main([], fabrica=lambda: _Provedor(resposta)) == 1
+    assert "QUEBRADO: preflight sem resposta" in (tmp_path / "s.md").read_text(encoding="utf-8")
+
+
+def test_preflight_failure_prints_only_class_and_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "s.md"))
+    assert pf.main([], fabrica=lambda: _Provedor(erro=_erro_do_provedor())) == 1
+    saida = capsys.readouterr().out + (tmp_path / "s.md").read_text(encoding="utf-8")
+    assert "QUEBRADO: preflight falhou (InferenceProviderError, status 401)" in saida
+    assert "CORPO-SECRETO" not in saida and "chave-de-teste" not in saida
+
+
+def test_preflight_uses_the_evals_provider_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Mesmo caminho dos evals vivos (test_classifier_evals): InferenceProvider com provider="anthropic".
+    # Construir exige uma chave no ambiente (fail-closed); nenhuma chamada e' feita aqui.
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    prov = pf._provedor_padrao()
+    assert type(prov).__name__ == "InferenceProvider" and prov._settings.provider == "anthropic"
+
+
+def test_preflight_runs_before_the_suite_and_fails_the_step() -> None:
+    run = _passo("Nightly eval run — Tier B")["run"]
+    i_pf, i_set, i_pytest = run.index("tier_b_preflight.py"), run.index("set +e"), run.index("-m pytest")
+    assert i_pf < i_set < i_pytest, "o preflight roda sob `set -e`, antes da suite"
+
+
+def test_summary_says_nights_do_not_count_until_evals_fix(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    assert _passo("Nightly eval run — Tier B")["env"]["TIER_B_NOITES_CONTAM"] == "false"
+    monkeypatch.setenv("TIER_B_NOITES_CONTAM", "false")
+    _, resumo, _ = _rodar(monkeypatch, tmp_path, ["aprovado"], 0, chave=True, bloqueante="false")
+    assert "NAO contam enquanto o conserto dos evals vivos nao entrar" in resumo
+    monkeypatch.setenv("TIER_B_NOITES_CONTAM", "true")
+    (tmp_path / "summary.md").unlink()
+    _, resumo, _ = _rodar(monkeypatch, tmp_path, ["aprovado"], 0, chave=True, bloqueante="false")
+    assert "NAO contam" not in resumo

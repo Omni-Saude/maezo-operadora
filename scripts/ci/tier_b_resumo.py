@@ -132,6 +132,11 @@ def _resumo(v: Veredito, contagem: Contagem | None, codigo: int, bloqueante: boo
     modo = "bloqueante" if bloqueante else "observacao (TIER_B_BLOQUEANTE=false)"
     linhas = [f"## evals-nightly — {v.manchete}", "", f"modo: {modo}; pytest exit {codigo}"]
     linhas += [f"- aviso: {a}" for a in v.avisos]
+    if os.environ.get("TIER_B_NOITES_CONTAM", "false").strip().lower() != "true":
+        linhas.append(
+            "- as 7 noites de observacao NAO contam enquanto o conserto dos evals vivos nao entrar "
+            "(TIER_B_NOITES_CONTAM=false)"
+        )
     if contagem is not None:
         rodados = contagem.total() - contagem.total(PULADO)
         linhas += [

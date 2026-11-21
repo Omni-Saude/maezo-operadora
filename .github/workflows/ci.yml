@@ -2763,6 +2763,9 @@ jobs:
           if actual != expected:
               sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
           PY
+          # Preflight: UMA chamada minima pelo mesmo caminho dos evals; com chave e provedor morto, QUEBRADO
+          # (so' classe do erro e status no log). Sem chave, nao chama nada.
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I scripts/ci/tier_b_preflight.py
           set +e
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/evals -q --tb=no -rN -m "eval and llm_live" --junitxml="${RUNNER_TEMP}/tier-b-junit.xml"
           codigo=$?
@@ -2772,6 +2775,9 @@ jobs:
           MAEZO_ANTHROPIC_API_KEY: ${{ secrets.MAEZO_ANTHROPIC_API_KEY }}
           NIGHTLY_EVAL: "1"
           TIER_B_BLOQUEANTE: "false"
+          # "false" ate' o conserto dos evals vivos (falha de chamada com mensagem propria) entrar: o resumo
+          # avisa que a noite NAO conta para as 7 de observacao. Vira "true" no PR do conserto.
+          TIER_B_NOITES_CONTAM: "false"
 
       # Tier A vermelho => o passo B nao roda (sucesso() falso). Fica dito no resumo, para a noite nao ser
       # contada nas 7 de observacao do Tier B.
