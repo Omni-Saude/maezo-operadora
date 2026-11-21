@@ -24,7 +24,6 @@ import pytest
 from maezo.platform.rco_entradas import DicionarioEntradasK1, ler_dicionario_entradas
 from maezo.platform.rco_manifesto import DecisaoK1
 from maezo.tools.workers import rco_montador as mt
-from tests.unit.platform import rco_k1_2_3_recorte as rec
 
 PRAZO = "prazoComprovacaoUsoVencido"
 RECORTE_1_6_0 = (
@@ -42,39 +41,41 @@ def dic() -> DicionarioEntradasK1:
     return ler_dicionario_entradas(RECORTE_1_6_0.read_bytes())
 
 
-def _decisoes_com_a_derivada() -> list[DecisaoK1]:
-    return [d for d in rec.manifesto().decisoes.values() if PRAZO in d.entradas]
+def _tabelas(dic: DicionarioEntradasK1) -> list[tuple[str, str]]:
+    """(dominio, decisao) de cada tabela que o dicionario 1.6.0 diz receber a derivada (`tabelas`, rco
+    b8444f52: `dmn/<dominio>/<arquivo>.dmn#<decisao>`)."""
+    out = []
+    for tabela in dic.entradas[PRAZO].tabelas:
+        caminho, _, decisao = tabela.partition("#")
+        out.append((caminho.split("/")[1], decisao))
+    return out
 
 
-def test_a_derivada_so_aparece_em_dominios_nao_mapeados() -> None:
-    decisoes = _decisoes_com_a_derivada()
-    assert {d.dominio for d in decisoes} == DOMINIOS_COM_A_DERIVADA
+def test_a_derivada_so_aparece_em_dominios_nao_mapeados(dic: DicionarioEntradasK1) -> None:
+    assert {dominio for dominio, _ in _tabelas(dic)} == DOMINIOS_COM_A_DERIVADA
     assert not DOMINIOS_COM_A_DERIVADA & set(mt.MAPEAMENTOS)
     assert PRAZO not in mt.FORMULAS and PRAZO not in mt.FORMULAS_PENDENTES
     assert all(PRAZO not in mapa for mapa in mt.MAPEAMENTOS.values())
 
 
-#: Termos ausentes, um a um e todos: com qualquer um deles o publicador manda nulo.
-CENARIOS: dict[str, dict[str, object]] = {
-    "sem prazo do contrato": {"autorizacao_extemporanea": "nao_solicitada"},
-    "aae em analise": {"autorizacao_extemporanea": "em_analise", "prazo_apresentacao_contratual_dias": 30},
-    "sem aae": {"prazo_apresentacao_contratual_dias": 30},
-    "sem nenhum termo": {},
-}
-
-
-@pytest.mark.parametrize("cenario", sorted(CENARIOS))
-def test_termo_ausente_nunca_vira_valor_da_derivada(dic: DicionarioEntradasK1, cenario: str) -> None:
-    """Nulo -> nunca negativa: sem mapeamento, o montador nao produz NENHUM valor (nem `False`, que deixaria
-    a OPME sem comprovacao sem pendencia, nem `True`, que a glosaria); o caso vai para pessoa."""
-    fatos = mt.FatosDoCaso(
-        guia={"data_atendimento": "2026-12-16"},
-        versao_k3_pinada=(1, 15),
-        cadastro=CENARIOS[cenario],
-        carater_atendimento_guia="2",
-    )
-    for decisao in _decisoes_com_a_derivada():
-        with pytest.raises(mt.DominioNaoSuportadoError):
+def test_dominio_nao_mapeado_barra_a_decisao_antes_de_ler_fatos(dic: DicionarioEntradasK1) -> None:
+    """Nulo -> nunca negativa, pela porta do dominio: `montar_entradas` recusa o dominio
+    (`DominioNaoSuportadoError`, caso para pessoa) ANTES de ler qualquer fato, entao nenhum valor da derivada
+    (nem `False`, que deixaria a OPME sem comprovacao sem pendencia, nem `True`, que a glosaria) chega a
+    tabela, com quaisquer fatos. Os fatos aqui sao vazios de proposito: eles nao sao lidos."""
+    fatos = mt.FatosDoCaso(guia={}, versao_k3_pinada=(1, 15))
+    for dominio, decisao_id in _tabelas(dic):
+        decisao = DecisaoK1(
+            id=f"rco_{decisao_id}",
+            arquivo=f"dmn/{decisao_id}.dmn",
+            caminho_consumidor=f"spec/processes/dmn/rco/{decisao_id}.dmn",
+            sha256="sha256:" + "0" * 64,
+            saidas=("decisao",),
+            regras={},
+            dominio=dominio,
+            entradas=("dataAtendimento", PRAZO),
+        )
+        with pytest.raises(mt.DominioNaoSuportadoError, match=dominio):
             mt.montar_entradas(decisao, dic, fatos)
 
 

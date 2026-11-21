@@ -296,3 +296,11 @@ def test_referencia_malformada_em_termo_de_cadastro_e_so_mais_estrita(
     termo["referencia"] = referencia
     assert _rco_aceita_formula(rco, entrada)
     assert not _maezo_aceita(dados)
+
+
+def test_a_fonte_copiada_vale_para_o_commit_do_dicionario_1_6_0() -> None:
+    """A copia (blob `BLOB_RCO`) cobre o commit do recorte 1.6.0: e o mesmo publicador nos dois commits."""
+    assert _blob_git(FONTE_RCO.read_bytes()) == BLOB_RCO
+    origem = json.loads((RECORTE_1_6_0.parent / "ORIGEM.json").read_text(encoding="utf-8"))
+    assert origem["versoes"]["1.6.0"]["commit"] in COMMITS_RCO_COM_ESTE_BLOB
+    assert COMMITS_RCO_COM_ESTE_BLOB[0].startswith("aed187d4") and FONTE_RCO.parent.name == "fonte-aed187d4"

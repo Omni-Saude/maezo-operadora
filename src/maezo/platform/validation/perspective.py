@@ -39,10 +39,10 @@ Fail-closed
 -----------
 Every hit is a `Report.error` (blocking; `Report` has no downgradeable
 "warning"). An unreadable or malformed file is an error, never a silent skip.
-**There is no exception mechanism**: no allowlist file, no inline waiver, no
-`historico:` block. The only disambiguations are lexical (the ±40-character
-object requirement and actor cue of R2-CTX) and structural (which surface
-each tier reads) — and both apply identically to every file.
+**There is no exception mechanism**: no allowlist file, no inline waiver, no `historico:` block. The only
+disambiguations are lexical (R2-CTX's ±40-char object and actor cue, adjacent negation, `DECISAO_PAGADOR` for
+X4 and, for X2 only, the exact-phrase allowlist `RECEBIMENTO_PELO_PAGADOR`, a constant here, not a file) and
+structural (which surface each tier reads) — all applied identically to every file, never per file or block.
 
 Where historical references go
 ------------------------------
@@ -529,7 +529,10 @@ DECISAO_PAGADOR = r"\b(conceder|deferir|indeferir|julgar|responder)\b"
 #: only X2 hits in the 236 K1 tables of rco b8444f52 (`dmn/regras-gerais/geral_prazos_conta.dmn`
 #: :4 decision `<description>` and :15 input `label` `in_diasAteRecurso`; ADR-0075 §(b) point 3:
 #: the D7 vocabulary is EXTENDED to the K1 package, not the folder exempted). Exact text, not a
-#: pattern: a match outside the phrase, or a phrase with any other wording, still scores.
+#: pattern: a match outside the phrase, or a phrase with any other wording, still scores. Both ends are word
+#: boundaries (`\b`): a phrase glued to a longer word ("...demonstrativos") is not absolved, while a phrase
+#: followed by more words ("... o demonstrativo da operadora") is, since the phrase itself is intact.
+#: Each phrase is already folded (`fold(p) == p`), because the comparison runs on the folded line.
 RECEBIMENTO_PELO_PAGADOR = (
     "recurso de glosa recebido mais de 30 dias apos o demonstrativo",
     "entre o demonstrativo de analise da conta e o recebimento do lote de recurso de glosa",
@@ -566,7 +569,12 @@ def _rule(
         near=re.compile(near) if near is not None else None,
         actor_absolves=actor_absolves,
         decision_absolves=re.compile(decision_absolves) if decision_absolves is not None else None,
-        phrase_absolves=re.compile("|".join(map(re.escape, phrase_absolves))) if phrase_absolves else None,
+        # `\b` at both ends: a phrase that runs on into a longer word ("...demonstrativos") is not the phrase.
+        phrase_absolves=(
+            re.compile(r"\b(?:" + "|".join(map(re.escape, phrase_absolves)) + r")\b")
+            if phrase_absolves
+            else None
+        ),
     )
 
 

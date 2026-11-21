@@ -185,6 +185,7 @@ class TermoFormulaK1:
     #: definido (`VERSOES_COM_REFERENCIA_EM_TERMO`), nunca valor.
     valor: int | float | None = None
     unidade: str | None = None
+    #: Dois sentidos, pela origem do termo: em `parametro`, VALOR (onde ler o numero); fora dele, CITACAO.
     referencia: tuple[str, ...] = ()
     valor_por_contrato: str | None = None
     lacuna: str | None = None

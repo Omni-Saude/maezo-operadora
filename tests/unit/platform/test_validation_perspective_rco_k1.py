@@ -180,3 +180,38 @@ def test_so_x2_ganhou_a_extensao() -> None:
     com = [r.rule_id for r in (*perspective.R2_CORE_RULES, *perspective.R2_CTX_RULES) if r.phrase_absolves]
     assert com == ["X2"]
     assert len(perspective.RECEBIMENTO_PELO_PAGADOR) == 2
+
+
+def test_as_frases_ja_estao_dobradas() -> None:
+    for frase in perspective.RECEBIMENTO_PELO_PAGADOR:
+        assert perspective.fold(frase) == frase, frase
+
+
+@pytest.mark.parametrize("frase", perspective.RECEBIMENTO_PELO_PAGADOR)
+def test_frase_colada_a_palavra_maior_nao_e_absolvida(frase: str) -> None:
+    """`\\b` no fim: "...demonstrativos" ou "...glosas" nao e a frase (o plural e outra palavra); a linha e
+    lida como sem a extensao (na frase 1 o proprio X2 deixa de casar, porque o objeto `demonstrativo` virou
+    `demonstrativos`; na frase 2 o X2 casa e reprova)."""
+    x2 = next(r for r in perspective.R2_CTX_RULES if r.rule_id == "X2")
+    assert x2.phrase_absolves is not None and x2.phrase_absolves.search(f"{frase}s") is None
+    sem = [h for h in perspective._scan_prose(f"{frase}s", _sem_a_extensao()) if h[1] == "X2"]
+    assert _x2(f"{frase}s") == [m for _, _, m in sem]
+    if frase.endswith("glosa"):
+        assert _x2(f"{frase}s") == ["recebimento"]
+
+
+@pytest.mark.parametrize("frase", perspective.RECEBIMENTO_PELO_PAGADOR)
+def test_frase_colada_a_palavra_anterior_nao_e_absolvida(frase: str) -> None:
+    """`\\b` no inicio: "contrarecurso de glosa..." / "sentre o demonstrativo..." nao e a frase."""
+    assert _x2(f"contra{frase}" if frase.startswith("recurso") else f"s{frase}"), frase
+
+
+@pytest.mark.parametrize("frase", perspective.RECEBIMENTO_PELO_PAGADOR)
+def test_frase_seguida_de_mais_palavras_e_absolvida(frase: str) -> None:
+    """Decisao documentada em `RECEBIMENTO_PELO_PAGADOR`: a frase inteira, com fronteira de palavra, e a
+    frase; o que vem depois dela (outra palavra, pontuacao) nao a desfaz. O resto da linha segue lido pelas
+    outras regras (por exemplo, C1 "decisao da operadora")."""
+    assert _x2(f"{frase} da operadora, no prazo do contrato") == []
+    assert _x2(f"{frase}.") == []
+    hits = {r for _, r, _ in scan_line(f"{frase}; decisao da operadora", tier=TIER_A)}
+    assert "C1" in hits and "X2" not in hits
