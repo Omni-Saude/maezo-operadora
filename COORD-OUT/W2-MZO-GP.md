@@ -1097,3 +1097,18 @@ Ramo `sf-w2/mzo-gp/esf24b`, a partir da main. O PR só abre depois do merge do #
 - **Próximo PR**, depois do merge deste: E-SF-24b.
   - Revisão independente PASS em `b6f176d7`, já com a recusa de rótulo do template na forma visível (NFKC, sem invisíveis).
   - Sem arquivo em comum com a main `fb748b0c`.
+
+## 2026-11-21 ~05:10Z — #1355 mesclado (main `10a6a602`); LIMPEZA #1355; PR #1359 (E-SF-24b) aberto
+
+- #1355 (E-SF-35) mesclado; a main `10a6a602` contém o head `29059461`.
+- **LIMPEZA #1355 (CD-149):**
+  - **Ramo para o dono apagar:** `sf-w2/mzo-gp/esf35` @ `290594618a5d4fb4d4353252700182bd1fb07de0`, no remoto. O ramo local fica só registrado.
+  - Ramos locais nunca enviados: nenhum.
+  - PR órfão: nenhum.
+  - Título e corpo do #1355 fiéis.
+  - **Disco:** worktree `esf35` removida sem `--force`; check-in cancelado; clone principal em `main` `10a6a602`.
+- **PR #1359 (E-SF-24b parcial, CD-231)** aberto: head `b6f176d7ff647400f2ccbbd1583e452b23aca9b2`.
+  - 13 merges atrás, sem arquivo em comum, não trazidos (CD-155).
+  - Sem DL.
+  - O corpo registra: flag desligada, pino do catálogo `None`, nomes provisórios até o contrato-k2, receita do `hash_entrada` a fixar no k2, e o `flip-path-review-gate` vermelho esperado.
+- Aguardo o CI. Esta é a última linha da fila; a 29-3 segue bloqueada.
