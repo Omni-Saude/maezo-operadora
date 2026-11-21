@@ -167,9 +167,10 @@ def _fontes_do_pacote(nome_pacote: str) -> dict[str, Path]:
     assert spec is not None and spec.submodule_search_locations, nome_pacote
     pasta = Path(next(iter(spec.submodule_search_locations)))
     fontes: dict[str, Path] = {}
-    for arquivo in sorted(pasta.glob("*.py")):
-        nome = nome_pacote if arquivo.stem == "__init__" else f"{nome_pacote}.{arquivo.stem}"
-        fontes[nome] = arquivo
+    for arquivo in sorted(pasta.rglob("*.py")):
+        partes = arquivo.relative_to(pasta).with_suffix("").parts
+        partes = partes[:-1] if partes[-1] == "__init__" else partes
+        fontes[".".join((nome_pacote, *partes))] = arquivo
     return fontes
 
 

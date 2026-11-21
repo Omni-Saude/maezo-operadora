@@ -24,7 +24,8 @@ caso sem falso positivo (fonte plantada vizinha que ele NÃO deve acusar).
 
 Limites declarados:
 - (a) é estático: reconhece `CommercialWire(...)` por nome (`Name` ou `Attribute`); um alias
-  (`W = CommercialWire; W(...)`) ou construção via `getattr`/reflexão não é visto. Testes e
+  (`W = CommercialWire; W(...)`), `functools.partial(CommercialWire, ...)`, uma subclasse que
+  repassa a lista em `super().__init__(...)` ou construção via `getattr`/reflexão não é visto. Testes e
   fixtures fora de `src/` não são varridos (lá a lista sintética é legítima).
 - (b) cobre só os dois módulos do adaptador nomeados; import dinâmico (`importlib`) e menção
   em string/comentário não são vistos.

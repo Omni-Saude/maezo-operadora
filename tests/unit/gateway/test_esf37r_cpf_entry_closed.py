@@ -7,8 +7,8 @@ O que esta linha fixa, cada cerca com controle positivo do detector e caso sem f
       salvo a exceção pinada `CatalogRow.document_refs` (refs a documentos de PRODUTO no catálogo,
       não do titular). As chaves de `OfferQuotePayload` (`OFFER_QUOTE_KEYS`) não têm chave de
       documento.
-(ii)  Nenhum módulo do comercial (`gateway/commercial*.py`, `portal/api/commercial.py`,
-      `ports/commercial.py`) importa `maezo.adapters.amh.document_resolution`,
+(ii)  Nenhum módulo do comercial (`gateway/commercial*.py`, `adapters/amh/commercial*.py`,
+      `portal/api/commercial.py`, `ports/commercial.py`) importa `maezo.adapters.amh.document_resolution`,
       `maezo.adapters.amh.subject_verification` nem `maezo.gateway.amh_interop`: import estático
       por AST, relativo resolvido contra o pacote do arquivo, `from X import Y` lido como `X.Y`.
 (iii) O contrato ADMITE `value_type: "document"` em `IntakeField`; com o codec padrão (lista de
@@ -22,8 +22,9 @@ O que esta linha fixa, cada cerca com controle positivo do detector e caso sem f
 (v)   `portal/api/production.py` não importa nem monta gateway comercial (AST: imports, keywords
       da composição e atributos `app.state`).
 
-Limites declarados: import dinâmico (`importlib.import_module`, `__import__`) e montagem por
-reflexão (`setattr` com nome calculado) não são vistos por uma cerca de AST. O contrato
+Limites declarados: import dinâmico (`importlib.import_module`, `__import__`), montagem por
+reflexão (`setattr` com nome calculado) e acesso por atributo a submódulo de um pacote importado
+(`import maezo.gateway as g; g.amh_interop`) não são vistos por uma cerca de AST. O contrato
 `tests/candidate_artifacts/commercial/contract-c6-4.json` é só lido; "sucessores" são cópias em
 memória. Fixtures sintéticas; nenhum literal com forma de CPF.
 """
@@ -99,7 +100,9 @@ def _contrato() -> dict[str, Any]:
 
 
 def _tokens(nome: str) -> set[str]:
-    return {t for t in re.split(r"[^a-z0-9]+", nome.lower()) if t}
+    # camelCase também separa (`holderCpf` -> holder, cpf): o contrato usa os dois estilos.
+    separado = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", nome)
+    return {t for t in re.split(r"[^a-z0-9]+", separado.lower()) if t}
 
 
 # --- (i) Comandos e cargas do C6-4 ----------------------------------------------------------------
@@ -170,6 +173,8 @@ def test_nenhuma_carga_do_c6_4_tem_chave_de_documento() -> None:
         ("IntakeValue", "subject_document"),
     }
     # Sem falso positivo: refs comuns não casam por substring (`descriptor_ref`, `product_ref`).
+    assert _tokens("holderCpf") & _TOKENS_DE_DOCUMENTO
+    assert _tokens("documentRef") & _TOKENS_DE_DOCUMENTO
     assert not _tokens("descriptor_revision") & _TOKENS_DE_DOCUMENTO
     assert not _tokens("product_ref") & _TOKENS_DE_DOCUMENTO
 
@@ -221,6 +226,7 @@ def _vedados_em(fonte: str, pacote: str = "") -> set[str]:
 def _modulos_do_comercial() -> list[Path]:
     candidatos = [
         *sorted((_SRC / "gateway").glob("commercial*.py")),
+        *sorted((_SRC / "adapters" / "amh").glob("commercial*.py")),
         _SRC / "portal" / "api" / "commercial.py",
         _SRC / "ports" / "commercial.py",
     ]
@@ -240,9 +246,10 @@ def _importadores_vedados(arquivos: Iterable[Path], pacote: str | None = None) -
 def test_o_comercial_nao_importa_resolucao_de_documento_nem_interop() -> None:
     arquivos = _modulos_do_comercial()
     nomes = {p.name for p in arquivos}
-    # Controle: a varredura vê o gateway, a rota e a porta do comercial.
-    assert {"commercial.py", "commercial_admission.py"} <= nomes
-    assert len([p for p in arquivos if p.name == "commercial.py"]) == 3
+    # Controle: a varredura vê o gateway, o adaptador (mesmo pacote da resolução de documento), a
+    # rota e a porta do comercial.
+    assert {"commercial.py", "commercial_admission.py", "commercial_fences.py", "commercial_http.py"} <= nomes
+    assert len([p for p in arquivos if p.name == "commercial.py"]) == 4
     assert _importadores_vedados(arquivos) == {}
 
 
