@@ -20,7 +20,6 @@ test_flag_off_build_recusa`).
 from __future__ import annotations
 
 import ast
-import re
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +64,7 @@ def test_envio_ao_prospect_fora_do_catalogo_de_efeitos() -> None:
     assert not _catalogo_conhece(classe=_CLASSE_ADIADA)
     assert not _catalogo_conhece(acao=ACAO_ENVIO_PROSPECT)
     # Controle: o detector reconhece uma classe e uma ação que o catálogo tem.
-    uma_operacao = next(iter(effect_classes.OPERATIONS.values()))
+    uma_operacao = next(op for op in effect_classes.OPERATIONS.values() if op.autonomy_action)
     assert _catalogo_conhece(classe=uma_operacao.action_class)
     assert _catalogo_conhece(acao=uma_operacao.autonomy_action)
 
@@ -124,22 +123,59 @@ def test_nenhum_modulo_de_src_importa_o_agente_comercial() -> None:
 
 # --- (iii) o grafo não envia; a ação de envio é só dado -------------------------------------------------
 
-_CHAMADA_DE_ENVIO = re.compile(r"(?i)send|enviar|dispatch|despach|call_tool|invoke_tool|publish|post")
-_IMPORT_VEDADO = ("maezo.gateway", "maezo.tools", "maezo.platform.webhooks", "httpx", "requests", "aiohttp")
+#: Palavras (segmentos separados por `_`) que denunciam uma chamada de envio. Por segmento, e não
+#: por substring: `postprocess` ou `passagem` não casam; `send_message` e `dispatch` casam.
+_SEGMENTOS_DE_ENVIO = frozenset({"send", "enviar", "dispatch", "despachar", "publish", "post", "invoke"})
+_CHAMADAS_DE_ENVIO = frozenset({"call_tool", "invoke_tool"})
+_IMPORT_VEDADO = (
+    "maezo.gateway",
+    "maezo.tools",
+    "maezo.platform.webhooks",
+    "mcp",
+    "httpx",
+    "requests",
+    "aiohttp",
+)
 
 
-def _envios_no_fonte(fonte: str) -> list[str]:
+def _modulos_importados(fonte: str, pacote: str) -> list[str]:
+    """Nomes completos de módulo que o fonte importa: absoluto ou relativo (resolvido contra
+    `pacote`), e também `from X import Y` como `X.Y` (pega `from maezo import gateway`)."""
+    nomes: list[str] = []
+    for n in ast.walk(ast.parse(fonte)):
+        if isinstance(n, ast.ImportFrom):
+            modulo = n.module or ""
+            if n.level:
+                base = pacote.split(".") if pacote else []
+                base = base[: len(base) - (n.level - 1)] if n.level > 1 else base
+                modulo = ".".join([*base, *([modulo] if modulo else [])])
+            nomes.append(modulo)
+            nomes += [f"{modulo}.{a.name}" if modulo else a.name for a in n.names]
+        if isinstance(n, ast.Import):
+            nomes += [a.name for a in n.names]
+    return nomes
+
+
+def _vedado(modulo: str) -> bool:
+    return any(modulo == v or modulo.startswith(v + ".") for v in _IMPORT_VEDADO)
+
+
+def _envios_no_fonte(fonte: str, pacote: str = "maezo.agents.comercial") -> list[str]:
+    """Chamadas de envio e imports vedados no fonte.
+
+    Limites declarados: chamada por `getattr(x, "send")(...)` ou por subscrição e import dinâmico
+    (`importlib.import_module`) não são vistos por uma cerca de AST.
+    """
     arvore = ast.parse(fonte)
     chamados = [
         n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", "")
         for n in ast.walk(arvore)
         if isinstance(n, ast.Call)
     ]
-    importados = [n.module or "" for n in ast.walk(arvore) if isinstance(n, ast.ImportFrom)]
-    importados += [a.name for n in ast.walk(arvore) if isinstance(n, ast.Import) for a in n.names]
-    return [c for c in chamados if _CHAMADA_DE_ENVIO.search(c)] + [
-        m for m in importados if m.startswith(_IMPORT_VEDADO)
+    envios = [
+        c for c in chamados if c in _CHAMADAS_DE_ENVIO or _SEGMENTOS_DE_ENVIO & set(c.lower().split("_"))
     ]
+    return envios + [m for m in _modulos_importados(fonte, pacote) if _vedado(m)]
 
 
 def test_o_grafo_comercial_nao_chama_envio_nem_importa_gateway() -> None:
@@ -147,8 +183,15 @@ def test_o_grafo_comercial_nao_chama_envio_nem_importa_gateway() -> None:
         assert _envios_no_fonte(modulo.read_text(encoding="utf-8")) == [], modulo.name
     # Controle: o detector acha uma chamada de envio e um import de gateway plantados.
     assert _envios_no_fonte("client.send_message(x)")
+    assert _envios_no_fonte("dispatch(x)")
     assert _envios_no_fonte("from maezo.gateway.communications import whatsapp_templates")
     assert _envios_no_fonte("import httpx")
+    assert _envios_no_fonte("from ...gateway import effect_classes")
+    assert _envios_no_fonte("from maezo import gateway")
+    assert _envios_no_fonte("from mcp.client import session")
+    # Sem falso positivo: nomes legítimos que só contêm as letras.
+    assert not _envios_no_fonte("postprocess(x)\nparse_passagem(y)\nfrom .passagem import parse_passagem")
+    assert not _envios_no_fonte("from maezo.runtime.turn_telemetry import emit_turn_desfecho")
 
 
 async def _turno(**entrada: Any) -> dict[str, Any]:
@@ -165,6 +208,5 @@ async def test_a_acao_de_envio_e_so_dado_tambem_fora_do_primeiro_turno() -> None
         assert saida["rota"] == ROTA_FILA_HUMANA
         # A ação volta como nome (dado) para um despachante que não existe; nada foi enviado.
         assert saida["acao_de_envio"] == ACAO_ENVIO_PROSPECT
-        assert isinstance(saida["acao_de_envio"], str)
         assert saida["envio_pelo_humano"] is False
     assert graph.ACAO_ENVIO_PROSPECT == "send_prospect_message"
