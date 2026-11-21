@@ -109,17 +109,30 @@ def _constantes_de_texto() -> list[str]:
     ]
 
 
+def _pacote_de(path: Path) -> str:
+    """Pacote Python do arquivo, para resolver imports relativos (`maezo.gateway.human`, ...)."""
+    partes = path.resolve().relative_to(_SRC.parent).with_suffix("").parts
+    return ".".join(partes[:-1]) if partes[-1] != "__init__" else ".".join(partes[:-1])
+
+
 def _importa_o_modulo(path: Path) -> bool:
-    return _fonte_importa_o_modulo(path.read_text(encoding="utf-8"))
+    return _fonte_importa_o_modulo(path.read_text(encoding="utf-8"), _pacote_de(path))
 
 
-def _fonte_importa_o_modulo(fonte: str) -> bool:
+def _fonte_importa_o_modulo(fonte: str, pacote: str = "") -> bool:
+    """Import estático do módulo, absoluto OU relativo (resolvido contra `pacote`).
+
+    Limite declarado: import dinâmico (`importlib.import_module`) não é visto por uma cerca de AST.
+    """
+    pai, _, nome = _NOME_DO_MODULO.rpartition(".")
     for n in ast.walk(ast.parse(fonte)):
         if isinstance(n, ast.ImportFrom):
             modulo = n.module or ""
-            if modulo == _NOME_DO_MODULO or (
-                modulo == "maezo.gateway.human" and any(a.name == "retencao_relacionamento" for a in n.names)
-            ):
+            if n.level:
+                base = pacote.split(".") if pacote else []
+                base = base[: len(base) - (n.level - 1)] if n.level > 1 else base
+                modulo = ".".join([*base, *([modulo] if modulo else [])])
+            if modulo == _NOME_DO_MODULO or (modulo == pai and any(a.name == nome for a in n.names)):
                 return True
         if isinstance(n, ast.Import) and any(a.name == _NOME_DO_MODULO for a in n.names):
             return True
@@ -138,6 +151,14 @@ def test_assistente_retencao_sem_ferramenta_decisoria() -> None:
     }
     proibidos = {"send", "send_message", "dispatch", "start_process", "evaluate", "call_tool", "invoke"}
     assert not chamados & proibidos, chamados & proibidos
+    # Controle: a mesma extração acha uma chamada de envio plantada.
+    plantado = ast.parse("cliente.send_message(x)\npep.evaluate(a)")
+    achados = {
+        n.func.attr
+        for n in ast.walk(plantado)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+    }
+    assert achados & proibidos == {"send_message", "evaluate"}
     # Nenhum nome de ação decisória (valor, elegibilidade, rescisão, contestação, negativa) no módulo.
     texto = " ".join(_constantes_de_texto())
     assert not [h for h in HARD_ACTIONS if h in texto]
@@ -154,6 +175,8 @@ async def test_assistente_retencao_sem_zona_phi() -> None:
     """Lista fechada VAZIA: nenhum fato (clínico, CPT, inadimplência, texto livre) chega ao rascunho."""
     assert frozenset() == CAMPOS_DO_RASCUNHO_RETENCAO
     pedido = pedir_rascunho(await _item(), dict(_FATOS_VEDADOS))
+    # O recorte da lista vazia é só o cabeçalho fixo do renderizador: nenhum fato.
+    assert pedido.fatos == pedir_rascunho(await _item(), {}).fatos
     for chave, valor in _FATOS_VEDADOS.items():
         assert chave not in pedido.fatos
         assert str(valor) not in pedido.fatos
@@ -248,6 +271,18 @@ def test_nenhum_importador_do_modulo_em_src() -> None:
     # Controle: o detector acha um importador plantado.
     assert _fonte_importa_o_modulo(f"from {_NOME_DO_MODULO} import pedir_rascunho")
     assert _fonte_importa_o_modulo("from maezo.gateway.human import retencao_relacionamento")
+    assert _fonte_importa_o_modulo(f"import {_NOME_DO_MODULO}")
+    # Relativos, como se escritos num vizinho em `gateway/human` ou num filho de `gateway`.
+    assert _fonte_importa_o_modulo(
+        "from .retencao_relacionamento import pedir_rascunho", "maezo.gateway.human"
+    )
+    assert _fonte_importa_o_modulo("from . import retencao_relacionamento", "maezo.gateway.human")
+    assert _fonte_importa_o_modulo(
+        "from ..human.retencao_relacionamento import x", "maezo.gateway.staff_cases"
+    )
+    assert _fonte_importa_o_modulo("from .human import retencao_relacionamento", "maezo.gateway")
+    assert not _fonte_importa_o_modulo("from .reajuste import x", "maezo.gateway.human")
+    assert not _fonte_importa_o_modulo("from . import retencao_relacionamento", "maezo.platform")
 
 
 def test_o_cancelamento_a_pedido_nao_importa_o_modulo() -> None:
