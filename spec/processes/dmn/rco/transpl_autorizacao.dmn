@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_transpl_autorizacao" name="Transplantes: autorização prévia, doador e compatibilidade do item com o tipo de TCTH (OMNI-TRANSPL-AUT-0001, OMNI-TRANSPL-COB-0001, OMNI-TRANSPL-CMP-0001)" namespace="https://omni-saude/dmn/transplantes">
+  <decision id="rco_transpl_autorizacao" name="Transplantes: autorização prévia, doador e compatibilidade do item com o tipo de TCTH (OMNI-TRANSPL-AUT-0001, OMNI-TRANSPL-COB-0001, OMNI-TRANSPL-CMP-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TRANSPL-AUT-0001; OMNI-TRANSPL-COB-0001; OMNI-TRANSPL-CMP-0001. Hit policy UNIQUE. Nenhuma linha nega: o pior desfecho é revisao_humana.</description>
+    <decisionTable id="dt_transpl_autorizacao" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao, ISO AAAA-MM-DD (comparação de texto equivale à de data)">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_tipoTcth" label="tipoTcth ← solicitação (anexo/relatório): autologo | alogenico_aparentado | alogenico_nao_aparentado">
+        <inputExpression id="ie_tipoTcth" typeRef="string"><text>tipoTcth</text></inputExpression>
+      </input>
+      <input id="in_tcthAutorizadoVinculado" label="tcthAutorizadoVinculado ← TISS numeroGuiaPrincipal/senha: guia vinculada a TCTH (40403033) já autorizado">
+        <inputExpression id="ie_tcthAutorizadoVinculado" typeRef="boolean"><text>tcthAutorizadoVinculado</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="a_pre">
+        <description>Fora da vigência das regras OMNI-TRANSPL (antes de 2026-11-03): sem efeito desta tabela</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_org_urg">
+        <description>OMNI-TRANSPL-AUT-0001: transplante de órgão/tecido do receptor em urgência dispensa autorização prévia (regularização posterior)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31501010", "31505015", "31506011", "40401057"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_org_elet">
+        <description>OMNI-TRANSPL-AUT-0001: transplante de órgão/tecido do receptor eletivo exige autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31501010", "31505015", "31506011", "40401057"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_doador_urg">
+        <description>OMNI-TRANSPL-COB-0001: procedimento no doador coberto pela operadora do receptor; urgência sem autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31501028", "31505023", "31506038", "31506046"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_doador_elet">
+        <description>OMNI-TRANSPL-COB-0001: procedimento no doador vivo, eletivo, autorizado na carteira do receptor</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31501028", "31505023", "31506038", "31506046"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_tcth_urg">
+        <description>OMNI-TRANSPL-AUT-0001: aplicação de células-tronco em caráter de urgência vai à regulação (sem negar)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_tcth_elet">
+        <description>OMNI-TRANSPL-AUT-0001: aplicação de células-tronco (TCTH) eletiva exige autorização prévia e enquadramento na DUT 70/71 (decisão transpl_dut_tcth)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_a70_auto">
+        <description>OMNI-TRANSPL-CMP-0001: item exclusivo do TCTH alogênico solicitado em TCTH autólogo vai à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40402207", "40402215", "40403041", "40403734", "40403750", "40403769", "40403777", "40404013", "40404030", "40404048", "40404056", "40404064", "40404072", "40404080", "40404099", "40404137", "40404145", "40404170", "40404188", "40404196", "40404200", "40404218", "40404226", "40404234", "40404242", "40404269", "40404277", "40404285"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_a70_vinc">
+        <description>OMNI-TRANSPL-AUT-0001: item do TCTH alogênico em guia vinculada a TCTH autorizado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40402207", "40402215", "40403041", "40403734", "40403750", "40403769", "40403777", "40404013", "40404030", "40404048", "40404056", "40404064", "40404072", "40404080", "40404099", "40404137", "40404145", "40404170", "40404188", "40404196", "40404200", "40404218", "40404226", "40404234", "40404242", "40404269", "40404277", "40404285"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("autologo")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_a70_urg">
+        <description>OMNI-TRANSPL-AUT-0001: exame pré/pós-transplante em urgência (ANS-RN-465 art. 20 §4º)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40402207", "40402215", "40403041", "40403734", "40403750", "40403769", "40403777", "40404013", "40404030", "40404048", "40404056", "40404064", "40404072", "40404080", "40404099", "40404137", "40404145", "40404170", "40404188", "40404196", "40404200", "40404218", "40404226", "40404234", "40404242", "40404269", "40404277", "40404285"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>not("autologo")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_a70_elet">
+        <description>OMNI-TRANSPL-AUT-0001: item do TCTH alogênico sem TCTH autorizado vinculado exige autorização</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40402207", "40402215", "40403041", "40403734", "40403750", "40403769", "40403777", "40404013", "40404030", "40404048", "40404056", "40404064", "40404072", "40404080", "40404099", "40404137", "40404145", "40404170", "40404188", "40404196", "40404200", "40404218", "40404226", "40404234", "40404242", "40404269", "40404277", "40404285"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>not("autologo")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_a71_alo">
+        <description>OMNI-TRANSPL-CMP-0001: purging (exclusivo do TCTH autólogo na DUT 71) em TCTH alogênico vai à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403831"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado", "alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_a71_vinc">
+        <description>OMNI-TRANSPL-AUT-0001: purging em guia vinculada a TCTH autorizado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403831"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("alogenico_aparentado", "alogenico_nao_aparentado")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_a71_urg">
+        <description>OMNI-TRANSPL-AUT-0001: purging em urgência</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403831"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>not("alogenico_aparentado", "alogenico_nao_aparentado")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_a71_elet">
+        <description>OMNI-TRANSPL-AUT-0001: purging sem TCTH autorizado vinculado exige autorização</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403831"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>not("alogenico_aparentado", "alogenico_nao_aparentado")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_amb_vinc">
+        <description>OMNI-TRANSPL-AUT-0001: etapa do TCTH (coleta, processamento, acompanhamento) em guia vinculada a TCTH autorizado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403017", "40403050", "40403076", "40403084", "40403726", "40403742", "40403785", "40403793", "40403807", "40403815", "40403823", "40403912"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_amb_urg">
+        <description>OMNI-TRANSPL-AUT-0001: etapa do TCTH em urgência (ANS-RN-465 art. 20 §4º)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403017", "40403050", "40403076", "40403084", "40403726", "40403742", "40403785", "40403793", "40403807", "40403815", "40403823", "40403912"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_amb_elet">
+        <description>OMNI-TRANSPL-AUT-0001: etapa do TCTH sem TCTH autorizado vinculado exige autorização</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403017", "40403050", "40403076", "40403084", "40403726", "40403742", "40403785", "40403793", "40403807", "40403815", "40403823", "40403912"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_fora">
+        <description>Fechamento: código fora do escopo do domínio transplantes (sem efeito desta tabela)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("31501010", "31505015", "31506011", "40401057", "31501028", "31505023", "31506038", "31506046", "40403033", "40402207", "40402215", "40403041", "40403734", "40403750", "40403769", "40403777", "40404013", "40404030", "40404048", "40404056", "40404064", "40404072", "40404080", "40404099", "40404137", "40404145", "40404170", "40404188", "40404196", "40404200", "40404218", "40404226", "40404234", "40404242", "40404269", "40404277", "40404285", "40403831", "40403017", "40403050", "40403076", "40403084", "40403726", "40403742", "40403785", "40403793", "40403807", "40403815", "40403823", "40403912")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_sem_data">
+        <description>OMNI-TRANSPL-AUT-0001: data ausente; conferência pela regulação</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

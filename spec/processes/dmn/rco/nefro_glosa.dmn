@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_nefro_glosa" name="Hemodiálise e nefrologia: kit proprietário de terapia renal contínua cobrado à parte" namespace="https://omni-saude/dmn/hemodialise-nefrologia">
+  <decision id="rco_nefro_glosa" name="Hemodiálise e nefrologia: kit proprietário de terapia renal contínua cobrado à parte" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-NEFRO-GLO-0001. Hit policy UNIQUE; nenhuma linha glosa nem nega (a referência de origem não consta do registro de fontes); kit proprietário na guia da hemodiálise contínua vai ao faturamento; classe nula não dispara a regra; fechamento null vai à regulação.</description>
+    <decisionTable id="dt_nefro_glosa" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_classeMaterial" label="classeMaterial ← cadastro de materiais OMNI: classe do item TISS codigoMaterial (TUSS 19)">
+        <inputExpression id="ie_2_classeMaterial" typeRef="string"><text>classeMaterial</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="n_pre">
+        <description>OMNI-NEFRO-GLO-0001 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-GLO-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_kit">
+        <description>OMNI-NEFRO-GLO-0001 — kit proprietário cobrado à parte na hemodiálise contínua: revisão do faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30909023"</text></inputEntry>
+        <inputEntry><text>"kit_hemodialise_continua_proprietario"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_ok">
+        <description>OMNI-NEFRO-GLO-0001 — hemodiálise contínua sem kit proprietário (ou classe não informada): liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30909023"</text></inputEntry>
+        <inputEntry><text>not("kit_hemodialise_continua_proprietario")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-GLO-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_resto">
+        <description>OMNI-NEFRO-GLO-0001 — outro código: a regra não se aplica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30909023")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-GLO-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="n_sem_data">
+        <description>OMNI-NEFRO-GLO-0001 — data de atendimento ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

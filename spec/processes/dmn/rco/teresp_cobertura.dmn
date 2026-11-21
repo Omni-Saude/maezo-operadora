@@ -1,0 +1,637 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_teresp_cobertura" name="Terapias multiprofissionais e TEA: cobertura do Rol, regime e método indicado" namespace="https://omni-saude/dmn/terapias-multiprofissionais-tea">
+  <decision id="rco_teresp_cobertura" name="Terapias multiprofissionais e TEA: cobertura do Rol, regime e método indicado" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TERESP-COB-0001 a OMNI-TERESP-COB-0005. Hit policy UNIQUE; nenhuma linha nega: cobertura obrigatória nunca é negada, o que sai do regime do Rol, do Rol ou da finalidade estética vai à revisão humana; urgência libera; sem limite de sessões (RN 541/2022); método indicado no TEA sem prestador apto vai à regulação; data ausente vai à revisão humana.</description>
+    <decisionTable id="dt_teresp_cobertura" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_segmentacaoCompativel" label="segmentacaoCompativel ← TISS regime de atendimento da guia × segmentos_rol do código (AMB, HCO, HSO) em dominio.yaml; ausente se o regime não vier na guia">
+        <inputExpression id="ie_1_segmentacaoCompativel" typeRef="boolean"><text>segmentacaoCompativel</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_cidGrupoF84" label="cidGrupoF84 ← TISS cidPrincipal ou cidSecundario no grupo F84 (transtornos globais do desenvolvimento, TEA)">
+        <inputExpression id="ie_3_cidGrupoF84" typeRef="boolean"><text>cidGrupoF84</text></inputExpression>
+      </input>
+      <input id="in_4_cidFinalidadeEstetica" label="cidFinalidadeEstetica ← TISS cidPrincipal no grupo Z41 em pedido de fisioterapia (a confirmar pela auditoria médica)">
+        <inputExpression id="ie_4_cidFinalidadeEstetica" typeRef="boolean"><text>cidFinalidadeEstetica</text></inputExpression>
+      </input>
+      <input id="in_5_metodoIndicado" label="metodoIndicado ← solicitação: método ou técnica indicados pelo médico assistente no TEA">
+        <inputExpression id="ie_5_metodoIndicado" typeRef="boolean"><text>metodoIndicado</text></inputExpression>
+      </input>
+      <input id="in_6_prestadorAptoMetodo" label="prestadorAptoMetodo ← cadastro de rede da OMNI: prestador apto ao método indicado na praça do beneficiário">
+        <inputExpression id="ie_6_prestadorAptoMetodo" typeRef="boolean"><text>prestadorAptoMetodo</text></inputExpression>
+      </input>
+      <input id="in_7_cirurgiaNaInternacao" label="cirurgiaNaInternacao ← TISS guia de internação: procedimento cirúrgico informado na mesma internação">
+        <inputExpression id="ie_7_cirurgiaNaInternacao" typeRef="boolean"><text>cirurgiaNaInternacao</text></inputExpression>
+      </input>
+      <input id="in_8_classeTerapia" label="classeTerapia ← TISS codigoProcedimento (TUSS 22) pela lista classes de dominio.yaml (regras/terapias-multiprofissionais-tea)">
+        <inputExpression id="ie_8_classeTerapia" typeRef="string"><text>classeTerapia</text></inputExpression>
+      </input>
+      <input id="in_9_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_9_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="t_pre">
+        <description>OMNI-TERESP-COB-0001 — antes da vigência (06/12/2026): liberar, sem efeito</description>
+        <inputEntry><text>&lt; "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t001">
+        <description>OMNI-TERESP-AUT-0003 — urgência ou emergência: liberar sem exigência</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t002">
+        <description>OMNI-TERESP-COB-0002 — fisioterapia, reabilitação física e função respiratória: cobertura sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"20103018", "20103026", "20103034", "20103042", "20103050", "20103069", "20103077", "20103093", "20103107", "20103131", "20103182", "20103190", "20103204", "20103212", "20103220", "20103239", "20103247", "20103255", "20103263", "20103271", "20103280", "20103298", "20103301", "20103310", "20103328", "20103344", "20103360", "20103379", "20103387", "20103395", "20103409", "20103417", "20103425", "20103433", "20103441", "20103450", "20103468", "20103476", "20103484", "20103492", "20103506", "20103514", "20103522", "20103530", "20103565", "20103611", "20103620", "20103638", "20103646", "20103654", "20103662", "20103670", "20103689", "20103697", "20103700", "20103719", "20103727", "20103743", "50000012", "50000020", "50000926", "50001000", "50001019", "50001051", "50001078"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t003">
+        <description>OMNI-TERESP-COB-0003 — órtese e prótese com cirurgia na internação: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"confeccao_ortese_protese"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t004">
+        <description>OMNI-TERESP-COB-0003 — órtese e prótese sem cirurgia informada na internação, fora da internação ou regime ausente: análise, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"confeccao_ortese_protese"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t005">
+        <description>OMNI-TERESP-COB-0003 — órtese e prótese sem cirurgia informada na internação, fora da internação ou regime ausente: análise, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"confeccao_ortese_protese"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t006">
+        <description>OMNI-TERESP-COB-0005 — TEA com método indicado e prestador apto: liberar o método do médico assistente</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t007">
+        <description>OMNI-TERESP-COB-0005 — TEA com método indicado sem prestador apto na rede (ou cadastro ausente): regulação providencia o atendimento, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0005"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t008">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica ambulatorial compatível com o Rol, sem número máximo de sessões: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t009">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica fora do regime do Rol ou regime ausente: revisão do faturamento, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t010">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica ambulatorial compatível com o Rol, sem número máximo de sessões: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t011">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica fora do regime do Rol ou regime ausente: revisão do faturamento, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t012">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica ambulatorial compatível com o Rol, sem número máximo de sessões: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t013">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica ambulatorial compatível com o Rol, sem número máximo de sessões: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000055", "50000586", "50001221"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t014">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica fora do regime do Rol ou regime ausente: revisão do faturamento, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t015">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica fora do regime do Rol ou regime ausente: revisão do faturamento, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000055", "50000586", "50001221"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t016">
+        <description>OMNI-TERESP-COB-0003 — atendimento hospitalar não médico em internação compatível com o Rol: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"atendimento_hospitalar_nao_medico"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t017">
+        <description>OMNI-TERESP-COB-0003 — atendimento hospitalar não médico fora da internação ou regime ausente: análise, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"atendimento_hospitalar_nao_medico"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t018">
+        <description>OMNI-TERESP-COB-0004 — código fora do Rol (50000446 e 50000098): análise da auditoria médica, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"fora_rol"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t019">
+        <description>OMNI-TERESP-COB-0004 — fisioterapia com CID de finalidade estética (Z41): análise da auditoria médica, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"fisioterapia_hospitalar"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t020">
+        <description>OMNI-TERESP-COB-0004 — fisioterapia com CID de finalidade estética (Z41): análise da auditoria médica, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000144", "50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t021">
+        <description>OMNI-TERESP-COB-0005 — TEA com método indicado e prestador apto: liberar o método do médico assistente</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000144", "50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t022">
+        <description>OMNI-TERESP-COB-0005 — TEA com método indicado sem prestador apto na rede (ou cadastro ausente): regulação providencia o atendimento, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000144", "50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0005"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t023">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica ambulatorial compatível com o Rol, sem número máximo de sessões: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000144"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t024">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica fora do regime do Rol ou regime ausente: revisão do faturamento, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000144"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t025">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica ambulatorial compatível com o Rol, sem número máximo de sessões: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000144"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t026">
+        <description>OMNI-TERESP-COB-0001 — consulta e sessão não médica fora do regime do Rol ou regime ausente: revisão do faturamento, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000144"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t027">
+        <description>OMNI-TERESP-COB-0002 — fisioterapia, reabilitação física e função respiratória: cobertura sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t028">
+        <description>OMNI-TERESP-COB-0002 — fisioterapia, reabilitação física e função respiratória: cobertura sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>"50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t029">
+        <description>OMNI-TERESP-COB-0003 — atendimento hospitalar não médico em internação compatível com o Rol: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"fisioterapia_hospitalar"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t030">
+        <description>OMNI-TERESP-COB-0003 — atendimento hospitalar não médico fora da internação ou regime ausente: análise, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"fisioterapia_hospitalar"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t031">
+        <description>OMNI-TERESP-COB-0001 — demais códigos do domínio: cobertura pelo Rol, diretrizes em teresp_dut</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_enfermagem_obstetrica_dut135", "consulta_nutricao_dut103", "fisioterapia_hospitalar", "fora_rol", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <inputEntry><text>not("20103018", "20103026", "20103034", "20103042", "20103050", "20103069", "20103077", "20103093", "20103107", "20103131", "20103182", "20103190", "20103204", "20103212", "20103220", "20103239", "20103247", "20103255", "20103263", "20103271", "20103280", "20103298", "20103301", "20103310", "20103328", "20103344", "20103360", "20103379", "20103387", "20103395", "20103409", "20103417", "20103425", "20103433", "20103441", "20103450", "20103468", "20103476", "20103484", "20103492", "20103506", "20103514", "20103522", "20103530", "20103565", "20103611", "20103620", "20103638", "20103646", "20103654", "20103662", "20103670", "20103689", "20103697", "20103700", "20103719", "20103727", "20103743", "50000012", "50000020", "50000055", "50000144", "50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000586", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829", "50000926", "50001000", "50001019", "50001051", "50001078", "50001221")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t_sem_data">
+        <description>OMNI-TERESP-COB-0001 — data do atendimento ausente: revisão humana, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

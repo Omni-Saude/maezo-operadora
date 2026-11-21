@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imgac_pacote" name="Imagem de alto custo: composição da conta (punção para contraste e sessão de RM)" namespace="https://omni-saude/dmn/imagem-alto-custo">
+  <decision id="rco_imgac_pacote" name="Imagem de alto custo: composição da conta (punção para contraste e sessão de RM)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-IMGAC-PAC-0001; OMNI-IMGAC-PAC-0002. Domínio imagem-alto-custo. Hit policy UNIQUE; nenhuma linha nega ou glosa; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_imgac_pacote" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_exameBaseNaGuia" label="exameBaseNaGuia ← TISS guia com código da família tomografia_computadorizada na mesma dataExecucao">
+        <inputExpression id="ie_2_exameBaseNaGuia" typeRef="boolean"><text>exameBaseNaGuia</text></inputExpression>
+      </input>
+      <input id="in_3_quantidadeExamesRmSessao" label="quantidadeExamesRmSessao ← TISS quantidade de códigos da família ressonancia_magnetica na mesma guia e dataExecucao">
+        <inputExpression id="ie_3_quantidadeExamesRmSessao" typeRef="integer"><text>quantidadeExamesRmSessao</text></inputExpression>
+      </input>
+      <input id="in_4_clausulaExameAdicional" label="clausulaExameAdicional ← cadastro: contrato do prestador com cláusula de exame adicional de RM">
+        <inputExpression id="ie_4_clausulaExameAdicional" typeRef="boolean"><text>clausulaExameAdicional</text></inputExpression>
+      </input>
+      <input id="in_5_reducaoAcrescimoInformado" label="reducaoAcrescimoInformado ← TISS fatorReducaoAcrescimo preenchido nos exames adicionais da sessão">
+        <inputExpression id="ie_5_reducaoAcrescimoInformado" typeRef="boolean"><text>reducaoAcrescimoInformado</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência: regras IMGAC não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="pun_ok">
+        <description>OMNI-IMGAC-PAC-0001 — punção para contraste com exame-base de TC na guia: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41002040"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="pun_sem">
+        <description>OMNI-IMGAC-PAC-0001 — punção sem exame-base de TC: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41002040"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="pun_nulo">
+        <description>OMNI-IMGAC-PAC-0001 — exame-base não informado: faturamento confere, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41002040"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="rm_um">
+        <description>OMNI-IMGAC-PAC-0002 — um exame de RM na sessão: pagamento inteiro</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101251", "41101260", "41101278", "41101286", "41101294", "41101308", "41101316", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101553", "41101596", "41101600", "41101618", "41101626"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="rm_qnulo">
+        <description>OMNI-IMGAC-PAC-0002 — quantidade de exames na sessão não informada: pagamento inteiro, sem redução automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101251", "41101260", "41101278", "41101286", "41101294", "41101308", "41101316", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101553", "41101596", "41101600", "41101618", "41101626"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="rm_ref">
+        <description>OMNI-IMGAC-PAC-0002 — mais de um exame de RM, cláusula no contrato e fator informado: percentual do exame adicional</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101251", "41101260", "41101278", "41101286", "41101294", "41101308", "41101316", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101553", "41101596", "41101600", "41101618", "41101626"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 2</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"pagar_referencia"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="rm_sem_fator">
+        <description>OMNI-IMGAC-PAC-0002 — mais de um exame, cláusula no contrato e fator ausente: faturamento, sem redução automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101251", "41101260", "41101278", "41101286", "41101294", "41101308", "41101316", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101553", "41101596", "41101600", "41101618", "41101626"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 2</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="rm_fator_nulo">
+        <description>OMNI-IMGAC-PAC-0002 — mais de um exame, cláusula no contrato e fator não informado: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101251", "41101260", "41101278", "41101286", "41101294", "41101308", "41101316", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101553", "41101596", "41101600", "41101618", "41101626"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 2</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="rm_sem_cl">
+        <description>OMNI-IMGAC-PAC-0002 — mais de um exame sem cláusula no contrato: faturamento, sem redução automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101251", "41101260", "41101278", "41101286", "41101294", "41101308", "41101316", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101553", "41101596", "41101600", "41101618", "41101626"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 2</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="rm_cl_nulo">
+        <description>OMNI-IMGAC-PAC-0002 — cláusula não informada: faturamento, sem redução automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101251", "41101260", "41101278", "41101286", "41101294", "41101308", "41101316", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101553", "41101596", "41101600", "41101618", "41101626"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 2</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>demais códigos: sem composição nesta tabela</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("41002040", "41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101251", "41101260", "41101278", "41101286", "41101294", "41101308", "41101316", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101553", "41101596", "41101600", "41101618", "41101626")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>data ausente: faturamento, sem glosa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

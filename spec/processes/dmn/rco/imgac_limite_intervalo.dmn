@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imgac_limite_intervalo" name="Imagem de alto custo: repetição do mesmo exame em intervalo curto" namespace="https://omni-saude/dmn/imagem-alto-custo">
+  <decision id="rco_imgac_limite_intervalo" name="Imagem de alto custo: repetição do mesmo exame em intervalo curto" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-IMGAC-LIM-0002. Domínio imagem-alto-custo. Hit policy UNIQUE; nenhuma linha nega ou glosa; a linha de fechamento (data ausente) vai à revisão humana. Separada de imgac_limite_quantidade para caber no orçamento do motor (decisão IMGAC-13).</description>
+    <decisionTable id="dt_imgac_limite_intervalo" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_diasDesdeUltimoExame" label="diasDesdeUltimoExame ← cadastro: dias desde a dataExecucao anterior do mesmo código e beneficiário (histórico de guias da OMNI)">
+        <inputExpression id="ie_2_diasDesdeUltimoExame" typeRef="integer"><text>diasDesdeUltimoExame</text></inputExpression>
+      </input>
+      <input id="in_3_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_3_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_4_regime" label="regime ← TISS regimeInternacao ou tipo de guia (ambulatorial, internacao, hospital_dia)">
+        <inputExpression id="ie_4_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência: regras IMGAC não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="rep">
+        <description>OMNI-IMGAC-LIM-0002 — repetição eletiva ambulatorial dentro do intervalo mínimo: auditoria</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41001141", "41001150", "41002059", "41101251", "41101286", "41101294", "41101553", "41001010", "41001028", "41001036", "41001044", "41001052", "41001060", "41001079", "41001095", "41001109", "41001117", "41001125", "41001176", "41001184", "41001230", "41001273", "41001281", "41001370", "41001389", "41001397", "41001400", "41001419", "41001427", "41001435", "41001443", "41001451", "41001460", "41001478", "41001516", "41001524", "41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101260", "41101278", "41101308", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101596", "41101600", "41101618", "41101626", "41001133", "41101316", "40708128"</text></inputEntry>
+        <inputEntry><text>&lt; 60</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="int">
+        <description>OMNI-IMGAC-LIM-0002 — intervalo cumprido: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41001141", "41001150", "41002059", "41101251", "41101286", "41101294", "41101553", "41001010", "41001028", "41001036", "41001044", "41001052", "41001060", "41001079", "41001095", "41001109", "41001117", "41001125", "41001176", "41001184", "41001230", "41001273", "41001281", "41001370", "41001389", "41001397", "41001400", "41001419", "41001427", "41001435", "41001443", "41001451", "41001460", "41001478", "41001516", "41001524", "41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101260", "41101278", "41101308", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101596", "41101600", "41101618", "41101626", "41001133", "41101316", "40708128"</text></inputEntry>
+        <inputEntry><text>&gt;= 60</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem">
+        <description>OMNI-IMGAC-LIM-0002 — sem exame anterior (data anterior nula): liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41001141", "41001150", "41002059", "41101251", "41101286", "41101294", "41101553", "41001010", "41001028", "41001036", "41001044", "41001052", "41001060", "41001079", "41001095", "41001109", "41001117", "41001125", "41001176", "41001184", "41001230", "41001273", "41001281", "41001370", "41001389", "41001397", "41001400", "41001419", "41001427", "41001435", "41001443", "41001451", "41001460", "41001478", "41001516", "41001524", "41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101260", "41101278", "41101308", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101596", "41101600", "41101618", "41101626", "41001133", "41101316", "40708128"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="car">
+        <description>OMNI-IMGAC-LIM-0002 — repetição em urgência ou caráter ausente: fora da conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41001141", "41001150", "41002059", "41101251", "41101286", "41101294", "41101553", "41001010", "41001028", "41001036", "41001044", "41001052", "41001060", "41001079", "41001095", "41001109", "41001117", "41001125", "41001176", "41001184", "41001230", "41001273", "41001281", "41001370", "41001389", "41001397", "41001400", "41001419", "41001427", "41001435", "41001443", "41001451", "41001460", "41001478", "41001516", "41001524", "41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101260", "41101278", "41101308", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101596", "41101600", "41101618", "41101626", "41001133", "41101316", "40708128"</text></inputEntry>
+        <inputEntry><text>&lt; 60</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="reg">
+        <description>OMNI-IMGAC-LIM-0002 — repetição em internação ou hospital-dia: fora da conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41001141", "41001150", "41002059", "41101251", "41101286", "41101294", "41101553", "41001010", "41001028", "41001036", "41001044", "41001052", "41001060", "41001079", "41001095", "41001109", "41001117", "41001125", "41001176", "41001184", "41001230", "41001273", "41001281", "41001370", "41001389", "41001397", "41001400", "41001419", "41001427", "41001435", "41001443", "41001451", "41001460", "41001478", "41001516", "41001524", "41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101260", "41101278", "41101308", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101596", "41101600", "41101618", "41101626", "41001133", "41101316", "40708128"</text></inputEntry>
+        <inputEntry><text>&lt; 60</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>not("ambulatorial")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>demais códigos: sem intervalo nesta tabela</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("41001141", "41001150", "41002059", "41101251", "41101286", "41101294", "41101553", "41001010", "41001028", "41001036", "41001044", "41001052", "41001060", "41001079", "41001095", "41001109", "41001117", "41001125", "41001176", "41001184", "41001230", "41001273", "41001281", "41001370", "41001389", "41001397", "41001400", "41001419", "41001427", "41001435", "41001443", "41001451", "41001460", "41001478", "41001516", "41001524", "41101014", "41101022", "41101030", "41101057", "41101065", "41101073", "41101081", "41101090", "41101103", "41101111", "41101120", "41101138", "41101146", "41101154", "41101170", "41101189", "41101197", "41101200", "41101219", "41101227", "41101235", "41101243", "41101260", "41101278", "41101308", "41101332", "41101340", "41101480", "41101499", "41101502", "41101510", "41101529", "41101537", "41101545", "41101596", "41101600", "41101618", "41101626", "41001133", "41101316", "40708128")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>data ausente: auditoria, sem glosa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGAC-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

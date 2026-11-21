@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_cirger_limite_quantidade" name="Limites de quantidade em proctologia" namespace="https://omni-saude/dmn/cirurgia-geral-digestiva">
+  <decision id="rco_cirger_limite_quantidade" name="Limites de quantidade em proctologia (OMNI-CIRGER-LIM-0001; OMNI-CIRGER-LIM-0002)" camunda:historyTimeToLive="P180D">
+    <description>Hemorroidectomia é cobrada uma vez por ato, qualquer que seja o número de mamilos; a excisão de plicoma, até três por ato. O excedente vai à auditoria médica, sem glosa automática (limite clínico superável, sem base normativa expressa de limite absoluto; BM-07, decisão MEL2-CIRGER-01). Regras: OMNI-CIRGER-LIM-0001; OMNI-CIRGER-LIM-0002. Gerado por regras/cirurgia-geral-digestiva/gerar_cirger.py; hit policy UNIQUE; a linha de fechamento nunca nega.</description>
+    <decisionTable id="dt_cirger_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_familiaProcedimento" label="familiaProcedimento ← TISS codigoProcedimento (TUSS 22) classificado por dominio.yaml: hemorroidectomia | plicoma | outra">
+        <inputExpression id="ie_1_familiaProcedimento" typeRef="string"><text>familiaProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_quantidade" label="quantidade ← TISS quantidadeExecutada do código na mesma guia e data">
+        <inputExpression id="ie_2_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-CIRGER-LIM-0001 — antes da vigência (2027-01-01)</description>
+        <inputEntry><text>&lt; "2027-01-01"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-CIRGER-LIM-0001 — hemorroidectomia cobrada mais de uma vez no ato: excedente à auditoria médica</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hemorroidectomia"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-CIRGER-LIM-0001 — hemorroidectomia uma vez (ou quantidade ausente)</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hemorroidectomia"</text></inputEntry>
+        <inputEntry><text>&lt;= 1, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-CIRGER-LIM-0002 — plicoma acima de três no ato: excedente à auditoria médica</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"plicoma"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-CIRGER-LIM-0002 — plicoma até três (ou quantidade ausente)</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"plicoma"</text></inputEntry>
+        <inputEntry><text>&lt;= 3, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-CIRGER-LIM-0001 — fechamento: outro procedimento</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("hemorroidectomia","plicoma")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-CIRGER-LIM-0001 — data ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

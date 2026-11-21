@@ -1,0 +1,451 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_cirger_pacote_episodio" name="Pacote do episódio cirúrgico eletivo: colecistectomia por vídeo e hernioplastia inguinal ou crural" namespace="https://omni-saude/dmn/cirurgia-geral-digestiva">
+  <decision id="rco_cirger_pacote_episodio" name="Pacote do episódio cirúrgico eletivo: colecistectomia por vídeo e hernioplastia inguinal ou crural (OMNI-CIRGER-PAC-0001; OMNI-CIRGER-PAC-0002; OMNI-CIRGER-PAC-0003)" camunda:historyTimeToLive="P180D">
+    <description>Enquadramento e desvios dos pacotes OMNI-PAC-CIRGER-0001 e 0002 e reinternação em até 30 dias. Nenhum desvio nega cobertura: muda só a forma de pagar o prestador. Limiares provisórios (D-d6-cirger-08). Regras: OMNI-CIRGER-PAC-0001; OMNI-CIRGER-PAC-0002; OMNI-CIRGER-PAC-0003. Gerado por regras/cirurgia-geral-digestiva/gerar_cirger.py; hit policy UNIQUE; a linha de fechamento nunca nega.</description>
+    <decisionTable id="dt_cirger_pacote_episodio" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_familiaPacote" label="familiaPacote ← TISS codigoProcedimento principal da guia de internação (TUSS 22) classificado por dominio.yaml: colecistectomia_video | hernioplastia_inguinal_crural">
+        <inputExpression id="ie_1_familiaPacote" typeRef="string"><text>familiaPacote</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_prestadorComPacote" label="prestadorComPacote ← cadastro de contrato: pacote OMNI-PAC-CIRGER vigente para o prestador (booleano)">
+        <inputExpression id="ie_3_prestadorComPacote" typeRef="boolean"><text>prestadorComPacote</text></inputExpression>
+      </input>
+      <input id="in_4_diasInternacao" label="diasInternacao ← TISS dataInicioFaturamento a dataFimFaturamento/alta (diárias)">
+        <inputExpression id="ie_4_diasInternacao" typeRef="integer"><text>diasInternacao</text></inputExpression>
+      </input>
+      <input id="in_5_utiNaoPrevista" label="utiNaoPrevista ← TISS diárias de UTI (TUSS 18) na guia (booleano)">
+        <inputExpression id="ie_5_utiNaoPrevista" typeRef="boolean"><text>utiNaoPrevista</text></inputExpression>
+      </input>
+      <input id="in_6_reinternacaoJanela" label="reinternacaoJanela ← TISS nova internação no mesmo prestador até 30 dias da alta de episódio pago em pacote CIRGER (booleano)">
+        <inputExpression id="ie_6_reinternacaoJanela" typeRef="boolean"><text>reinternacaoJanela</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <output id="out_modalidadePagamento" name="modalidadePagamento" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-CIRGER-PAC-0001 — antes da vigência (2027-01-01): conta aberta</description>
+        <inputEntry><text>&lt; "2027-01-01"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-CIRGER-PAC-0003 — reinternação em até 30 dias da alta do pacote: confere a mesma causa, sem novo pacote</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video","hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar_sem_novo_pacote"</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-CIRGER-PAC-0001 — pacote integral</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt;= 2</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote"</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-CIRGER-PAC-0001 — pacote mais diárias excedentes</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>[3..7]</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote_mais_diarias"</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-CIRGER-PAC-0001 — permanência acima do limite de revisão (diárias mantidas)</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&gt; 7</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote_mais_diarias"</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-CIRGER-PAC-0001 — dias de internação ausentes</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar"</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-CIRGER-PAC-0001 — UTI não prevista paga à parte</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote_mais_uti"</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-CIRGER-PAC-0001 — sem informação de UTI</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar"</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-CIRGER-PAC-0001 — prestador sem pacote contratado: conta aberta</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="r009">
+        <description>OMNI-CIRGER-PAC-0001 — sem dado de contrato de pacote</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar"</text></outputEntry>
+      </rule>
+      <rule id="r010">
+        <description>OMNI-CIRGER-PAC-0001 — urgência: fora do pacote eletivo (conta aberta)</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="r011">
+        <description>OMNI-CIRGER-PAC-0001 — caráter ausente ou inválido</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>not("1","2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar"</text></outputEntry>
+      </rule>
+      <rule id="r012">
+        <description>OMNI-CIRGER-PAC-0001 — sem dado de reinternação</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_video"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar"</text></outputEntry>
+      </rule>
+      <rule id="r013">
+        <description>OMNI-CIRGER-PAC-0002 — pacote integral</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt;= 2</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote"</text></outputEntry>
+      </rule>
+      <rule id="r014">
+        <description>OMNI-CIRGER-PAC-0002 — pacote mais diárias excedentes</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>[3..7]</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote_mais_diarias"</text></outputEntry>
+      </rule>
+      <rule id="r015">
+        <description>OMNI-CIRGER-PAC-0002 — permanência acima do limite de revisão (diárias mantidas)</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&gt; 7</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote_mais_diarias"</text></outputEntry>
+      </rule>
+      <rule id="r016">
+        <description>OMNI-CIRGER-PAC-0002 — dias de internação ausentes</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar"</text></outputEntry>
+      </rule>
+      <rule id="r017">
+        <description>OMNI-CIRGER-PAC-0002 — UTI não prevista paga à parte</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote_mais_uti"</text></outputEntry>
+      </rule>
+      <rule id="r018">
+        <description>OMNI-CIRGER-PAC-0002 — sem informação de UTI</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar"</text></outputEntry>
+      </rule>
+      <rule id="r019">
+        <description>OMNI-CIRGER-PAC-0002 — prestador sem pacote contratado: conta aberta</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="r020">
+        <description>OMNI-CIRGER-PAC-0002 — sem dado de contrato de pacote</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar"</text></outputEntry>
+      </rule>
+      <rule id="r021">
+        <description>OMNI-CIRGER-PAC-0002 — urgência: fora do pacote eletivo (conta aberta)</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="r022">
+        <description>OMNI-CIRGER-PAC-0002 — caráter ausente ou inválido</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>not("1","2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar"</text></outputEntry>
+      </rule>
+      <rule id="r023">
+        <description>OMNI-CIRGER-PAC-0002 — sem dado de reinternação</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernioplastia_inguinal_crural"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"verificar"</text></outputEntry>
+      </rule>
+      <rule id="r024">
+        <description>OMNI-CIRGER-PAC-0001 — procedimento sem pacote CIRGER</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("colecistectomia_video","hernioplastia_inguinal_crural")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"nao_se_aplica"</text></outputEntry>
+      </rule>
+      <rule id="r025">
+        <description>OMNI-CIRGER-PAC-0001 — data ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

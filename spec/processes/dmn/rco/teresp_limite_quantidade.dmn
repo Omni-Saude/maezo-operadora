@@ -1,0 +1,656 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_teresp_limite_quantidade" name="Terapias multiprofissionais e TEA: glosa de cobrança idêntica e gatilhos de revisão de quantidade" namespace="https://omni-saude/dmn/terapias-multiprofissionais-tea">
+  <decision id="rco_teresp_limite_quantidade" name="Terapias multiprofissionais e TEA: glosa de cobrança idêntica e gatilhos de revisão de quantidade" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TERESP-LIM-0001 a OMNI-TERESP-LIM-0009. Hit policy UNIQUE; única glosa automática: cobrança idêntica repetida, motivo 3209 da Tabela 38 (RN 503, art. 14), e só com histórico (cobrancaIdentica verdadeiro); os demais gatilhos, calculados com os parâmetros das regras (efeito.parametros), vão à revisão do faturamento ou à auditoria médica, nunca a glosa por contagem; sem limite de sessões (RN 541/2022); beneficiário com CID F84 fora dos gatilhos de frequência, de mesma especialidade no dia e de janela; urgência libera; dado ausente nunca glosa; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_teresp_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_1_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_2_cobrancaIdentica" label="cobrancaIdentica ← TISS histórico de guias OMNI: mesmo beneficiário, código, data, hora inicial, executante e prestador">
+        <inputExpression id="ie_2_cobrancaIdentica" typeRef="boolean"><text>cobrancaIdentica</text></inputExpression>
+      </input>
+      <input id="in_3_cidGrupoF84" label="cidGrupoF84 ← TISS cidPrincipal ou cidSecundario no grupo F84 (transtornos globais do desenvolvimento, TEA)">
+        <inputExpression id="ie_3_cidGrupoF84" typeRef="boolean"><text>cidGrupoF84</text></inputExpression>
+      </input>
+      <input id="in_4_contagemAcimaDoParametro" label="contagemAcimaDoParametro ← TISS histórico de guias OMNI: contagem do beneficiário acima do parâmetro da regra LIM aplicável ao código (detalhe na descrição da cláusula)">
+        <description>contagemAcimaDoParametro ← TISS histórico de guias OMNI: contagem do beneficiário acima do parâmetro da regra LIM aplicável ao código (mínimo da DUT 103/135 em LIM-0001, segmentos em LIM-0002, consulta ou concomitância em LIM-0004, sessão ou consulta do internado em LIM-0006; efeito.parametros)</description>
+        <inputExpression id="ie_4_contagemAcimaDoParametro" typeRef="boolean"><text>contagemAcimaDoParametro</text></inputExpression>
+      </input>
+      <input id="in_5_frequenciaAcimaDoGatilho" label="frequenciaAcimaDoGatilho ← TISS histórico de guias OMNI: sessões da semana, de biofeedback ou do dia perioperatório acima dos gatilhos de OMNI-TERESP-LIM-0003 (efeito.parametros)">
+        <inputExpression id="ie_5_frequenciaAcimaDoGatilho" typeRef="boolean"><text>frequenciaAcimaDoGatilho</text></inputExpression>
+      </input>
+      <input id="in_6_mesmaEspecialidadeAcimaNoDia" label="mesmaEspecialidadeAcimaNoDia ← TISS beneficiário, data e especialidade pela lista especialidade_por_codigo de dominio.yaml: sessões acima do parâmetro de OMNI-TERESP-LIM-0005">
+        <inputExpression id="ie_6_mesmaEspecialidadeAcimaNoDia" typeRef="boolean"><text>mesmaEspecialidadeAcimaNoDia</text></inputExpression>
+      </input>
+      <input id="in_7_sessoesNaJanelaAcimaDoGatilho" label="sessoesNaJanelaAcimaDoGatilho ← TISS histórico de guias OMNI: sessões da especialidade na janela de 30 dias acima do gatilho de OMNI-TERESP-LIM-0009 (terapia ocupacional sem gatilho)">
+        <inputExpression id="ie_7_sessoesNaJanelaAcimaDoGatilho" typeRef="boolean"><text>sessoesNaJanelaAcimaDoGatilho</text></inputExpression>
+      </input>
+      <input id="in_8_quantidadeAcimaDoPedido" label="quantidadeAcimaDoPedido ← TISS quantidadeExecutada somada por solicitação maior que quantidadeSolicitada da solicitação em vigor">
+        <inputExpression id="ie_8_quantidadeAcimaDoPedido" typeRef="boolean"><text>quantidadeAcimaDoPedido</text></inputExpression>
+      </input>
+      <input id="in_9_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_9_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="t_pre">
+        <description>OMNI-TERESP-LIM-0007 — antes da vigência (06/12/2026): liberar, sem efeito</description>
+        <inputEntry><text>&lt; "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t001">
+        <description>OMNI-TERESP-AUT-0003 — urgência ou emergência (caráter 2): liberar, sem edição de quantidade (a cobrança idêntica repetida continua glosada)</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t002">
+        <description>OMNI-TERESP-LIM-0007 — cobrança idêntica repetida: glosa só da linha repetida (Tabela 38, 3209), com recurso de glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20103018", "20103026", "20103034", "20103042", "20103050", "20103069", "20103077", "20103093", "20103107", "20103131", "20103158", "20103166", "20103174", "20103182", "20103190", "20103204", "20103212", "20103220", "20103239", "20103247", "20103255", "20103263", "20103271", "20103280", "20103298", "20103301", "20103310", "20103328", "20103344", "20103360", "20103379", "20103387", "20103395", "20103409", "20103417", "20103425", "20103433", "20103441", "20103450", "20103468", "20103476", "20103484", "20103492", "20103506", "20103514", "20103522", "20103530", "20103565", "20103611", "20103620", "20103638", "20103646", "20103654", "20103662", "20103670", "20103689", "20103697", "20103700", "20103719", "20103727", "20103743", "50000012", "50000020", "50000039", "50000047", "50000055", "50000071", "50000080", "50000101", "50000110", "50000128", "50000136", "50000144", "50000160", "50000195", "50000209", "50000217", "50000233", "50000349", "50000365", "50000381", "50000390", "50000403", "50000411", "50000420", "50000454", "50000470", "50000489", "50000497", "50000500", "50000519", "50000527", "50000560", "50000586", "50000608", "50000616", "50000632", "50000640", "50000659", "50000675", "50000691", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829", "50000900", "50000926", "50000934", "50001000", "50001019", "50001051", "50001078", "50001183", "50001191", "50001205", "50001213", "50001221", "50001230"</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3209"</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="t003">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20103018", "20103026", "20103034", "20103042", "20103050", "20103069", "20103077", "20103093", "20103107", "20103131", "20103182", "20103190", "20103204", "20103212", "20103220", "20103239", "20103247", "20103255", "20103263", "20103271", "20103280", "20103298", "20103301", "20103310", "20103328", "20103344", "20103360", "20103379", "20103387", "20103395", "20103409", "20103417", "20103425", "20103433", "20103441", "20103450", "20103468", "20103476", "20103484", "20103492", "20103506", "20103514", "20103522", "20103530", "20103565", "20103611", "20103620", "20103638", "20103646", "20103654", "20103662", "20103670", "20103689", "20103697", "20103700", "20103719", "20103727", "20103743", "50000012", "50000020", "50000055", "50000586", "50000926", "50001000", "50001019", "50001051", "50001078", "50001221"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t004">
+        <description>OMNI-TERESP-LIM-0003 — reabilitação física: frequência acima do gatilho (semana, biofeedback ou perioperatório) em beneficiário sem CID F84, revisão do faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20103018", "20103026", "20103034", "20103042", "20103050", "20103069", "20103077", "20103093", "20103107", "20103131", "20103182", "20103190", "20103204", "20103212", "20103220", "20103239", "20103247", "20103255", "20103263", "20103271", "20103280", "20103298", "20103301", "20103310", "20103328", "20103344", "20103360", "20103379", "20103387", "20103395", "20103409", "20103417", "20103425", "20103433", "20103441", "20103450", "20103468", "20103476", "20103484", "20103492", "20103506", "20103514", "20103522", "20103530", "20103565", "20103611", "20103620", "20103638", "20103646", "20103654", "20103662", "20103670", "20103689", "20103697", "20103700", "20103719", "20103727", "20103743", "50000012", "50000020", "50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829", "50000926", "50001000", "50001019", "50001051", "50001078"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t005">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20103018", "20103026", "20103034", "20103042", "20103050", "20103069", "20103077", "20103093", "20103107", "20103131", "20103182", "20103190", "20103204", "20103212", "20103220", "20103239", "20103247", "20103255", "20103263", "20103271", "20103280", "20103298", "20103301", "20103310", "20103328", "20103344", "20103360", "20103379", "20103387", "20103395", "20103409", "20103417", "20103425", "20103433", "20103441", "20103450", "20103468", "20103476", "20103484", "20103492", "20103506", "20103514", "20103522", "20103530", "20103565", "20103611", "20103620", "20103638", "20103646", "20103654", "20103662", "20103670", "20103689", "20103697", "20103700", "20103719", "20103727", "20103743", "50000012", "50000020", "50000926", "50001000", "50001019", "50001051", "50001078"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t006">
+        <description>OMNI-TERESP-LIM-0002 — toxina botulínica: segmentos somados no dia acima do total de segmentos corporais do ato, revisão do faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20103140"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t007">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20103140"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t008">
+        <description>OMNI-TERESP-LIM-0002 — toxina botulínica: segmentos somados no dia acima do total de segmentos corporais do ato, revisão do faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20103140"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t009">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20103140"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t010">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20103158", "20103166", "20103174", "50000527", "50000675", "50000691", "50000900", "50000934"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t011">
+        <description>OMNI-TERESP-LIM-0008 — sessões acima do pedido do médico: pedido complementar ou renovação, revisão do faturamento; a terapia em curso continua (gold card candidato, inativo até o backtest em modo sombra)</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"50000039", "50000047", "50001213"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0008"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t012">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"50000039", "50000047", "50001213"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t013">
+        <description>OMNI-TERESP-LIM-0005 — mais de uma sessão da mesma especialidade no dia, sem CID F84 (a justificativa do médico assistente já zera o gatilho): revisão do faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000055", "50000080", "50000110", "50000128", "50000136", "50000144", "50000470", "50000489", "50000497", "50000500", "50000519", "50000586", "50000616", "50000640", "50000659", "50001183", "50001191", "50001221"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t014">
+        <description>OMNI-TERESP-LIM-0009 — sessões da especialidade na janela acima do gatilho estatístico, em beneficiário sem CID F84: revisão do faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000055", "50000586", "50001221"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0009"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t015">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000055", "50000586", "50001221"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t016">
+        <description>OMNI-TERESP-LIM-0006 — fono, terapia ocupacional e psicologia na internação: sessões ou consultas acima do parâmetro, revisão do faturamento (a justificativa do médico assistente já zera o gatilho)</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000071", "50000101", "50000608", "50000632", "50001230"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0006"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t017">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000071", "50000101", "50000349", "50000411", "50000420", "50000608", "50000632", "50001230"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t018">
+        <description>OMNI-TERESP-LIM-0008 — sessões acima do pedido do médico: pedido complementar ou renovação, revisão do faturamento; a terapia em curso continua (gold card candidato, inativo até o backtest em modo sombra)</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"50000080", "50000110", "50000128", "50000136", "50000144", "50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000470", "50000489", "50000497", "50000500", "50000519", "50000616", "50000640", "50000659", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829", "50001183", "50001191"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0008"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t019">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"50000080", "50000110", "50000128", "50000136", "50000144", "50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000470", "50000489", "50000497", "50000500", "50000519", "50000616", "50000640", "50000659", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829", "50001183", "50001191"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t020">
+        <description>OMNI-TERESP-LIM-0008 — sessões acima do pedido do médico: pedido complementar ou renovação, revisão do faturamento; a terapia em curso continua (gold card candidato, inativo até o backtest em modo sombra)</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"50000080", "50000110", "50000128", "50000136", "50000144", "50000470", "50000489", "50000497", "50000500", "50000519", "50000616", "50000640", "50000659", "50001183", "50001191"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0008"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t021">
+        <description>OMNI-TERESP-LIM-0009 — sessões da especialidade na janela acima do gatilho estatístico, em beneficiário sem CID F84: revisão do faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"50000080", "50000110", "50000128", "50000136", "50000144", "50000470", "50000489", "50000497", "50000500", "50000519", "50000616", "50000640", "50000659", "50001183", "50001191"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0009"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t022">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"50000080", "50000110", "50000128", "50000136", "50000144", "50000470", "50000489", "50000497", "50000500", "50000519", "50000616", "50000640", "50000659", "50001183", "50001191"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t023">
+        <description>OMNI-TERESP-LIM-0005 — mais de uma sessão da mesma especialidade no dia, sem CID F84 (a justificativa do médico assistente já zera o gatilho): revisão do faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t024">
+        <description>OMNI-TERESP-LIM-0008 — sessões acima do pedido do médico: pedido complementar ou renovação, revisão do faturamento; a terapia em curso continua (gold card candidato, inativo até o backtest em modo sombra)</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0008"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t025">
+        <description>OMNI-TERESP-LIM-0009 — sessões da especialidade na janela acima do gatilho estatístico, em beneficiário sem CID F84: revisão do faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0009"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t026">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"50000160", "50000195", "50000209", "50000217", "50000233", "50000365", "50000381", "50000390", "50000403", "50000454", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t027">
+        <description>OMNI-TERESP-LIM-0004 — fisioterapia hospitalar: nova consulta na internação ou consulta e atendimento do mesmo profissional no dia, revisão do faturamento (a justificativa do médico assistente já zera o gatilho)</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000349", "50000411", "50000420"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0004"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t028">
+        <description>OMNI-TERESP-LIM-0001 — DUT 103/135: contagem do ano de contrato acima do mínimo aplicável, auditoria médica confere o enquadramento</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000560", "50001205"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t029">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000560", "50001205"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t030">
+        <description>OMNI-TERESP-LIM-0001 — DUT 103/135: contagem do ano de contrato ausente, auditoria médica confere, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000560", "50001205"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t031">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("20103018", "20103026", "20103034", "20103042", "20103050", "20103069", "20103077", "20103093", "20103107", "20103131", "20103140", "20103158", "20103166", "20103174", "20103182", "20103190", "20103204", "20103212", "20103220", "20103239", "20103247", "20103255", "20103263", "20103271", "20103280", "20103298", "20103301", "20103310", "20103328", "20103344", "20103360", "20103379", "20103387", "20103395", "20103409", "20103417", "20103425", "20103433", "20103441", "20103450", "20103468", "20103476", "20103484", "20103492", "20103506", "20103514", "20103522", "20103530", "20103565", "20103611", "20103620", "20103638", "20103646", "20103654", "20103662", "20103670", "20103689", "20103697", "20103700", "20103719", "20103727", "20103743", "50000012", "50000020", "50000039", "50000047", "50000055", "50000071", "50000080", "50000101", "50000110", "50000128", "50000136", "50000144", "50000160", "50000195", "50000209", "50000217", "50000233", "50000349", "50000365", "50000381", "50000390", "50000403", "50000411", "50000420", "50000454", "50000470", "50000489", "50000497", "50000500", "50000519", "50000527", "50000560", "50000586", "50000608", "50000616", "50000632", "50000640", "50000659", "50000675", "50000691", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829", "50000900", "50000926", "50000934", "50001000", "50001019", "50001051", "50001078", "50001183", "50001191", "50001205", "50001213", "50001221", "50001230")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t032">
+        <description>OMNI-TERESP-LIM-0007 — sem gatilho de edição: liberar; dado ausente nunca gera glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("20103018", "20103026", "20103034", "20103042", "20103050", "20103069", "20103077", "20103093", "20103107", "20103131", "20103140", "20103158", "20103166", "20103174", "20103182", "20103190", "20103204", "20103212", "20103220", "20103239", "20103247", "20103255", "20103263", "20103271", "20103280", "20103298", "20103301", "20103310", "20103328", "20103344", "20103360", "20103379", "20103387", "20103395", "20103409", "20103417", "20103425", "20103433", "20103441", "20103450", "20103468", "20103476", "20103484", "20103492", "20103506", "20103514", "20103522", "20103530", "20103565", "20103611", "20103620", "20103638", "20103646", "20103654", "20103662", "20103670", "20103689", "20103697", "20103700", "20103719", "20103727", "20103743", "50000012", "50000020", "50000039", "50000047", "50000055", "50000071", "50000080", "50000101", "50000110", "50000128", "50000136", "50000144", "50000160", "50000195", "50000209", "50000217", "50000233", "50000349", "50000365", "50000381", "50000390", "50000403", "50000411", "50000420", "50000454", "50000470", "50000489", "50000497", "50000500", "50000519", "50000527", "50000560", "50000586", "50000608", "50000616", "50000632", "50000640", "50000659", "50000675", "50000691", "50000713", "50000730", "50000748", "50000756", "50000764", "50000772", "50000780", "50000799", "50000810", "50000829", "50000900", "50000926", "50000934", "50001000", "50001019", "50001051", "50001078", "50001183", "50001191", "50001205", "50001213", "50001221", "50001230")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t_sem_data">
+        <description>OMNI-TERESP-LIM-0007 — data do atendimento ausente: revisão humana, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-LIM-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,431 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_opme_processo_orl" name="ORL: processo de OPME — três marcas, autorização, rastreabilidade e urgência (OMNI-ORL-OPM-0003 a 0006)" namespace="https://omni-saude/dmn/otorrino-cabeca-pescoco">
+  <decision id="rco_opme_processo_orl" name="ORL: processo de OPME — três marcas, autorização, rastreabilidade e urgência (OMNI-ORL-OPM-0003 a 0006)" camunda:historyTimeToLive="P3650D">
+    <description>Pedido de OPME eletiva com três marcas (ANS-RN-424, art. 7º), cobrança sem autorização, etiqueta de rastreabilidade e comunicação de OPME de urgência. Campo nulo nunca vira glosa. OMNI-ORL-OPM-0003 a OMNI-ORL-OPM-0006.</description>
+    <decisionTable id="dt_opme_processo_orl" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_etapa" label="etapa ← fluxo Camunda (solicitacao | conta)">
+        <inputExpression id="ie_1_etapa" typeRef="string"><text>etapa</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_quantidadeMarcasIndicadas" label="quantidadeMarcasIndicadas ← TISS anexo de solicitação de OPME: fabricantes distintos regularizados na Anvisa">
+        <inputExpression id="ie_3_quantidadeMarcasIndicadas" typeRef="integer"><text>quantidadeMarcasIndicadas</text></inputExpression>
+      </input>
+      <input id="in_4_opmeAutorizada" label="opmeAutorizada ← TISS senha/autorização do item de OPME (booleano)">
+        <inputExpression id="ie_4_opmeAutorizada" typeRef="boolean"><text>opmeAutorizada</text></inputExpression>
+      </input>
+      <input id="in_5_etiquetaRastreabilidade" label="etiquetaRastreabilidade ← anexo da conta TISS: etiqueta do implante enviada (booleano)">
+        <inputExpression id="ie_5_etiquetaRastreabilidade" typeRef="boolean"><text>etiquetaRastreabilidade</text></inputExpression>
+      </input>
+      <input id="in_6_diasUteisComunicacao" label="diasUteisComunicacao ← dias úteis entre TISS dataExecucao e a comunicação da OPME de urgência">
+        <inputExpression id="ie_6_diasUteisComunicacao" typeRef="integer"><text>diasUteisComunicacao</text></inputExpression>
+      </input>
+      <input id="in_7_opmeNaConta" label="opmeNaConta ← TISS outrasDespesas/despesa/codigoDespesa = 08 (OPME, TUSS 25) ou item com codigoTabela 19 na conta (booleano)">
+        <inputExpression id="ie_7_opmeNaConta" typeRef="boolean"><text>opmeNaConta</text></inputExpression>
+      </input>
+      <input id="in_8_prazoComprovacaoUsoVencido" label="prazoComprovacaoUsoVencido ← cálculo do worker sobre a guia TISS (dataFinalFaturamento ou dataExecucao) e o anexo da conta: passou o prazo de envio da conta (OMNI-GERAL-GLO-0002, condicoes.periodo_dias) sem a comprovação de uso da OPME (booleano)">
+        <inputExpression id="ie_8_prazoComprovacaoUsoVencido" typeRef="boolean"><text>prazoComprovacaoUsoVencido</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="p_sol3">
+        <description>OMNI-ORL-OPM-0003 — pedido eletivo com três marcas: segue à análise no prazo</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"solicitacao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>&gt;= 3</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sol_menos">
+        <description>OMNI-ORL-OPM-0003 — pedido eletivo com menos de três marcas: junta médica (RN 424, art. 7º)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"solicitacao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>&lt; 3</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"junta_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sol_nulo">
+        <description>OMNI-ORL-OPM-0003 — pedido eletivo sem marcas informadas: junta médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"solicitacao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"junta_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sol_urg">
+        <description>OMNI-ORL-OPM-0006 — urgência: OPME sem autorização prévia nem junta; comunicação posterior e pagamento pela referência (OMNI-URG-OPM-0001)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"solicitacao"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sol_car">
+        <description>OMNI-ORL-OPM-0003 — caráter ausente ou inválido</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"solicitacao"</text></inputEntry>
+        <inputEntry><text>not("1","2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_conta_ok">
+        <description>OMNI-ORL-OPM-0005 — eletivo autorizado com etiqueta de rastreabilidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_conta_sem_etq">
+        <description>OMNI-ORL-OPM-0005 — eletivo autorizado sem etiqueta: glosa do item de OPME (prova de uso)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3263"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="p_conta_etq_nulo">
+        <description>OMNI-ORL-OPM-0005 — eletivo autorizado sem informação de etiqueta: faturamento confere (nulo não vira glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_conta_sem_aut">
+        <description>OMNI-ORL-OPM-0004 — OPME eletiva cobrada sem autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"1818"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0004"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="p_conta_aut_nulo">
+        <description>OMNI-ORL-OPM-0004 — OPME eletiva sem dado de autorização</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0004"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_urg_ok">
+        <description>OMNI-ORL-OPM-0006 — urgência comunicada em até 2 dias úteis, com etiqueta (o valor da OPME é pago pela referência em dmn/urgencia/urg_roteamento_opme.dmn, OMNI-URG-OPM-0001)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt;= 2</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_urg_tarde">
+        <description>OMNI-ORL-OPM-0006 — urgência comunicada após 2 dias úteis: auditoria de enfermagem</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0006"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_urg_sem_com">
+        <description>OMNI-ORL-OPM-0006 — urgência sem comunicação registrada: auditoria de enfermagem</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0006"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_urg_sem_etq">
+        <description>OMNI-ORL-OPM-0005 — urgência sem comprovação de uso da OPME (etiqueta, embalagem com etiqueta ou radiografia de controle): o uso foi livre e o procedimento não é negado nem glosado (RN 424, art. 3º, I); o pagamento do item fica pendente até a comprovação (decisão do dono de 15/11/2026; OMNI-URG-OPM-0001), e com ela o item é pago pelo valor de referência (D11). Mesmo tratamento da comprovação não informada. Vale enquanto o prazo de envio da conta (OMNI-GERAL-GLO-0002) não venceu ou o vencimento não foi informado (prazoComprovacaoUsoVencido falso ou nulo); vencido o prazo sem a comprovação, vale a linha p_urg_prazo_vencido (PROG-RCO-7)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>"3263"</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_urg_etq_nulo">
+        <description>OMNI-ORL-OPM-0005 — urgência com a comprovação de uso não informada (nula): mesmo tratamento da comprovação ausente; o pagamento do item fica pendente até a comprovação (OMNI-URG-OPM-0001); campo nulo nunca vira glosa. Vale enquanto o prazo de envio da conta (OMNI-GERAL-GLO-0002) não venceu ou o vencimento não foi informado (prazoComprovacaoUsoVencido falso ou nulo); vencido o prazo sem a comprovação, vale a linha p_urg_prazo_vencido (PROG-RCO-7)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>"3263"</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_urg_prazo_vencido_antes_vigencia">
+        <description>OMNI-ORL-OPM-0005 — urgência com o prazo de envio da conta (OMNI-GERAL-GLO-0002) vencido sem a comprovação de uso da OPME, antes de 16/12/2026 (início da vigência da glosa por prazo, 30 dias de antecedência da política de mudança): o item continua pendente até a comprovação (OMNI-URG-OPM-0001), sem glosa (PROG-RCO-7)</description>
+        <inputEntry><text>["2026-12-02".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>"3263"</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_urg_prazo_vencido">
+        <description>OMNI-ORL-OPM-0005 — urgência com o prazo de envio da conta (OMNI-GERAL-GLO-0002) vencido sem a comprovação de uso da OPME (etiqueta ausente ou não informada): o item de OPME não é pago e é glosado com 3263, com recurso de glosa (decisão do dono de 15/11/2026, PROG-COORD-10; PROG-RCO-7). O procedimento não é negado nem glosado (RN 424, art. 3º, I). A etiqueta não é testada nesta linha porque a entrada derivada já embute a ausência de comprovação; nulo no prazo nunca glosa (D4). Restrição com vigência a partir de 16/12/2026 (30 dias de antecedência da política de mudança, regras/politica-mudanca.yaml)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3263"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="p_conta_car">
+        <description>OMNI-ORL-OPM-0004 — caráter ausente ou inválido na conta</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>not("1","2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0004"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_conta_sem_opme">
+        <description>OMNI-ORL-OPM-0005 — conta sem item de OPME: a prova de uso não se aplica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_conta_opme_nulo">
+        <description>OMNI-ORL-OPM-0005 — conta sem indicação de OPME (nulo): faturamento confere, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"conta"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_etapa">
+        <description>OMNI-ORL-OPM-0003 — etapa do fluxo ausente ou inválida</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>not("solicitacao","conta")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_pre">
+        <description>OMNI-ORL-OPM-0003 — fora da vigência (antes de 02/12/2026): o processo de OPME ORL não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sem_data">
+        <description>OMNI-ORL-OPM-0003 — data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

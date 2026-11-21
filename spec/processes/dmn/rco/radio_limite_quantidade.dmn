@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_radio_limite_quantidade" name="Radioterapia: unidade do termo TUSS e quantidade contra o plano registrado" namespace="https://omni-saude/dmn/radioterapia">
+  <decision id="rco_radio_limite_quantidade" name="Radioterapia: unidade do termo TUSS e quantidade contra o plano registrado" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-RADIO-LIM-0001; OMNI-RADIO-LIM-0002. Domínio radioterapia. Hit policy UNIQUE; a linha de fechamento (data ausente) vai à revisão humana e não nega.</description>
+    <decisionTable id="dt_radio_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_acimaUnidadeTuss" label="acimaUnidadeTuss ← TISS quantidadeExecutada somada do código no mesmo curso acima do máximo de unidades_tuss de dominio.yaml (booleano; nulo sem curso vinculado)">
+        <inputExpression id="ie_2_acimaUnidadeTuss" typeRef="boolean"><text>acimaUnidadeTuss</text></inputExpression>
+      </input>
+      <input id="in_3_acimaPlanoCurso" label="acimaPlanoCurso ← TISS quantidadeExecutada no curso comparada com numeroCampos e nrDias do anexo de radioterapia registrado (booleano; nulo sem anexo vinculado)">
+        <inputExpression id="ie_3_acimaPlanoCurso" typeRef="boolean"><text>acimaPlanoCurso</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-RADIO-LIM-0001 — antes da vigência (2026-12-03): regras RADIO não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-RADIO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_glosa">
+        <description>OMNI-RADIO-LIM-0001 — unidade contável do termo TUSS excedida no curso: glosa do excedente</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41204093", "41204107", "41206029", "41206045", "41206053", "41206061", "41206037", "41206010"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3210"</text></outputEntry>
+        <outputEntry><text>"OMNI-RADIO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="l1_ok">
+        <description>OMNI-RADIO-LIM-0001 — unidade contável dentro do termo TUSS, ou sem curso vinculado</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41204093", "41204107", "41206029", "41206045", "41206053", "41206061", "41206037", "41206010"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-RADIO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_rev">
+        <description>OMNI-RADIO-LIM-0001 — unidade por incidência ou volume acima da referência do plano: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41204018", "41204026", "41204034", "41204042", "41204050"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-RADIO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_rev_ok">
+        <description>OMNI-RADIO-LIM-0001 — unidade por incidência ou volume dentro da referência, ou sem curso vinculado</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41204018", "41204026", "41204034", "41204042", "41204050"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-RADIO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_acima">
+        <description>OMNI-RADIO-LIM-0002 — campo ou dia acima do plano registrado: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41203070", "41203089", "41203097", "41203151", "41203119", "41203143"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-RADIO-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_ok">
+        <description>OMNI-RADIO-LIM-0002 — campo ou dia dentro do plano registrado</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41203070", "41203089", "41203097", "41203151", "41203119", "41203143"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-RADIO-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_sem_plano">
+        <description>OMNI-RADIO-LIM-0002 — conta sem curso registrado: faturamento vincula ao anexo</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41203070", "41203089", "41203097", "41203151", "41203119", "41203143"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-RADIO-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_resto">
+        <description>OMNI-RADIO-LIM-0001 — código fora desta tabela</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("41204093", "41204107", "41206029", "41206045", "41206053", "41206061", "41206037", "41206010", "41204018", "41204026", "41204034", "41204042", "41204050", "41203070", "41203089", "41203097", "41203151", "41203119", "41203143")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-RADIO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-RADIO-LIM-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-RADIO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

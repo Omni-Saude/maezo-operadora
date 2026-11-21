@@ -1,0 +1,673 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_compatibilidade_ortop" name="Compatibilidade entre CID e procedimento em mão, pé e menisco (OMNI-ORTOP-CMP-0001 a 0007)" namespace="https://omni-saude/dmn/ortopedia-opme">
+  <decision id="rco_compatibilidade_ortop" name="Compatibilidade entre CID e procedimento em mão, pé e menisco (OMNI-ORTOP-CMP-0001 a 0007)" camunda:historyTimeToLive="P180D">
+    <description>Confere se o código TUSS é o adequado para a condição. Nunca nega: divergência vai a auditoria. OMNI-ORTOP-CMP-0001 a OMNI-ORTOP-CMP-0007.</description>
+    <decisionTable id="dt_compatibilidade_ortop" hitPolicy="UNIQUE">
+      <input id="in_0_dataExecucao" label="dataExecucao ← TISS dataExecucao/dataRealizacao (inteiro AAAAMMDD)">
+        <inputExpression id="ie_0_dataExecucao" typeRef="integer"><text>dataExecucao</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_cidPrincipal" label="cidPrincipal ← TISS diagnosticoPrincipal/CID-10 (4 caracteres, sem ponto)">
+        <inputExpression id="ie_2_cidPrincipal" typeRef="string"><text>cidPrincipal</text></inputExpression>
+      </input>
+      <input id="in_3_idadeBeneficiario" label="idadeBeneficiario ← cadastro (anos completos na data de execução)">
+        <inputExpression id="ie_3_idadeBeneficiario" typeRef="integer"><text>idadeBeneficiario</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-ORTOP-CMP-0006 — 30101778 compatível com M720</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30101778"</text></inputEntry>
+        <inputEntry><text>"M720"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-ORTOP-CMP-0006 — 30101778 com CID diferente de M720 ou sem CID</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30101778"</text></inputEntry>
+        <inputEntry><text>not("M720")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0006"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-ORTOP-CMP-0003 — 30722276 compatível com M653</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30722276"</text></inputEntry>
+        <inputEntry><text>"M653"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-ORTOP-CMP-0003 — 30722276 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30722276"</text></inputEntry>
+        <inputEntry><text>not("M653")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-ORTOP-CMP-0004 — 30722713 compatível com M674</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30722713"</text></inputEntry>
+        <inputEntry><text>"M674"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-ORTOP-CMP-0004 — 30722713 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30722713"</text></inputEntry>
+        <inputEntry><text>not("M674")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-ORTOP-CMP-0005 — 30730090 compatível com G576</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30730090"</text></inputEntry>
+        <inputEntry><text>"G576"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-ORTOP-CMP-0005 — 30730090 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30730090"</text></inputEntry>
+        <inputEntry><text>not("G576")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-ORTOP-CMP-0002 — 30731011 compatível com M654</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731011"</text></inputEntry>
+        <inputEntry><text>"M654"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r009">
+        <description>OMNI-ORTOP-CMP-0003 — 30731011 compatível com M653</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731011"</text></inputEntry>
+        <inputEntry><text>"M653"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r010">
+        <description>OMNI-ORTOP-CMP-0002 — 30731011 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731011"</text></inputEntry>
+        <inputEntry><text>not("M654","M653")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r011">
+        <description>OMNI-ORTOP-CMP-0004 — 30731046 compatível com M674</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731046"</text></inputEntry>
+        <inputEntry><text>"M674"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r012">
+        <description>OMNI-ORTOP-CMP-0004 — 30731046 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731046"</text></inputEntry>
+        <inputEntry><text>not("M674")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r013">
+        <description>OMNI-ORTOP-CMP-0004 — 30731062 não é o código adequado para M674</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731062"</text></inputEntry>
+        <inputEntry><text>"M674"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"2505"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r014">
+        <description>OMNI-ORTOP-CMP-0004 — 30731062 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731062"</text></inputEntry>
+        <inputEntry><text>not("M674")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r015">
+        <description>OMNI-ORTOP-CMP-0001 — 30731097 compatível com G560</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731097"</text></inputEntry>
+        <inputEntry><text>"G560"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r016">
+        <description>OMNI-ORTOP-CMP-0002 — 30731097 compatível com M654</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731097"</text></inputEntry>
+        <inputEntry><text>"M654"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r017">
+        <description>OMNI-ORTOP-CMP-0001 — 30731097 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731097"</text></inputEntry>
+        <inputEntry><text>not("G560","M654")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r018">
+        <description>OMNI-ORTOP-CMP-0002 — 30731178 compatível com M654</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731178"</text></inputEntry>
+        <inputEntry><text>"M654"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r019">
+        <description>OMNI-ORTOP-CMP-0002 — 30731178 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731178"</text></inputEntry>
+        <inputEntry><text>not("M654")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r020">
+        <description>OMNI-ORTOP-CMP-0002 — 30731186 compatível com M654</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731186"</text></inputEntry>
+        <inputEntry><text>"M654"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r021">
+        <description>OMNI-ORTOP-CMP-0002 — 30731186 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731186"</text></inputEntry>
+        <inputEntry><text>not("M654")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r022">
+        <description>OMNI-ORTOP-CMP-0004 — 30731232 compatível com M674</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731232"</text></inputEntry>
+        <inputEntry><text>"M674"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r023">
+        <description>OMNI-ORTOP-CMP-0004 — 30731232 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30731232"</text></inputEntry>
+        <inputEntry><text>not("M674")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r024">
+        <description>OMNI-ORTOP-CMP-0004 — 30737010 não é o código adequado para M674</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30737010"</text></inputEntry>
+        <inputEntry><text>"M674"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"2505"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r025">
+        <description>OMNI-ORTOP-CMP-0004 — 30737010 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30737010"</text></inputEntry>
+        <inputEntry><text>not("M674")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r026">
+        <description>OMNI-ORTOP-CMP-0004 — 30737028 não é o código adequado para M674</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30737028"</text></inputEntry>
+        <inputEntry><text>"M674"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"2505"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r027">
+        <description>OMNI-ORTOP-CMP-0004 — 30737028 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30737028"</text></inputEntry>
+        <inputEntry><text>not("M674")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r028">
+        <description>OMNI-ORTOP-CMP-0001 — 30737079 compatível com G560</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30737079"</text></inputEntry>
+        <inputEntry><text>"G560"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r029">
+        <description>OMNI-ORTOP-CMP-0001 — 30737079 com CID diferente de G560 ou sem CID</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30737079"</text></inputEntry>
+        <inputEntry><text>not("G560")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r030">
+        <description>OMNI-ORTOP-CMP-0005 — 31403115 compatível com G576</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403115"</text></inputEntry>
+        <inputEntry><text>"G576"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r031">
+        <description>OMNI-ORTOP-CMP-0005 — 31403115 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403115"</text></inputEntry>
+        <inputEntry><text>not("G576")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r032">
+        <description>OMNI-ORTOP-CMP-0001 — 31403123 não é o código adequado para G560</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403123"</text></inputEntry>
+        <inputEntry><text>"G560"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"2505"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r033">
+        <description>OMNI-ORTOP-CMP-0002 — 31403123 não é o código adequado para M654</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403123"</text></inputEntry>
+        <inputEntry><text>"M654"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"2505"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r034">
+        <description>OMNI-ORTOP-CMP-0001 — 31403123 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403123"</text></inputEntry>
+        <inputEntry><text>not("G560","M654")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r035">
+        <description>OMNI-ORTOP-CMP-0005 — 31403131 compatível com G576</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403131"</text></inputEntry>
+        <inputEntry><text>"G576"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r036">
+        <description>OMNI-ORTOP-CMP-0005 — 31403131 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403131"</text></inputEntry>
+        <inputEntry><text>not("G576")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r037">
+        <description>OMNI-ORTOP-CMP-0001 — 31403204 não é o código adequado para G560</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403204"</text></inputEntry>
+        <inputEntry><text>"G560"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"2505"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r038">
+        <description>OMNI-ORTOP-CMP-0001 — 31403204 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403204"</text></inputEntry>
+        <inputEntry><text>not("G560")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r039">
+        <description>OMNI-ORTOP-CMP-0001 — 31403239 não é o código adequado para G560</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403239"</text></inputEntry>
+        <inputEntry><text>"G560"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"2505"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r040">
+        <description>OMNI-ORTOP-CMP-0002 — 31403239 não é o código adequado para M654</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403239"</text></inputEntry>
+        <inputEntry><text>"M654"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"2505"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r041">
+        <description>OMNI-ORTOP-CMP-0001 — 31403239 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403239"</text></inputEntry>
+        <inputEntry><text>not("G560","M654")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r042">
+        <description>OMNI-ORTOP-CMP-0001 — 31403280 compatível com G560</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403280"</text></inputEntry>
+        <inputEntry><text>"G560"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r043">
+        <description>OMNI-ORTOP-CMP-0002 — 31403280 não é o código adequado para M654</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403280"</text></inputEntry>
+        <inputEntry><text>"M654"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"2505"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r044">
+        <description>OMNI-ORTOP-CMP-0005 — 31403280 compatível com G576</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403280"</text></inputEntry>
+        <inputEntry><text>"G576"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r045">
+        <description>OMNI-ORTOP-CMP-0001 — 31403280 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403280"</text></inputEntry>
+        <inputEntry><text>not("G560","M654","G576")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r046">
+        <description>OMNI-ORTOP-CMP-0005 — 31403360 compatível com G576</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403360"</text></inputEntry>
+        <inputEntry><text>"G576"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r047">
+        <description>OMNI-ORTOP-CMP-0005 — 31403360 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"31403360"</text></inputEntry>
+        <inputEntry><text>not("G576")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r048">
+        <description>OMNI-ORTOP-CMP-0007 — reparo de menisco antes dos 45 anos</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30733065"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt; 45</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r049">
+        <description>OMNI-ORTOP-CMP-0007 — reparo de menisco a partir dos 45 anos: conferir indicação (sem negativa)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30733065"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 45</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r050">
+        <description>OMNI-ORTOP-CMP-0007 — idade ausente no cadastro</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30733065"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0007"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r051">
+        <description>OMNI-ORTOP-CMP-0001 — procedimento sem regra de compatibilidade ORTOP</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>not("30101778","30722276","30722713","30730090","30731011","30731046","30731062","30731097","30731178","30731186","30731232","30737010","30737028","30737079","31403115","31403123","31403131","31403204","31403239","31403280","31403360","30733065")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r052">
+        <description>OMNI-ORTOP-CMP-0001 — fora da vigência (antes de 03/11/2026): a compatibilidade ORTOP não se aplica</description>
+        <inputEntry><text>&lt; 20261103</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r053">
+        <description>OMNI-ORTOP-CMP-0001 — data de execução ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

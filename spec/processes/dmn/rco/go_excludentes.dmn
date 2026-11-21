@@ -1,0 +1,949 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_go_excludentes" name="Ginecologia e obstetrícia: pares de procedimentos na mesma guia (OMNI-GO-MEX-0001 a 0005)" namespace="https://omni-saude/dmn/ginecologia-obstetricia">
+  <decision id="rco_go_excludentes" name="Ginecologia e obstetrícia: pares de procedimentos na mesma guia (OMNI-GO-MEX-0001 a 0005)" camunda:historyTimeToLive="P3650D">
+    <description>Avalia cada par (principal × secundário) da mesma guia e data de execução. Par sem base normativa de exclusão: auditoria médica, nunca glosa automática; viaAcesso 3 (diferentes vias) é a exceção TISS. Domínio ginecologia-obstetricia. Hit policy UNIQUE; nenhuma linha nega ou glosa salvo onde indicado com base de nível A; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_go_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoPrincipal" label="codigoPrincipal ← TISS codigoProcedimento do procedimento de referência na mesma guia e data de execução (TUSS 22)">
+        <inputExpression id="ie_1_codigoPrincipal" typeRef="string"><text>codigoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento de outra linha da mesma guia e data (TUSS 22)">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_viaAcessoSecundario" label="viaAcessoSecundario ← TISS viaAcesso da linha secundária (Tab. 61: 1 única, 2 mesma via, 3 diferentes vias)">
+        <inputExpression id="ie_3_viaAcessoSecundario" typeRef="string"><text>viaAcessoSecundario</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="m_pre">
+        <description>OMNI-GO-MEX-0001 — fora da vigência (antes de 03/12/2026): sem conferência automática</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m001">
+        <description>OMNI-GO-MEX-0001 — 31307043: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307043"</text></inputEntry>
+        <inputEntry><text>"31307078", "31009174"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m001_via">
+        <description>OMNI-GO-MEX-0001 — 31307043: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307043"</text></inputEntry>
+        <inputEntry><text>"31307078", "31009174"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m001_resto">
+        <description>OMNI-GO-MEX-0001 — 31307043: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307043"</text></inputEntry>
+        <inputEntry><text>not("31307078", "31009174")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m002">
+        <description>OMNI-GO-MEX-0001 — 31307183: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307183"</text></inputEntry>
+        <inputEntry><text>"31307205", "31009352"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m002_via">
+        <description>OMNI-GO-MEX-0001 — 31307183: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307183"</text></inputEntry>
+        <inputEntry><text>"31307205", "31009352"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m002_resto">
+        <description>OMNI-GO-MEX-0001 — 31307183: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307183"</text></inputEntry>
+        <inputEntry><text>not("31307205", "31009352")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m003">
+        <description>OMNI-GO-MEX-0001 — 31307027: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307027"</text></inputEntry>
+        <inputEntry><text>"31303358"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m003_via">
+        <description>OMNI-GO-MEX-0001 — 31307027: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307027"</text></inputEntry>
+        <inputEntry><text>"31303358"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m003_resto">
+        <description>OMNI-GO-MEX-0001 — 31307027: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307027"</text></inputEntry>
+        <inputEntry><text>not("31303358")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m004">
+        <description>OMNI-GO-MEX-0002 — 31309062: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309062"</text></inputEntry>
+        <inputEntry><text>"31309020", "31303013"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m004_via">
+        <description>OMNI-GO-MEX-0002 — 31309062: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309062"</text></inputEntry>
+        <inputEntry><text>"31309020", "31303013"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m004_resto">
+        <description>OMNI-GO-MEX-0002 — 31309062: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309062"</text></inputEntry>
+        <inputEntry><text>not("31309020", "31303013")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m005">
+        <description>OMNI-GO-MEX-0003 — 40201155: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201155"</text></inputEntry>
+        <inputEntry><text>"31303030"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m005_via">
+        <description>OMNI-GO-MEX-0003 — 40201155: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201155"</text></inputEntry>
+        <inputEntry><text>"31303030"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m005_resto">
+        <description>OMNI-GO-MEX-0003 — 40201155: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201155"</text></inputEntry>
+        <inputEntry><text>not("31303030")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m006">
+        <description>OMNI-GO-MEX-0003 — 31303188: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303188"</text></inputEntry>
+        <inputEntry><text>"31303170", "31303064"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m006_via">
+        <description>OMNI-GO-MEX-0003 — 31303188: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303188"</text></inputEntry>
+        <inputEntry><text>"31303170", "31303064"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m006_resto">
+        <description>OMNI-GO-MEX-0003 — 31303188: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303188"</text></inputEntry>
+        <inputEntry><text>not("31303170", "31303064")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m007">
+        <description>OMNI-GO-MEX-0003 — 31303269: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303269"</text></inputEntry>
+        <inputEntry><text>"31303064"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m007_via">
+        <description>OMNI-GO-MEX-0003 — 31303269: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303269"</text></inputEntry>
+        <inputEntry><text>"31303064"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m007_resto">
+        <description>OMNI-GO-MEX-0003 — 31303269: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303269"</text></inputEntry>
+        <inputEntry><text>not("31303064")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m008">
+        <description>OMNI-GO-MEX-0003 — 31303293: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303293"</text></inputEntry>
+        <inputEntry><text>"31303064"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m008_via">
+        <description>OMNI-GO-MEX-0003 — 31303293: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303293"</text></inputEntry>
+        <inputEntry><text>"31303064"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m008_resto">
+        <description>OMNI-GO-MEX-0003 — 31303293: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303293"</text></inputEntry>
+        <inputEntry><text>not("31303064")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m009">
+        <description>OMNI-GO-MEX-0003 — 31303102: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303102"</text></inputEntry>
+        <inputEntry><text>"31305016", "31304044"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m009_via">
+        <description>OMNI-GO-MEX-0003 — 31303102: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303102"</text></inputEntry>
+        <inputEntry><text>"31305016", "31304044"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m010">
+        <description>OMNI-GO-MEX-0005 — 31303102: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303102"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m010_via">
+        <description>OMNI-GO-MEX-0005 — 31303102: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303102"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m010_resto">
+        <description>OMNI-GO-MEX-0003 — 31303102: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303102"</text></inputEntry>
+        <inputEntry><text>not("31305016", "31304044", "31303080", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m011">
+        <description>OMNI-GO-MEX-0003 — 31303218: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303218"</text></inputEntry>
+        <inputEntry><text>"31305032", "31304087"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m011_via">
+        <description>OMNI-GO-MEX-0003 — 31303218: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303218"</text></inputEntry>
+        <inputEntry><text>"31305032", "31304087"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m012">
+        <description>OMNI-GO-MEX-0005 — 31303218: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303218"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303234", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m012_via">
+        <description>OMNI-GO-MEX-0005 — 31303218: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303218"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303234", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m012_resto">
+        <description>OMNI-GO-MEX-0003 — 31303218: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303218"</text></inputEntry>
+        <inputEntry><text>not("31305032", "31304087", "31303080", "31303102", "31303129", "31303200", "31303234", "31303285", "31303323", "31303358", "31309208")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m013">
+        <description>OMNI-GO-MEX-0004 — 31303110: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303110"</text></inputEntry>
+        <inputEntry><text>"31305016", "31305032", "31304044", "31304087", "31302025", "31303102", "31303129", "31303218", "31303234"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m013_via">
+        <description>OMNI-GO-MEX-0004 — 31303110: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303110"</text></inputEntry>
+        <inputEntry><text>"31305016", "31305032", "31304044", "31304087", "31302025", "31303102", "31303129", "31303218", "31303234"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m013_resto">
+        <description>OMNI-GO-MEX-0004 — 31303110: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303110"</text></inputEntry>
+        <inputEntry><text>not("31305016", "31305032", "31304044", "31304087", "31302025", "31303102", "31303129", "31303218", "31303234")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m014">
+        <description>OMNI-GO-MEX-0004 — 31303226: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303226"</text></inputEntry>
+        <inputEntry><text>"31305016", "31305032", "31304044", "31304087", "31302025", "31303102", "31303129", "31303218", "31303234"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m014_via">
+        <description>OMNI-GO-MEX-0004 — 31303226: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303226"</text></inputEntry>
+        <inputEntry><text>"31305016", "31305032", "31304044", "31304087", "31302025", "31303102", "31303129", "31303218", "31303234"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m014_resto">
+        <description>OMNI-GO-MEX-0004 — 31303226: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303226"</text></inputEntry>
+        <inputEntry><text>not("31305016", "31305032", "31304044", "31304087", "31302025", "31303102", "31303129", "31303218", "31303234")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m015">
+        <description>OMNI-GO-MEX-0005 — 31303080: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303080"</text></inputEntry>
+        <inputEntry><text>"31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m015_via">
+        <description>OMNI-GO-MEX-0005 — 31303080: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303080"</text></inputEntry>
+        <inputEntry><text>"31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m015_resto">
+        <description>OMNI-GO-MEX-0005 — 31303080: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303080"</text></inputEntry>
+        <inputEntry><text>not("31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m016">
+        <description>OMNI-GO-MEX-0005 — 31303129: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303129"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m016_via">
+        <description>OMNI-GO-MEX-0005 — 31303129: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303129"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m016_resto">
+        <description>OMNI-GO-MEX-0005 — 31303129: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303129"</text></inputEntry>
+        <inputEntry><text>not("31303080", "31303102", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m017">
+        <description>OMNI-GO-MEX-0005 — 31303200: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303200"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m017_via">
+        <description>OMNI-GO-MEX-0005 — 31303200: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303200"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m017_resto">
+        <description>OMNI-GO-MEX-0005 — 31303200: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303200"</text></inputEntry>
+        <inputEntry><text>not("31303080", "31303102", "31303129", "31303218", "31303234", "31303285", "31303323", "31303358", "31309208")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m018">
+        <description>OMNI-GO-MEX-0005 — 31303234: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303234"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303218", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m018_via">
+        <description>OMNI-GO-MEX-0005 — 31303234: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303234"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303218", "31303285", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m018_resto">
+        <description>OMNI-GO-MEX-0005 — 31303234: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303234"</text></inputEntry>
+        <inputEntry><text>not("31303080", "31303102", "31303129", "31303200", "31303218", "31303285", "31303323", "31303358", "31309208")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m019">
+        <description>OMNI-GO-MEX-0005 — 31303285: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303285"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m019_via">
+        <description>OMNI-GO-MEX-0005 — 31303285: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303285"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303323", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m019_resto">
+        <description>OMNI-GO-MEX-0005 — 31303285: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303285"</text></inputEntry>
+        <inputEntry><text>not("31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303323", "31303358", "31309208")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m020">
+        <description>OMNI-GO-MEX-0005 — 31303323: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303323"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m020_via">
+        <description>OMNI-GO-MEX-0005 — 31303323: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303323"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303358", "31309208"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m020_resto">
+        <description>OMNI-GO-MEX-0005 — 31303323: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303323"</text></inputEntry>
+        <inputEntry><text>not("31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303358", "31309208")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m021">
+        <description>OMNI-GO-MEX-0005 — 31303358: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303358"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31309208"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m021_via">
+        <description>OMNI-GO-MEX-0005 — 31303358: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303358"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31309208"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m021_resto">
+        <description>OMNI-GO-MEX-0005 — 31303358: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303358"</text></inputEntry>
+        <inputEntry><text>not("31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31309208")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m022">
+        <description>OMNI-GO-MEX-0005 — 31309208: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309208"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m022_via">
+        <description>OMNI-GO-MEX-0005 — 31309208: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309208"</text></inputEntry>
+        <inputEntry><text>"31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m022_resto">
+        <description>OMNI-GO-MEX-0005 — 31309208: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309208"</text></inputEntry>
+        <inputEntry><text>not("31303080", "31303102", "31303129", "31303200", "31303218", "31303234", "31303285", "31303323", "31303358")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m023">
+        <description>OMNI-GO-MEX-0005 — 31304010: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31304010"</text></inputEntry>
+        <inputEntry><text>"31304044", "31304087"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m023_via">
+        <description>OMNI-GO-MEX-0005 — 31304010: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31304010"</text></inputEntry>
+        <inputEntry><text>"31304044", "31304087"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m023_resto">
+        <description>OMNI-GO-MEX-0005 — 31304010: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31304010"</text></inputEntry>
+        <inputEntry><text>not("31304044", "31304087")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m024">
+        <description>OMNI-GO-MEX-0005 — 31304052: secundário da lista sem via diferente informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31304052"</text></inputEntry>
+        <inputEntry><text>"31304044", "31304087"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m024_via">
+        <description>OMNI-GO-MEX-0005 — 31304052: secundário por via diferente (Tab. 61, 3): dois atos, sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31304052"</text></inputEntry>
+        <inputEntry><text>"31304044", "31304087"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m024_resto">
+        <description>OMNI-GO-MEX-0005 — 31304052: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31304052"</text></inputEntry>
+        <inputEntry><text>not("31304044", "31304087")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_pac1_31307019_lista">
+        <description>OMNI-GO-PAC-0001 — 31307019: componente da lista cobrado na mesma guia, qualquer via: auditoria médica confere o que o código inclui, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307019"</text></inputEntry>
+        <inputEntry><text>"31303110", "31303226", "31303129", "31303234", "31305016", "31305032", "31307116", "31307248", "30914060", "30914078", "30914140", "30914159"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_pac1_31307019_resto">
+        <description>OMNI-GO-PAC-0001 — 31307019: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307019"</text></inputEntry>
+        <inputEntry><text>not("31303110", "31303226", "31303129", "31303234", "31305016", "31305032", "31307116", "31307248", "30914060", "30914078", "30914140", "30914159")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_pac1_31307159_lista">
+        <description>OMNI-GO-PAC-0001 — 31307159: componente da lista cobrado na mesma guia, qualquer via: auditoria médica confere o que o código inclui, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307159"</text></inputEntry>
+        <inputEntry><text>"31303110", "31303226", "31303129", "31303234", "31305016", "31305032", "31307116", "31307248", "30914060", "30914078", "30914140", "30914159"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_pac1_31307159_resto">
+        <description>OMNI-GO-PAC-0001 — 31307159: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31307159"</text></inputEntry>
+        <inputEntry><text>not("31303110", "31303226", "31303129", "31303234", "31305016", "31305032", "31307116", "31307248", "30914060", "30914078", "30914140", "30914159")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_resto">
+        <description>OMNI-GO-MEX-0001 — principal sem par excludente GO: sem restrição</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("31307043", "31307183", "31307027", "31309062", "40201155", "31303188", "31303269", "31303293", "31303102", "31303218", "31303110", "31303226", "31303080", "31303129", "31303200", "31303234", "31303285", "31303323", "31303358", "31309208", "31304010", "31304052", "31307019", "31307159")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_sem_data">
+        <description>OMNI-GO-MEX-0001 — data de execução ausente: faturamento, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

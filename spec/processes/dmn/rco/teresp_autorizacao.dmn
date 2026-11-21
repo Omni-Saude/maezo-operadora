@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_teresp_autorizacao" name="Terapias multiprofissionais e TEA: critério publicado no lugar da autorização" namespace="https://omni-saude/dmn/terapias-multiprofissionais-tea">
+  <decision id="rco_teresp_autorizacao" name="Terapias multiprofissionais e TEA: critério publicado no lugar da autorização" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TERESP-AUT-0001 a OMNI-TERESP-AUT-0003. Hit policy UNIQUE; nenhuma linha nega nem exige autorização prévia: critério publicado e pedido do médico assistente liberam, dado faltante gera a lista do que falta (exigir_documento); urgência ou emergência (caráter 2) libera; caráter ausente ou fora de 1 e 2 vai à regulação; grupo F84 segue a mesma conferência da DUT-0002 (decisão teresp_dut); fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_teresp_autorizacao" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_regime" label="regime ← TISS regime de atendimento (Tab. 76: ambulatorial, internação)">
+        <inputExpression id="ie_1_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_documentacaoCompleta" label="documentacaoCompleta ← solicitação: relatório e dados exigidos pela diretriz ou pelo critério publicado (anexo da guia TISS)">
+        <inputExpression id="ie_3_documentacaoCompleta" typeRef="boolean"><text>documentacaoCompleta</text></inputExpression>
+      </input>
+      <input id="in_4_indicacaoMedicoAssistente" label="indicacaoMedicoAssistente ← solicitação ou prontuário da internação: indicação do médico assistente">
+        <inputExpression id="ie_4_indicacaoMedicoAssistente" typeRef="boolean"><text>indicacaoMedicoAssistente</text></inputExpression>
+      </input>
+      <input id="in_5_cidGrupoF84" label="cidGrupoF84 ← TISS cidPrincipal ou cidSecundario no grupo F84 (transtornos globais do desenvolvimento, TEA)">
+        <inputExpression id="ie_5_cidGrupoF84" typeRef="boolean"><text>cidGrupoF84</text></inputExpression>
+      </input>
+      <input id="in_6_classeTerapia" label="classeTerapia ← TISS codigoProcedimento (TUSS 22) pela lista classes de dominio.yaml (regras/terapias-multiprofissionais-tea)">
+        <inputExpression id="ie_6_classeTerapia" typeRef="string"><text>classeTerapia</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="t_pre">
+        <description>OMNI-TERESP-AUT-0001 — antes da vigência (06/12/2026): liberar, sem efeito</description>
+        <inputEntry><text>&lt; "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t001">
+        <description>OMNI-TERESP-AUT-0003 — urgência ou emergência (caráter 2): liberar sem autorização</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t002">
+        <description>OMNI-TERESP-COB-0002 — fisioterapia, reabilitação física e função respiratória: sem autorização, sem DUT e sem teto de sessões</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"reabilitacao_fisioterapia"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t003">
+        <description>OMNI-TERESP-AUT-0002 — atendimento hospitalar não médico, fisioterapia hospitalar ou órtese fora da internação ou regime ausente: regulação, sem exigência e sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("internacao")</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "fisioterapia_hospitalar"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t004">
+        <description>OMNI-TERESP-AUT-0002 — internação com indicação do médico assistente: liberar sem autorização própria</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "fisioterapia_hospitalar"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t005">
+        <description>OMNI-TERESP-AUT-0002 — internação sem indicação do médico assistente: lista do que falta, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "fisioterapia_hospitalar"</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t006">
+        <description>OMNI-TERESP-AUT-0002 — internação sem informação da indicação: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "fisioterapia_hospitalar"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t007">
+        <description>OMNI-TERESP-AUT-0002 — atendimento hospitalar não médico com caráter ausente ou diferente de 1 e 2: regulação, sem exigência e sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "fisioterapia_hospitalar"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t008">
+        <description>OMNI-TERESP-DUT-0002 — TGD/TEA (F84) com pedido completo do médico, método incluído: liberar, também em terapia em curso</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"consulta_avaliacao_ambulatorial", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-DUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t009">
+        <description>OMNI-TERESP-DUT-0002 — TGD/TEA (F84) com pedido incompleto: lista objetiva do que falta, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"consulta_avaliacao_ambulatorial", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-DUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t010">
+        <description>OMNI-TERESP-DUT-0002 — TGD/TEA (F84) sem informação do pedido: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"consulta_avaliacao_ambulatorial", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t011">
+        <description>OMNI-TERESP-AUT-0001 — critério publicado cumprido (solicitante, CID e quantidade pedida na guia): liberar sem autorização, também em terapia em curso</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"consulta_avaliacao_ambulatorial", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t012">
+        <description>OMNI-TERESP-AUT-0001 — critério publicado com dado faltante: lista objetiva do que falta, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"consulta_avaliacao_ambulatorial", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t013">
+        <description>OMNI-TERESP-AUT-0001 — critério publicado sem informação do pedido: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"consulta_avaliacao_ambulatorial", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t014">
+        <description>OMNI-TERESP-AUT-0001 — sessão ou consulta não médica fora do regime ambulatorial ou regime ausente: regulação, sem exigência e sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("ambulatorial")</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"consulta_avaliacao_ambulatorial", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t015">
+        <description>OMNI-TERESP-AUT-0001 — sessão ou consulta não médica com caráter ausente ou diferente de 1 e 2: regulação, sem exigência e sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"consulta_avaliacao_ambulatorial", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t016">
+        <description>OMNI-TERESP-AUT-0001 — demais códigos: sem autorização prévia nesta tabela; diretrizes em teresp_dut</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("atendimento_hospitalar_nao_medico", "confeccao_ortese_protese", "consulta_avaliacao_ambulatorial", "fisioterapia_hospitalar", "reabilitacao_fisioterapia", "sessao_fonoaudiologia", "sessao_psicologia", "sessao_terapia_ocupacional", "terapia_tgd_metodo")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t_sem_data">
+        <description>OMNI-TERESP-AUT-0001 — data do atendimento ausente: revisão humana, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

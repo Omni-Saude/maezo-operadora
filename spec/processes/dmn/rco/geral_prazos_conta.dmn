@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_geral_prazos_conta" name="Regras gerais: prazos de conta e de recurso de glosa (OMNI-GERAL-GLO-0002, OMNI-GERAL-GLO-0003)" namespace="https://omni-saude/dmn/regras-gerais">
+  <decision id="rco_geral_prazos_conta" name="Regras gerais: prazos de conta e de recurso de glosa (OMNI-GERAL-GLO-0002, OMNI-GERAL-GLO-0003)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-GERAL-GLO-0002: conta recebida depois do prazo do contrato vigente do prestador (diasAlemDoPrazoContratual &gt; 0; prazo de 30 dias no contrato OMNI) e sem autorização de apresentação extemporânea concedida é glosada (Tab. 38: 3214); AAE em análise ou ausente, ou dias além do prazo do contrato ausentes com conta depois de 30 dias, vai ao faturamento (decisão C2-prazo-conta-01). OMNI-GERAL-GLO-0003: recurso de glosa recebido mais de 30 dias após o demonstrativo mantém a glosa (Tab. 38: 2909). Base ANS-RN-503 arts. 4º, 13 e 14; data ausente ou inconsistente vai ao faturamento.</description>
+    <decisionTable id="dt_geral_prazos_conta" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataExecucao (ambulatorial) ou dataFinalFaturamento (internação) da guia cobrada, AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_tipoTransacao" label="tipoTransacao ← TISS cabecalho/identificacaoTransacao/tipoTransacao (ENVIO_LOTE_GUIAS | RECURSO_GLOSA)">
+        <inputExpression id="ie_tipoTransacao" typeRef="string"><text>tipoTransacao</text></inputExpression>
+      </input>
+      <input id="in_diasAteApresentacao" label="diasAteApresentacao ← TISS: dias corridos entre a alta (dataFinalFaturamento) ou a dataExecucao ambulatorial e o recebimento do lote (protocolo de recebimento)">
+        <inputExpression id="ie_diasAteApresentacao" typeRef="integer"><text>diasAteApresentacao</text></inputExpression>
+      </input>
+      <input id="in_diasAteRecurso" label="diasAteRecurso ← TISS: dias corridos entre o demonstrativo de análise da conta e o recebimento do lote de recurso de glosa">
+        <inputExpression id="ie_diasAteRecurso" typeRef="integer"><text>diasAteRecurso</text></inputExpression>
+      </input>
+      <input id="in_diasAlemDoPrazoContratual" label="diasAlemDoPrazoContratual ← derivado pelo worker: diasAteApresentacao menos o prazo de apresentação do contrato do prestador (cadastro), em dias corridos; nulo se faltar dado">
+        <description>diasAlemDoPrazoContratual ← derivado pelo worker: diasAteApresentacao menos o prazo de apresentação do contrato vigente do prestador (cadastro do contrato; 30 no contrato e no aditivo OMNI), em dias corridos; nulo se faltar qualquer um dos dois ou se o prazo do contrato for negativo (cadastro inconsistente)</description>
+        <inputExpression id="ie_diasAlemDoPrazoContratual" typeRef="integer"><text>diasAlemDoPrazoContratual</text></inputExpression>
+      </input>
+      <input id="in_autorizacaoExtemporanea" label="autorizacaoExtemporanea ← cadastro da operadora: situação da autorização de apresentação extemporânea (AAE) da guia, decidida em geral_apresentacao_extemporanea">
+        <inputExpression id="ie_autorizacaoExtemporanea" typeRef="string"><text>autorizacaoExtemporanea</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="g_pre">
+        <description>Fora da vigência (antes de 2026-11-03)</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"ENVIO_LOTE_GUIAS", "RECURSO_GLOSA"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_sem_data_lote">
+        <description>OMNI-GERAL-GLO-0002: data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"ENVIO_LOTE_GUIAS"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_sem_data_rec">
+        <description>OMNI-GERAL-GLO-0003: data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"RECURSO_GLOSA"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_conta_prazo">
+        <description>OMNI-GERAL-GLO-0002: conta dentro do prazo do contrato vigente do prestador</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"ENVIO_LOTE_GUIAS"</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt;= 0</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_conta_tarde_aae">
+        <description>OMNI-GERAL-GLO-0002: conta fora do prazo do contrato com autorização de apresentação extemporânea concedida (OMNI-GERAL-AUT-0013)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"ENVIO_LOTE_GUIAS"</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>"concedida"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_conta_tarde">
+        <description>OMNI-GERAL-GLO-0002: conta fora do prazo do contrato, sem autorização de apresentação extemporânea: glosa (Tab. 38: 3214)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"ENVIO_LOTE_GUIAS"</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>"nao_solicitada", "nao_concedida"</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3214"</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="g_conta_tarde_analise">
+        <description>OMNI-GERAL-GLO-0002: conta fora do prazo do contrato com autorização em análise, ausente ou fora da lista: faturamento</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"ENVIO_LOTE_GUIAS"</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>not("concedida", "nao_solicitada", "nao_concedida")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_conta_sem_prazo_padrao">
+        <description>OMNI-GERAL-GLO-0002: dias além do prazo do contrato ausentes e conta dentro do prazo padrão OMNI de 30 dias: segue, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"ENVIO_LOTE_GUIAS"</text></inputEntry>
+        <inputEntry><text>[0..30]</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_conta_sem_prazo_tarde">
+        <description>OMNI-GERAL-GLO-0002: dias além do prazo do contrato ausentes e conta depois de 30 dias: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"ENVIO_LOTE_GUIAS"</text></inputEntry>
+        <inputEntry><text>&gt; 30</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_conta_inv">
+        <description>OMNI-GERAL-GLO-0002: prazo ausente ou negativo: faturamento</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"ENVIO_LOTE_GUIAS"</text></inputEntry>
+        <inputEntry><text>&lt; 0, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_rec_prazo">
+        <description>OMNI-GERAL-GLO-0003: recurso no prazo de 30 dias: segue para análise</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"RECURSO_GLOSA"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>[0..30]</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_rec_tarde">
+        <description>OMNI-GERAL-GLO-0003: recurso após 30 dias: glosa mantida (Tab. 38: 2909)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"RECURSO_GLOSA"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 30</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"2909"</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="g_rec_inv">
+        <description>OMNI-GERAL-GLO-0003: prazo ausente ou negativo: faturamento</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"RECURSO_GLOSA"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt; 0, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-GLO-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_fechamento">
+        <description>Outra transação TISS (linha final, nunca nega)</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("ENVIO_LOTE_GUIAS", "RECURSO_GLOSA")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_plast_limite_quantidade" name="Plástica e dermatologia: limites provisórios de quantidade, repetição e coberturas de ferida" namespace="https://omni-saude/dmn/plastica-dermatologia">
+  <decision id="rco_plast_limite_quantidade" name="Plástica e dermatologia: limites provisórios de quantidade, repetição e coberturas de ferida" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-PLAST-LIM-0001, LIM-0002 e LIM-0003. Hit policy UNIQUE; nenhuma linha glosa nem nega (limites provisórios em validacao/calibracao/parametros-provisorios/plastica-dermatologia.csv); excesso ou item sem categoria vai à auditoria; histórico nulo segue sem conferência; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_plast_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_excedeLimitePlast" label="excedeLimitePlast ← histórico de contas OMNI e TISS quantidadeExecutada: 30101506 acima de 4 grupos na sessão, 30101646 repetido em 30 dias ou código de repeticao_provisoria repetido em 365 dias (condicoes.limite de OMNI-PLAST-LIM-0001 e LIM-0003)">
+        <inputExpression id="ie_1_excedeLimitePlast" typeRef="boolean"><text>excedeLimitePlast</text></inputExpression>
+      </input>
+      <input id="in_2_itemCoberturaFerida" label="itemCoberturaFerida ← cadastro de materiais OMNI: item TUSS 19 da categoria cobertura_ferida (falso para outra categoria e para linha de procedimento TUSS 22; nulo para material sem categoria)">
+        <inputExpression id="ie_2_itemCoberturaFerida" typeRef="boolean"><text>itemCoberturaFerida</text></inputExpression>
+      </input>
+      <input id="in_3_quantidadeAcimaPrescrita" label="quantidadeAcimaPrescrita ← TISS quantidade (TUSS 19) e solicitação: quantidade cobrada maior que a quantidadePrescrita no relatório da lesão (nulo sem prescrição)">
+        <inputExpression id="ie_3_quantidadeAcimaPrescrita" typeRef="boolean"><text>quantidadeAcimaPrescrita</text></inputExpression>
+      </input>
+      <input id="in_4_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_4_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência (03/12/2026): OMNI-PLAST-LIM-0001 ainda não vale, liberação</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_acima">
+        <description>OMNI-PLAST-LIM-0001 — exérese tangencial acima de 4 grupos na sessão ou infiltração antes de 30 dias (limites provisórios): auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101506", "30101646"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_ok">
+        <description>OMNI-PLAST-LIM-0001 — dentro do limite provisório ou histórico não informado: segue sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101506", "30101646"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l3_acima">
+        <description>OMNI-PLAST-LIM-0003 — repetição do mesmo código em até 365 dias (janela provisória): auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101115", "30101158", "30101166", "30101271", "30101301", "30101310", "30101328", "30101336", "30101360", "30101379", "30101425", "30101433", "30101522", "30101549", "30101557", "30101565", "30101573", "30101581", "30101689", "30101697", "30101700", "30101719", "30101743", "30101751", "30101760", "30101778", "30101808", "30101816", "30101832", "30101867", "30101875", "30101883", "30101891", "30101921", "30101964", "30101972"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l3_ok">
+        <description>OMNI-PLAST-LIM-0003 — sem repetição na janela ou histórico não informado: segue sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101115", "30101158", "30101166", "30101271", "30101301", "30101310", "30101328", "30101336", "30101360", "30101379", "30101425", "30101433", "30101522", "30101549", "30101557", "30101565", "30101573", "30101581", "30101689", "30101697", "30101700", "30101719", "30101743", "30101751", "30101760", "30101778", "30101808", "30101816", "30101832", "30101867", "30101875", "30101883", "30101891", "30101921", "30101964", "30101972"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_acima">
+        <description>OMNI-PLAST-LIM-0002 — cobertura de ferida em quantidade acima da prescrita: auditoria de enfermagem, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("30101506", "30101646", "30101115", "30101158", "30101166", "30101271", "30101301", "30101310", "30101328", "30101336", "30101360", "30101379", "30101425", "30101433", "30101522", "30101549", "30101557", "30101565", "30101573", "30101581", "30101689", "30101697", "30101700", "30101719", "30101743", "30101751", "30101760", "30101778", "30101808", "30101816", "30101832", "30101867", "30101875", "30101883", "30101891", "30101921", "30101964", "30101972")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_ok">
+        <description>OMNI-PLAST-LIM-0002 — cobertura de ferida dentro da quantidade prescrita: liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>not("30101506", "30101646", "30101115", "30101158", "30101166", "30101271", "30101301", "30101310", "30101328", "30101336", "30101360", "30101379", "30101425", "30101433", "30101522", "30101549", "30101557", "30101565", "30101573", "30101581", "30101689", "30101697", "30101700", "30101719", "30101743", "30101751", "30101760", "30101778", "30101808", "30101816", "30101832", "30101867", "30101875", "30101883", "30101891", "30101921", "30101964", "30101972")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_semrx">
+        <description>OMNI-PLAST-LIM-0002 — cobertura de ferida sem quantidade prescrita informada: auditoria de enfermagem, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>not("30101506", "30101646", "30101115", "30101158", "30101166", "30101271", "30101301", "30101310", "30101328", "30101336", "30101360", "30101379", "30101425", "30101433", "30101522", "30101549", "30101557", "30101565", "30101573", "30101581", "30101689", "30101697", "30101700", "30101719", "30101743", "30101751", "30101760", "30101778", "30101808", "30101816", "30101832", "30101867", "30101875", "30101883", "30101891", "30101921", "30101964", "30101972")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_semcat">
+        <description>OMNI-PLAST-LIM-0002 — material sem categoria no cadastro: auditoria de enfermagem, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("30101506", "30101646", "30101115", "30101158", "30101166", "30101271", "30101301", "30101310", "30101328", "30101336", "30101360", "30101379", "30101425", "30101433", "30101522", "30101549", "30101557", "30101565", "30101573", "30101581", "30101689", "30101697", "30101700", "30101719", "30101743", "30101751", "30101760", "30101778", "30101808", "30101816", "30101832", "30101867", "30101875", "30101883", "30101891", "30101921", "30101964", "30101972")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_outro">
+        <description>OMNI-PLAST-LIM-0002 — item de outra categoria ou procedimento sem limite no domínio: liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("30101506", "30101646", "30101115", "30101158", "30101166", "30101271", "30101301", "30101310", "30101328", "30101336", "30101360", "30101379", "30101425", "30101433", "30101522", "30101549", "30101557", "30101565", "30101573", "30101581", "30101689", "30101697", "30101700", "30101719", "30101743", "30101751", "30101760", "30101778", "30101808", "30101816", "30101832", "30101867", "30101875", "30101883", "30101891", "30101921", "30101964", "30101972")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-PLAST-LIM-0001 — data ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

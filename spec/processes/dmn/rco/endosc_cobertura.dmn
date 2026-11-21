@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_endosc_cobertura" name="Endoscopia: cobertura pelo Rol, fora do Rol e vínculo com a internação" namespace="https://omni-saude/dmn/endoscopia">
+  <decision id="rco_endosc_cobertura" name="Endoscopia: cobertura pelo Rol, fora do Rol e vínculo com a internação" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-ENDOSC-COB-0001; OMNI-ENDOSC-COB-0002; OMNI-ENDOSC-COB-0003; OMNI-ENDOSC-COB-0004. Domínio endoscopia. Hit policy UNIQUE; nenhuma linha nega ou glosa; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_endosc_cobertura" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_planoSoAmbulatorial" label="planoSoAmbulatorial ← cadastro do produto: segmentação só ambulatorial (booleano)">
+        <inputExpression id="ie_2_planoSoAmbulatorial" typeRef="boolean"><text>planoSoAmbulatorial</text></inputExpression>
+      </input>
+      <input id="in_3_regime" label="regime ← TISS regimeInternacao ou tipo de guia (ambulatorial, internacao, hospital_dia)">
+        <inputExpression id="ie_3_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <input id="in_4_internacaoVinculada" label="internacaoVinculada ← TISS senha ou numeroGuiaSolicitacaoInternacao vinculada à guia na dataExecucao (booleano)">
+        <inputExpression id="ie_4_internacaoVinculada" typeRef="boolean"><text>internacaoVinculada</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-ENDOSC-COB-0001 — antes da vigência (03/12/2026): regras ENDOSC não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_fora">
+        <description>OMNI-ENDOSC-COB-0001 — código fora do Rol: auditoria médica (art. 10, §13)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201317", "40201325", "40201376", "40201384", "40201392", "40201406", "40202070", "40202224", "40202232", "40202658", "40202755", "40202771", "40202801", "40202810", "40202828", "40202836"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_hosp_amb">
+        <description>OMNI-ENDOSC-COB-0001 — código só hospitalar em plano só ambulatorial: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40201163", "40201279", "40201287", "40201368", "40202011", "40202046", "40202054", "40202062", "40202100", "40202119", "40202127", "40202208", "40202216", "40202283", "40202291", "40202305", "40202313", "40202356", "40202364", "40202372", "40202399", "40202470", "40202500", "40202526", "40202631", "40202640", "40202798"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_hosp_ok">
+        <description>OMNI-ENDOSC-COB-0001 — código só hospitalar em plano com segmentação hospitalar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40201163", "40201279", "40201287", "40201368", "40202011", "40202046", "40202054", "40202062", "40202100", "40202119", "40202127", "40202208", "40202216", "40202283", "40202291", "40202305", "40202313", "40202356", "40202364", "40202372", "40202399", "40202470", "40202500", "40202526", "40202631", "40202640", "40202798"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_hosp_nulo">
+        <description>OMNI-ENDOSC-COB-0001 — segmentação do plano não informada: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40201163", "40201279", "40201287", "40201368", "40202011", "40202046", "40202054", "40202062", "40202100", "40202119", "40202127", "40202208", "40202216", "40202283", "40202291", "40202305", "40202313", "40202356", "40202364", "40202372", "40202399", "40202470", "40202500", "40202526", "40202631", "40202640", "40202798"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="v_int_ok">
+        <description>OMNI-ENDOSC-COB-0004 — ato de via aérea em internação com guia de internação vinculada</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201058", "40202097", "40202151", "40202160", "40202445", "40202623"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="v_int_sem">
+        <description>OMNI-ENDOSC-COB-0004 — ato de via aérea em internação sem guia de internação vinculada: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201058", "40202097", "40202151", "40202160", "40202445", "40202623"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0004"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="v_int_nulo">
+        <description>OMNI-ENDOSC-COB-0004 — vínculo com a internação não informado: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201058", "40202097", "40202151", "40202160", "40202445", "40202623"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0004"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="v_outro">
+        <description>OMNI-ENDOSC-COB-0004 — ato de via aérea fora de internação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201058", "40202097", "40202151", "40202160", "40202445", "40202623"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"ambulatorial", "hospital_dia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="v_reg_nulo">
+        <description>OMNI-ENDOSC-COB-0004 — regime ausente ou fora dos valores conhecidos: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201058", "40202097", "40202151", "40202160", "40202445", "40202623"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("internacao", "ambulatorial", "hospital_dia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_lar">
+        <description>OMNI-ENDOSC-COB-0002 — família LARINGE: sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40202429", "40202437"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_proc">
+        <description>OMNI-ENDOSC-COB-0003 — família PROCEDIMENTOS: sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201023", "40202496"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_rol">
+        <description>OMNI-ENDOSC-COB-0001 — demais códigos do Rol do domínio: cobertura na segmentação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201015", "40201066", "40201074", "40201082", "40201090", "40201104", "40201112", "40201120", "40201139", "40201147", "40201155", "40201171", "40201180", "40201198", "40201201", "40201210", "40201228", "40201236", "40201244", "40201252", "40201260", "40201309", "40201333", "40201341", "40201350", "40202038", "40202089", "40202135", "40202143", "40202178", "40202186", "40202194", "40202240", "40202259", "40202267", "40202330", "40202348", "40202410", "40202453", "40202488", "40202518", "40202534", "40202542", "40202550", "40202569", "40202577", "40202585", "40202593", "40202607", "40202615", "40202666", "40202674", "40202682", "40202690", "40202704", "40202712", "40202720", "40202739", "40202747", "40202763", "40202780"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_resto">
+        <description>OMNI-ENDOSC-COB-0001 — código fora do escopo do domínio: sem restrição desta tabela</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40201015", "40201023", "40201031", "40201058", "40201066", "40201074", "40201082", "40201090", "40201104", "40201112", "40201120", "40201139", "40201147", "40201155", "40201163", "40201171", "40201180", "40201198", "40201201", "40201210", "40201228", "40201236", "40201244", "40201252", "40201260", "40201279", "40201287", "40201309", "40201317", "40201325", "40201333", "40201341", "40201350", "40201368", "40201376", "40201384", "40201392", "40201406", "40202011", "40202038", "40202046", "40202054", "40202062", "40202070", "40202089", "40202097", "40202100", "40202119", "40202127", "40202135", "40202143", "40202151", "40202160", "40202178", "40202186", "40202194", "40202208", "40202216", "40202224", "40202232", "40202240", "40202259", "40202267", "40202283", "40202291", "40202305", "40202313", "40202330", "40202348", "40202356", "40202364", "40202372", "40202399", "40202410", "40202429", "40202437", "40202445", "40202453", "40202470", "40202488", "40202496", "40202500", "40202518", "40202526", "40202534", "40202542", "40202550", "40202569", "40202577", "40202585", "40202593", "40202607", "40202615", "40202623", "40202631", "40202640", "40202658", "40202666", "40202674", "40202682", "40202690", "40202704", "40202712", "40202720", "40202739", "40202747", "40202755", "40202763", "40202771", "40202780", "40202798", "40202801", "40202810", "40202828", "40202836")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-ENDOSC-COB-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-COB-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_exfunc_excludentes" name="Exames funcionais: pares do mesmo ato na conta (MEX-0001 e MEX-0002)" namespace="https://omni-saude/dmn/exames-funcionais">
+  <decision id="rco_exfunc_excludentes" name="Exames funcionais: pares do mesmo ato na conta (MEX-0001 e MEX-0002)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-EXFUNC-MEX-0001; OMNI-EXFUNC-MEX-0002. Hit policy UNIQUE; nenhuma linha nega ou glosa; par no mesmo ato vai ao faturamento; par ausente libera; data ausente vai à regulação.</description>
+    <decisionTable id="dt_exfunc_excludentes" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_parErgometricoEcg" label="parErgometricoEcg ← TISS conta do prestador: teste ergométrico e ECG convencional no mesmo beneficiário, prestador e data">
+        <inputExpression id="ie_parErgometricoEcg" typeRef="boolean"><text>parErgometricoEcg</text></inputExpression>
+      </input>
+      <input id="in_parOximetriaConsulta" label="parOximetriaConsulta ← TISS conta do prestador: oximetria com consulta ou visita no mesmo beneficiário, prestador e data">
+        <inputExpression id="ie_parOximetriaConsulta" typeRef="boolean"><text>parOximetriaConsulta</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="m_pre">
+        <description>OMNI-EXFUNC-MEX-0001 — antes do início da vigência (03/12/2026): sem par novo</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40101010", "40101037", "40101045", "10101012", "10101039", "10102019", "41401514"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_sem_data">
+        <description>OMNI-EXFUNC-MEX-0001 — data ausente: regulação confere</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"40101010", "40101037", "40101045", "10101012", "10101039", "10102019", "41401514"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m1_rev">
+        <description>OMNI-EXFUNC-MEX-0001 — teste ergométrico e ECG convencional no mesmo ato: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40101010", "40101037", "40101045"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m1_ok">
+        <description>OMNI-EXFUNC-MEX-0001 — sem par de teste ergométrico e ECG: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40101010", "40101037", "40101045"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m2_rev">
+        <description>OMNI-EXFUNC-MEX-0002 — oximetria com consulta ou visita no mesmo ato: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"10101012", "10101039", "10102019", "41401514"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m2_ok">
+        <description>OMNI-EXFUNC-MEX-0002 — sem par de oximetria e consulta: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"10101012", "10101039", "10102019", "41401514"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_fora">
+        <description>OMNI-EXFUNC-MEX-0001 — fechamento: código sem par no domínio, sem efeito desta tabela</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("40101010", "40101037", "40101045", "10101012", "10101039", "10102019", "41401514")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_urg_enquadramento" name="Enquadramento legal da urgência e da emergência (OMNI-URG-ELG-0001)" namespace="https://omni-saude/dmn/urgencia">
+  <decision id="rco_urg_enquadramento" name="Enquadramento legal da urgência e da emergência (OMNI-URG-ELG-0001)" camunda:historyTimeToLive="P180D">
+    <description>Classifica o atendimento declarado como urgência (caráter 2) segundo a LEI-9656-1998, art. 35-C, I e II. O procedimento é sempre liberado; o enquadramento só alimenta o ECU e o pagamento da OPME. OMNI-URG-ELG-0001.</description>
+    <decisionTable id="dt_urg_enquadramento" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataExecucao do procedimento principal (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_1_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_2_declaracaoEmergencia" label="declaracaoEmergencia ← anexo da conta: declaração do médico assistente de risco imediato de vida ou de lesão irreparável (LEI-9656-1998 art. 35-C, I)">
+        <inputExpression id="ie_2_declaracaoEmergencia" typeRef="boolean"><text>declaracaoEmergencia</text></inputExpression>
+      </input>
+      <input id="in_3_grupoCidPrincipal" label="grupoCidPrincipal ← TISS diagnóstico CID principal classificado pelas listas de regras/urgencia/dominio.yaml (lesao_trauma | gestacional | cronico_degenerativo | outro)">
+        <inputExpression id="ie_3_grupoCidPrincipal" typeRef="string"><text>grupoCidPrincipal</text></inputExpression>
+      </input>
+      <input id="in_4_causaExterna" label="causaExterna ← TISS diagnóstico CID secundário V01–Y98 ou TISS indicadorAcidente 0, 1 ou 2">
+        <inputExpression id="ie_4_causaExterna" typeRef="boolean"><text>causaExterna</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <output id="out_enquadramentoLegal" name="enquadramentoLegal" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-URG-ELG-0001 — fora da vigência (antes de 03/11/2026): o enquadramento URG não se aplica</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-ELG-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"nao_avaliado"</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-URG-ELG-0001 — caráter eletivo: fora do escopo do domínio URG (valem as regras do domínio clínico)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"eletivo"</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-URG-ELG-0001 — caráter ausente ou inválido: faturamento confere; o atendimento não é afetado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("1","2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-ELG-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"nao_avaliado"</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-URG-ELG-0001 — emergência com declaração do médico assistente (art. 35-C, I): liberar</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-ELG-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"emergencia_declarada"</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-URG-ELG-0001 — urgência por acidente pessoal: lesão S00–T98 com causa externa (art. 35-C, II): liberar</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>false,null</text></inputEntry>
+        <inputEntry><text>"lesao_trauma"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-ELG-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"urgencia_acidente"</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-URG-ELG-0001 — lesão S00–T98 sem prova de causa externa: procedimento liberado; OPME paga como no eletivo (referência e lista)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>false,null</text></inputEntry>
+        <inputEntry><text>"lesao_trauma"</text></inputEntry>
+        <inputEntry><text>false,null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-ELG-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"sem_enquadramento"</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-URG-ELG-0001 — urgência por complicação gestacional O00–O99 (art. 35-C, II): liberar</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>false,null</text></inputEntry>
+        <inputEntry><text>"gestacional"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-ELG-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"urgencia_gestacional"</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-URG-ELG-0001 — fechamento: urgência declarada sem enquadramento legal; procedimento liberado, OPME paga pela referência e auditada (nunca negar)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>false,null</text></inputEntry>
+        <inputEntry><text>not("lesao_trauma","gestacional")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-ELG-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"sem_enquadramento"</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-URG-ELG-0001 — data de execução ausente na conta: faturamento confere; o atendimento não é afetado</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-ELG-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"nao_avaliado"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

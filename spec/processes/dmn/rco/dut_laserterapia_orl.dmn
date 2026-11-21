@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_dut_laserterapia_orl" name="ORL: laserterapia para mucosite na DUT 51 (OMNI-ORL-DUT-0003)" namespace="https://omni-saude/dmn/otorrino-cabeca-pescoco">
+  <decision id="rco_dut_laserterapia_orl" name="ORL: laserterapia para mucosite na DUT 51 (OMNI-ORL-DUT-0003)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-ORL-DUT-0003: DUT 51 do Anexo II da RN 465/2021 atualizado até a RN 681/2026 (p. 53). Libera quando o grupo da neoplasia, a finalidade e a proposta de TMO bastam; o resto vai à auditoria médica. Nunca nega automaticamente: a lista de CID por grupo é provisória (L-faseD-d6-orl-02).</description>
+    <decisionTable id="dt_dut_laserterapia_orl" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_grupoNeoplasia" label="grupoNeoplasia ← TISS diagnosticoPrincipal (CID-10) classificado por dominio.yaml (grupos_neoplasia_dut51, provisório): cabeca_pescoco | hematopoietica | outra">
+        <inputExpression id="ie_1_grupoNeoplasia" typeRef="string"><text>grupoNeoplasia</text></inputExpression>
+      </input>
+      <input id="in_2_finalidadeLaser" label="finalidadeLaser ← solicitação (anexo do pedido de 30202159): prevencao | tratamento">
+        <inputExpression id="ie_2_finalidadeLaser" typeRef="string"><text>finalidadeLaser</text></inputExpression>
+      </input>
+      <input id="in_3_tmoProposto" label="tmoProposto ← solicitação: proposta terapêutica de transplante de medula óssea registrada no pedido (booleano)">
+        <inputExpression id="ie_3_tmoProposto" typeRef="boolean"><text>tmoProposto</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="l_pre">
+        <description>OMNI-ORL-DUT-0003 — fora da vigência (antes de 02/12/2026): a DUT 51 é conferida pela auditoria médica</description>
+        <inputEntry><text>&lt; "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_cp">
+        <description>OMNI-ORL-DUT-0003 — DUT 51, item 1: câncer de cabeça e pescoço, prevenção ou tratamento</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"cabeca_pescoco"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_hem_trat">
+        <description>OMNI-ORL-DUT-0003 — DUT 51, item 3: câncer hematopoiético, tratamento</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"hematopoietica"</text></inputEntry>
+        <inputEntry><text>"tratamento"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_hem_tmo">
+        <description>OMNI-ORL-DUT-0003 — DUT 51, item 2: câncer hematopoiético, prevenção com proposta de TMO</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"hematopoietica"</text></inputEntry>
+        <inputEntry><text>"prevencao"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_hem_sem_tmo">
+        <description>OMNI-ORL-DUT-0003 — prevenção em câncer hematopoiético sem proposta de TMO: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"hematopoietica"</text></inputEntry>
+        <inputEntry><text>"prevencao"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_hem_tmo_nulo">
+        <description>OMNI-ORL-DUT-0003 — prevenção em câncer hematopoiético sem informação de TMO: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"hematopoietica"</text></inputEntry>
+        <inputEntry><text>"prevencao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_hem_fin">
+        <description>OMNI-ORL-DUT-0003 — finalidade não informada: regulação</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"hematopoietica"</text></inputEntry>
+        <inputEntry><text>not("prevencao","tratamento")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_outro">
+        <description>OMNI-ORL-DUT-0003 — outro diagnóstico ou grupo não classificado: auditoria médica, sem negativa automática</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>not("cabeca_pescoco","hematopoietica")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_sem_data">
+        <description>OMNI-ORL-DUT-0003 — data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

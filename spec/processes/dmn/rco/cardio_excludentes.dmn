@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_cardio_excludentes" name="Cardiovascular: pares de procedimentos na mesma guia em revisão humana" namespace="https://omni-saude/dmn/cardiovascular">
+  <decision id="rco_cardio_excludentes" name="Cardiovascular: pares de procedimentos na mesma guia em revisão humana" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CARDIO-MEX-0001 a OMNI-CARDIO-MEX-0006. Hit policy UNIQUE; nenhuma linha glosa (pares sem base normativa de exclusão); fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_cardio_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoPrincipal" label="codigoPrincipal ← TISS codigoProcedimento do procedimento de maior porte da guia (TUSS 22)">
+        <inputExpression id="ie_1_codigoPrincipal" typeRef="string"><text>codigoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento de outra linha da mesma guia e dataExecucao (TUSS 22)">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="m_pre">
+        <description>OMNI-CARDIO-MEX-0001 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m01_0001">
+        <description>OMNI-CARDIO-MEX-0001 — par na mesma guia e data: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911044", "30911052", "30911060", "30911079", "30911087", "30911095", "30911109"</text></inputEntry>
+        <inputEntry><text>"30911044", "30911052", "30911060", "30911079", "30911087", "30911095", "30911109", "40812014", "40812022", "40812030", "40812049", "40812057", "40812065", "40812073", "40810046", "40812090"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m01_ok">
+        <description>OMNI-CARDIO-MEX-0001 — principal do grupo sem secundário excludente</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911044", "30911052", "30911060", "30911079", "30911087", "30911095", "30911109"</text></inputEntry>
+        <inputEntry><text>not("30911044", "30911052", "30911060", "30911079", "30911087", "30911095", "30911109", "40812014", "40812022", "40812030", "40812049", "40812057", "40812065", "40812073", "40810046", "40812090")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_crm_0002">
+        <description>OMNI-CARDIO-MEX-0002 — par na mesma guia e data: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30903025", "30903033"</text></inputEntry>
+        <inputEntry><text>"30905060"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_crm_0003">
+        <description>OMNI-CARDIO-MEX-0003 — par na mesma guia e data: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30903025", "30903033"</text></inputEntry>
+        <inputEntry><text>"30915023", "30915040", "30912083", "30904080", "20201052", "30804132", "30804116", "20104049"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_crm_0004">
+        <description>OMNI-CARDIO-MEX-0004 — par na mesma guia e data: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30903025", "30903033"</text></inputEntry>
+        <inputEntry><text>"30912040", "30912105", "30912032", "30912261", "30912318"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_crm_ok">
+        <description>OMNI-CARDIO-MEX-0002 — principal do grupo sem secundário excludente</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30903025", "30903033"</text></inputEntry>
+        <inputEntry><text>not("30905060", "30915023", "30915040", "30912083", "30904080", "20201052", "30804132", "30804116", "20104049", "30912040", "30912105", "30912032", "30912261", "30912318")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_card_0002">
+        <description>OMNI-CARDIO-MEX-0002 — par na mesma guia e data: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30902010", "30902029", "30902037", "30902045", "30902053", "30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111"</text></inputEntry>
+        <inputEntry><text>"30905060"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_card_0003">
+        <description>OMNI-CARDIO-MEX-0003 — par na mesma guia e data: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30902010", "30902029", "30902037", "30902045", "30902053", "30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111"</text></inputEntry>
+        <inputEntry><text>"30915023", "30915040", "30912083", "30904080", "20201052", "30804132", "30804116", "20104049"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_card_ok">
+        <description>OMNI-CARDIO-MEX-0002 — principal do grupo sem secundário excludente</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30902010", "30902029", "30902037", "30902045", "30902053", "30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111"</text></inputEntry>
+        <inputEntry><text>not("30905060", "30915023", "30915040", "30912083", "30904080", "20201052", "30804132", "30804116", "20104049")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m05_0005">
+        <description>OMNI-CARDIO-MEX-0005 — par na mesma guia e data: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912296"</text></inputEntry>
+        <inputEntry><text>"30902053", "30912245"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m05_ok">
+        <description>OMNI-CARDIO-MEX-0005 — principal do grupo sem secundário excludente</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912296"</text></inputEntry>
+        <inputEntry><text>not("30902053", "30912245")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m06_0006">
+        <description>OMNI-CARDIO-MEX-0006 — par na mesma guia e data: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906016", "30906024", "30906032", "30906059", "30906067", "30906083"</text></inputEntry>
+        <inputEntry><text>"40813215", "40813274", "30912237"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0006"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m06_ok">
+        <description>OMNI-CARDIO-MEX-0006 — principal do grupo sem secundário excludente</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906016", "30906024", "30906032", "30906059", "30906067", "30906083"</text></inputEntry>
+        <inputEntry><text>not("40813215", "40813274", "30912237")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_resto">
+        <description>OMNI-CARDIO-MEX-0001 — principal sem par no domínio</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30911044", "30911052", "30911060", "30911079", "30911087", "30911095", "30911109", "30903025", "30903033", "30902010", "30902029", "30902037", "30902045", "30902053", "30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111", "30912296", "30906016", "30906024", "30906032", "30906059", "30906067", "30906083")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_sem_data">
+        <description>OMNI-CARDIO-MEX-0001 — data ausente: faturamento</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

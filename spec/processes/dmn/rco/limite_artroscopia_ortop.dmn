@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_limite_artroscopia_ortop" name="Limite de procedimentos videoartroscópicos por articulação (OMNI-ORTOP-LIM-0001)" namespace="https://omni-saude/dmn/ortopedia-opme">
+  <decision id="rco_limite_artroscopia_ortop" name="Limite de procedimentos videoartroscópicos por articulação (OMNI-ORTOP-LIM-0001)" camunda:historyTimeToLive="P180D">
+    <description>Conta os códigos videoartroscópicos (TUSS 30733 a 30738) da mesma articulação na guia. OMNI-ORTOP-LIM-0001.</description>
+    <decisionTable id="dt_limite_artroscopia_ortop" hitPolicy="UNIQUE">
+      <input id="in_0_dataExecucao" label="dataExecucao ← TISS dataExecucao/dataRealizacao (inteiro AAAAMMDD)">
+        <inputExpression id="ie_0_dataExecucao" typeRef="integer"><text>dataExecucao</text></inputExpression>
+      </input>
+      <input id="in_1_articulacao" label="articulacao ← derivada do prefixo do TISS codigoProcedimento (30733 joelho, 30734 tornozelo, 30735 ombro, 30736 cotovelo, 30737 punho, 30738 coxofemoral)">
+        <inputExpression id="ie_1_articulacao" typeRef="string"><text>articulacao</text></inputExpression>
+      </input>
+      <input id="in_2_quantidadeVideoartroscopicos" label="quantidadeVideoartroscopicos ← contagem de linhas TISS da mesma guia e dataExecucao com prefixo da articulação">
+        <inputExpression id="ie_2_quantidadeVideoartroscopicos" typeRef="integer"><text>quantidadeVideoartroscopicos</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-ORTOP-LIM-0001 — até três procedimentos intra-articulares por articulação</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"joelho","tornozelo","ombro","cotovelo","punho","coxofemoral"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-ORTOP-LIM-0001 — mais de três procedimentos intra-articulares na mesma articulação</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"joelho","tornozelo","ombro","cotovelo","punho","coxofemoral"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3210"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-ORTOP-LIM-0001 — contagem ausente</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"joelho","tornozelo","ombro","cotovelo","punho","coxofemoral"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-ORTOP-LIM-0001 — sem procedimento videoartroscópico</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>not("joelho","tornozelo","ombro","cotovelo","punho","coxofemoral")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-ORTOP-LIM-0001 — fora da vigência (antes de 03/11/2026): o limite videoartroscópico não se aplica</description>
+        <inputEntry><text>&lt; 20261103</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-ORTOP-LIM-0001 — data de execução ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

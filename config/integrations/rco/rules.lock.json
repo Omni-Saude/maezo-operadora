@@ -4,9 +4,9 @@
       "PIN DO PACOTE DE REGRAS K1 DO RCO (ADR-0075 secao b). O rco e o UNICO dono e editor",
       "das tabelas DMN do K1 e do manifesto (versaoRegra, shaDmn). Este repositorio guarda so",
       "este pin e os bytes do pacote em spec/processes/dmn/rco/, copiados byte a byte.",
-      "ESTADO ATUAL: 'sem_pacote' — o rco ainda nao publicou o K1. Neste estado provenance",
-      "fica nula, manifest_pin e null, artifacts e vazio e spec/processes/dmn/rco/ so pode",
-      "conter README.md e os arquivos listados em exemplos_sinteticos (path + sha256).",
+      "ESTADO ATUAL: 'fixado' — K1 do rco no commit de provenance (manifesto 2.3.0, pacote",
+      "5.0.1), em sombra. Os DMN ficam em spec/processes/dmn/rco/ (artifacts, de decisoes[]",
+      "do manifesto) ao lado do exemplo sintetico do Maezo (exemplos_sinteticos).",
       "Este arquivo nao e editavel a mao para 'consertar' digest. Muda so por (1) nova",
       "publicacao do K1 no rco, que leva estado a 'fixado' com commit, manifesto e artefatos,",
       "ou (2) entrada/saida de exemplo sintetico declarado.",
@@ -25,14 +25,962 @@
     "version": "2.0.0",
     "work_package": "MZO-1d; MZO-2a (leitor do manifesto K1, digest sha256:<hex>)"
   },
-  "estado": "sem_pacote",
+  "estado": "fixado",
   "provenance": {
-    "rco_commit_sha": null,
-    "rco_repo": null,
-    "status": "NAO_PUBLICADO"
+    "rco_commit_sha": "b8444f52e33eda556b5d2dab7837b046d5bd769e",
+    "rco_repo": "Omni-Saude/regras-contratos-operadora",
+    "status": "PUBLISHED"
   },
-  "manifest_pin": null,
-  "artifacts": [],
+  "manifest_pin": {
+    "path": "config/integrations/rco/k1/manifesto.json",
+    "sha256": "sha256:372661f09a983bae678ca247ee0b9b8872c0e461ccbe2c13bccb4ed659c0ea57"
+  },
+  "artifacts": [
+    {
+      "path": "spec/processes/dmn/rco/anatpat_cobertura.dmn",
+      "sha256": "sha256:863ae659e216f183e5286d6c473ff545f138794847812e78530c3dd6e9d3d96a"
+    },
+    {
+      "path": "spec/processes/dmn/rco/anatpat_compatibilidade.dmn",
+      "sha256": "sha256:d58d6421e0e0a08b9400752b9ed4578717123bf3062a5a9f1402b7f23aaf8ae9"
+    },
+    {
+      "path": "spec/processes/dmn/rco/anatpat_dut.dmn",
+      "sha256": "sha256:189a37aef63ae16cb5427219806daf21279586162d9c0bdb1d79998896dc4168"
+    },
+    {
+      "path": "spec/processes/dmn/rco/anatpat_limite_quantidade.dmn",
+      "sha256": "sha256:8f03f7d255c75116a32e7f249e9d93cfd950e7a8c212fceffd6ac2ce481bfc1c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/anatpat_pacote.dmn",
+      "sha256": "sha256:ffd58e79821f25226ba73394066ab596d4d4cbc02a893118bc7991d67acb6229"
+    },
+    {
+      "path": "spec/processes/dmn/rco/anestdor_autorizacao.dmn",
+      "sha256": "sha256:a73367604364e599dbf31b778f167ec0bd1273c3cab7e7f467f3921ce05a9f38"
+    },
+    {
+      "path": "spec/processes/dmn/rco/anestdor_cobertura.dmn",
+      "sha256": "sha256:4e83d5db990b7df3b61a1556f78ba4fb4d1f254c6c804276447b85e98f90427d"
+    },
+    {
+      "path": "spec/processes/dmn/rco/anestdor_compatibilidade.dmn",
+      "sha256": "sha256:19a2122c00fe3d69ecac87e8e1fda4b0e6cd5389022fa3384ad065b30c90571e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/anestdor_excludentes.dmn",
+      "sha256": "sha256:238e016728e63bba005f9bdc7664f36e16960cb8f60ca1c7b4028cd273e8d65e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/anestdor_limite_quantidade.dmn",
+      "sha256": "sha256:7c75c0aaca5c3449b8ef10443b630ba20e0f8e5fa56c2fb68501fe915a4ce410"
+    },
+    {
+      "path": "spec/processes/dmn/rco/anestdor_pacote.dmn",
+      "sha256": "sha256:b17dde75b835f8eda49dc9403a06799ef68a7d15ff9447f805ec62efadcc58f8"
+    },
+    {
+      "path": "spec/processes/dmn/rco/autorizacao_orl.dmn",
+      "sha256": "sha256:f7d9b63f08f782744c17134b9275f168295ba894462c86bcdd696abea82a2c5c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/autorizacao_ortop.dmn",
+      "sha256": "sha256:41afc843736f5ca19822db336a2d66731e4e41e4530d0b1b69da1aec575be1db"
+    },
+    {
+      "path": "spec/processes/dmn/rco/bariat_autorizacao.dmn",
+      "sha256": "sha256:4f2f3f925b37aaeff84a8d7c9b68b0898626bd393c3dd5d71068f9e8bcd89c4b"
+    },
+    {
+      "path": "spec/processes/dmn/rco/bariat_dut_banda.dmn",
+      "sha256": "sha256:04f67da7af2c5ccff9f2cca39dc4a57bbe786981e52bc65fec6ebe3dc1ccd782"
+    },
+    {
+      "path": "spec/processes/dmn/rco/bariat_dut_gastroplastia.dmn",
+      "sha256": "sha256:6097bd6432290c883a967e16bb4566ef55bc7ffa222941552f72bee629a74c30"
+    },
+    {
+      "path": "spec/processes/dmn/rco/bariat_excludentes.dmn",
+      "sha256": "sha256:ec35f4153718c18671855fac8deb4d32762ddc781cb02d4eba20fbcc08244b53"
+    },
+    {
+      "path": "spec/processes/dmn/rco/bariat_opme_quantidade.dmn",
+      "sha256": "sha256:5175e074be666e03b4bad0d380e45eb8f0c7efcf0586547e00d97e899afec26d"
+    },
+    {
+      "path": "spec/processes/dmn/rco/bariat_pacote_desvios.dmn",
+      "sha256": "sha256:5fd31a90d2115fb32c301c4db571dc2117020ad2e08d48eb21162d6f5e7301ac"
+    },
+    {
+      "path": "spec/processes/dmn/rco/bariat_pacote_enquadramento.dmn",
+      "sha256": "sha256:d9c91a8ca7fa234c0736ab1f0c03438c4ccda83718ad591b7076e7cd90679f08"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cardio_autorizacao.dmn",
+      "sha256": "sha256:434de0f8c530baf8bbec4ecb7579b97ecc90baa8c7862349e002e21fe35ea1b1"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cardio_cobertura.dmn",
+      "sha256": "sha256:2c4d4927dc0a415b9ac373a93b2bbc762d5094f66416ffbdd68142a5fd78d787"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cardio_compatibilidade.dmn",
+      "sha256": "sha256:4eff755755e543251a510ae4a00fc71a838ffea297a22566505f8864e6abd444"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cardio_dut.dmn",
+      "sha256": "sha256:2f8a9004a8ace131db53e390b470fb1d312ff183a09aa5f07887ad7f1f9a4608"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cardio_excludentes.dmn",
+      "sha256": "sha256:4a4634f04303658b196588fc7c80b785a162af7dd117f1d9e162cd30c5db65e5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cardio_limite_quantidade.dmn",
+      "sha256": "sha256:70610dec64dc8fd7c9a17438c118ae5e10f77bf7ef4f18d38669d0bd1168330b"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cardio_opme.dmn",
+      "sha256": "sha256:8fa10d0b400b4dc10fd82fe9ad6e661ba1a893265a28740ed4d91d2526f251eb"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cardio_opme_estrutural.dmn",
+      "sha256": "sha256:977d5ae95e9a8c7624dbb06025ce3441f7a0ca5181e60c890239cc75c4c77b5e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cardio_opme_vascular.dmn",
+      "sha256": "sha256:3c84ed403d864d72f10938137682b91edd2a4f55440fa67d08f387038ebde422"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cardio_pacote.dmn",
+      "sha256": "sha256:aec96f904278dbb4dee40f1e261d6cdc60e31d78075cc0b123b2c6e00b4669f9"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cirger_autorizacao.dmn",
+      "sha256": "sha256:23f8a95863ea48dd0449ed698fa7735df96e399bbbb30fd830c15aac5e8450ee"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cirger_compatibilidade.dmn",
+      "sha256": "sha256:8aee1474381afbc66f09fc76572ce3b326ca1507c2dbfa9c20ea6b369fa20e67"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cirger_dut_ablacao_hepatica.dmn",
+      "sha256": "sha256:b6bcaaa9f738833d8576f1e6f15d03530d8b857193ec9aa3dfd7d53b426935d8"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cirger_excludentes.dmn",
+      "sha256": "sha256:c4cbbc468b952e5b04ac277786ff70bf65a43ef64b9534cc8b27f868dd11a194"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cirger_limite_quantidade.dmn",
+      "sha256": "sha256:e5d520595816e25a92f42f28bde7900b6140e643c8856ad3d4cde0b9da6ba87e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cirger_pacote_episodio.dmn",
+      "sha256": "sha256:e5c713ee3a3637b1313c2465d09f558025b4c5a6c1b8c241557203b182f5e933"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cirger_peca_anatomopatologica.dmn",
+      "sha256": "sha256:df2615b8e0d0a5c635e49cbf76b35f4831b416936db63360c7f2976e94e7262c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/cirger_pedido_eletivo.dmn",
+      "sha256": "sha256:2f08787df3f962420ff5a2049058c234d0cfe6b51d029370bb5b07081a58a8b8"
+    },
+    {
+      "path": "spec/processes/dmn/rco/clin_autorizacao.dmn",
+      "sha256": "sha256:c3644fd10cf8642ab71232c6c275f330dd8256efe8659f50a1e072fe3d7b31d5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/clin_cobertura.dmn",
+      "sha256": "sha256:99b40b83a5fb8ca76ede6c2491fe63594e21aece8fe83396d9773addda6a2410"
+    },
+    {
+      "path": "spec/processes/dmn/rco/clin_compatibilidade.dmn",
+      "sha256": "sha256:3c443c4ebe20ed8f8d9e92c7b71198c44f3d7b897aed7ecb85930a63bd5a59bd"
+    },
+    {
+      "path": "spec/processes/dmn/rco/clin_dut.dmn",
+      "sha256": "sha256:fcac9bd628a706e597cb67d800d66d4d1abd9f6453bbd0c25126b4ff5d75b94d"
+    },
+    {
+      "path": "spec/processes/dmn/rco/clin_excludentes.dmn",
+      "sha256": "sha256:30f12a350d67f4cf8ab2534854f15fca52391b36eb2ae657ff68aff137125b7d"
+    },
+    {
+      "path": "spec/processes/dmn/rco/clin_glosa.dmn",
+      "sha256": "sha256:3d77c695249f8f19f37a1222dde67e4e1d9439068654c47bbc9dc90f07229b6a"
+    },
+    {
+      "path": "spec/processes/dmn/rco/clin_limite_quantidade.dmn",
+      "sha256": "sha256:5fef43e49e6329dceb0436cd8c5f999fc9aac7de9a1e606c2fe74cffe49db448"
+    },
+    {
+      "path": "spec/processes/dmn/rco/clin_pacote.dmn",
+      "sha256": "sha256:dc14b08ea11143d44523632d379f9a916f1962aa03b25059b788068025b98e04"
+    },
+    {
+      "path": "spec/processes/dmn/rco/coluna_autorizacao_previa.dmn",
+      "sha256": "sha256:b87228cf8eb1aab41d9bf423e4c39bae47d57651b6f6f30c3945033a19919bd7"
+    },
+    {
+      "path": "spec/processes/dmn/rco/coluna_dut_133.dmn",
+      "sha256": "sha256:f4d13825721811973b2c1f1f2772e5deb691f55f159c173c83726c595c89b60a"
+    },
+    {
+      "path": "spec/processes/dmn/rco/coluna_endoscopica.dmn",
+      "sha256": "sha256:9f8d5b01c61a939131612e7ccdf791765eb778df7ce0ddeb4e883ddb1ee73b2e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/coluna_excludentes.dmn",
+      "sha256": "sha256:0e4749e3ebd02bdc41107714e3c64f432acf5337cdb857ba2fe1c688d8bab1f2"
+    },
+    {
+      "path": "spec/processes/dmn/rco/coluna_opme_prova_uso.dmn",
+      "sha256": "sha256:d7f140b126231bd16b30d7bd733d4dde3ce5a045a8f0cc0002a941c93a558454"
+    },
+    {
+      "path": "spec/processes/dmn/rco/coluna_opme_quantidade.dmn",
+      "sha256": "sha256:767b518c1cca58103a26d5a5623ea315c77fce07191357468a09247924233dac"
+    },
+    {
+      "path": "spec/processes/dmn/rco/coluna_opme_solicitacao.dmn",
+      "sha256": "sha256:3fa8b546d41b2bd70597b7ecdeeb0ed18a70656cdd6e91092b67bf75ac5f84d0"
+    },
+    {
+      "path": "spec/processes/dmn/rco/coluna_pacote_desvios.dmn",
+      "sha256": "sha256:8ff88111114b4687955967a57ea0354f6970f78460935844172b0c802425284e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/coluna_pacote_enquadramento.dmn",
+      "sha256": "sha256:90a37256901ee5927cf505f5ae06be3d7fc7884d9a9a259adcd38ab100f38bf0"
+    },
+    {
+      "path": "spec/processes/dmn/rco/compatibilidade_orl.dmn",
+      "sha256": "sha256:100daab55d75eb10f41f4d2d34e3194b10d58353a00419bd6fb779881254b560"
+    },
+    {
+      "path": "spec/processes/dmn/rco/compatibilidade_ortop.dmn",
+      "sha256": "sha256:33ec5de3954ea87a3ab8ef979b6d6107c271f9d49ffdd9af0208f034ab5ca1d7"
+    },
+    {
+      "path": "spec/processes/dmn/rco/consult_autorizacao.dmn",
+      "sha256": "sha256:c588b67513bfd28bdc9b24dc212fdb83d665214c69c6b14ecda948f715cab26d"
+    },
+    {
+      "path": "spec/processes/dmn/rco/consult_cobertura.dmn",
+      "sha256": "sha256:ff5d6de1869688898157821a3eb887a3d31570ad51b40fa2b29969b9b8c23e2e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/consult_compatibilidade.dmn",
+      "sha256": "sha256:54e8a4ccdbffed57887c19ef49067b381eaf5f6fa9998ac3af9aac9adbfdab3f"
+    },
+    {
+      "path": "spec/processes/dmn/rco/consult_dut.dmn",
+      "sha256": "sha256:e7f8b28dd903c71c5a5469e316331bf76be75a9f16628fa1fba7d91c22b03436"
+    },
+    {
+      "path": "spec/processes/dmn/rco/consult_excludentes.dmn",
+      "sha256": "sha256:837157455cead79047ae8238dea7c6646c22ef316b11a1ab76b9702d3f448821"
+    },
+    {
+      "path": "spec/processes/dmn/rco/consult_limite_quantidade.dmn",
+      "sha256": "sha256:56d8c35bc3085b4e710317e231d33c93ec40b62b887ed89ae7f52930ed28a7b7"
+    },
+    {
+      "path": "spec/processes/dmn/rco/consult_pacote.dmn",
+      "sha256": "sha256:ad5e0620f7b5e7b5223737a28de7acf0877b21b4efad68090074284414bfa3a5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/diaria_autorizacao.dmn",
+      "sha256": "sha256:be0dc4da5d550cb162d998e82dd7a498f4309bd9f304951561b24e9e7dd56ed0"
+    },
+    {
+      "path": "spec/processes/dmn/rco/diaria_cobertura.dmn",
+      "sha256": "sha256:0462a3ecc6b2c54f827512e77035c1bff9be38ac082053d07c9d3774d73e238f"
+    },
+    {
+      "path": "spec/processes/dmn/rco/diaria_compatibilidade.dmn",
+      "sha256": "sha256:94efd047c5ea0837befb12b52c3f055e0fee6213df3e09a82837a5d7b01d62af"
+    },
+    {
+      "path": "spec/processes/dmn/rco/diaria_excludentes.dmn",
+      "sha256": "sha256:fba26f54cbbde87bce6843fc3fd16cf406bfa58a764f4bcb8b4a71ac4f20687e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/diaria_limite_quantidade.dmn",
+      "sha256": "sha256:7e4c3ee7294368c0975f8ecef5f36047b1c340855503aab59e9c4d59e8eeca09"
+    },
+    {
+      "path": "spec/processes/dmn/rco/diaria_opme.dmn",
+      "sha256": "sha256:90681ae9409b1beb48e643bc19a4950b83cab225fb6f72083fd223203b80afcc"
+    },
+    {
+      "path": "spec/processes/dmn/rco/diaria_pacote.dmn",
+      "sha256": "sha256:51397fda69a2c5caab76370ea65d36f16597bcedaad0dd2b560b277a48cdc6cc"
+    },
+    {
+      "path": "spec/processes/dmn/rco/dut_implante_coclear_orl.dmn",
+      "sha256": "sha256:c5a39cbdfdf9f30912e4949ba48419731fa3f71e1561916d914a508eb06dff67"
+    },
+    {
+      "path": "spec/processes/dmn/rco/dut_laserterapia_orl.dmn",
+      "sha256": "sha256:068d20fde69c2f690d525461b413a49b358b71a125f8d08a7774995894a1ed3d"
+    },
+    {
+      "path": "spec/processes/dmn/rco/dut_protese_ancorada_orl.dmn",
+      "sha256": "sha256:9b0c87601dfc65b99ec4da8aff1cdb1bb0c75f3b0eb07c5d5a41e44302836734"
+    },
+    {
+      "path": "spec/processes/dmn/rco/endosc_autorizacao.dmn",
+      "sha256": "sha256:5e7a3e7b42ec8432af9d5c524afd2d7f4e686f62efbfb2f677a58ec8d1d43c0b"
+    },
+    {
+      "path": "spec/processes/dmn/rco/endosc_cobertura.dmn",
+      "sha256": "sha256:66b2425fcafad4043dfbf451e2f8af55433fadc4fb1553b61366287ccaa8441a"
+    },
+    {
+      "path": "spec/processes/dmn/rco/endosc_compatibilidade.dmn",
+      "sha256": "sha256:46fb5fe5ed7516d7c761fe9ab03fa9a656daea2349c4716b541b08e7db44b250"
+    },
+    {
+      "path": "spec/processes/dmn/rco/endosc_dut.dmn",
+      "sha256": "sha256:89f9462ed35d5bfce57cd6c8b5f00f391fa9e0d3277d8989612d6d04432a1ca4"
+    },
+    {
+      "path": "spec/processes/dmn/rco/endosc_excludentes.dmn",
+      "sha256": "sha256:8fb8f27751a0d11ef87e3b9522a29f0e3b0c53fb5bfdedec531c5539e30d3e64"
+    },
+    {
+      "path": "spec/processes/dmn/rco/endosc_limite_quantidade.dmn",
+      "sha256": "sha256:4577078a6323e55978418b5b78bbd6da94c550f91b9540f430c56ff73318377e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/endosc_pacote.dmn",
+      "sha256": "sha256:218c9f30eb2db30af56af33c2548c6f298e885ef1a9a49dc219068691d6c0f43"
+    },
+    {
+      "path": "spec/processes/dmn/rco/especime_orl.dmn",
+      "sha256": "sha256:ef5bb1a7e3cf5d59935a9cd6c65681a16ecebf67e86b15bb59ededc4aca9989f"
+    },
+    {
+      "path": "spec/processes/dmn/rco/exfunc_autorizacao.dmn",
+      "sha256": "sha256:fc045d207d2c3fc9572f997f19947437b97cc65933e0ad3111c6d4636d8d49e6"
+    },
+    {
+      "path": "spec/processes/dmn/rco/exfunc_cobertura.dmn",
+      "sha256": "sha256:531a09baba97db002f30dcb8d27002afb7049bf19afad6e748f64b77227b0ef2"
+    },
+    {
+      "path": "spec/processes/dmn/rco/exfunc_compatibilidade.dmn",
+      "sha256": "sha256:cbe283f416b60e42d0b34871acfabe41328bd8e514579233ca74b40310d3869d"
+    },
+    {
+      "path": "spec/processes/dmn/rco/exfunc_dut.dmn",
+      "sha256": "sha256:c89db553ce22959b64668b67f68c8e1607546290440f642b573a2456b1036cd8"
+    },
+    {
+      "path": "spec/processes/dmn/rco/exfunc_excludentes.dmn",
+      "sha256": "sha256:3ac11e1266e1fd6db660095e8c1041339959e9903f9c54d7c5c48ef9d10c7ecf"
+    },
+    {
+      "path": "spec/processes/dmn/rco/exfunc_limite_quantidade.dmn",
+      "sha256": "sha256:e7a768536c16ad889ddcc2cf28788a354a1d56a2efe3bd059833aad9c71ebe1c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/exfunc_pacote.dmn",
+      "sha256": "sha256:df9a43ab5a7b464a68f60857d0704ac58f2cd62d153f0bdba3566b959bfcb178"
+    },
+    {
+      "path": "spec/processes/dmn/rco/genet_autorizacao.dmn",
+      "sha256": "sha256:e795598d1c22f794c991be8b203af73c1769410c3c45122e9f902a6bd59a96bf"
+    },
+    {
+      "path": "spec/processes/dmn/rco/genet_compatibilidade.dmn",
+      "sha256": "sha256:acfaac57573c1c76d630fca0aeb76e9135e75688216b3ee2132de157a6bdb9af"
+    },
+    {
+      "path": "spec/processes/dmn/rco/genet_limite_quantidade.dmn",
+      "sha256": "sha256:251123e25e2848fc250d82a393c515b9ef16a68919c54ac608691fae93f4de6c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/genet_pacote.dmn",
+      "sha256": "sha256:55cd54dec0cc149ad4573defa0543a8d17fe029c0bd90b79c6d4eb17275e2e20"
+    },
+    {
+      "path": "spec/processes/dmn/rco/geral_apresentacao_extemporanea.dmn",
+      "sha256": "sha256:fcbf8f63b8df26f9308aeee4700e02765c0ac9a3adceb75ea130a4124ed45797"
+    },
+    {
+      "path": "spec/processes/dmn/rco/geral_autorizacao_materiais.dmn",
+      "sha256": "sha256:48c641d456c1ad13a572e9c1166e93161cbfbdc923e4b7928124949f76705ed5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/geral_carencia.dmn",
+      "sha256": "sha256:465a4b54d84c7a873ed4aad99387d2a0b3cea8cea0a9bb7bb7407275611ea04f"
+    },
+    {
+      "path": "spec/processes/dmn/rco/geral_cpt.dmn",
+      "sha256": "sha256:04bd2cabe022dc239d31522658619fceaea71bd40c38f091c5c2579a336a87fc"
+    },
+    {
+      "path": "spec/processes/dmn/rco/geral_elegibilidade.dmn",
+      "sha256": "sha256:89287a5cc9214d380235362ffd87aa9284602396edb55b3871a279ee855c8ec9"
+    },
+    {
+      "path": "spec/processes/dmn/rco/geral_itens_inclusos.dmn",
+      "sha256": "sha256:a0ec3a51e874ca19fcb522e6c9e7d22ad53dc1d2e07ddf917e4809ba34b556a9"
+    },
+    {
+      "path": "spec/processes/dmn/rco/geral_prazos_conta.dmn",
+      "sha256": "sha256:0c0dbc9b1ea4108b06e79352a3e9cc65d39fc73f0fc61b5ff6b1efb642714518"
+    },
+    {
+      "path": "spec/processes/dmn/rco/go_autorizacao.dmn",
+      "sha256": "sha256:2f293590e39d9211eea5427a2cc584ad53964dc411c7f344921e9d3b927463f8"
+    },
+    {
+      "path": "spec/processes/dmn/rco/go_cobertura.dmn",
+      "sha256": "sha256:c5fffc23878e7182da713756bbb14445395bd61248c09e831463ff4a2be1fe11"
+    },
+    {
+      "path": "spec/processes/dmn/rco/go_compatibilidade.dmn",
+      "sha256": "sha256:e38a35244fb95e05c8f8f5f1b314b1400c81dd934d714b37bb223d01b5e69cae"
+    },
+    {
+      "path": "spec/processes/dmn/rco/go_dut.dmn",
+      "sha256": "sha256:757e1c576ecdf4713a7b75fc54cb2d0ff3e38b958b9bcea43430afc0e88eb29b"
+    },
+    {
+      "path": "spec/processes/dmn/rco/go_excludentes.dmn",
+      "sha256": "sha256:cff1d5de3a2e927024846e4d558f71423695cfea3256b384573e93a79da19dfa"
+    },
+    {
+      "path": "spec/processes/dmn/rco/go_limite_quantidade.dmn",
+      "sha256": "sha256:80ab9f422323b03befd4b3d230fa7a932a81d4ef00757ccdf24c41ec2ac1873c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/go_opme.dmn",
+      "sha256": "sha256:e9169bea3811425aa30a8be7241088fd7112cf425eba4263559da86911f750fb"
+    },
+    {
+      "path": "spec/processes/dmn/rco/go_pacote.dmn",
+      "sha256": "sha256:d615a612246489d0e1c19d89198d2b54b415b2503bffd9b92f990d28481e0bf8"
+    },
+    {
+      "path": "spec/processes/dmn/rco/hemot_autorizacao.dmn",
+      "sha256": "sha256:0ff658a9fb8733d8153078c350cd4e37efc1867ce78badd0ca60b0330d3f86d2"
+    },
+    {
+      "path": "spec/processes/dmn/rco/hemot_cobertura.dmn",
+      "sha256": "sha256:6df054016690f81bf7398d158bf3663acca79f514f22a721b64635f7bcd239b4"
+    },
+    {
+      "path": "spec/processes/dmn/rco/hemot_compatibilidade.dmn",
+      "sha256": "sha256:1370760886e7c81b6462adb040eb356230db93ae323843e86a7ff70f7d630291"
+    },
+    {
+      "path": "spec/processes/dmn/rco/hemot_glosa.dmn",
+      "sha256": "sha256:afad6d4cfade91186d61f329bfbc8a265de9f7ad5e87f45db74d9e5e2fdae35a"
+    },
+    {
+      "path": "spec/processes/dmn/rco/hemot_limite_quantidade.dmn",
+      "sha256": "sha256:427b587bc0eb17029788417b13b89fd9f97f3121c432ce73fe07e63731cec46e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/hemot_pacote.dmn",
+      "sha256": "sha256:c72763d7f2c93edcb3f8ac9cbec3923aeaf1754d2130d11c62d01490e4d8edea"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgac_autorizacao.dmn",
+      "sha256": "sha256:1056f69d78de9828b6e54a96f7b7af7b79ebd0fe9ed9e13f186a63ce886811c2"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgac_cobertura.dmn",
+      "sha256": "sha256:5ed7d2e460452bacef77054ccd9ad0e1f9e30705a00a6ec8db3ed278eb51eb90"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgac_compatibilidade.dmn",
+      "sha256": "sha256:610edfbbad885c0ff92ed36b7bbb00152f34a5cb7317be50345f3040ab116e11"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgac_dut.dmn",
+      "sha256": "sha256:eb8fcf47cff38623a153484012772063e48f054e1cd80059fa78bbb83787451a"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgac_dut_ablacao.dmn",
+      "sha256": "sha256:8ff1403ad90ff3465573f8c1a83fae38c83a2905514270761216837076cc6d61"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgac_limite_intervalo.dmn",
+      "sha256": "sha256:77c71386b228ca6581655d654f51c25a2275df7ee780057e307b2c8ca81ad690"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgac_limite_quantidade.dmn",
+      "sha256": "sha256:699ec8b5442d55409db59e823df64d320700ad19667e00ab3ea3621968c32c40"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgac_pacote.dmn",
+      "sha256": "sha256:d51e9cdabdddc11e314eec43e1aba6d950b483edb1cc8c82a96650eb6e544117"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgconv_autorizacao.dmn",
+      "sha256": "sha256:416d10b862ba2df48d12e169200a816b44ff3be85caef35cbca5d2ac89f5853b"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgconv_cobertura.dmn",
+      "sha256": "sha256:c51aa9bbe2f32f3fe17aafec0decad158751b007c384695e4221c4d3449f86d6"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgconv_compatibilidade.dmn",
+      "sha256": "sha256:c07f81c8160463c267fff61e3258e6b4169892e28d941f7f0fbc7beac859ab9f"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgconv_criterio.dmn",
+      "sha256": "sha256:b2c79ba215ee459267283871ee0b453f53570bc8fa8640b021a773634a74ff08"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgconv_dut.dmn",
+      "sha256": "sha256:b6d78f9dceebe9c968e4c09d8edde92b90e11d1200dc85c7e8ff2036e5260820"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgconv_excludentes.dmn",
+      "sha256": "sha256:5e13e2b6cf6c7a25f6d00e73b220f139190995bca99198bad79421dac4975696"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgconv_limite_intervalo.dmn",
+      "sha256": "sha256:6d26f18168e278b85b1770806f3c7f89fff7f3e5f57c62fa1d36d19740c00e1f"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgconv_limite_intervalo_us.dmn",
+      "sha256": "sha256:6ff9468aa2d665db3b6ccc4a7cc085f9b521e79bc259cc38768aec71db37bb69"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgconv_limite_quantidade.dmn",
+      "sha256": "sha256:4f93c06e4eaf41b3ababfd086806a881f2f1570558040a69c56fa9f01c5e4d4d"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imgconv_pacote.dmn",
+      "sha256": "sha256:c44d1f2f3ff6527a6aab371827fd97656e51a3cb22f33cd6ebc804058f234f40"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imobilizacao_ortop.dmn",
+      "sha256": "sha256:51127f8219690220d67f105af6575a2ef1db40a863ab90ef2dc48c3d69a19cc8"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imunob_autorizacao.dmn",
+      "sha256": "sha256:7e116b4edc9e9259e92de07bccc433ed0ffa4ee89c534fa4fa46ad7ec19a6d87"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imunob_cobertura.dmn",
+      "sha256": "sha256:3077d19b1a9075d8be6ab6dd4fb098af820722e5939d5ca81e403ccd3f4ba4d9"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imunob_dut.dmn",
+      "sha256": "sha256:73b1f63747ad9ea948851b668d1ebda3250831b942f16ba37b644a0e5f18a199"
+    },
+    {
+      "path": "spec/processes/dmn/rco/imunob_limite_quantidade.dmn",
+      "sha256": "sha256:d8380902b75f25155b255ea859681cba2e96d40db85c0c2c8f5bf5d2a7588d47"
+    },
+    {
+      "path": "spec/processes/dmn/rco/lab_autorizacao.dmn",
+      "sha256": "sha256:31deb070dda4cffeb4acf1207cc751d568fd5b0e1c5312aa49043122c091fa99"
+    },
+    {
+      "path": "spec/processes/dmn/rco/lab_cobertura.dmn",
+      "sha256": "sha256:905d53272ee91e64cd8ed0bf8f87f0cfa64a08b67d969cfaf4453d40dfe2ed53"
+    },
+    {
+      "path": "spec/processes/dmn/rco/lab_composicao.dmn",
+      "sha256": "sha256:f6cb91c6f7d4119b36fc8e30992a1c5c11cdb78023fa7fd470079b0a1a6d3e0b"
+    },
+    {
+      "path": "spec/processes/dmn/rco/lab_dut.dmn",
+      "sha256": "sha256:b590901330af3fff1f60ed2358d49215885e68c5f970b039be809dc18763e94e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/lab_glosa.dmn",
+      "sha256": "sha256:09dba56e936abfbfead6cb014187d32789a3453983d6be13b9b1e111527f08bf"
+    },
+    {
+      "path": "spec/processes/dmn/rco/lab_limite_quantidade.dmn",
+      "sha256": "sha256:eb0a74264ad0f09dce5d58c9739cbc4b8eecbb7ff7029d571f43e227676e7a78"
+    },
+    {
+      "path": "spec/processes/dmn/rco/limite_artroscopia_ortop.dmn",
+      "sha256": "sha256:2fbb7d776297942bc4a17cb057c4d34c456911e7580e479c8dd6a7a1039dce7f"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mama_autorizacao.dmn",
+      "sha256": "sha256:c1d89c5559f15b14290270c7c18f9a72187a5f5b08b598eb65a864f9281bfea1"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mama_cobertura.dmn",
+      "sha256": "sha256:893b51d4259302e2b8b64990683c4556363b333a925a863565f7f0136188a7e3"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mama_excludentes.dmn",
+      "sha256": "sha256:1715b87d7031a453ed4579dc9f59b012568e6f80dfef659d286cdf020923cb4c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mama_opme.dmn",
+      "sha256": "sha256:88de66989c83d0cfa7a446f54f7e016c4d942a55c3809f2677a0ad8caa6c0cde"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mama_pacote.dmn",
+      "sha256": "sha256:e05f27430f790453add967fa2b888c317bffe415fe9a49ec82ccb8cca4eaf799"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mednuc_autorizacao.dmn",
+      "sha256": "sha256:14d262a73d6eee5438afddb946f3f8cbad5e101304232bcb33632cb19a3993ab"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mednuc_cobertura.dmn",
+      "sha256": "sha256:406c3e56fe40410078ec52f0d6ee521bffbd2cfd0e9f2b8fc1492d0958597f8b"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mednuc_dut.dmn",
+      "sha256": "sha256:790e79fe96ad210a37d48856f7bfa2f1e4de57f2b08e284b5a59c48f6f78d4ca"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mednuc_excludentes.dmn",
+      "sha256": "sha256:68ce29867be482b95c01b75cb5d2b10158bd4cc65b4597181079f8e4b366a36c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mednuc_glosa.dmn",
+      "sha256": "sha256:28e0943b71bf7b2e92bc29ca833070e153dd8e145a8cbbd5e5143ed22884eea5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mednuc_limite_quantidade.dmn",
+      "sha256": "sha256:f605ac6acc3cbb22899b007e9e91b657d2b7aacaf882578ebe0bf71175aa0ac2"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mednuc_pacote.dmn",
+      "sha256": "sha256:8d9366e296483f18f459d692ba44fc885bf87b1c1e7e323f110d870dd90e1434"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mex_orl.dmn",
+      "sha256": "sha256:f13a8a4445b266f2709f49b869dc06718e064b40f892e1b11aad763c03f49b8c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mex_ortop.dmn",
+      "sha256": "sha256:b844545519f86b8e17df5b3295f8be74ebc06fa07667d26a645cb02fb4b893d6"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mex_ortop_joelho_curativo.dmn",
+      "sha256": "sha256:772537777caf2bba9a4c2da2aeb02df21c77750f421e8d2c7a7ab9c9cfe9a3a5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/mex_ortop_mesma_data.dmn",
+      "sha256": "sha256:0180d9ec1aee3dc614e620c5ecd4a18275249f4c8d748e50b16b22308d09be6f"
+    },
+    {
+      "path": "spec/processes/dmn/rco/nefro_autorizacao.dmn",
+      "sha256": "sha256:d2295fc436b3d5889090bf2f6c40d685b7ec7d71d3cd97dc37863f65c5653bab"
+    },
+    {
+      "path": "spec/processes/dmn/rco/nefro_cobertura.dmn",
+      "sha256": "sha256:a7fc1ae85812beabe1717d1c9dd2414eb515ff6757f29c3825299bc5d361b3a6"
+    },
+    {
+      "path": "spec/processes/dmn/rco/nefro_compatibilidade.dmn",
+      "sha256": "sha256:17381413350f3d6b31b00211fc7e143ea554efae4517062c872080813322dbaf"
+    },
+    {
+      "path": "spec/processes/dmn/rco/nefro_excludentes.dmn",
+      "sha256": "sha256:87c9fd4475c365ace913b59594253d6657d8d1666eaaeae98ddd6e3570d39fa8"
+    },
+    {
+      "path": "spec/processes/dmn/rco/nefro_glosa.dmn",
+      "sha256": "sha256:61f0242251d77d78126545805cd8e3f48c92e4134a0fe0534e4702f3e860428d"
+    },
+    {
+      "path": "spec/processes/dmn/rco/nefro_limite.dmn",
+      "sha256": "sha256:37a529df254866f4da0a0114fa9a205af70b6859ec297ea5a8e1498b9696718c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/nefro_pacote.dmn",
+      "sha256": "sha256:335ad31a4fa2b885aa536927a1479af926968dd313daa3e6763b878ef1adf103"
+    },
+    {
+      "path": "spec/processes/dmn/rco/neuro_autorizacao.dmn",
+      "sha256": "sha256:0118395a878127db630127dfa51d2e8671536037d6b01b08219e33fa551a1cb5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/neuro_cobertura.dmn",
+      "sha256": "sha256:1bcf4ded26007938ba00a49defe1eb23f377017dbb087c6f1047cfc2c51933a3"
+    },
+    {
+      "path": "spec/processes/dmn/rco/neuro_dut.dmn",
+      "sha256": "sha256:24182fddeafa8cfe1e87e2ab4bd7357126987a33616ed26174e5444c3866a9b3"
+    },
+    {
+      "path": "spec/processes/dmn/rco/neuro_excludentes.dmn",
+      "sha256": "sha256:08e354db7fe068d15f6a93a9f65a85dec4ba788d3d6c493c59c29ad55b9bce09"
+    },
+    {
+      "path": "spec/processes/dmn/rco/neuro_limite_quantidade.dmn",
+      "sha256": "sha256:540603bae70b0d10b80da19a8cd12f85cd950f80eb8ae2e264f76fa620f302bc"
+    },
+    {
+      "path": "spec/processes/dmn/rco/neuro_opme.dmn",
+      "sha256": "sha256:7d4d950fccd823307187865f11a638daee699d9b1403e62ab99bc3a4b4c37aa5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/neuro_pacote.dmn",
+      "sha256": "sha256:3033ea5386f2596e975440349c49c9005a28d053731edb02defc88aed24e68dc"
+    },
+    {
+      "path": "spec/processes/dmn/rco/odonto_cobertura.dmn",
+      "sha256": "sha256:3766a57df2be652479db5a906432807c4b08036ec22484085b9a457cc7cb6a71"
+    },
+    {
+      "path": "spec/processes/dmn/rco/odonto_dut.dmn",
+      "sha256": "sha256:bc3924e91e7f428d5e29d2e3666597b4bec5aa70ee21dc889c2e32c5204efa4b"
+    },
+    {
+      "path": "spec/processes/dmn/rco/odonto_opme.dmn",
+      "sha256": "sha256:16f5878ad788042112612a56101ef15f5ad26295d4a2047478fec2d01551e14e"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oftalmo_autorizacao.dmn",
+      "sha256": "sha256:37c1828e62cd9efc525bfc6bda86b82bab093a2cde170b344d4a61c7fc84c26c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oftalmo_cobertura.dmn",
+      "sha256": "sha256:5cbee6c4b7b3e23636b3027e8910bd5a6d365ec7eb26ed653aa7b1a144d9a660"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oftalmo_compatibilidade.dmn",
+      "sha256": "sha256:10f490214f633ec443d721e8d2f330d38fac54b8a71fa233cc29fe18789501a4"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oftalmo_dut.dmn",
+      "sha256": "sha256:016e066cf87982536aa57ce1d72f88c117ce6edc4b1d352e60b15c4513ec2ea4"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oftalmo_excludentes.dmn",
+      "sha256": "sha256:0b5d6fdec3ff1489a7ae41ec5c8d0784dd6dd98cabe8dc2b982137f5c36c2cfd"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oftalmo_limite_quantidade.dmn",
+      "sha256": "sha256:d08b8a292b3ba1446dfb35407fc7c2c5486d4678f72fd6e911dfe695dbb38ea6"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oftalmo_opme.dmn",
+      "sha256": "sha256:56a31cddf6e64f3dba51c74b7b847a1528c396e867f32f8f2ab7b4f6ad3a5953"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oftalmo_pacote.dmn",
+      "sha256": "sha256:e3620d235a617dee695a8bdf1e43ebb56f0a295ee3f49d113f52a222dea4f172"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oncoqt_autorizacao.dmn",
+      "sha256": "sha256:459ad86e9afcec1a1588206ebcf1208bd92471efe60e0a1c41d2ebffadfbd17a"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oncoqt_cobertura.dmn",
+      "sha256": "sha256:3a10d1e7d1820371ee84ce840cc2e2b17bb99b4e42a5204660ff029378b9b3fa"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oncoqt_dut.dmn",
+      "sha256": "sha256:4f72a6ddfbb6b73768f7ec7a32e9d3179cbd0935930850c22e113d40849838f9"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oncoqt_excludentes.dmn",
+      "sha256": "sha256:b9e5c0b0476bdf377912d476e1c99c3c1adf6bbccbd5f5337d2da170144dd534"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oncoqt_glosa.dmn",
+      "sha256": "sha256:403de2415eacc42b14223281257c5e53174ea964264d3d2b46d7d2d616157c26"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oncoqt_limite_quantidade.dmn",
+      "sha256": "sha256:557c1c0a1605fbf7c7f633d741fc1107ef2998ffa7d4215fbe6c9f54de31edd7"
+    },
+    {
+      "path": "spec/processes/dmn/rco/oncoqt_pacote.dmn",
+      "sha256": "sha256:9dd11be2289144a3b4a1e0a4ffb0fbe566c35024fc4f5928e07f9b383f94ce26"
+    },
+    {
+      "path": "spec/processes/dmn/rco/opme_lista_orl.dmn",
+      "sha256": "sha256:7807fa1f3ad9cb328cffb51a5a8a3f7912193b4e0aead50e8ea27c6359c5ec96"
+    },
+    {
+      "path": "spec/processes/dmn/rco/opme_lista_ortop.dmn",
+      "sha256": "sha256:af6cf233bd23233499c29cc7d5ca55b173d904b0b1c015b7390f48e78f7862b2"
+    },
+    {
+      "path": "spec/processes/dmn/rco/opme_processo_orl.dmn",
+      "sha256": "sha256:18bc3a2f1e9a8200f5790a1bf0a2f68201fc73fa087a094bdfe5220553d710f8"
+    },
+    {
+      "path": "spec/processes/dmn/rco/opme_processo_ortop.dmn",
+      "sha256": "sha256:28cfe859e4491785fe27c4f489a392810f18ca8a5ab628d9c26560b268c97c6a"
+    },
+    {
+      "path": "spec/processes/dmn/rco/pacote_artroplastia_ortop.dmn",
+      "sha256": "sha256:d32e8c5844def78f6f1d018a96b75b44616d8d70bd79503b45125f08b264b93a"
+    },
+    {
+      "path": "spec/processes/dmn/rco/pacote_orl.dmn",
+      "sha256": "sha256:6b5231737ab6340eb9b8ba1d11fae605fa13dcfbf33a13761127699ac349d1c9"
+    },
+    {
+      "path": "spec/processes/dmn/rco/plast_autorizacao.dmn",
+      "sha256": "sha256:25016b67e5943f1cc9ede184a09c8aa48182419d22359e7d93164376e5a1c16f"
+    },
+    {
+      "path": "spec/processes/dmn/rco/plast_cobertura.dmn",
+      "sha256": "sha256:fe7e4256c3511c6d127b12e0f8674161fc3d1f55e6705f4c457a06eddfeaae68"
+    },
+    {
+      "path": "spec/processes/dmn/rco/plast_compatibilidade.dmn",
+      "sha256": "sha256:7c1afd0ea061ef162124bb6e215e3221d69413c43dae4b1ffffb9ee2f96e07ca"
+    },
+    {
+      "path": "spec/processes/dmn/rco/plast_dut.dmn",
+      "sha256": "sha256:d40d9edc01088b6bccdd59fc8b64fb6523366c5da084def192211f4729161f38"
+    },
+    {
+      "path": "spec/processes/dmn/rco/plast_excludentes.dmn",
+      "sha256": "sha256:2a18b79410e7cc929378d0a1085c9d1a49df1c37a622778995cb269a39622ef3"
+    },
+    {
+      "path": "spec/processes/dmn/rco/plast_limite_quantidade.dmn",
+      "sha256": "sha256:06714a244edf0280c5e134d62a7fc998d0cdac43bcc0a8c2338e263b3d7faecb"
+    },
+    {
+      "path": "spec/processes/dmn/rco/plast_pacote.dmn",
+      "sha256": "sha256:d9b349b1cf93f04aa761e53faa8670c6d654cef2972950c37f54e59bbef085df"
+    },
+    {
+      "path": "spec/processes/dmn/rco/radio_autorizacao.dmn",
+      "sha256": "sha256:0a3e0f63aa7a1daa0d43de3e832e6b82fea9d9d565d32ae0dabcfed4a791b4de"
+    },
+    {
+      "path": "spec/processes/dmn/rco/radio_cobertura.dmn",
+      "sha256": "sha256:f678ee57509f27d3fbadfc0c2f7e488f8308b3ab218be4111ee4efe6f80bee7b"
+    },
+    {
+      "path": "spec/processes/dmn/rco/radio_compatibilidade.dmn",
+      "sha256": "sha256:4b11510651f9b11fcb68667cc87f8770814453ef3d48c62b43badae1df3e91ba"
+    },
+    {
+      "path": "spec/processes/dmn/rco/radio_limite_quantidade.dmn",
+      "sha256": "sha256:a48478c1fe4353b9dc6254c4afde2c689d5d2dd4fb5b5cf1b20a295b824463ac"
+    },
+    {
+      "path": "spec/processes/dmn/rco/radio_pacote.dmn",
+      "sha256": "sha256:b6d9eecbab56776a55de6f7907099cc62e31a202fcb08d22cb8af8498ba989a2"
+    },
+    {
+      "path": "spec/processes/dmn/rco/teresp_autorizacao.dmn",
+      "sha256": "sha256:0b7d3f8b54f048f3d4dee5d171f0a7b1fbecbc57f0884fba8571729df376b9b5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/teresp_cobertura.dmn",
+      "sha256": "sha256:7614861faf146e63b695ea43d6dc6c9197ba670d1a8369136a6c9b75d539bed4"
+    },
+    {
+      "path": "spec/processes/dmn/rco/teresp_compatibilidade.dmn",
+      "sha256": "sha256:a8e645a0dc2576a164e0049ea69139b2d99eb06f7c7023d1ba1d32bf3b019fb5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/teresp_dut.dmn",
+      "sha256": "sha256:7973d98063309f5f30af85c2a61c719e2e6483df5776afc379834fd1437f3f22"
+    },
+    {
+      "path": "spec/processes/dmn/rco/teresp_excludentes.dmn",
+      "sha256": "sha256:4c1a36fafbc98660fad8b536bb5c227c533cd3d37e19b9545e3db8cef8db82cb"
+    },
+    {
+      "path": "spec/processes/dmn/rco/teresp_limite_quantidade.dmn",
+      "sha256": "sha256:2c44f712f35518aaf0d8a06476db14f2150fb4cc64b069f164f9cab67648dbff"
+    },
+    {
+      "path": "spec/processes/dmn/rco/teresp_pacote.dmn",
+      "sha256": "sha256:f01d26a2fd45bce10fc2333060292ae30ea08ff01c4b4dbfd667995bb3e961f8"
+    },
+    {
+      "path": "spec/processes/dmn/rco/torax_autorizacao.dmn",
+      "sha256": "sha256:3ce0e266bdb5c3829b68c1db56bc72753bdf932a9de0d6b7a83ec7f4d6357ae6"
+    },
+    {
+      "path": "spec/processes/dmn/rco/torax_cobertura.dmn",
+      "sha256": "sha256:62f306f2ce365c8ce332ab11691e772f826277c11f61a5f3ee1505c716373de5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/torax_compatibilidade.dmn",
+      "sha256": "sha256:27f99527b9a17ac00a1a3deda28a31c41da670c8f0855f4768322b9b2a919200"
+    },
+    {
+      "path": "spec/processes/dmn/rco/torax_excludentes.dmn",
+      "sha256": "sha256:219cfcce1d93305e1b35806e8288b981dfb194e31ef8272862aea7f65e7e9663"
+    },
+    {
+      "path": "spec/processes/dmn/rco/torax_limite_quantidade.dmn",
+      "sha256": "sha256:ac8b4fcf018422f2b82b858b80f444dbe0c2a44a0341cc2677fa9320d8f50b8d"
+    },
+    {
+      "path": "spec/processes/dmn/rco/torax_opme.dmn",
+      "sha256": "sha256:3a9d2bbecde7675586c8cd37a2b0dcd844b7b5608248089fc5010599f06f9a4f"
+    },
+    {
+      "path": "spec/processes/dmn/rco/torax_pacote.dmn",
+      "sha256": "sha256:6b71ee7b488716e373f002d54ad07d0c83cdb690a7739cc24dba13bfb0bc46d0"
+    },
+    {
+      "path": "spec/processes/dmn/rco/transpl_autorizacao.dmn",
+      "sha256": "sha256:d26f81624c62a595e32ef99698003df6b7f43eedd2c719d9adb7363110f3f0b5"
+    },
+    {
+      "path": "spec/processes/dmn/rco/transpl_contas.dmn",
+      "sha256": "sha256:c1f6468d375eea491cd602cccb62ce645d77ca5ce20b3a25923ca8a335fbe539"
+    },
+    {
+      "path": "spec/processes/dmn/rco/transpl_dut_tcth.dmn",
+      "sha256": "sha256:65c97fef555fad0c7436226418207f5e6a9234d9058aec29118620eeff90676b"
+    },
+    {
+      "path": "spec/processes/dmn/rco/transpl_itens_conta.dmn",
+      "sha256": "sha256:1d19fb94c3494f87cdff5071081aed6243bea4eb2daa12b9911638388dc11903"
+    },
+    {
+      "path": "spec/processes/dmn/rco/urg_enquadramento.dmn",
+      "sha256": "sha256:1ab3123427792b37eebfb9d8d6e93ffa4317ff1858925b3341587e4121d77f31"
+    },
+    {
+      "path": "spec/processes/dmn/rco/urg_roteamento_opme.dmn",
+      "sha256": "sha256:6513b108b283c0d589f4a565f1882d0ba967e0b470a12f9c0e1b3038ae48faed"
+    },
+    {
+      "path": "spec/processes/dmn/rco/uro_autorizacao.dmn",
+      "sha256": "sha256:704c42d1f9ef30d43b4d3b77245dcf213ff97454e8f626b670ba930a03830d40"
+    },
+    {
+      "path": "spec/processes/dmn/rco/uro_cobertura.dmn",
+      "sha256": "sha256:b94f205b85b27886a8216c3e6d3900d937cd6d2fddf0dc3ed646ba8f58ac6827"
+    },
+    {
+      "path": "spec/processes/dmn/rco/uro_dut.dmn",
+      "sha256": "sha256:3df3c7f990c24926859f8af15d0eb21306bfc37a9bc6c79796e42a2b1b844e33"
+    },
+    {
+      "path": "spec/processes/dmn/rco/uro_excludentes.dmn",
+      "sha256": "sha256:ecde8e0612b1027ce642c124785d953782f72304b1eee5614de1f57bf40d61f3"
+    },
+    {
+      "path": "spec/processes/dmn/rco/uro_opme.dmn",
+      "sha256": "sha256:06dc6447bc1cd9e910cf45e521909f7248420a8773c9b0342930a5b1e431a81c"
+    },
+    {
+      "path": "spec/processes/dmn/rco/uro_pacote.dmn",
+      "sha256": "sha256:d2e56680665838b1843e16490eff50ea117f4e331863a811d78f3680d3a3a7cd"
+    }
+  ],
   "exemplos_sinteticos": [
     {
       "path": "spec/processes/dmn/rco/rco_exemplo_sintetico.dmn",

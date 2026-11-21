@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_transpl_dut_tcth" name="Transplantes: enquadramento do TCTH nas DUT 70 e 71 (OMNI-TRANSPL-DUT-0001, OMNI-TRANSPL-DUT-0002)" namespace="https://omni-saude/dmn/transplantes">
+  <decision id="rco_transpl_dut_tcth" name="Transplantes: enquadramento do TCTH nas DUT 70 e 71 (OMNI-TRANSPL-DUT-0001, OMNI-TRANSPL-DUT-0002)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TRANSPL-DUT-0001 (DUT 70); OMNI-TRANSPL-DUT-0002 (DUT 71), Anexo II da RN 465/2021 atualizado até a RN 681/2026, p. 99-101. Libera só quando idade, tipo de TCTH e CID bastam para enquadrar. Idade acima de 75 anos (dado objetivo da DUT) recebe recomendação de negativa (Tab. 38 1803) e vai à auditoria médica, que decide; o resto também vai à auditoria médica (PROG-COORD-03).</description>
+    <decisionTable id="dt_transpl_dut_tcth" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao, ISO AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_tipoTcth" label="tipoTcth ← solicitação (relatório com enquadramento na DUT): autologo | alogenico_aparentado | alogenico_nao_aparentado">
+        <inputExpression id="ie_tipoTcth" typeRef="string"><text>tipoTcth</text></inputExpression>
+      </input>
+      <input id="in_idadeBeneficiario" label="idadeBeneficiario ← cadastro (idade em anos completos na data da solicitação)">
+        <inputExpression id="ie_idadeBeneficiario" typeRef="integer"><text>idadeBeneficiario</text></inputExpression>
+      </input>
+      <input id="in_mieloablacao" label="mieloablacao ← solicitação: condicionamento mieloablativo (só TCTH alogênico aparentado)">
+        <inputExpression id="ie_mieloablacao" typeRef="boolean"><text>mieloablacao</text></inputExpression>
+      </input>
+      <input id="in_cidPrincipal" label="cidPrincipal ← TISS diagnosticoCID (CID-10, sem ponto, maiúsculas; lista LACUNA L-transpl-02 até registro da CID-10)">
+        <inputExpression id="ie_cidPrincipal" typeRef="string"><text>cidPrincipal</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="d_pre">
+        <description>Fora da vigência (antes de 2026-11-03): análise da DUT pela auditoria médica</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d71_ok">
+        <description>OMNI-TRANSPL-DUT-0002: DUT 71 item d (mieloma múltiplo), receptor até 75 anos</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>&lt;= 75</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"C900"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d71_fase">
+        <description>OMNI-TRANSPL-DUT-0002: demais itens da DUT 71 dependem de fase da doença ou quimiossensibilidade, ou CID fora da DUT: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>&lt;= 75</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("C900")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d71_idade">
+        <description>OMNI-TRANSPL-DUT-0002: receptor acima de 75 anos não atende a DUT 71 (dado objetivo): recomendação de negativa (Tab. 38 1803), com reanálise (PROG-COORD-03); a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>&gt; 75</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"1803"</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="d71_semidade">
+        <description>OMNI-TRANSPL-DUT-0002: idade ausente no cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d70a_mielo_ok">
+        <description>OMNI-TRANSPL-DUT-0001: DUT 70 item 1.1 (consanguíneo com mieloablação), doença definida pelo CID, até 75 anos</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado"</text></inputEntry>
+        <inputEntry><text>&lt;= 75</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"D595", "E760", "E761", "D570", "D572", "D761"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d70a_mielo_fase">
+        <description>OMNI-TRANSPL-DUT-0001: item 1.1 que depende de fase, gravidade ou critério clínico, ou CID fora da DUT: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado"</text></inputEntry>
+        <inputEntry><text>&lt;= 75</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("D595", "E760", "E761", "D570", "D572", "D761")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d70a_nmielo_ok">
+        <description>OMNI-TRANSPL-DUT-0001: DUT 70 item 1.2 b ou c (LLC ou mieloma, sem mieloablação), até 75 anos</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado"</text></inputEntry>
+        <inputEntry><text>&lt;= 75</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>"C911", "C900"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d70a_nmielo_fase">
+        <description>OMNI-TRANSPL-DUT-0001: item 1.2 que depende de comorbidade, fase ou quimiossensibilidade, ou CID fora da DUT: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado"</text></inputEntry>
+        <inputEntry><text>&lt;= 75</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>not("C911", "C900")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d70a_mielo_nulo">
+        <description>OMNI-TRANSPL-DUT-0001: condicionamento não informado: a regulação pede o dado (a DUT 70 distingue 1.1 e 1.2)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado"</text></inputEntry>
+        <inputEntry><text>&lt;= 75</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d70a_idade">
+        <description>OMNI-TRANSPL-DUT-0001: receptor acima de 75 anos não atende a DUT 70 (dado objetivo): recomendação de negativa (Tab. 38 1803), com reanálise (PROG-COORD-03); a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado"</text></inputEntry>
+        <inputEntry><text>&gt; 75</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"1803"</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="d70a_semidade">
+        <description>OMNI-TRANSPL-DUT-0001: idade ausente no cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d70n_ok">
+        <description>OMNI-TRANSPL-DUT-0001: DUT 70 item 2 (não consanguíneo), doença definida pelo CID, até 75 anos</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>&lt;= 75</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"D595", "E760", "E761", "D761", "Q782"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d70n_fase">
+        <description>OMNI-TRANSPL-DUT-0001: item 2 que depende de fase ou gravidade, ou CID fora da DUT: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>&lt;= 75</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("D595", "E760", "E761", "D761", "Q782")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d70n_idade">
+        <description>OMNI-TRANSPL-DUT-0001: receptor acima de 75 anos não atende a DUT 70 (dado objetivo): recomendação de negativa (Tab. 38 1803), com reanálise (PROG-COORD-03); a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>&gt; 75</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"1803"</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="d70n_semidade">
+        <description>OMNI-TRANSPL-DUT-0001: idade ausente no cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_tipo">
+        <description>Fechamento (OMNI-TRANSPL-DUT-0001): tipo de TCTH ausente ou não reconhecido vai à regulação</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("autologo", "alogenico_aparentado", "alogenico_nao_aparentado")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_sem_data">
+        <description>OMNI-TRANSPL-DUT-0001: data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

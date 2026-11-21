@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imgconv_compatibilidade" name="Imagem convencional: sexo do cadastro e exame de um só sexo" namespace="https://omni-saude/dmn/imagem-convencional">
+  <decision id="rco_imgconv_compatibilidade" name="Imagem convencional: sexo do cadastro e exame de um só sexo" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-IMGCONV-CMP-0001; CMP-0002. Domínio imagem-convencional. Hit policy UNIQUE; nenhuma linha nega ou glosa; sexo ausente libera e entra na amostra; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_imgconv_compatibilidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_sexoBeneficiario" label="sexoBeneficiario ← cadastro: sexo do beneficiário (M ou F)">
+        <inputExpression id="ie_2_sexoBeneficiario" typeRef="string"><text>sexoBeneficiario</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência: regras IMGCONV não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0001_f_inc">
+        <description>OMNI-IMGCONV-CMP-0001 — exame de sexo F com sexo M no cadastro: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40809030"</text></inputEntry>
+        <inputEntry><text>"M"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0001_f_ok">
+        <description>OMNI-IMGCONV-CMP-0001 — exame de sexo F com sexo F no cadastro: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40809030"</text></inputEntry>
+        <inputEntry><text>"F"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0001_f_nulo">
+        <description>OMNI-IMGCONV-CMP-0001 — exame de sexo F, sexo ausente ou fora de M e F: liberar e conferir por amostra</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40809030"</text></inputEntry>
+        <inputEntry><text>not("M", "F")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0001_m_inc">
+        <description>OMNI-IMGCONV-CMP-0001 — exame de sexo M com sexo F no cadastro: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40812138", "40812146"</text></inputEntry>
+        <inputEntry><text>"F"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0001_m_ok">
+        <description>OMNI-IMGCONV-CMP-0001 — exame de sexo M com sexo M no cadastro: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40812138", "40812146"</text></inputEntry>
+        <inputEntry><text>"M"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0001_m_nulo">
+        <description>OMNI-IMGCONV-CMP-0001 — exame de sexo M, sexo ausente ou fora de M e F: liberar e conferir por amostra</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40812138", "40812146"</text></inputEntry>
+        <inputEntry><text>not("M", "F")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0002_f_inc">
+        <description>OMNI-IMGCONV-CMP-0002 — exame de sexo F com sexo M no cadastro: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901084", "40901181", "40901238", "40901246", "40901254", "40901262", "40901270", "40901289", "40901297", "40901300", "40901319", "40901505", "40901556", "40901572", "40901858", "40902013", "40902021"</text></inputEntry>
+        <inputEntry><text>"M"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0002_f_ok">
+        <description>OMNI-IMGCONV-CMP-0002 — exame de sexo F com sexo F no cadastro: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901084", "40901181", "40901238", "40901246", "40901254", "40901262", "40901270", "40901289", "40901297", "40901300", "40901319", "40901505", "40901556", "40901572", "40901858", "40902013", "40902021"</text></inputEntry>
+        <inputEntry><text>"F"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0002_f_nulo">
+        <description>OMNI-IMGCONV-CMP-0002 — exame de sexo F, sexo ausente ou fora de M e F: liberar e conferir por amostra</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901084", "40901181", "40901238", "40901246", "40901254", "40901262", "40901270", "40901289", "40901297", "40901300", "40901319", "40901505", "40901556", "40901572", "40901858", "40902013", "40902021"</text></inputEntry>
+        <inputEntry><text>not("M", "F")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0002_m_inc">
+        <description>OMNI-IMGCONV-CMP-0002 — exame de sexo M com sexo F no cadastro: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901173", "40901335", "40901440", "40901513", "40901750", "40902030", "40902048"</text></inputEntry>
+        <inputEntry><text>"F"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0002_m_ok">
+        <description>OMNI-IMGCONV-CMP-0002 — exame de sexo M com sexo M no cadastro: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901173", "40901335", "40901440", "40901513", "40901750", "40902030", "40902048"</text></inputEntry>
+        <inputEntry><text>"M"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="cmp0002_m_nulo">
+        <description>OMNI-IMGCONV-CMP-0002 — exame de sexo M, sexo ausente ou fora de M e F: liberar e conferir por amostra</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901173", "40901335", "40901440", "40901513", "40901750", "40902030", "40902048"</text></inputEntry>
+        <inputEntry><text>not("M", "F")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>código sem compatibilidade de sexo: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40809030", "40812138", "40812146", "40901084", "40901173", "40901181", "40901238", "40901246", "40901254", "40901262", "40901270", "40901289", "40901297", "40901300", "40901319", "40901335", "40901440", "40901505", "40901513", "40901556", "40901572", "40901750", "40901858", "40902013", "40902021", "40902030", "40902048")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>data ausente: faturamento, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

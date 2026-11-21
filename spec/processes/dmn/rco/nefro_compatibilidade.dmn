@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_nefro_compatibilidade" name="Hemodiálise e nefrologia: cateter venoso central na diária de UTI" namespace="https://omni-saude/dmn/hemodialise-nefrologia">
+  <decision id="rco_nefro_compatibilidade" name="Hemodiálise e nefrologia: cateter venoso central na diária de UTI" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-NEFRO-CMP-0001. Hit policy UNIQUE; nenhuma linha glosa nem nega; cateter central cobrado na mesma guia e data de diária de UTI sem finalidade de hemodepuração vai ao faturamento; dado ausente vai à revisão, nunca à negativa; fechamento null vai à regulação.</description>
+    <decisionTable id="dt_nefro_compatibilidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_diariaUtiMesmaData" label="diariaUtiMesmaData ← TISS: diária de UTI (TUSS 18) na mesma guia de internação e na mesma data do procedimento">
+        <inputExpression id="ie_2_diariaUtiMesmaData" typeRef="boolean"><text>diariaUtiMesmaData</text></inputExpression>
+      </input>
+      <input id="in_3_finalidadeCateter" label="finalidadeCateter ← solicitação e cadastro: finalidade do cateter (hemodepuracao, nutricao_parenteral, quimioterapia, infusao; nulo se não informada)">
+        <inputExpression id="ie_3_finalidadeCateter" typeRef="string"><text>finalidadeCateter</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="n_pre">
+        <description>OMNI-NEFRO-CMP-0001 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_hemo_t">
+        <description>OMNI-NEFRO-CMP-0001 — cateter com finalidade de hemodepuração: exceção da regra, liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30913012", "40813231"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"hemodepuracao"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_hemo_n">
+        <description>OMNI-NEFRO-CMP-0001 — cateter com finalidade de hemodepuração: exceção da regra, liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30913012", "40813231"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"hemodepuracao"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_rev_t">
+        <description>OMNI-NEFRO-CMP-0001 — cateter na diária de UTI (ou diária não informada) sem finalidade de hemodepuração: revisão do faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30913012", "40813231"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("hemodepuracao")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_rev_n">
+        <description>OMNI-NEFRO-CMP-0001 — cateter na diária de UTI (ou diária não informada) sem finalidade de hemodepuração: revisão do faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30913012", "40813231"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>not("hemodepuracao")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_sem_uti">
+        <description>OMNI-NEFRO-CMP-0001 — sem diária de UTI na mesma guia e data: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30913012", "40813231"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_resto">
+        <description>OMNI-NEFRO-CMP-0001 — código fora da regra: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30913012", "40813231")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="n_sem_data">
+        <description>OMNI-NEFRO-CMP-0001 — data de atendimento ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEFRO-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

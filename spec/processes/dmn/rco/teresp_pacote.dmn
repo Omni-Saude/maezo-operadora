@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_teresp_pacote" name="Terapias multiprofissionais e TEA: nutrição hospitalar e diária (composição de conta)" namespace="https://omni-saude/dmn/terapias-multiprofissionais-tea">
+  <decision id="rco_teresp_pacote" name="Terapias multiprofissionais e TEA: nutrição hospitalar e diária (composição de conta)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TERESP-PAC-0001. Hit policy UNIQUE; regra de composição de conta, sem pacote de episódio (TERESP-08): consulta de nutricionista indicada e única no dia é paga por ato; repetida no dia, sem indicação ou fora da internação vai à revisão do faturamento; nenhuma linha glosa; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_teresp_pacote" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_regime" label="regime ← TISS regime de atendimento (Tab. 76: ambulatorial, internação)">
+        <inputExpression id="ie_1_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <input id="in_2_indicacaoMedicoAssistente" label="indicacaoMedicoAssistente ← solicitação ou prontuário da internação: indicação do médico assistente">
+        <inputExpression id="ie_2_indicacaoMedicoAssistente" typeRef="boolean"><text>indicacaoMedicoAssistente</text></inputExpression>
+      </input>
+      <input id="in_3_consultasNutricaoNoDia" label="consultasNutricaoNoDia ← TISS consultas hospitalares de nutricionista do beneficiário na data">
+        <inputExpression id="ie_3_consultasNutricaoNoDia" typeRef="integer"><text>consultasNutricaoNoDia</text></inputExpression>
+      </input>
+      <input id="in_4_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_4_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="t_pre">
+        <description>OMNI-TERESP-PAC-0001 — antes da vigência (06/12/2026): liberar, sem efeito</description>
+        <inputEntry><text>&lt; "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t001">
+        <description>OMNI-TERESP-PAC-0001 — nutrição hospitalar fora da internação ou regime ausente: revisão do faturamento, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("internacao")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000691"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t002">
+        <description>OMNI-TERESP-PAC-0001 — consulta hospitalar de nutricionista indicada pelo médico assistente, uma no dia: pagar por ato (composição de conta, sem pacote de episódio)</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <inputEntry><text>"50000691"</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t003">
+        <description>OMNI-TERESP-PAC-0001 — consulta de nutrição hospitalar repetida na data ou sem indicação do médico assistente: revisão do faturamento, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&gt; 1, null</text></inputEntry>
+        <inputEntry><text>"50000691"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t004">
+        <description>OMNI-TERESP-PAC-0001 — consulta de nutrição hospitalar repetida na data ou sem indicação do médico assistente: revisão do faturamento, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"50000691"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t005">
+        <description>OMNI-TERESP-PAC-0001 — demais códigos: fora da composição entre diária e consulta de nutrição</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("50000691")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t_sem_data">
+        <description>OMNI-TERESP-PAC-0001 — data do atendimento ausente: revisão humana, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

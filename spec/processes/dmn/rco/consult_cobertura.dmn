@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_consult_cobertura" name="Consultas e visitas: cobertura por segmentação e teleconsulta (OMNI-CONSULT-COB-0001, OMNI-CONSULT-COB-0002)" namespace="https://omni-saude/dmn/consultas-telemedicina">
+  <decision id="rco_consult_cobertura" name="Consultas e visitas: cobertura por segmentação e teleconsulta (OMNI-CONSULT-COB-0001, OMNI-CONSULT-COB-0002)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CONSULT-COB-0001; OMNI-CONSULT-COB-0002. Segmentação incompatível ou ausente vai ao cadastro; telessaúde em código que exige presença física vai ao faturamento. Nunca nega.</description>
+    <decisionTable id="dt_consult_cobertura" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_classeConsulta" label="classeConsulta ← TISS codigoProcedimento (TUSS 22) pela lista classes de regras/consultas-telemedicina/dominio.yaml">
+        <inputExpression id="ie_1_classeConsulta" typeRef="string"><text>classeConsulta</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_regimeAtendimentoTiss" label="regimeAtendimentoTiss ← TISS regimeAtendimento (Tab. 76: 01 ambulatorial, 02 domiciliar, 03 internação, 04 pronto-socorro, 05 telessaúde)">
+        <inputExpression id="ie_3_regimeAtendimentoTiss" typeRef="string"><text>regimeAtendimentoTiss</text></inputExpression>
+      </input>
+      <input id="in_4_segmentacaoCompativel" label="segmentacaoCompativel ← cadastro do contrato (segmentação) × segmentos_rol do código em dominio.yaml">
+        <inputExpression id="ie_4_segmentacaoCompativel" typeRef="boolean"><text>segmentacaoCompativel</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="c_pre">
+        <description>Antes da vigência: sem efeito novo</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica", "consulta_domiciliar"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_sem_data">
+        <description>Data ausente: faturamento confere</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica", "consulta_domiciliar"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-COB-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_urg">
+        <description>Urgência ou emergência: liberar (OMNI-CONSULT-AUT-0003 e OMNI-URG)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica", "consulta_domiciliar"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_tele_presenca">
+        <description>Telessaúde em código que exige presença física: faturamento confere o código</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "consulta_domiciliar"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>"05"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-COB-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_tele_ok">
+        <description>Teleconsulta com segmentação compatível: cobertura igual à presencial</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "junta_medica"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>"05"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_tele_seg">
+        <description>Teleconsulta com segmentação incompatível ou ausente: cadastro confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "junta_medica"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>"05"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-COB-0002"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_ok">
+        <description>Segmentação do contrato inclui a do código no Rol: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica", "consulta_domiciliar"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>not("05")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_seg">
+        <description>Segmentação incompatível ou ausente: cadastro confere, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica", "consulta_domiciliar"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>not("05")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-COB-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_fora">
+        <description>Fechamento: classe fora do domínio, sem efeito desta tabela</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica", "consulta_domiciliar")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

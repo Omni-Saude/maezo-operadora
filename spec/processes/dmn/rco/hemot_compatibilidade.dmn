@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_hemot_compatibilidade" name="Hemoterapia: prova pré-transfusional, par de atos médicos e requisição transfusional" namespace="https://omni-saude/dmn/hemoterapia">
+  <decision id="rco_hemot_compatibilidade" name="Hemoterapia: prova pré-transfusional, par de atos médicos e requisição transfusional" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-HEMOT-CMP-0001 a OMNI-HEMOT-CMP-0003. Hit policy UNIQUE; nenhuma linha nega; prova de compatibilidade e pesquisa de anticorpos sem correspondência com o grupo de hemocomponente vão ao faturamento (sem unidade, libera); 40401014 e 40401022 no mesmo horário vão ao faturamento; requisição médica declarada ausente ou não informada vai ao faturamento, sem glosa, no eletivo e na urgência (OPO-15 e OPO-12: a urgência libera o atendimento, não a conferência da conta), só a requisição informada libera, e caráter ausente vai à regulação; fechamento null vai à regulação.</description>
+    <decisionTable id="dt_hemot_compatibilidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22; TUSS 20 na albumina)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_grupoHemocomponente" label="grupoHemocomponente ← TISS codigoProcedimento das unidades da mesma conta: celular, plaquetario ou plasmatico (celular prevalece; ausente sem unidade)">
+        <inputExpression id="ie_2_grupoHemocomponente" typeRef="string"><text>grupoHemocomponente</text></inputExpression>
+      </input>
+      <input id="in_3_horarioCoincidente" label="horarioCoincidente ← TISS dataExecucao, horaInicial e horaFinal dos códigos 40401014 e 40401022 na mesma conta (true se coincidem; false ou ausente)">
+        <inputExpression id="ie_3_horarioCoincidente" typeRef="boolean"><text>horarioCoincidente</text></inputExpression>
+      </input>
+      <input id="in_4_requisicaoTransfusional" label="requisicaoTransfusional ← anexo da conta: requisição médica da transfusão ou do hemocomponente (true, false ou ausente)">
+        <inputExpression id="ie_4_requisicaoTransfusional" typeRef="boolean"><text>requisicaoTransfusional</text></inputExpression>
+      </input>
+      <input id="in_5_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_5_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-HEMOT-CMP-0001 — antes do início da vigência (03/12/2026): a regra não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m1_prova_rev">
+        <description>OMNI-HEMOT-CMP-0001 — prova de compatibilidade com unidades só de plaquetas ou só de plasma: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40403408"</text></inputEntry>
+        <inputEntry><text>"plaquetario", "plasmatico"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m1_prova_ok">
+        <description>OMNI-HEMOT-CMP-0001 — prova de compatibilidade com unidade celular, grupo não informado ou sem unidade: libera</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40403408"</text></inputEntry>
+        <inputEntry><text>not("plaquetario", "plasmatico")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m1_anti_rev">
+        <description>OMNI-HEMOT-CMP-0001 — pesquisa de anticorpos irregulares com unidades só de plasma: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40403343", "40403351", "40403360", "40404560"</text></inputEntry>
+        <inputEntry><text>"plasmatico"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m1_anti_ok">
+        <description>OMNI-HEMOT-CMP-0001 — pesquisa de anticorpos irregulares com unidade celular ou plaquetária, grupo não informado ou sem unidade: libera</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40403343", "40403351", "40403360", "40404560"</text></inputEntry>
+        <inputEntry><text>not("plasmatico")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m2_par">
+        <description>OMNI-HEMOT-CMP-0002 — 40401014 e 40401022 na mesma data e no mesmo horário: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401014", "40401022"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_ato_rev">
+        <description>OMNI-HEMOT-CMP-0003 — ato de transfusão eletivo sem requisição médica anexada ou com o campo não informado: faturamento, sem glosa (OPO-15)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401014", "40401022"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_ato_ok">
+        <description>OMNI-HEMOT-CMP-0003 — ato de transfusão eletivo com requisição informada: libera</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401014", "40401022"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_ato_urg">
+        <description>OMNI-HEMOT-CMP-0003 — ato de transfusão em urgência ou emergência (caráter 2) com requisição informada: libera</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401014", "40401022"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_ato_urg_rev">
+        <description>OMNI-HEMOT-CMP-0003 — ato de transfusão em urgência ou emergência (caráter 2) sem requisição anexada ou com o campo não informado: o atendimento já ocorreu sem exigência; a conta vai ao faturamento, sem glosa (OPO-12)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401014", "40401022"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_ato_car">
+        <description>OMNI-HEMOT-CMP-0003 — ato de transfusão com caráter ausente ou fora da TUSS 23: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401014", "40401022"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_rev">
+        <description>OMNI-HEMOT-CMP-0003 — transfusão especial ou unidade de hemocomponente eletiva sem requisição médica anexada ou com o campo não informado: faturamento, sem glosa (OPO-15)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401030", "40401049", "40402045", "40402053", "40402061", "40402070", "40402088", "40402096", "40402100", "40402150", "40402169"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_ok">
+        <description>OMNI-HEMOT-CMP-0003 — transfusão especial ou unidade de hemocomponente eletiva com requisição informada: libera</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401030", "40401049", "40402045", "40402053", "40402061", "40402070", "40402088", "40402096", "40402100", "40402150", "40402169"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_urg">
+        <description>OMNI-HEMOT-CMP-0003 — transfusão especial ou unidade de hemocomponente em urgência ou emergência (caráter 2) com requisição informada: libera</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401030", "40401049", "40402045", "40402053", "40402061", "40402070", "40402088", "40402096", "40402100", "40402150", "40402169"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_urg_rev">
+        <description>OMNI-HEMOT-CMP-0003 — transfusão especial ou unidade de hemocomponente em urgência ou emergência (caráter 2) sem requisição anexada ou com o campo não informado: o atendimento já ocorreu sem exigência; a conta vai ao faturamento, sem glosa (OPO-12)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401030", "40401049", "40402045", "40402053", "40402061", "40402070", "40402088", "40402096", "40402100", "40402150", "40402169"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_car">
+        <description>OMNI-HEMOT-CMP-0003 — transfusão especial ou unidade de hemocomponente com caráter ausente ou fora da TUSS 23: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40401030", "40401049", "40402045", "40402053", "40402061", "40402070", "40402088", "40402096", "40402100", "40402150", "40402169"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-HEMOT-CMP-0001 — código sem conferência nesta decisão: segue</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>not("40401014", "40401022", "40401030", "40401049", "40402045", "40402053", "40402061", "40402070", "40402088", "40402096", "40402100", "40402150", "40402169", "40403343", "40403351", "40403360", "40403408", "40404560")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-HEMOT-CMP-0001 — data de atendimento ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

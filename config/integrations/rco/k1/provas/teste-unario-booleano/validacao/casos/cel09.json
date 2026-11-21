@@ -1,0 +1,39 @@
+{
+ "dmn": "dmn/teste-unario-booleano.dmn",
+ "decisao": "cel09",
+ "casos": [
+  {
+   "id": "C09T",
+   "tipo": "borda",
+   "descricao": "célula `null`, entrada true: não casa (observado no motor)",
+   "entradas": {
+    "flag": true
+   },
+   "esperado": {
+    "resultado": "nao_casa"
+   }
+  },
+  {
+   "id": "C09F",
+   "tipo": "borda",
+   "descricao": "célula `null`, entrada false: não casa (observado no motor)",
+   "entradas": {
+    "flag": false
+   },
+   "esperado": {
+    "resultado": "nao_casa"
+   }
+  },
+  {
+   "id": "C09N",
+   "tipo": "borda",
+   "descricao": "célula `null`, entrada nula: casa (observado no motor)",
+   "entradas": {
+    "flag": null
+   },
+   "esperado": {
+    "resultado": "casa"
+   }
+  }
+ ]
+}

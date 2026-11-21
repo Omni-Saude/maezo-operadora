@@ -1,0 +1,781 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_opme_lista_orl" name="ORL: lista positiva de OPME e instrumentos de corte (OMNI-ORL-OPM-0001 e 0002)" namespace="https://omni-saude/dmn/otorrino-cabeca-pescoco">
+  <decision id="rco_opme_lista_orl" name="ORL: lista positiva de OPME e instrumentos de corte (OMNI-ORL-OPM-0001 e 0002)" camunda:historyTimeToLive="P3650D">
+    <description>Confere categoria e quantidade de OPME, fresas e brocas contra o procedimento. Quantidade acima da lista e material fora da lista vão à auditoria médica, e a divergência à junta médica (ANS-RN-424); nunca nega. OMNI-ORL-OPM-0001 e OMNI-ORL-OPM-0002.</description>
+    <decisionTable id="dt_opme_lista_orl" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_familiaProcedimento" label="familiaProcedimento ← TISS codigoProcedimento principal (TUSS 22) classificado por dominio.yaml (familias_opme)">
+        <inputExpression id="ie_1_familiaProcedimento" typeRef="string"><text>familiaProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_categoriaOpme" label="categoriaOpme ← cadastro OMNI de materiais: categoria do item TISS codigoMaterial (TUSS 19)">
+        <inputExpression id="ie_2_categoriaOpme" typeRef="string"><text>categoriaOpme</text></inputExpression>
+      </input>
+      <input id="in_3_quantidade" label="quantidade ← TISS quantidadeSolicitada/quantidadeExecutada do item">
+        <inputExpression id="ie_3_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="o_pre">
+        <description>OMNI-ORL-OPM-0001 — fora da vigência (antes de 02/12/2026): sem conferência automática</description>
+        <inputEntry><text>&lt; "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_disp">
+        <description>OMNI-ORL-OPM-0001 — material dispensado de autorização (fio, cânula de traqueostomia)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"fio_cirurgico","canula_traqueostomia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_unidade_interna_implante_coclear_ok">
+        <description>OMNI-ORL-OPM-0001 — IC: unidade_interna_implante_coclear até 1</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"unidade_interna_implante_coclear"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_unidade_interna_implante_coclear_acima">
+        <description>OMNI-ORL-OPM-0001 — IC: unidade_interna_implante_coclear acima de 1 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"unidade_interna_implante_coclear"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_unidade_interna_implante_coclear_nulo">
+        <description>OMNI-ORL-OPM-0001 — IC: unidade_interna_implante_coclear sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"unidade_interna_implante_coclear"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_processador_som_implante_coclear_ok">
+        <description>OMNI-ORL-OPM-0001 — IC: processador_som_implante_coclear até 1</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"processador_som_implante_coclear"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_processador_som_implante_coclear_acima">
+        <description>OMNI-ORL-OPM-0001 — IC: processador_som_implante_coclear acima de 1 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"processador_som_implante_coclear"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_processador_som_implante_coclear_nulo">
+        <description>OMNI-ORL-OPM-0001 — IC: processador_som_implante_coclear sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"processador_som_implante_coclear"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_fresa_ok">
+        <description>OMNI-ORL-OPM-0002 — IC: fresa até 3</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"fresa"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_fresa_acima">
+        <description>OMNI-ORL-OPM-0002 — IC: fresa acima de 3 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"fresa"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_fresa_nulo">
+        <description>OMNI-ORL-OPM-0002 — IC: fresa sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"fresa"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_broca_desgaste_ok">
+        <description>OMNI-ORL-OPM-0002 — IC: broca_desgaste até 3</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_broca_desgaste_acima">
+        <description>OMNI-ORL-OPM-0002 — IC: broca_desgaste acima de 3 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_broca_desgaste_nulo">
+        <description>OMNI-ORL-OPM-0002 — IC: broca_desgaste sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_fora">
+        <description>OMNI-ORL-OPM-0001 — IC: material fora da lista positiva (auditoria; divergência vai à junta médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC"</text></inputEntry>
+        <inputEntry><text>not("unidade_interna_implante_coclear","processador_som_implante_coclear","fresa","broca_desgaste","fio_cirurgico","canula_traqueostomia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_IMA_ima_implante_coclear_ok">
+        <description>OMNI-ORL-OPM-0001 — IC_IMA: ima_implante_coclear até 1</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC_IMA"</text></inputEntry>
+        <inputEntry><text>"ima_implante_coclear"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_IMA_ima_implante_coclear_acima">
+        <description>OMNI-ORL-OPM-0001 — IC_IMA: ima_implante_coclear acima de 1 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC_IMA"</text></inputEntry>
+        <inputEntry><text>"ima_implante_coclear"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_IMA_ima_implante_coclear_nulo">
+        <description>OMNI-ORL-OPM-0001 — IC_IMA: ima_implante_coclear sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC_IMA"</text></inputEntry>
+        <inputEntry><text>"ima_implante_coclear"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_IC_IMA_fora">
+        <description>OMNI-ORL-OPM-0001 — IC_IMA: material fora da lista positiva (auditoria; divergência vai à junta médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"IC_IMA"</text></inputEntry>
+        <inputEntry><text>not("ima_implante_coclear","fio_cirurgico","canula_traqueostomia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_implante_osteointegrado_ok">
+        <description>OMNI-ORL-OPM-0001 — BAHA: implante_osteointegrado até 1</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"implante_osteointegrado"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_implante_osteointegrado_acima">
+        <description>OMNI-ORL-OPM-0001 — BAHA: implante_osteointegrado acima de 1 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"implante_osteointegrado"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_implante_osteointegrado_nulo">
+        <description>OMNI-ORL-OPM-0001 — BAHA: implante_osteointegrado sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"implante_osteointegrado"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_processador_som_ancorado_ok">
+        <description>OMNI-ORL-OPM-0001 — BAHA: processador_som_ancorado até 1</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"processador_som_ancorado"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_processador_som_ancorado_acima">
+        <description>OMNI-ORL-OPM-0001 — BAHA: processador_som_ancorado acima de 1 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"processador_som_ancorado"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_processador_som_ancorado_nulo">
+        <description>OMNI-ORL-OPM-0001 — BAHA: processador_som_ancorado sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"processador_som_ancorado"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_fresa_ok">
+        <description>OMNI-ORL-OPM-0002 — BAHA: fresa até 2</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"fresa"</text></inputEntry>
+        <inputEntry><text>&lt;= 2</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_fresa_acima">
+        <description>OMNI-ORL-OPM-0002 — BAHA: fresa acima de 2 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"fresa"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_fresa_nulo">
+        <description>OMNI-ORL-OPM-0002 — BAHA: fresa sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"fresa"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_broca_desgaste_ok">
+        <description>OMNI-ORL-OPM-0002 — BAHA: broca_desgaste até 2</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&lt;= 2</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_broca_desgaste_acima">
+        <description>OMNI-ORL-OPM-0002 — BAHA: broca_desgaste acima de 2 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_broca_desgaste_nulo">
+        <description>OMNI-ORL-OPM-0002 — BAHA: broca_desgaste sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_BAHA_fora">
+        <description>OMNI-ORL-OPM-0001 — BAHA: material fora da lista positiva (auditoria; divergência vai à junta médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"BAHA"</text></inputEntry>
+        <inputEntry><text>not("implante_osteointegrado","processador_som_ancorado","fresa","broca_desgaste","fio_cirurgico","canula_traqueostomia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_ESTAP_protese_estapedio_ok">
+        <description>OMNI-ORL-OPM-0001 — ESTAP: protese_estapedio até 1</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"ESTAP"</text></inputEntry>
+        <inputEntry><text>"protese_estapedio"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_ESTAP_protese_estapedio_acima">
+        <description>OMNI-ORL-OPM-0001 — ESTAP: protese_estapedio acima de 1 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"ESTAP"</text></inputEntry>
+        <inputEntry><text>"protese_estapedio"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_ESTAP_protese_estapedio_nulo">
+        <description>OMNI-ORL-OPM-0001 — ESTAP: protese_estapedio sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"ESTAP"</text></inputEntry>
+        <inputEntry><text>"protese_estapedio"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_ESTAP_broca_desgaste_ok">
+        <description>OMNI-ORL-OPM-0002 — ESTAP: broca_desgaste até 2</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"ESTAP"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&lt;= 2</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_ESTAP_broca_desgaste_acima">
+        <description>OMNI-ORL-OPM-0002 — ESTAP: broca_desgaste acima de 2 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"ESTAP"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_ESTAP_broca_desgaste_nulo">
+        <description>OMNI-ORL-OPM-0002 — ESTAP: broca_desgaste sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"ESTAP"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_ESTAP_fora">
+        <description>OMNI-ORL-OPM-0001 — ESTAP: material fora da lista positiva (auditoria; divergência vai à junta médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"ESTAP"</text></inputEntry>
+        <inputEntry><text>not("protese_estapedio","broca_desgaste","fio_cirurgico","canula_traqueostomia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OSSIC_protese_ossicular_ok">
+        <description>OMNI-ORL-OPM-0001 — OSSIC: protese_ossicular até 1</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OSSIC"</text></inputEntry>
+        <inputEntry><text>"protese_ossicular"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OSSIC_protese_ossicular_acima">
+        <description>OMNI-ORL-OPM-0001 — OSSIC: protese_ossicular acima de 1 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OSSIC"</text></inputEntry>
+        <inputEntry><text>"protese_ossicular"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OSSIC_protese_ossicular_nulo">
+        <description>OMNI-ORL-OPM-0001 — OSSIC: protese_ossicular sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OSSIC"</text></inputEntry>
+        <inputEntry><text>"protese_ossicular"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OSSIC_broca_desgaste_ok">
+        <description>OMNI-ORL-OPM-0002 — OSSIC: broca_desgaste até 3</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OSSIC"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OSSIC_broca_desgaste_acima">
+        <description>OMNI-ORL-OPM-0002 — OSSIC: broca_desgaste acima de 3 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OSSIC"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OSSIC_broca_desgaste_nulo">
+        <description>OMNI-ORL-OPM-0002 — OSSIC: broca_desgaste sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OSSIC"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OSSIC_fora">
+        <description>OMNI-ORL-OPM-0001 — OSSIC: material fora da lista positiva (auditoria; divergência vai à junta médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OSSIC"</text></inputEntry>
+        <inputEntry><text>not("protese_ossicular","broca_desgaste","fio_cirurgico","canula_traqueostomia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_MAIOR_fresa_ok">
+        <description>OMNI-ORL-OPM-0002 — OTO_MAIOR: fresa até 3</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_MAIOR"</text></inputEntry>
+        <inputEntry><text>"fresa"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_MAIOR_fresa_acima">
+        <description>OMNI-ORL-OPM-0002 — OTO_MAIOR: fresa acima de 3 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_MAIOR"</text></inputEntry>
+        <inputEntry><text>"fresa"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_MAIOR_fresa_nulo">
+        <description>OMNI-ORL-OPM-0002 — OTO_MAIOR: fresa sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_MAIOR"</text></inputEntry>
+        <inputEntry><text>"fresa"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_MAIOR_broca_desgaste_ok">
+        <description>OMNI-ORL-OPM-0002 — OTO_MAIOR: broca_desgaste até 3</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_MAIOR"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_MAIOR_broca_desgaste_acima">
+        <description>OMNI-ORL-OPM-0002 — OTO_MAIOR: broca_desgaste acima de 3 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_MAIOR"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_MAIOR_broca_desgaste_nulo">
+        <description>OMNI-ORL-OPM-0002 — OTO_MAIOR: broca_desgaste sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_MAIOR"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_MAIOR_fora">
+        <description>OMNI-ORL-OPM-0001 — OTO_MAIOR: material fora da lista positiva (auditoria; divergência vai à junta médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_MAIOR"</text></inputEntry>
+        <inputEntry><text>not("fresa","broca_desgaste","fio_cirurgico","canula_traqueostomia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_BROCA_broca_desgaste_ok">
+        <description>OMNI-ORL-OPM-0002 — OTO_BROCA: broca_desgaste até 3</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_BROCA"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_BROCA_broca_desgaste_acima">
+        <description>OMNI-ORL-OPM-0002 — OTO_BROCA: broca_desgaste acima de 3 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_BROCA"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_BROCA_broca_desgaste_nulo">
+        <description>OMNI-ORL-OPM-0002 — OTO_BROCA: broca_desgaste sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_BROCA"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_OTO_BROCA_fora">
+        <description>OMNI-ORL-OPM-0001 — OTO_BROCA: material fora da lista positiva (auditoria; divergência vai à junta médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"OTO_BROCA"</text></inputEntry>
+        <inputEntry><text>not("broca_desgaste","fio_cirurgico","canula_traqueostomia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_TV_tubo_ventilacao_ok">
+        <description>OMNI-ORL-OPM-0001 — TV: tubo_ventilacao até 1</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"TV"</text></inputEntry>
+        <inputEntry><text>"tubo_ventilacao"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_TV_tubo_ventilacao_acima">
+        <description>OMNI-ORL-OPM-0001 — TV: tubo_ventilacao acima de 1 (justificativa técnica à auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"TV"</text></inputEntry>
+        <inputEntry><text>"tubo_ventilacao"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_TV_tubo_ventilacao_nulo">
+        <description>OMNI-ORL-OPM-0001 — TV: tubo_ventilacao sem quantidade</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"TV"</text></inputEntry>
+        <inputEntry><text>"tubo_ventilacao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_TV_fora">
+        <description>OMNI-ORL-OPM-0001 — TV: material fora da lista positiva (auditoria; divergência vai à junta médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"TV"</text></inputEntry>
+        <inputEntry><text>not("tubo_ventilacao","fio_cirurgico","canula_traqueostomia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_resto">
+        <description>OMNI-ORL-OPM-0001 — procedimento sem lista positiva ORL ou família ausente: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>not("IC","IC_IMA","BAHA","ESTAP","OSSIC","OTO_MAIOR","OTO_BROCA","TV")</text></inputEntry>
+        <inputEntry><text>not("fio_cirurgico","canula_traqueostomia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_sem_data">
+        <description>OMNI-ORL-OPM-0001 — data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_consult_autorizacao" name="Consultas: sem autorização prévia; consulta em domicílio com autorização; urgência liberada (OMNI-CONSULT-AUT-0001 a 0003)" namespace="https://omni-saude/dmn/consultas-telemedicina">
+  <decision id="rco_consult_autorizacao" name="Consultas: sem autorização prévia; consulta em domicílio com autorização; urgência liberada (OMNI-CONSULT-AUT-0001 a 0003)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CONSULT-AUT-0001; OMNI-CONSULT-AUT-0002; OMNI-CONSULT-AUT-0003. Nenhuma linha nega; a consulta em domicílio pede autorização com relatório médico.</description>
+    <decisionTable id="dt_consult_autorizacao" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_classeConsulta" label="classeConsulta ← TISS codigoProcedimento (TUSS 22) pela lista classes de regras/consultas-telemedicina/dominio.yaml">
+        <inputExpression id="ie_1_classeConsulta" typeRef="string"><text>classeConsulta</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="a_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica", "consulta_domiciliar"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_sem_data">
+        <description>Data ausente: regulação confere, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica", "consulta_domiciliar"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_urg">
+        <description>Urgência ou emergência: liberar sem autorização</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica", "consulta_domiciliar"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_cons">
+        <description>Consulta e visita eletivas: sem autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_dom">
+        <description>Consulta em domicílio eletiva: autorização prévia com relatório médico</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_domiciliar"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-AUT-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_fora">
+        <description>Fechamento: classe fora do domínio, sem efeito desta tabela</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("consulta_ambulatorial", "consulta_pronto_socorro", "visita_hospitalar", "recem_nascido", "intensivista", "transporte_paciente_grave", "junta_medica", "consulta_domiciliar")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

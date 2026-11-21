@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_consult_excludentes" name="Consulta e procedimento no mesmo dia pelo mesmo profissional (OMNI-CONSULT-MEX-0001)" namespace="https://omni-saude/dmn/consultas-telemedicina">
+  <decision id="rco_consult_excludentes" name="Consulta e procedimento no mesmo dia pelo mesmo profissional (OMNI-CONSULT-MEX-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CONSULT-MEX-0001. Consulta com cirurgia no mesmo ato vai ao faturamento; nunca glosa automática.</description>
+    <decisionTable id="dt_consult_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_classeConsulta" label="classeConsulta ← TISS codigoProcedimento (TUSS 22) pela lista classes de regras/consultas-telemedicina/dominio.yaml">
+        <inputExpression id="ie_1_classeConsulta" typeRef="string"><text>classeConsulta</text></inputExpression>
+      </input>
+      <input id="in_2_procedimentoMesmoAto" label="procedimentoMesmoAto ← TISS histórico de guias OMNI: outro procedimento do mesmo profissional e prestador na data (cirurgico, diagnostico_terapeutico, nenhum)">
+        <inputExpression id="ie_2_procedimentoMesmoAto" typeRef="string"><text>procedimentoMesmoAto</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="x_pre">
+        <description>Antes da vigência: sem conferência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_sem_data">
+        <description>Data ausente: faturamento confere</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_cir">
+        <description>Consulta com procedimento cirúrgico do mesmo profissional no dia: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro"</text></inputEntry>
+        <inputEntry><text>"cirurgico"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_ok">
+        <description>Consulta com exame, sem outro procedimento ou sem dado: paga</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro"</text></inputEntry>
+        <inputEntry><text>not("cirurgico")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_fora">
+        <description>Fechamento: classe que não é consulta</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("consulta_ambulatorial", "consulta_pronto_socorro")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

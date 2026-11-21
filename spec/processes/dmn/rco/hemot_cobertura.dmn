@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_hemot_cobertura" name="Hemoterapia: cobertura de exames, hemocomponentes, transfusão, aférese e albumina" namespace="https://omni-saude/dmn/hemoterapia">
+  <decision id="rco_hemot_cobertura" name="Hemoterapia: cobertura de exames, hemocomponentes, transfusão, aférese e albumina" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-HEMOT-COB-0001 a OMNI-HEMOT-COB-0006. Hit policy UNIQUE; nenhuma linha nega; todos os códigos têm cobertura do Rol sem DUT (40401049 só em hospitalar com obstetrícia: fora dela vai à auditoria médica); albumina com dose acima da administrada vai ao faturamento, dose ausente libera; código fora das listas libera; data ausente vai à regulação.</description>
+    <decisionTable id="dt_hemot_cobertura" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22; TUSS 20 na albumina)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_segmentacaoPlano" label="segmentacaoPlano ← cadastro do contrato: segmentação do plano (ambulatorial, hospitalar_sem_obstetricia, hospitalar_com_obstetricia, referencia)">
+        <inputExpression id="ie_2_segmentacaoPlano" typeRef="string"><text>segmentacaoPlano</text></inputExpression>
+      </input>
+      <input id="in_3_doseExcedeAdministrada" label="doseExcedeAdministrada ← anexo da conta: prescrição e checagem de enfermagem (quantidade cobrada acima da administrada; true, false ou ausente)">
+        <inputExpression id="ie_3_doseExcedeAdministrada" typeRef="boolean"><text>doseExcedeAdministrada</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-HEMOT-COB-0001 — antes do início da vigência (03/12/2026): a regra não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0001">
+        <description>OMNI-HEMOT-COB-0001 — exames de qualificação e provas pré-transfusionais: cobertura sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40403025", "40403106", "40403130", "40403149", "40403157", "40403165", "40403190", "40403203", "40403211", "40403220", "40403238", "40403327", "40403335", "40403343", "40403351", "40403360", "40403378", "40403386", "40403408", "40403424", "40403440", "40403467", "40403483", "40403505", "40403521", "40403548", "40403564", "40403580", "40403602", "40403629", "40403645", "40403661", "40403688", "40403696", "40403700", "40403718", "40403920", "40403939", "40403947", "40403955", "40403963", "40403971", "40403980", "40403998", "40404404", "40404536", "40404560", "40404579"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0002">
+        <description>OMNI-HEMOT-COB-0002 — unidades de hemocomponente e sangria: cobertura sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40402037", "40402045", "40402070", "40402088", "40402096", "40402100", "40402150", "40402169"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0003_ato">
+        <description>OMNI-HEMOT-COB-0003 — transfusão, acompanhamento e exsanguineotransfusão: cobertura sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40401014", "40401022", "40401030"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0003_fet_ok">
+        <description>OMNI-HEMOT-COB-0003 — transfusão fetal intrauterina em hospitalar com obstetrícia: cobertura</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40401049"</text></inputEntry>
+        <inputEntry><text>"hospitalar_com_obstetricia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0003_fet_seg">
+        <description>OMNI-HEMOT-COB-0003 — transfusão fetal intrauterina fora de hospitalar com obstetrícia: auditoria médica, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40401049"</text></inputEntry>
+        <inputEntry><text>not("hospitalar_com_obstetricia", null)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0003_fet_sem_seg">
+        <description>OMNI-HEMOT-COB-0003 — transfusão fetal intrauterina sem segmentação informada: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40401049"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0004">
+        <description>OMNI-HEMOT-COB-0004 — kits da processadora e operações de aférese: cobertura sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40402010", "40402029", "40402185", "40402193"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0005">
+        <description>OMNI-HEMOT-COB-0005 — componentes lavados, desleucotizados, irradiados e por aférese: cobertura sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40402053", "40402061", "40402118", "40402126", "40402134", "40402142"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0006_dose">
+        <description>OMNI-HEMOT-COB-0006 — albumina humana com dose cobrada acima da administrada: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"90093062", "90093070", "90276540", "90393295", "90416821", "90449665", "90449673", "90449681", "90464087", "90492374", "90492382", "90542037", "90542045"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0006"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0006_ok">
+        <description>OMNI-HEMOT-COB-0006 — albumina humana pela quantidade administrada ou dose não informada: cobertura</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"90093062", "90093070", "90276540", "90393295", "90416821", "90449665", "90449673", "90449681", "90464087", "90492374", "90492382", "90542037", "90542045"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-HEMOT-COB-0001 — código sem regra de cobertura nesta decisão (decidido em outra tabela do domínio ou fora do escopo): segue</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40401014", "40401022", "40401030", "40401049", "40402010", "40402029", "40402037", "40402045", "40402053", "40402061", "40402070", "40402088", "40402096", "40402100", "40402118", "40402126", "40402134", "40402142", "40402150", "40402169", "40402185", "40402193", "40403025", "40403106", "40403130", "40403149", "40403157", "40403165", "40403190", "40403203", "40403211", "40403220", "40403238", "40403327", "40403335", "40403343", "40403351", "40403360", "40403378", "40403386", "40403408", "40403424", "40403440", "40403467", "40403483", "40403505", "40403521", "40403548", "40403564", "40403580", "40403602", "40403629", "40403645", "40403661", "40403688", "40403696", "40403700", "40403718", "40403920", "40403939", "40403947", "40403955", "40403963", "40403971", "40403980", "40403998", "40404404", "40404536", "40404560", "40404579", "90093062", "90093070", "90276540", "90393295", "90416821", "90449665", "90449673", "90449681", "90464087", "90492374", "90492382", "90542037", "90542045")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-HEMOT-COB-0001 — data de atendimento ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-COB-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_anestdor_limite_quantidade" name="Anestesia, terapia da dor e acupuntura: limite de quantidade (um bloqueio por código por dia; ciclo de acupuntura)" namespace="https://omni-saude/dmn/anestesia-terapia-dor">
+  <decision id="rco_anestdor_limite_quantidade" name="Anestesia, terapia da dor e acupuntura: limite de quantidade (um bloqueio por código por dia; ciclo de acupuntura)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-ANESTDOR-LIM-0001 e OMNI-ANESTDOR-LIM-0002. Hit policy UNIQUE; limites clínicos provisórios (1 por dia; 15 sessões por ciclo de 56 dias), superáveis com justificativa na guia; nenhuma linha nega ou glosa: excedente sem justificativa vai à revisão do faturamento, dado ausente à regulação; a linha final (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_anestdor_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataExecucao (conta) ou dataSolicitacao (pedido), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_quantidadeDia" label="quantidadeDia ← TISS quantidadeExecutada somada do mesmo código, no mesmo dia e para o mesmo beneficiário">
+        <inputExpression id="ie_2_quantidadeDia" typeRef="integer"><text>quantidadeDia</text></inputExpression>
+      </input>
+      <input id="in_3_justificativaQuantidade" label="justificativaQuantidade ← TISS observação ou justificativa técnica da guia para quantidade acima do limite">
+        <inputExpression id="ie_3_justificativaQuantidade" typeRef="boolean"><text>justificativaQuantidade</text></inputExpression>
+      </input>
+      <input id="in_4_analgesiaPorCateter" label="analgesiaPorCateter ← anexo: analgesia por dia subsequente feita por cateter peridural ou subaracnóideo mantido, a partir do 2º dia (campo fora da TISS)">
+        <inputExpression id="ie_4_analgesiaPorCateter" typeRef="boolean"><text>analgesiaPorCateter</text></inputExpression>
+      </input>
+      <input id="in_5_sessoesNoCiclo" label="sessoesNoCiclo ← fluxo Camunda: sessões de acupuntura do beneficiário no ciclo (56 dias de intervalo entre ciclos), derivado pelo worker">
+        <inputExpression id="ie_5_sessoesNoCiclo" typeRef="integer"><text>sessoesNoCiclo</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r_pre">
+        <description>Antes da vigência (2026-12-03): nenhuma regra do domínio vale</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_cat_f">
+        <description>OMNI-ANESTDOR-LIM-0001 — analgesia por dia subsequente sem cateter peridural ou subaracnóideo: faturamento, sem glosa (Tab. 38 1836)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31602029"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"1836"</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_cat_n">
+        <description>OMNI-ANESTDOR-LIM-0001 — via da analgesia ausente: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31602029"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q18_nulo">
+        <description>OMNI-ANESTDOR-LIM-0001 — bloqueio de terapia da dor: quantidade ausente: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31602037", "31602045", "31602053", "31602061", "31602070", "31602088", "31602096", "31602100", "31602118", "31602126", "31602134", "31602142", "31602150", "31602169", "31602177", "31602207", "31602223", "31602339"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q18_ok">
+        <description>OMNI-ANESTDOR-LIM-0001 — bloqueio de terapia da dor: dentro do limite: conta conforme</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31602037", "31602045", "31602053", "31602061", "31602070", "31602088", "31602096", "31602100", "31602118", "31602126", "31602134", "31602142", "31602150", "31602169", "31602177", "31602207", "31602223", "31602339"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q18_just">
+        <description>OMNI-ANESTDOR-LIM-0001 — bloqueio de terapia da dor: acima do limite com justificativa na guia: superado, conta conforme</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31602037", "31602045", "31602053", "31602061", "31602070", "31602088", "31602096", "31602100", "31602118", "31602126", "31602134", "31602142", "31602150", "31602169", "31602177", "31602207", "31602223", "31602339"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q18_exc">
+        <description>OMNI-ANESTDOR-LIM-0001 — bloqueio de terapia da dor: acima do limite sem justificativa: faturamento, sem glosa (Tab. 38 3210)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31602037", "31602045", "31602053", "31602061", "31602070", "31602088", "31602096", "31602100", "31602118", "31602126", "31602134", "31602142", "31602150", "31602169", "31602177", "31602207", "31602223", "31602339"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3210"</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q29_nulo">
+        <description>OMNI-ANESTDOR-LIM-0001 — analgesia por dia subsequente por cateter: quantidade ausente: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31602029"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q29_ok">
+        <description>OMNI-ANESTDOR-LIM-0001 — analgesia por dia subsequente por cateter: dentro do limite: conta conforme</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31602029"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q29_just">
+        <description>OMNI-ANESTDOR-LIM-0001 — analgesia por dia subsequente por cateter: acima do limite com justificativa na guia: superado, conta conforme</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31602029"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q29_exc">
+        <description>OMNI-ANESTDOR-LIM-0001 — analgesia por dia subsequente por cateter: acima do limite sem justificativa: faturamento, sem glosa (Tab. 38 3210)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31602029"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3210"</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="qac_nulo">
+        <description>OMNI-ANESTDOR-LIM-0002 — sessão de acupuntura no ciclo: quantidade ausente: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31601014"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="qac_ok">
+        <description>OMNI-ANESTDOR-LIM-0002 — sessão de acupuntura no ciclo: dentro do limite: conta conforme</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31601014"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt;= 15</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="qac_just">
+        <description>OMNI-ANESTDOR-LIM-0002 — sessão de acupuntura no ciclo: acima do limite com justificativa na guia: superado, conta conforme</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31601014"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 15</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="qac_exc">
+        <description>OMNI-ANESTDOR-LIM-0002 — sessão de acupuntura no ciclo: acima do limite sem justificativa: faturamento, sem glosa (Tab. 38 3210)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31601014"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 15</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3210"</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_fora">
+        <description>Código fora dos limites deste domínio: nenhuma exigência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("31602029", "31602037", "31602045", "31602053", "31602061", "31602070", "31602088", "31602096", "31602100", "31602118", "31602126", "31602134", "31602142", "31602150", "31602169", "31602177", "31602207", "31602223", "31602339", "31601014", null)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_nulo">
+        <description>Código do procedimento ausente: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r_final">
+        <description>Data ausente: regulação, nunca negativa (fechamento)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

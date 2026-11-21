@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imgconv_limite_intervalo_us" name="Imagem convencional: repetição de ultrassonografia em intervalo curto" namespace="https://omni-saude/dmn/imagem-convencional">
+  <decision id="rco_imgconv_limite_intervalo_us" name="Imagem convencional: repetição de ultrassonografia em intervalo curto" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-IMGCONV-LIM-0005. Domínio imagem-convencional. Hit policy UNIQUE; nenhuma linha nega ou glosa; só o eletivo ambulatorial dentro do intervalo vai à conferência; caráter ausente vai à regulação; a linha de fechamento (data ausente) vai à revisão humana. Parte de OMNI-IMGCONV-LIM-0005 para a ultrassonografia, separada para caber no orçamento do motor (decisão IMGCONV-14).</description>
+    <decisionTable id="dt_imgconv_limite_intervalo_us" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_diasDesdeUltimoExame" label="diasDesdeUltimoExame ← cadastro: dias desde a dataExecucao anterior do mesmo código e beneficiário (histórico de guias da OMNI)">
+        <inputExpression id="ie_2_diasDesdeUltimoExame" typeRef="integer"><text>diasDesdeUltimoExame</text></inputExpression>
+      </input>
+      <input id="in_3_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_3_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_4_regime" label="regime ← TISS regimeInternacao ou tipo de guia (ambulatorial, internacao, hospital_dia)">
+        <inputExpression id="ie_4_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência: regras IMGCONV não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-LIM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i5_rep">
+        <description>OMNI-IMGCONV-LIM-0005 — repetição antes de 7 dias, eletivo, ambulatorial: conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901017", "40901025", "40901033", "40901041", "40901050", "40901068", "40901076", "40901092", "40901106", "40901114", "40901122", "40901130", "40901149", "40901173", "40901181", "40901190", "40901203", "40901211", "40901238", "40901246", "40901262", "40901297", "40901300", "40901335", "40901351", "40901360", "40901378", "40901386", "40901394", "40901408", "40901416", "40901424", "40901432", "40901440", "40901459", "40901467", "40901475", "40901483", "40901505", "40901513", "40901521", "40901530", "40901548", "40901556", "40901572", "40901602", "40901610", "40901629", "40901637", "40901645", "40901653", "40901661", "40901696", "40901700", "40901718", "40901734", "40901742", "40901750", "40901769", "40901793", "40901858", "40902137"</text></inputEntry>
+        <inputEntry><text>&lt; 7</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-LIM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i5_int">
+        <description>OMNI-IMGCONV-LIM-0005 — intervalo de 7 dias ou mais: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901017", "40901025", "40901033", "40901041", "40901050", "40901068", "40901076", "40901092", "40901106", "40901114", "40901122", "40901130", "40901149", "40901173", "40901181", "40901190", "40901203", "40901211", "40901238", "40901246", "40901262", "40901297", "40901300", "40901335", "40901351", "40901360", "40901378", "40901386", "40901394", "40901408", "40901416", "40901424", "40901432", "40901440", "40901459", "40901467", "40901475", "40901483", "40901505", "40901513", "40901521", "40901530", "40901548", "40901556", "40901572", "40901602", "40901610", "40901629", "40901637", "40901645", "40901653", "40901661", "40901696", "40901700", "40901718", "40901734", "40901742", "40901750", "40901769", "40901793", "40901858", "40902137"</text></inputEntry>
+        <inputEntry><text>&gt;= 7</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-LIM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i5_sem">
+        <description>OMNI-IMGCONV-LIM-0005 — sem exame anterior conhecido: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901017", "40901025", "40901033", "40901041", "40901050", "40901068", "40901076", "40901092", "40901106", "40901114", "40901122", "40901130", "40901149", "40901173", "40901181", "40901190", "40901203", "40901211", "40901238", "40901246", "40901262", "40901297", "40901300", "40901335", "40901351", "40901360", "40901378", "40901386", "40901394", "40901408", "40901416", "40901424", "40901432", "40901440", "40901459", "40901467", "40901475", "40901483", "40901505", "40901513", "40901521", "40901530", "40901548", "40901556", "40901572", "40901602", "40901610", "40901629", "40901637", "40901645", "40901653", "40901661", "40901696", "40901700", "40901718", "40901734", "40901742", "40901750", "40901769", "40901793", "40901858", "40902137"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-LIM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i5_urg">
+        <description>OMNI-IMGCONV-LIM-0005 — urgência ou emergência fora da conferência: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901017", "40901025", "40901033", "40901041", "40901050", "40901068", "40901076", "40901092", "40901106", "40901114", "40901122", "40901130", "40901149", "40901173", "40901181", "40901190", "40901203", "40901211", "40901238", "40901246", "40901262", "40901297", "40901300", "40901335", "40901351", "40901360", "40901378", "40901386", "40901394", "40901408", "40901416", "40901424", "40901432", "40901440", "40901459", "40901467", "40901475", "40901483", "40901505", "40901513", "40901521", "40901530", "40901548", "40901556", "40901572", "40901602", "40901610", "40901629", "40901637", "40901645", "40901653", "40901661", "40901696", "40901700", "40901718", "40901734", "40901742", "40901750", "40901769", "40901793", "40901858", "40902137"</text></inputEntry>
+        <inputEntry><text>&lt; 7</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-LIM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i5_car">
+        <description>OMNI-IMGCONV-LIM-0005 — caráter de atendimento ausente ou inválido: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901017", "40901025", "40901033", "40901041", "40901050", "40901068", "40901076", "40901092", "40901106", "40901114", "40901122", "40901130", "40901149", "40901173", "40901181", "40901190", "40901203", "40901211", "40901238", "40901246", "40901262", "40901297", "40901300", "40901335", "40901351", "40901360", "40901378", "40901386", "40901394", "40901408", "40901416", "40901424", "40901432", "40901440", "40901459", "40901467", "40901475", "40901483", "40901505", "40901513", "40901521", "40901530", "40901548", "40901556", "40901572", "40901602", "40901610", "40901629", "40901637", "40901645", "40901653", "40901661", "40901696", "40901700", "40901718", "40901734", "40901742", "40901750", "40901769", "40901793", "40901858", "40902137"</text></inputEntry>
+        <inputEntry><text>&lt; 7</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-LIM-0005"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i5_reg">
+        <description>OMNI-IMGCONV-LIM-0005 — eletivo fora do regime ambulatorial (internação) ou regime ausente: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901017", "40901025", "40901033", "40901041", "40901050", "40901068", "40901076", "40901092", "40901106", "40901114", "40901122", "40901130", "40901149", "40901173", "40901181", "40901190", "40901203", "40901211", "40901238", "40901246", "40901262", "40901297", "40901300", "40901335", "40901351", "40901360", "40901378", "40901386", "40901394", "40901408", "40901416", "40901424", "40901432", "40901440", "40901459", "40901467", "40901475", "40901483", "40901505", "40901513", "40901521", "40901530", "40901548", "40901556", "40901572", "40901602", "40901610", "40901629", "40901637", "40901645", "40901653", "40901661", "40901696", "40901700", "40901718", "40901734", "40901742", "40901750", "40901769", "40901793", "40901858", "40902137"</text></inputEntry>
+        <inputEntry><text>&lt; 7</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>not("ambulatorial")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-LIM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>código sem intervalo de repetição neste arquivo: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40901017", "40901025", "40901033", "40901041", "40901050", "40901068", "40901076", "40901092", "40901106", "40901114", "40901122", "40901130", "40901149", "40901173", "40901181", "40901190", "40901203", "40901211", "40901238", "40901246", "40901262", "40901297", "40901300", "40901335", "40901351", "40901360", "40901378", "40901386", "40901394", "40901408", "40901416", "40901424", "40901432", "40901440", "40901459", "40901467", "40901475", "40901483", "40901505", "40901513", "40901521", "40901530", "40901548", "40901556", "40901572", "40901602", "40901610", "40901629", "40901637", "40901645", "40901653", "40901661", "40901696", "40901700", "40901718", "40901734", "40901742", "40901750", "40901769", "40901793", "40901858", "40902137")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>data ausente: faturamento, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-LIM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_compatibilidade_orl" name="ORL: compatibilidade procedimento × CID (OMNI-ORL-CMP-0001 a 0006, COB-0002)" namespace="https://omni-saude/dmn/otorrino-cabeca-pescoco">
+  <decision id="rco_compatibilidade_orl" name="ORL: compatibilidade procedimento × CID (OMNI-ORL-CMP-0001 a 0006, COB-0002)" camunda:historyTimeToLive="P3650D">
+    <description>Confere se o código TUSS combina com o diagnóstico informado. Nunca nega: divergência vai à auditoria médica, e a divergência técnica à junta médica (ANS-RN-424). OMNI-ORL-CMP-0001 a CMP-0006 e COB-0002.</description>
+    <decisionTable id="dt_compatibilidade_orl" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_cidPrincipal" label="cidPrincipal ← TISS diagnosticoPrincipal/CID-10 (sem ponto; 4 caracteres, ou 3 quando a categoria não tem subdivisão)">
+        <inputExpression id="ie_2_cidPrincipal" typeRef="string"><text>cidPrincipal</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="k_pre">
+        <description>OMNI-ORL-CMP-0001 — fora da vigência (antes de 02/12/2026): sem conferência automática</description>
+        <inputEntry><text>&lt; "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_estap_ok">
+        <description>OMNI-ORL-CMP-0001 — 30403030 compatível com otosclerose (H80)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403030"</text></inputEntry>
+        <inputEntry><text>"H800","H801","H802","H808","H809"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_estap_rev">
+        <description>OMNI-ORL-CMP-0001 — 30403030 sem CID de otosclerose: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403030"</text></inputEntry>
+        <inputEntry><text>not("H800","H801","H802","H808","H809")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_timp_rev">
+        <description>OMNI-ORL-CMP-0002 — 30403120 com CID de otosclerose: o código adequado é 30403030 (auditoria)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403120"</text></inputEntry>
+        <inputEntry><text>"H800","H801","H802","H808","H809"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_timp_ok">
+        <description>OMNI-ORL-CMP-0002 — 30403120 com outro CID: sem restrição</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403120"</text></inputEntry>
+        <inputEntry><text>not("H800","H801","H802","H808","H809")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_upfp_ok">
+        <description>OMNI-ORL-CMP-0003 — 30205247 compatível com apneia do sono (G473)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30205247"</text></inputEntry>
+        <inputEntry><text>"G473"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_upfp_rev">
+        <description>OMNI-ORL-CMP-0003 — 30205247 sem CID de apneia do sono: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30205247"</text></inputEntry>
+        <inputEntry><text>not("G473")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_adeno_ok">
+        <description>OMNI-ORL-CMP-0004 — adenoamigdalectomia, amigdalectomia ou adenoidectomia com CID compatível</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30205034","30205050","30205042","30205271"</text></inputEntry>
+        <inputEntry><text>"J350","J351","J352","J353","J358","J359","G473","J36"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_adeno_rev">
+        <description>OMNI-ORL-CMP-0004 — adenotonsilar com outro CID (inclui amigdalite aguda J039) ou sem CID: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30205034","30205050","30205042","30205271"</text></inputEntry>
+        <inputEntry><text>not("J350","J351","J352","J353","J358","J359","G473","J36")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_lingual">
+        <description>OMNI-ORL-CMP-0005 — amigdalectomia lingual: comprovação da hipertrofia pela auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30205069"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_septo_ok">
+        <description>OMNI-ORL-CMP-0006 — septoplastia com CID compatível</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501369"</text></inputEntry>
+        <inputEntry><text>"J342","J320","J321","J322","J323","J324","J328","J329","R040"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_septo_rev">
+        <description>OMNI-ORL-CMP-0006 — septoplastia com outro CID ou sem CID: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501369"</text></inputEntry>
+        <inputEntry><text>not("J342","J320","J321","J322","J323","J324","J328","J329","R040")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0006"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_func">
+        <description>OMNI-ORL-COB-0002 — rinosseptoplastia funcional ou alongamento de columela: auditoria confere finalidade funcional (exclusão legal só da finalidade estética)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501350","30501040"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-COB-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_resto">
+        <description>OMNI-ORL-CMP-0001 — código sem regra de compatibilidade ORL: sem restrição</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>not("30403030","30403120","30205247","30205034","30205050","30205042","30205271","30205069","30501369","30501350","30501040")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_sem_data">
+        <description>OMNI-ORL-CMP-0001 — data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_go_limite_quantidade" name="Ginecologia e obstetrícia: horas da assistência ao parto e procedimento de útero por ato" namespace="https://omni-saude/dmn/ginecologia-obstetricia">
+  <decision id="rco_go_limite_quantidade" name="Ginecologia e obstetrícia: horas da assistência ao parto e procedimento de útero por ato" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-GO-LIM-0001 a OMNI-GO-LIM-0003. A única glosa é a do excedente de horas do termo TUSS 31309038 (motivo 3190), nunca com quantidade nula. Domínio ginecologia-obstetricia. Hit policy UNIQUE; nenhuma linha nega ou glosa salvo onde indicado com base de nível A; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_go_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_grauParticipacao" label="grauParticipacao ← TISS grauPart do membro da equipe da linha (TUSS 35; 06 anestesista)">
+        <inputExpression id="ie_2_grauParticipacao" typeRef="string"><text>grauParticipacao</text></inputExpression>
+      </input>
+      <input id="in_3_quantidade" label="quantidade ← TISS quantidadeExecutada da linha">
+        <inputExpression id="ie_3_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <input id="in_4_horasAnestesiaAcimaAssistencia" label="horasAnestesiaAcimaAssistencia ← TISS quantidadeExecutada da linha do anestesista comparada à do obstetra em 31309038 na mesma guia (derivado)">
+        <inputExpression id="ie_4_horasAnestesiaAcimaAssistencia" typeRef="boolean"><text>horasAnestesiaAcimaAssistencia</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="l_pre">
+        <description>OMNI-GO-LIM-0001 — antes da vigência (03/12/2026): limites GO não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l3_acima">
+        <description>OMNI-GO-LIM-0003 — anestesista com horas acima da assistência obstétrica: auditoria médica confere a ficha</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309038"</text></inputEntry>
+        <inputEntry><text>"06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l3_ok">
+        <description>OMNI-GO-LIM-0003 — anestesista no trabalho de parto sem horas acima da assistência ou sem a informação: sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309038"</text></inputEntry>
+        <inputEntry><text>"06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_excede">
+        <description>OMNI-GO-LIM-0001 — assistência ao trabalho de parto acima de 6 horas: glosa do excedente (termo TUSS; Tab. 38 3190)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309038"</text></inputEntry>
+        <inputEntry><text>not("06", null)</text></inputEntry>
+        <inputEntry><text>&gt; 6</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="l1_grau_nulo">
+        <description>OMNI-GO-LIM-0001 — assistência ao trabalho de parto acima de 6 horas com grau de participação ausente: faturamento confere, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309038"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>&gt; 6</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_ok">
+        <description>OMNI-GO-LIM-0001 — assistência ao trabalho de parto até 6 horas: pagar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309038"</text></inputEntry>
+        <inputEntry><text>not("06")</text></inputEntry>
+        <inputEntry><text>&lt;= 6</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_nulo">
+        <description>OMNI-GO-LIM-0001 — quantidade de horas ausente: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309038"</text></inputEntry>
+        <inputEntry><text>not("06")</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_excede">
+        <description>OMNI-GO-LIM-0002 — procedimento de útero com quantidade acima de 1 no mesmo ato: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303030", "31303056", "31303080", "31303102", "31303110", "31303129", "31303137", "31303145", "31303153", "31303161", "31303170", "31303188", "31303200", "31303218", "31303226", "31303234", "31303250", "31303269", "31303285", "31303293", "31303307", "31303315", "31303323", "31303358", "31303366", "31303374", "31303382"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_ok">
+        <description>OMNI-GO-LIM-0002 — procedimento de útero com quantidade até 1: sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303030", "31303056", "31303080", "31303102", "31303110", "31303129", "31303137", "31303145", "31303153", "31303161", "31303170", "31303188", "31303200", "31303218", "31303226", "31303234", "31303250", "31303269", "31303285", "31303293", "31303307", "31303315", "31303323", "31303358", "31303366", "31303374", "31303382"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_nulo">
+        <description>OMNI-GO-LIM-0002 — quantidade ausente: faturamento confere, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303030", "31303056", "31303080", "31303102", "31303110", "31303129", "31303137", "31303145", "31303153", "31303161", "31303170", "31303188", "31303200", "31303218", "31303226", "31303234", "31303250", "31303269", "31303285", "31303293", "31303307", "31303315", "31303323", "31303358", "31303366", "31303374", "31303382"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_resto">
+        <description>OMNI-GO-LIM-0001 — procedimento sem limite GO: sem restrição desta tabela</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("31309038", "31303030", "31303056", "31303080", "31303102", "31303110", "31303129", "31303137", "31303145", "31303153", "31303161", "31303170", "31303188", "31303200", "31303218", "31303226", "31303234", "31303250", "31303269", "31303285", "31303293", "31303307", "31303315", "31303323", "31303358", "31303366", "31303374", "31303382")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_sem_data">
+        <description>OMNI-GO-LIM-0001 — data ausente: faturamento, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

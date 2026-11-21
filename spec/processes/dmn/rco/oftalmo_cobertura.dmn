@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_oftalmo_cobertura" name="Oftalmologia: cobertura (código fora do Rol e família cristalino)" namespace="https://omni-saude/dmn/oftalmologia">
+  <decision id="rco_oftalmo_cobertura" name="Oftalmologia: cobertura (código fora do Rol e família cristalino)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-OFTALMO-COB-0001 e OMNI-OFTALMO-COB-0002. Hit policy UNIQUE; nenhuma linha nega; código sem correlação no Rol vai à auditoria médica pelo art. 10, §13, da Lei 9.656/1998; a família cristalino é liberada sem restrição adicional; as famílias íris e corpo ciliar, músculos e vias lacrimais (COB-0003 a COB-0005) são informativas, sem tabela; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_oftalmo_cobertura" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="c_pre">
+        <description>OMNI-OFTALMO-COB-0001 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0001">
+        <description>OMNI-OFTALMO-COB-0001 — sem correlação no Rol: auditoria médica (art. 10, §13, da Lei 9.656/1998), sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30301092", "30301270", "30303036", "30303095", "30303117", "30303125", "30304113", "30304121", "30304130", "30304148", "30306086", "30308046", "30310121", "30310130", "30312051", "30312116"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-COB-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c0002">
+        <description>OMNI-OFTALMO-COB-0002 — família cristalino do Rol, ambulatorial e sem DUT: sem restrição adicional</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306019", "30306027", "30306035", "30306043", "30306060", "30306078", "30306116", "30310148"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_resto">
+        <description>OMNI-OFTALMO-COB-0001 — procedimento do Rol de outra família: segue as demais regras do domínio</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30301092", "30301270", "30303036", "30303095", "30303117", "30303125", "30304113", "30304121", "30304130", "30304148", "30306086", "30308046", "30310121", "30310130", "30312051", "30312116", "30306019", "30306027", "30306035", "30306043", "30306060", "30306078", "30306116", "30310148")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_sem_data">
+        <description>OMNI-OFTALMO-COB-0001 — data ausente: regulação</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-COB-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

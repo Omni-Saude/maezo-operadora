@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_geral_elegibilidade" name="Regras gerais: situação do beneficiário no cadastro (OMNI-GERAL-ELG-0001)" namespace="https://omni-saude/dmn/regras-gerais">
+  <decision id="rco_geral_elegibilidade" name="Regras gerais: situação do beneficiário no cadastro (OMNI-GERAL-ELG-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-GERAL-ELG-0001: vínculo ativo segue; exclusão a pedido com atendimento eletivo é negada (Tab. 38: 1006, ANS-RN-561 art. 15, IV); urgência, situação diferente e dado ausente vão ao cadastro. Nenhum nulo nega.</description>
+    <decisionTable id="dt_geral_elegibilidade" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_situacaoCadastral" label="situacaoCadastral ← cadastro do beneficiário (pelo TISS numeroCarteira) na data do atendimento: ativo | excluido_a_pedido | excluido_outro_motivo | suspenso | anterior_inclusao | nao_localizado">
+        <inputExpression id="ie_situacaoCadastral" typeRef="string"><text>situacaoCadastral</text></inputExpression>
+      </input>
+      <input id="in_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="e_pre">
+        <description>Fora da vigência (antes de 2026-11-03)</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_ativo">
+        <description>OMNI-GERAL-ELG-0001: vínculo ativo na data</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"ativo"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-ELG-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_excl_eletivo">
+        <description>OMNI-GERAL-ELG-0001: exclusão ou cancelamento a pedido do beneficiário, atendimento eletivo: negativa (Tab. 38: 1006)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"excluido_a_pedido"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"negar"</text></outputEntry>
+        <outputEntry><text>"1006"</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-ELG-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>"administrativo"</text></outputEntry>
+      </rule>
+      <rule id="e_excl_outro">
+        <description>OMNI-GERAL-ELG-0001: exclusão a pedido com urgência ou caráter ausente: cadastro confere</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"excluido_a_pedido"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-ELG-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_outras">
+        <description>OMNI-GERAL-ELG-0001: exclusão por outro motivo, suspensão, antes da inclusão ou não localizado: cadastro confere</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"excluido_outro_motivo", "suspenso", "anterior_inclusao", "nao_localizado"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-ELG-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_fechamento">
+        <description>OMNI-GERAL-ELG-0001: situação ausente ou fora da lista: cadastro confere (linha final, nunca nega)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("ativo", "excluido_a_pedido", "excluido_outro_motivo", "suspenso", "anterior_inclusao", "nao_localizado")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-ELG-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_sem_data">
+        <description>OMNI-GERAL-ELG-0001: data ausente (linha final, nunca nega)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-ELG-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

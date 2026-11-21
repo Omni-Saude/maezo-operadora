@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_especime_orl" name="ORL: espécime da peça cirúrgica para anatomopatológico (OMNI-ORL-CMP-0007)" namespace="https://omni-saude/dmn/otorrino-cabeca-pescoco">
+  <decision id="rco_especime_orl" name="ORL: espécime da peça cirúrgica para anatomopatológico (OMNI-ORL-CMP-0007)" camunda:historyTimeToLive="P3650D">
+    <description>Requisito técnico do espécime enviado ao anatomopatológico em cirurgia ORL e de cabeça e pescoço. Espécime declarado inadequado, sem identificação ou incompatível vai à auditoria médica; nunca nega (C-saneamento-06). OMNI-ORL-CMP-0007.</description>
+    <decisionTable id="dt_especime_orl" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataExecucao do procedimento cirúrgico, AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_statusEspecime" label="statusEspecime ← anexo da conta TISS (requisição ou laudo do anatomopatológico da peça): adequado | inadequado | nao_identificado | incompativel">
+        <inputExpression id="ie_1_statusEspecime" typeRef="string"><text>statusEspecime</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="e_pre">
+        <description>OMNI-ORL-CMP-0007 — fora da vigência (antes de 02/12/2026): sem conferência automática</description>
+        <inputEntry><text>&lt; "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_ok">
+        <description>OMNI-ORL-CMP-0007 — espécime adequado</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_rev">
+        <description>OMNI-ORL-CMP-0007 — espécime inadequado, sem identificação ou incompatível: auditoria médica (C-saneamento-06)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"inadequado","nao_identificado","incompativel"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_nulo">
+        <description>OMNI-ORL-CMP-0007 — status não informado ou outro valor: sem pendência (nulo não vira restrição)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>not("adequado","inadequado","nao_identificado","incompativel")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_sem_data">
+        <description>OMNI-ORL-CMP-0007 — data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-CMP-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

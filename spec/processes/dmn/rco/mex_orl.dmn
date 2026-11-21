@@ -1,0 +1,397 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_mex_orl" name="ORL: pares de procedimentos mutuamente exclusivos (OMNI-ORL-MEX-0001 a 0009)" namespace="https://omni-saude/dmn/otorrino-cabeca-pescoco">
+  <decision id="rco_mex_orl" name="ORL: pares de procedimentos mutuamente exclusivos (OMNI-ORL-MEX-0001 a 0009)" camunda:historyTimeToLive="P3650D">
+    <description>Avalia cada par (principal × secundário) da mesma guia e data de execução. Glosa só a linha secundária, com motivo 3202 e recurso; a TISS não tem lateralidade, então o par por outra via vai à auditoria médica. OMNI-ORL-MEX-0001 a MEX-0009.</description>
+    <decisionTable id="dt_mex_orl" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataExecucao, AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoPrincipal" label="codigoPrincipal ← TISS codigoProcedimento do procedimento de referência na mesma guia e data de execução (TUSS 22)">
+        <inputExpression id="ie_1_codigoPrincipal" typeRef="string"><text>codigoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento de outra linha da mesma guia e data de execução (TUSS 22)">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_viaAcessoSecundario" label="viaAcessoSecundario ← TISS viaAcesso da linha secundária (Tab. 61: 1 única, 2 mesma via, 3 diferentes vias)">
+        <inputExpression id="ie_3_viaAcessoSecundario" typeRef="string"><text>viaAcessoSecundario</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="m_pre">
+        <description>OMNI-ORL-MEX-0001 — fora da vigência (antes de 02/12/2026): sem conferência automática</description>
+        <inputEntry><text>&lt; "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m00">
+        <description>OMNI-ORL-MEX-0001 — 20104065: secundário pela mesma via é excludente</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"20104065"</text></inputEntry>
+        <inputEntry><text>"30402018"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m01">
+        <description>OMNI-ORL-MEX-0001 — 20104065: secundário por outra via ou sem via (pode ser o outro lado; a TISS não tem lateralidade)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"20104065"</text></inputEntry>
+        <inputEntry><text>"30402018"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m02">
+        <description>OMNI-ORL-MEX-0001 — 20104065: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"20104065"</text></inputEntry>
+        <inputEntry><text>not("30402018")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m03">
+        <description>OMNI-ORL-MEX-0002 — 30501458: secundário pela mesma via é excludente</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501458"</text></inputEntry>
+        <inputEntry><text>"30501067"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m04">
+        <description>OMNI-ORL-MEX-0002 — 30501458: secundário por outra via ou sem via (pode ser o outro lado; a TISS não tem lateralidade)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501458"</text></inputEntry>
+        <inputEntry><text>"30501067"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m05">
+        <description>OMNI-ORL-MEX-0008 — 30501458: secundário é parte do principal (qualquer via)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501458"</text></inputEntry>
+        <inputEntry><text>"30501113","30501121","30501130","30501148","30501156","30501164","30501172","30501482","30502039"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0008"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m06">
+        <description>OMNI-ORL-MEX-0002 — 30501458: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501458"</text></inputEntry>
+        <inputEntry><text>not("30501067","30501113","30501121","30501130","30501148","30501156","30501164","30501172","30501482","30502039")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m07">
+        <description>OMNI-ORL-MEX-0003 — 30403030: secundário pela mesma via é excludente</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403030"</text></inputEntry>
+        <inputEntry><text>"30403120"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m08">
+        <description>OMNI-ORL-MEX-0003 — 30403030: secundário por outra via ou sem via (pode ser o outro lado; a TISS não tem lateralidade)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403030"</text></inputEntry>
+        <inputEntry><text>"30403120"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m09">
+        <description>OMNI-ORL-MEX-0003 — 30403030: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403030"</text></inputEntry>
+        <inputEntry><text>not("30403120")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m10">
+        <description>OMNI-ORL-MEX-0004 — 30403111: secundário pela mesma via é excludente</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403111"</text></inputEntry>
+        <inputEntry><text>"30403120","30403138"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m11">
+        <description>OMNI-ORL-MEX-0004 — 30403111: secundário por outra via ou sem via (pode ser o outro lado; a TISS não tem lateralidade)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403111"</text></inputEntry>
+        <inputEntry><text>"30403120","30403138"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m12">
+        <description>OMNI-ORL-MEX-0004 — 30403111: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403111"</text></inputEntry>
+        <inputEntry><text>not("30403120","30403138")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m13">
+        <description>OMNI-ORL-MEX-0004 — 30403120: secundário pela mesma via é excludente</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403120"</text></inputEntry>
+        <inputEntry><text>"30403138"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m14">
+        <description>OMNI-ORL-MEX-0004 — 30403120: secundário por outra via ou sem via (pode ser o outro lado; a TISS não tem lateralidade)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403120"</text></inputEntry>
+        <inputEntry><text>"30403138"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m15">
+        <description>OMNI-ORL-MEX-0004 — 30403120: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30403120"</text></inputEntry>
+        <inputEntry><text>not("30403138")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m16">
+        <description>OMNI-ORL-MEX-0005 — 30501350: secundário é parte do principal (qualquer via)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501350"</text></inputEntry>
+        <inputEntry><text>"30501369","30501458","30501067"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m17">
+        <description>OMNI-ORL-MEX-0008 — 30501350: secundário é parte do principal (qualquer via)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501350"</text></inputEntry>
+        <inputEntry><text>"30501113","30501121","30501130","30501148","30501156","30501164","30501172","30501482","30502039"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0008"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m18">
+        <description>OMNI-ORL-MEX-0005 — 30501350: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501350"</text></inputEntry>
+        <inputEntry><text>not("30501369","30501458","30501067","30501113","30501121","30501130","30501148","30501156","30501164","30501172","30501482","30502039")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m19">
+        <description>OMNI-ORL-MEX-0006 — 30205247: secundário é parte do principal (qualquer via)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30205247"</text></inputEntry>
+        <inputEntry><text>"30205050","30205042","30205034","30205271"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0006"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m20">
+        <description>OMNI-ORL-MEX-0006 — 30205247: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30205247"</text></inputEntry>
+        <inputEntry><text>not("30205050","30205042","30205034","30205271")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m21">
+        <description>OMNI-ORL-MEX-0007 — 30404061, 30404150: secundário pela mesma via é excludente</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30404061","30404150"</text></inputEntry>
+        <inputEntry><text>"30403081"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m22">
+        <description>OMNI-ORL-MEX-0007 — 30404061, 30404150: secundário por outra via ou sem via (pode ser o outro lado; a TISS não tem lateralidade)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30404061","30404150"</text></inputEntry>
+        <inputEntry><text>"30403081"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m23">
+        <description>OMNI-ORL-MEX-0007 — 30404061, 30404150: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30404061","30404150"</text></inputEntry>
+        <inputEntry><text>not("30403081")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m24">
+        <description>OMNI-ORL-MEX-0008 — 30501369, 30502209, 30502322, 30502080, 30502314, 30502250, 30502268, 30502233, 30502020, 30502071, 30502276, 30502217, 30501288, 30502160, 30501377, 30501270, 30501199, 30502101: secundário é parte do principal (qualquer via)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501369","30502209","30502322","30502080","30502314","30502250","30502268","30502233","30502020","30502071","30502276","30502217","30501288","30502160","30501377","30501270","30501199","30502101"</text></inputEntry>
+        <inputEntry><text>"30501113","30501121","30501130","30501148","30501156","30501164","30501172","30501482","30502039"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0008"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="m25">
+        <description>OMNI-ORL-MEX-0008 — 30501369, 30502209, 30502322, 30502080, 30502314, 30502250, 30502268, 30502233, 30502020, 30502071, 30502276, 30502217, 30501288, 30502160, 30501377, 30501270, 30501199, 30502101: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30501369","30502209","30502322","30502080","30502314","30502250","30502268","30502233","30502020","30502071","30502276","30502217","30501288","30502160","30501377","30501270","30501199","30502101"</text></inputEntry>
+        <inputEntry><text>not("30501113","30501121","30501130","30501148","30501156","30501164","30501172","30501482","30502039")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0008"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m26">
+        <description>OMNI-ORL-MEX-0009 — 30212030, 30212049, 30212057, 30914051: associação que depende de achado cirúrgico (auditoria médica)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30212030","30212049","30212057","30914051"</text></inputEntry>
+        <inputEntry><text>"30801141","30906210"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0009"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m27">
+        <description>OMNI-ORL-MEX-0009 — 30212030, 30212049, 30212057, 30914051: secundário sem restrição de par</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"30212030","30212049","30212057","30914051"</text></inputEntry>
+        <inputEntry><text>not("30801141","30906210")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_resto">
+        <description>OMNI-ORL-MEX-0001 — principal sem par excludente ORL: sem restrição</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>not("20104065","30501458","30403030","30403111","30403120","30501350","30205247","30404061","30404150","30501369","30502209","30502322","30502080","30502314","30502250","30502268","30502233","30502020","30502071","30502276","30502217","30501288","30502160","30501377","30501270","30501199","30502101","30212030","30212049","30212057","30914051")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_sem_data">
+        <description>OMNI-ORL-MEX-0001 — data de execução ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

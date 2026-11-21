@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_torax_cobertura" name="Tórax: cobertura (fora do Rol, só hospitalar em plano ambulatorial, exames funcionais da pneumologia)" namespace="https://omni-saude/dmn/torax-pneumologia">
+  <decision id="rco_torax_cobertura" name="Tórax: cobertura (fora do Rol, só hospitalar em plano ambulatorial, exames funcionais da pneumologia)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TORAX-COB-0001 a OMNI-TORAX-COB-0004. Hit policy UNIQUE; nenhuma linha nega; fechamento com data ausente vai à revisão humana. Listas em regras/torax-pneumologia/dominio.yaml (codigos_fora_rol, segmentos_rol, codigos_externos).</description>
+    <decisionTable id="dt_torax_cobertura" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_planoSoAmbulatorial" label="planoSoAmbulatorial ← cadastro do produto (segmentação só ambulatorial, Lei 9.656/1998, art. 12, I)">
+        <inputExpression id="ie_2_planoSoAmbulatorial" typeRef="boolean"><text>planoSoAmbulatorial</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="c_pre">
+        <description>OMNI-TORAX-COB-0004 — antes da vigência (2026-12-03): regras de cobertura TORAX não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c4_fora">
+        <description>OMNI-TORAX-COB-0004 — sem correlação no Rol: auditoria médica (art. 10, §13, da Lei 9.656/1998)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803195", "30805201", "30805210", "30805287", "30806046", "30806054", "30806070"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c1_amb">
+        <description>OMNI-TORAX-COB-0001 — só hospitalar no Rol em plano só ambulatorial: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30804027", "30804035", "30804043", "30804051", "30804060", "30804094", "30804108", "30804124", "30804132", "30804140", "30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c1_hosp">
+        <description>OMNI-TORAX-COB-0001 — só hospitalar no Rol em plano com segmentação hospitalar: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30804027", "30804035", "30804043", "30804051", "30804060", "30804094", "30804108", "30804124", "30804132", "30804140", "30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c1_nulo">
+        <description>OMNI-TORAX-COB-0001 — segmentação do plano ausente no cadastro: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30804027", "30804035", "30804043", "30804051", "30804060", "30804094", "30804108", "30804124", "30804132", "30804140", "30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c4_amb">
+        <description>OMNI-TORAX-COB-0004 — só hospitalar no Rol em plano só ambulatorial: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801010", "30801028", "30801036", "30801052", "30801060", "30801079", "30801087", "30801109", "30801117", "30801133", "30801141", "30801150", "30801168", "30801176", "30802016", "30802024", "30802032", "30802040", "30802059", "30803012", "30803020", "30803039", "30803047", "30803055", "30803063", "30803071", "30803080", "30803098", "30803101", "30803110", "30803128", "30803136", "30803144", "30803152", "30803160", "30803179", "30803209", "30803217", "30803225", "30803233", "30805015", "30805031", "30805040", "30805074", "30805082", "30805090", "30805104", "30805112", "30805120", "30805139", "30805147", "30805155", "30805163", "30805171", "30805180", "30805198", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805295", "30806011", "30806020", "30806038", "30806062"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c4_hosp">
+        <description>OMNI-TORAX-COB-0004 — só hospitalar no Rol em plano com segmentação hospitalar: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801010", "30801028", "30801036", "30801052", "30801060", "30801079", "30801087", "30801109", "30801117", "30801133", "30801141", "30801150", "30801168", "30801176", "30802016", "30802024", "30802032", "30802040", "30802059", "30803012", "30803020", "30803039", "30803047", "30803055", "30803063", "30803071", "30803080", "30803098", "30803101", "30803110", "30803128", "30803136", "30803144", "30803152", "30803160", "30803179", "30803209", "30803217", "30803225", "30803233", "30805015", "30805031", "30805040", "30805074", "30805082", "30805090", "30805104", "30805112", "30805120", "30805139", "30805147", "30805155", "30805163", "30805171", "30805180", "30805198", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805295", "30806011", "30806020", "30806038", "30806062"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c4_nulo">
+        <description>OMNI-TORAX-COB-0004 — segmentação do plano ausente no cadastro: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801010", "30801028", "30801036", "30801052", "30801060", "30801079", "30801087", "30801109", "30801117", "30801133", "30801141", "30801150", "30801168", "30801176", "30802016", "30802024", "30802032", "30802040", "30802059", "30803012", "30803020", "30803039", "30803047", "30803055", "30803063", "30803071", "30803080", "30803098", "30803101", "30803110", "30803128", "30803136", "30803144", "30803152", "30803160", "30803179", "30803209", "30803217", "30803225", "30803233", "30805015", "30805031", "30805040", "30805074", "30805082", "30805090", "30805104", "30805112", "30805120", "30805139", "30805147", "30805155", "30805163", "30805171", "30805180", "30805198", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805295", "30806011", "30806020", "30806038", "30806062"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2">
+        <description>OMNI-TORAX-COB-0002 — teste de função pulmonar do Rol: sem autorização e sem lista de indicação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40105032", "40105040", "40105075", "40105091", "40105148", "41401107"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3">
+        <description>OMNI-TORAX-COB-0003 — teste cutâneo-alérgico do Rol: sem autorização e sem critério por especialidade</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41401360", "41401379", "41401387", "41401395", "41401409", "41401522", "41401530"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_resto">
+        <description>OMNI-TORAX-COB-0004 — código do segmento ambulatorial do Rol ou de outro domínio: segue as demais regras</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30803187", "30803195", "30805201", "30805210", "30805287", "30806046", "30806054", "30806070", "30804027", "30804035", "30804043", "30804051", "30804060", "30804094", "30804108", "30804124", "30804132", "30804140", "30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213", "30801010", "30801028", "30801036", "30801052", "30801060", "30801079", "30801087", "30801109", "30801117", "30801133", "30801141", "30801150", "30801168", "30801176", "30802016", "30802024", "30802032", "30802040", "30802059", "30803012", "30803020", "30803039", "30803047", "30803055", "30803063", "30803071", "30803080", "30803098", "30803101", "30803110", "30803128", "30803136", "30803144", "30803152", "30803160", "30803179", "30803209", "30803217", "30803225", "30803233", "30805015", "30805031", "30805040", "30805074", "30805082", "30805090", "30805104", "30805112", "30805120", "30805139", "30805147", "30805155", "30805163", "30805171", "30805180", "30805198", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805295", "30806011", "30806020", "30806038", "30806062", "40105032", "40105040", "40105075", "40105091", "40105148", "41401107", "41401360", "41401379", "41401387", "41401395", "41401409", "41401522", "41401530")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_sem_data">
+        <description>OMNI-TORAX-COB-0004 — data ausente: regulação (fechamento, nunca negativa)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-COB-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
