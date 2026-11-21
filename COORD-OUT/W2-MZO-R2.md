@@ -140,3 +140,10 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 - Clone principal em `main`, limpo. Nenhum PR órfão.
 - E-SF-06r: PR #1357, head `5854c292dacc852d9ae2cd20acb1b6e661df9be7`, 15 commits atrás da main, diff disjunto.
 - E-SF-32r: bateria main × ramo refeita, em curso.
+
+## 2026-11-21T05:09Z — LIMPEZA #3 (E-SF-06r, PR #1357 mesclado); PR #1360 (E-SF-32r) aberto
+
+- Main `ac33e8ef` contém `5854c292`.
+- Ramo local `sf-w2/mzo-r2/esf06r` apagado com `-d`; o remoto fica em `5854c292`.
+- Worktree `w06r` removida sem `--force`. Nenhum PR órfão.
+- E-SF-32r: PR #1360, head `e497a695a5b1c8d7aa5fa6b2cfd33250f1efe8b4`, 30 commits atrás da main, diff disjunto. Os arquivos pinados não mudaram desde `7ae9092b`, e o teste passa sobre `ac33e8ef`.
