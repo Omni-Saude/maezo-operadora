@@ -1388,3 +1388,10 @@ Ordem: ADD01-03 (PR quando a revisão der PASS) → RT-03 → 17r, um PR por vez
 - Head b1ac060e (commits 88bf7ade recorte local + b1ac060e trava da lista). Revisão independente (subagente que não escreveu nem reparou código; só mutou em worktree descartável) sobre f903a88d..88bf7ade E b1ac060e: PASS, sem bloqueantes. 7 mutações capturadas, incl. 2 tentativas de enganar o detector novo (pegas pela contagem pinada da cerca DL-0191 + sem_zona_phi).
 - Ponto para decisão EXPRESSA da coordenação do programa: deriva do CAMINHO da CD-265 (fatos via render_fatos_para_prompt com permitidos=/agente=) para recorte LOCAL (lista fechada vazia, MappingProxyType, sem importar maezo.runtime), porque a cerca DL-0191 exige agente= literal e não há agente. Trava: teste falha se a lista crescer sem o renderizador. Nenhuma das três listas fechadas de telemetria foi alargada.
 - Simulação de merge em main 5be0f801: limpa (cc2e0ad1); só as falhas conhecidas de ambiente local (helm render, audit_anchor root). CI: unidades verdes; integração em curso.
+
+## 2026-11-21T13:22Z — PRONTO RT-03 #1368 head b1ac060ed5845bad206dc07ce7a7e1be02e87ce3
+- Checks: 39 runs, todos success/skipped; mergeable_state clean; base main 5be0f801.
+- [live-pytest] PASS recurso-nip passed=181 xfailed_executed=3 inactive_companion=2; cancel-contas passed=138; cred-ans passed=129; restante passed=965 xfailed_executed=2.
+- Simulação de merge em worktree destacada no sha da main: limpa (cc2e0ad1), só falhas conhecidas de ambiente local; worktree removida.
+- Revisão que cobre o head: independente, PASS sobre 88bf7ade e b1ac060e.
+- PONTO PARA DECISÃO EXPRESSA da coordenação do programa: deriva do CAMINHO da CD-265 (renderizador de prompt) para recorte LOCAL com lista vazia + trava que falha se a lista crescer sem o renderizador; nenhuma lista de telemetria alargada.
