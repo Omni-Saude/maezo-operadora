@@ -216,6 +216,18 @@ _ROTULOS_VEDADOS = (
     "RN 623 / 2024 , art . 14",
     "RN\u200b623/2024,\u2060art. 14",
     "\ufeffRN 623/2024, art. 14",
+    # Invisíveis fora da lista de largura zero (formatação, direção, seletores, preenchimento).
+    "RN\u00ad 623/2024, art. 14",
+    "RN 623\u200e/2024, art. 14",
+    "\u202eRN 623/2024, art. 14",
+    "RN 62\u20613/2024, art. 14",
+    "RN 623/2024,\u034f art. 14",
+    "RN 623/2024\ufe0f, art. 14",
+    "RN\u3164623/2024, art. 14",
+    "RN 623/2024, a\U000e0020rt. 14",
+    # Formas de largura total e barras Unicode.
+    "RN ６２３／２０２４，art． 14",
+    "RN 623\u20442024, art. 14",
 )
 
 
@@ -253,7 +265,7 @@ def test_nenhum_valor_do_termo_traz_rotulo_do_template(valor: str) -> None:
 def test_complemento_sem_rotulo_fica_na_linha_do_motivo_e_nunca_abre_linha() -> None:
     """Controle positivo: texto livre comum (até citando a norma por outro nome) compõe, na mesma
     linha do motivo do catálogo, e cada rótulo do template aparece uma vez só."""
-    complemento = "Conforme RN 623 e a cláusula 9.9 do contrato"
+    complemento = "β-bloqueador, conforme RN 465/2021, art. 4, RN 623 e a cláusula 9.9 do contrato"
     linhas = _render(_negar(justificativa_clinica=complemento)).texto.splitlines()
     assert f"Motivo sintetico do catalogo — {complemento}" in linhas
     rotulos = [linha for linha in linhas if linha.startswith("RN 623/2024, art.")]

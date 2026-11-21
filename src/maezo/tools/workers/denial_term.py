@@ -52,13 +52,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from string import Template
 from typing import Any
 
-from maezo.gateway.required_text import ZERO_WIDTH_TRANSLATION, is_blank
+from maezo.gateway.required_text import is_blank
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN
 
 __all__ = [
@@ -109,7 +110,21 @@ _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
 #: Prefixo de todo rótulo do template ("RN 623/2024, art. ..."), tolerante a espaço e a caixa.
 #: Nenhum valor que entra no termo pode trazê-lo: seria um rótulo forjado no meio do termo.
-_ROTULO_DO_TERMO = re.compile(r"rn\s*623\s*/\s*2024\s*,\s*art\s*\.")
+_ROTULO_DO_TERMO = re.compile(r"rn\s*623\s*[/\u2044\u2215]\s*2024\s*,\s*art\s*\.")
+
+#: Preenchimentos Hangul que renderizam vazios e não são da categoria Cf.
+_PREENCHIMENTOS_INVISIVEIS = frozenset("\u115f\u1160\u3164\uffa0")
+
+
+def _forma_visivel(value: str) -> str:
+    """O que o leitor vê: NFKC (formas de largura total e de compatibilidade) sem os caracteres
+    invisíveis (formatação Cf, marcas combinantes Mn/Me e preenchimentos), em caixa única."""
+    normalizado = unicodedata.normalize("NFKC", value)
+    return "".join(
+        c
+        for c in normalizado
+        if unicodedata.category(c) not in {"Cf", "Mn", "Me"} and c not in _PREENCHIMENTOS_INVISIVEIS
+    ).casefold()
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,11 +185,11 @@ class RenderedDenialTerm:
 
 def _linha_valida(value: Any) -> bool:
     """Uma linha só, de `str` exato: sem nenhum separador de linha (os de `str.splitlines`, como
-    U+2028), sem surrogate solto e sem rótulo do template ("RN 623/2024, art.", mesmo com
-    caracteres de largura zero no meio), para que nenhum valor forje rótulos ou itens no termo."""
+    U+2028), sem surrogate solto e sem rótulo do template ("RN 623/2024, art." na forma que o
+    leitor vê, ver `_forma_visivel`), para que nenhum valor forje rótulos ou itens no termo."""
     if type(value) is not str or is_blank(value) or value.splitlines() != [value]:
         return False
-    if _ROTULO_DO_TERMO.search(value.translate(ZERO_WIDTH_TRANSLATION).casefold()):
+    if _ROTULO_DO_TERMO.search(_forma_visivel(value)):
         return False
     try:
         value.encode("utf-8")

@@ -796,7 +796,8 @@ revisão jurídica" fora do texto (nunca no texto ao beneficiario) e sem registr
 de linha, status desconhecido, nem clausula nem dispositivo, ou hash divergente e'
 `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO`. So' tipos exatos passam e nenhum valor (nem a
 justificativa do auditor) aceita separador de linha nem qualquer rotulo do template ("RN
-623/2024, art.", tolerante a espaco, caixa e caracteres de largura zero), para nao forjar
+623/2024, art." na forma que o leitor ve: NFKC, sem caracteres invisiveis de formatacao ou
+combinacao, tolerante a espaco e caixa), para nao forjar
 rotulos no termo. O hash da
 entrada e' o sha256 do JSON canonico (chaves ordenadas, UTF-8, sem espacos) de todos os campos
 menos os dois hashes; essa receita tem de ser fixada no contrato-k2. A composicao NAO le `fundamentacao_dut`, que nunca
