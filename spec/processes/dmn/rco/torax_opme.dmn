@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_torax_opme" name="Tórax: lista positiva de OPME por procedimento" namespace="https://omni-saude/dmn/torax-pneumologia">
+  <decision id="rco_torax_opme" name="Tórax: lista positiva de OPME por procedimento" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TORAX-OPM-0001 a 0003. Hit policy UNIQUE; nenhuma linha glosa: fora da lista, acima da quantidade ou sem categoria vai à auditoria médica; quantidade nula vai ao faturamento. Listas em regras/torax-pneumologia/dominio.yaml (listas_opme).</description>
+    <decisionTable id="dt_torax_opme" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_categoriaOpme" label="categoriaOpme ← cadastro OMNI de materiais (TISS codigoItem TUSS 19 → categoria da OMNI-TAB-OPME-0001)">
+        <inputExpression id="ie_2_categoriaOpme" typeRef="string"><text>categoriaOpme</text></inputExpression>
+      </input>
+      <input id="in_3_quantidade" label="quantidade ← TISS quantidade da categoria de OPME por guia e dataExecucao">
+        <inputExpression id="ie_3_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="o_pre">
+        <description>OMNI-TORAX-OPM-0001 — antes da vigência (2026-12-03)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o1_carga_grampeador_ok">
+        <description>OMNI-TORAX-OPM-0001 — carga_grampeador até 4 por ato: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179"</text></inputEntry>
+        <inputEntry><text>"carga_grampeador"</text></inputEntry>
+        <inputEntry><text>&lt;= 4</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o1_carga_grampeador_acima">
+        <description>OMNI-TORAX-OPM-0001 — carga_grampeador acima de 4 por ato: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179"</text></inputEntry>
+        <inputEntry><text>"carga_grampeador"</text></inputEntry>
+        <inputEntry><text>&gt; 4</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o1_carga_grampeador_nulo">
+        <description>OMNI-TORAX-OPM-0001 — carga_grampeador sem quantidade: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179"</text></inputEntry>
+        <inputEntry><text>"carga_grampeador"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o1_endogrampeador_ok">
+        <description>OMNI-TORAX-OPM-0001 — endogrampeador até 1 por ato: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179"</text></inputEntry>
+        <inputEntry><text>"endogrampeador"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o1_endogrampeador_acima">
+        <description>OMNI-TORAX-OPM-0001 — endogrampeador acima de 1 por ato: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179"</text></inputEntry>
+        <inputEntry><text>"endogrampeador"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o1_endogrampeador_nulo">
+        <description>OMNI-TORAX-OPM-0001 — endogrampeador sem quantidade: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179"</text></inputEntry>
+        <inputEntry><text>"endogrampeador"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o1_trocater_ok">
+        <description>OMNI-TORAX-OPM-0001 — trocater até 3 por ato: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o1_trocater_acima">
+        <description>OMNI-TORAX-OPM-0001 — trocater acima de 3 por ato: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o1_trocater_nulo">
+        <description>OMNI-TORAX-OPM-0001 — trocater sem quantidade: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o1_fora">
+        <description>OMNI-TORAX-OPM-0001 — categoria fora da lista do procedimento ou não informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179"</text></inputEntry>
+        <inputEntry><text>not("carga_grampeador", "endogrampeador", "trocater")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o2_trocater_ok">
+        <description>OMNI-TORAX-OPM-0001 — trocater até 3 por ato: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o2_trocater_acima">
+        <description>OMNI-TORAX-OPM-0001 — trocater acima de 3 por ato: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o2_trocater_nulo">
+        <description>OMNI-TORAX-OPM-0001 — trocater sem quantidade: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o2_fora">
+        <description>OMNI-TORAX-OPM-0001 — categoria fora da lista do procedimento ou não informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213"</text></inputEntry>
+        <inputEntry><text>not("trocater")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o3_carga_grampeador_ok">
+        <description>OMNI-TORAX-OPM-0002 — carga_grampeador até 4 por ato: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>"carga_grampeador"</text></inputEntry>
+        <inputEntry><text>&lt;= 4</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o3_carga_grampeador_acima">
+        <description>OMNI-TORAX-OPM-0002 — carga_grampeador acima de 4 por ato: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>"carga_grampeador"</text></inputEntry>
+        <inputEntry><text>&gt; 4</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o3_carga_grampeador_nulo">
+        <description>OMNI-TORAX-OPM-0002 — carga_grampeador sem quantidade: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>"carga_grampeador"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o3_endogrampeador_ok">
+        <description>OMNI-TORAX-OPM-0002 — endogrampeador até 1 por ato: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>"endogrampeador"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o3_endogrampeador_acima">
+        <description>OMNI-TORAX-OPM-0002 — endogrampeador acima de 1 por ato: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>"endogrampeador"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o3_endogrampeador_nulo">
+        <description>OMNI-TORAX-OPM-0002 — endogrampeador sem quantidade: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>"endogrampeador"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o3_trocater_ok">
+        <description>OMNI-TORAX-OPM-0002 — trocater até 3 por ato: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o3_trocater_acima">
+        <description>OMNI-TORAX-OPM-0002 — trocater acima de 3 por ato: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o3_trocater_nulo">
+        <description>OMNI-TORAX-OPM-0002 — trocater sem quantidade: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o3_fora">
+        <description>OMNI-TORAX-OPM-0002 — categoria fora da lista do procedimento ou não informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803187", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>not("carga_grampeador", "endogrampeador", "trocater")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o4_trocater_ok">
+        <description>OMNI-TORAX-OPM-0002 — trocater até 3 por ato: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801168", "30801176", "30802040", "30802059", "30803195", "30803209", "30805180", "30805198", "30805201", "30805210", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805287", "30806054", "30806070"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o4_trocater_acima">
+        <description>OMNI-TORAX-OPM-0002 — trocater acima de 3 por ato: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801168", "30801176", "30802040", "30802059", "30803195", "30803209", "30805180", "30805198", "30805201", "30805210", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805287", "30806054", "30806070"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o4_trocater_nulo">
+        <description>OMNI-TORAX-OPM-0002 — trocater sem quantidade: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801168", "30801176", "30802040", "30802059", "30803195", "30803209", "30805180", "30805198", "30805201", "30805210", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805287", "30806054", "30806070"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o4_fora">
+        <description>OMNI-TORAX-OPM-0002 — categoria fora da lista do procedimento ou não informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801168", "30801176", "30802040", "30802059", "30803195", "30803209", "30805180", "30805198", "30805201", "30805210", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805287", "30806054", "30806070"</text></inputEntry>
+        <inputEntry><text>not("trocater")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o5_stent_traqueobronquico_ok">
+        <description>OMNI-TORAX-OPM-0003 — stent_traqueobronquico até 1 por ato: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801010", "30801028", "30801109", "30802032"</text></inputEntry>
+        <inputEntry><text>"stent_traqueobronquico"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o5_stent_traqueobronquico_acima">
+        <description>OMNI-TORAX-OPM-0003 — stent_traqueobronquico acima de 1 por ato: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801010", "30801028", "30801109", "30802032"</text></inputEntry>
+        <inputEntry><text>"stent_traqueobronquico"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o5_stent_traqueobronquico_nulo">
+        <description>OMNI-TORAX-OPM-0003 — stent_traqueobronquico sem quantidade: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801010", "30801028", "30801109", "30802032"</text></inputEntry>
+        <inputEntry><text>"stent_traqueobronquico"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o5_fora">
+        <description>OMNI-TORAX-OPM-0003 — categoria fora da lista do procedimento ou não informada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801010", "30801028", "30801109", "30802032"</text></inputEntry>
+        <inputEntry><text>not("stent_traqueobronquico")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_resto">
+        <description>OMNI-TORAX-OPM-0001 — procedimento sem lista positiva no domínio: segue as demais regras</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30801010", "30801028", "30801109", "30801168", "30801176", "30802032", "30802040", "30802059", "30803179", "30803187", "30803195", "30803209", "30803217", "30803225", "30803233", "30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213", "30805180", "30805198", "30805201", "30805210", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805287", "30806054", "30806070")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_sem_data">
+        <description>OMNI-TORAX-OPM-0001 — data ausente: faturamento (fechamento, nunca negativa)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

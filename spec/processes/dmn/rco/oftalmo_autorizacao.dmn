@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_oftalmo_autorizacao" name="Oftalmologia: autorização prévia da cirurgia eletiva; urgência sem autorização" namespace="https://omni-saude/dmn/oftalmologia">
+  <decision id="rco_oftalmo_autorizacao" name="Oftalmologia: autorização prévia da cirurgia eletiva; urgência sem autorização" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-OFTALMO-AUT-0001 a OMNI-OFTALMO-AUT-0010. Hit policy UNIQUE; nenhuma linha nega ou glosa; eletivo (caráter 1) de código só hospitalar do Rol exige autorização; urgência ou emergência (caráter 2) libera (AUT-0009); caráter ausente ou fora da TUSS 23 vai à regulação; antiangiogênico e infusão intravítrea (30307139, 30307147, 30312140) exigem autorização só no início do esquema (inicioEsquema true), esquema em curso libera sem nova autorização e histórico ausente vai à regulação; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_oftalmo_autorizacao" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_inicioEsquema" label="inicioEsquema ← TISS (histórico de guias OMNI do mesmo código e beneficiário) ou solicitação (declaração de esquema novo no pedido)">
+        <inputExpression id="ie_3_inicioEsquema" typeRef="boolean"><text>inicioEsquema</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="a_pre">
+        <description>OMNI-OFTALMO-AUT-0009 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0001_elet">
+        <description>OMNI-OFTALMO-AUT-0001 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30303010", "30303079", "30303109"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0001_urg">
+        <description>OMNI-OFTALMO-AUT-0009 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-OFTALMO-AUT-0001)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30303010", "30303079", "30303109"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0001_car">
+        <description>OMNI-OFTALMO-AUT-0001 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30303010", "30303079", "30303109"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0002_elet">
+        <description>OMNI-OFTALMO-AUT-0002 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30304024", "30304067", "30304075", "30304083", "30304091", "30304105", "30304156"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0002_urg">
+        <description>OMNI-OFTALMO-AUT-0009 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-OFTALMO-AUT-0002)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30304024", "30304067", "30304075", "30304083", "30304091", "30304105", "30304156"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0002_car">
+        <description>OMNI-OFTALMO-AUT-0002 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30304024", "30304067", "30304075", "30304083", "30304091", "30304105", "30304156"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003_elet">
+        <description>OMNI-OFTALMO-AUT-0003 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30307015", "30307023", "30307031", "30307040", "30307058", "30307066", "30307074", "30307090", "30307104", "30307112", "30307120"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003_urg">
+        <description>OMNI-OFTALMO-AUT-0009 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-OFTALMO-AUT-0003)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30307015", "30307023", "30307031", "30307040", "30307058", "30307066", "30307074", "30307090", "30307104", "30307112", "30307120"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003_car">
+        <description>OMNI-OFTALMO-AUT-0003 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30307015", "30307023", "30307031", "30307040", "30307058", "30307066", "30307074", "30307090", "30307104", "30307112", "30307120"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003c_novo">
+        <description>OMNI-OFTALMO-AUT-0003 — início de esquema do antiangiogênico ou da medicação intravítrea: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30307139", "30307147", "30312140"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003c_curso">
+        <description>OMNI-OFTALMO-AUT-0003 — esquema em curso: sem nova autorização (terapia em curso não pede nova autorização)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30307139", "30307147", "30312140"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003c_nulo">
+        <description>OMNI-OFTALMO-AUT-0003 — sem histórico que diga se o esquema é novo: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30307139", "30307147", "30312140"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003c_urg">
+        <description>OMNI-OFTALMO-AUT-0009 — urgência ou emergência: liberação (família de OMNI-OFTALMO-AUT-0003)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30307139", "30307147", "30312140"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003c_car">
+        <description>OMNI-OFTALMO-AUT-0003 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30307139", "30307147", "30312140"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0004_elet">
+        <description>OMNI-OFTALMO-AUT-0004 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306051", "30310032", "30310040", "30310059", "30310091", "30310156", "30310172"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0004_urg">
+        <description>OMNI-OFTALMO-AUT-0009 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-OFTALMO-AUT-0004)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306051", "30310032", "30310040", "30310059", "30310091", "30310156", "30310172"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0004_car">
+        <description>OMNI-OFTALMO-AUT-0004 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306051", "30310032", "30310040", "30310059", "30310091", "30310156", "30310172"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0005_elet">
+        <description>OMNI-OFTALMO-AUT-0005 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30311020", "30311039", "30311047", "30311063"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0005_urg">
+        <description>OMNI-OFTALMO-AUT-0009 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-OFTALMO-AUT-0005)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30311020", "30311039", "30311047", "30311063"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0005_car">
+        <description>OMNI-OFTALMO-AUT-0005 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30311020", "30311039", "30311047", "30311063"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0005"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0006_elet">
+        <description>OMNI-OFTALMO-AUT-0006 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30301076", "30301165", "30301173", "30301181", "30301211", "30301220"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0006_urg">
+        <description>OMNI-OFTALMO-AUT-0009 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-OFTALMO-AUT-0006)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30301076", "30301165", "30301173", "30301181", "30301211", "30301220"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0006_car">
+        <description>OMNI-OFTALMO-AUT-0006 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30301076", "30301165", "30301173", "30301181", "30301211", "30301220"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0006"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0007_elet">
+        <description>OMNI-OFTALMO-AUT-0007 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30312019", "30312027", "30312035", "30312060", "30312078", "30312086", "30312094", "30312108", "30312124", "30312132", "30312159"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0007_urg">
+        <description>OMNI-OFTALMO-AUT-0009 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-OFTALMO-AUT-0007)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30312019", "30312027", "30312035", "30312060", "30312078", "30312086", "30312094", "30312108", "30312124", "30312132", "30312159"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0007_car">
+        <description>OMNI-OFTALMO-AUT-0007 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30312019", "30312027", "30312035", "30312060", "30312078", "30312086", "30312094", "30312108", "30312124", "30312132", "30312159"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0007"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0008_elet">
+        <description>OMNI-OFTALMO-AUT-0008 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30313015", "30313023", "30313031", "30313058", "30313074"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0008"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0008_urg">
+        <description>OMNI-OFTALMO-AUT-0009 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-OFTALMO-AUT-0008)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30313015", "30313023", "30313031", "30313058", "30313074"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0008_car">
+        <description>OMNI-OFTALMO-AUT-0008 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30313015", "30313023", "30313031", "30313058", "30313074"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0008"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0010_elet">
+        <description>OMNI-OFTALMO-AUT-0010 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30309018", "30309026", "30309034", "30305020", "30305039", "30305047", "30302013", "30302021", "30302030", "30302048", "30302056", "30302064", "30302072", "30302080", "30302099", "30302102", "30302110", "30302129", "30302137", "30308020", "30308038"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0010"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0010_urg">
+        <description>OMNI-OFTALMO-AUT-0009 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-OFTALMO-AUT-0010)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30309018", "30309026", "30309034", "30305020", "30305039", "30305047", "30302013", "30302021", "30302030", "30302048", "30302056", "30302064", "30302072", "30302080", "30302099", "30302102", "30302110", "30302129", "30302137", "30308020", "30308038"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0010_car">
+        <description>OMNI-OFTALMO-AUT-0010 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30309018", "30309026", "30309034", "30305020", "30305039", "30305047", "30302013", "30302021", "30302030", "30302048", "30302056", "30302064", "30302072", "30302080", "30302099", "30302102", "30302110", "30302129", "30302137", "30308020", "30308038"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0010"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_resto">
+        <description>OMNI-OFTALMO-AUT-0009 — código sem autorização prévia no domínio (ambulatorial sem DUT, sem restrição adicional)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30303010", "30303079", "30303109", "30304024", "30304067", "30304075", "30304083", "30304091", "30304105", "30304156", "30307015", "30307023", "30307031", "30307040", "30307058", "30307066", "30307074", "30307090", "30307104", "30307112", "30307120", "30307139", "30307147", "30312140", "30306051", "30310032", "30310040", "30310059", "30310091", "30310156", "30310172", "30311020", "30311039", "30311047", "30311063", "30301076", "30301165", "30301173", "30301181", "30301211", "30301220", "30312019", "30312027", "30312035", "30312060", "30312078", "30312086", "30312094", "30312108", "30312124", "30312132", "30312159", "30313015", "30313023", "30313031", "30313058", "30313074", "30309018", "30309026", "30309034", "30305020", "30305039", "30305047", "30302013", "30302021", "30302030", "30302048", "30302056", "30302064", "30302072", "30302080", "30302099", "30302102", "30302110", "30302129", "30302137", "30308020", "30308038")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_sem_data">
+        <description>OMNI-OFTALMO-AUT-0009 — data ausente: regulação (fechamento, nunca negativa)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

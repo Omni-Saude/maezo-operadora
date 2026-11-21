@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_lab_composicao" name="Laboratório: painel e componentes na mesma conta" namespace="https://omni-saude/dmn/laboratorio">
+  <decision id="rco_lab_composicao" name="Laboratório: painel e componentes na mesma conta" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-LAB-MEX-0001. Domínio laboratorio. Hit policy UNIQUE; nenhuma linha nega ou glosa; componente com a mesma hora inicial do painel vai ao faturamento; dado nulo libera; data ausente vai à regulação.</description>
+    <decisionTable id="dt_lab_composicao" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_painelNaConta" label="painelNaConta ← fluxo Camunda (conta): painel que contém o código, na mesma guia e data (true, false ou ausente)">
+        <inputExpression id="ie_painelNaConta" typeRef="boolean"><text>painelNaConta</text></inputExpression>
+      </input>
+      <input id="in_mesmaHoraInicial" label="mesmaHoraInicial ← TISS horaInicial: componente e painel com a mesma hora inicial (true, false ou ausente)">
+        <inputExpression id="ie_mesmaHoraInicial" typeRef="boolean"><text>mesmaHoraInicial</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-LAB-MEX-0001 — antes do início da vigência (03/12/2026): a regra não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_rev">
+        <description>OMNI-LAB-MEX-0001 — componente com painel na conta e mesma hora inicial: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40301150", "40301397", "40301605", "40301818", "40301885", "40301990", "40302504", "40302512", "40302547", "40302563", "40304370", "40304531", "40304566", "40304582", "40304590", "40304639", "40306852", "40307867", "40308030", "40316017", "40316521", "40316548", "40316556"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_hora">
+        <description>OMNI-LAB-MEX-0001 — componente com painel na conta e hora inicial diferente ou ausente: paga</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40301150", "40301397", "40301605", "40301818", "40301885", "40301990", "40302504", "40302512", "40302547", "40302563", "40304370", "40304531", "40304566", "40304582", "40304590", "40304639", "40306852", "40307867", "40308030", "40316017", "40316521", "40316548", "40316556"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_sem">
+        <description>OMNI-LAB-MEX-0001 — componente sem painel na conta ou sem informação: paga</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40301150", "40301397", "40301605", "40301818", "40301885", "40301990", "40302504", "40302512", "40302547", "40302563", "40304370", "40304531", "40304566", "40304582", "40304590", "40304639", "40306852", "40307867", "40308030", "40316017", "40316521", "40316548", "40316556"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-LAB-MEX-0001 — demais códigos: sem conferência de painel</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40301150", "40301397", "40301605", "40301818", "40301885", "40301990", "40302504", "40302512", "40302547", "40302563", "40304370", "40304531", "40304566", "40304582", "40304590", "40304639", "40306852", "40307867", "40308030", "40316017", "40316521", "40316548", "40316556")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="fim">
+        <description>OMNI-LAB-MEX-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

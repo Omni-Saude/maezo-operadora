@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imgconv_dut" name="Imagem convencional: DUT 20, 23, 75, 76, 119 e 155" namespace="https://omni-saude/dmn/imagem-convencional">
+  <decision id="rco_imgconv_dut" name="Imagem convencional: DUT 20, 23, 75, 76, 119 e 155" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-IMGCONV-DUT-0002; DUT-0003. Domínio imagem-convencional. Hit policy UNIQUE; nenhuma linha nega ou glosa; urgência libera; documento completo vai ao enquadramento pela auditoria médica; documento ausente gera a lista do que falta; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_imgconv_dut" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_documentacaoDut" label="documentacaoDut ← solicitação: documentos da DUT de efeito.documentacao_exigida conferidos no pedido">
+        <inputExpression id="ie_3_documentacaoDut" typeRef="boolean"><text>documentacaoDut</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência: regras IMGCONV não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-DUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_urg">
+        <description>OMNI-IMGCONV-AUT-0009 — urgência ou emergência: liberar sem documentos da DUT</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="dut0002_ok">
+        <description>OMNI-IMGCONV-DUT-0002 — eletivo, documentos da DUT completos: enquadramento pela auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901084", "40901254", "40901262", "40901556", "40901793"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="dut0002_falta">
+        <description>OMNI-IMGCONV-DUT-0002 — eletivo, documento da DUT ausente: lista do que falta, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901084", "40901254", "40901262", "40901556", "40901793"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-DUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="dut0002_nulo">
+        <description>OMNI-IMGCONV-DUT-0002 — eletivo, conferência não informada: lista do que falta, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901084", "40901254", "40901262", "40901556", "40901793"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-DUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="dut0002_car">
+        <description>OMNI-IMGCONV-DUT-0002 — caráter de atendimento ausente ou inválido: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901084", "40901254", "40901262", "40901556", "40901793"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="dut0003_ok">
+        <description>OMNI-IMGCONV-DUT-0003 — eletivo, documentos da DUT completos: enquadramento pela auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40813746", "40814211"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="dut0003_falta">
+        <description>OMNI-IMGCONV-DUT-0003 — eletivo, documento da DUT ausente: lista do que falta, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40813746", "40814211"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-DUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="dut0003_nulo">
+        <description>OMNI-IMGCONV-DUT-0003 — eletivo, conferência não informada: lista do que falta, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40813746", "40814211"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-DUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="dut0003_car">
+        <description>OMNI-IMGCONV-DUT-0003 — caráter de atendimento ausente ou inválido: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40813746", "40814211"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_resto">
+        <description>código sem DUT neste domínio: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40813746", "40814211", "40901084", "40901254", "40901262", "40901556", "40901793")</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

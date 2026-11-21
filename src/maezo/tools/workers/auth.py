@@ -864,7 +864,10 @@ class ValidateAutoCriteriaWorker(WorkerBase):
         so it costs the real case nothing (no engine call, no time inside the task lock). It never raises
         and never touches `result`. Its traces, written after completion, are a separate `SHADOW` audit
         fact, the observational K1 decision record (`modo=sombra`) and closed-label metrics; no K6 notice is
-        enqueued. Outside an audited dispatch nothing is deferred. Inert while the rco pin is `sem_pacote`.
+        enqueued. Outside an audited dispatch nothing is deferred. With the pin fixed (K1 b8444f52) every task
+        pays it AFTER completion: up to 3 engine calls, one `SHADOW` append to the tenant's audit chain and
+        the K1 record inserts; the engine deploy carries the 237 rco DMN. No decision effect
+        (`efeito_k1_habilitado` stays false).
         """
         try:
             # DL-0189: o relogio do orcamento de motor comeca AQUI, uma vez por tarefa.

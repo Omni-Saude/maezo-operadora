@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_cardio_dut" name="Cardiovascular: diretrizes de utilização 35, 36, 40, 41, 42, 43, 53, 143, 166, 171 e 173" namespace="https://omni-saude/dmn/cardiovascular">
+  <decision id="rco_cardio_dut" name="Cardiovascular: diretrizes de utilização 35, 36, 40, 41, 42, 43, 53, 143, 166, 171 e 173" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CARDIO-DUT-0001, 0003, 0004 e 0007. Hit policy UNIQUE; nenhuma linha nega; a exigência de documento vale só para caráter 1 (eletivo); urgência ou emergência (caráter 2) é liberada por OMNI-CARDIO-AUT-0021 e caráter ausente vai à regulação; documentação incompleta gera a lista do que falta; o enquadramento clínico vai à auditoria médica; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_cardio_dut" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_documentacaoCompleta" label="documentacaoCompleta ← solicitação: relatório e exames da DUT anexados (anexo da guia TISS)">
+        <inputExpression id="ie_2_documentacaoCompleta" typeRef="boolean"><text>documentacaoCompleta</text></inputExpression>
+      </input>
+      <input id="in_3_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_3_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="d_pre">
+        <description>OMNI-CARDIO-DUT-0007 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0001_falta">
+        <description>OMNI-CARDIO-DUT-0001 — documentação incompleta: lista objetiva do que falta (RN 623, art. 12, §6º)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30914175"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0001_ok">
+        <description>OMNI-CARDIO-DUT-0001 — documentação completa: auditoria confere o enquadramento na DUT</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30914175"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0001_nulo">
+        <description>OMNI-CARDIO-DUT-0001 — documentação não informada: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30914175"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0001_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência (caráter 2): liberação sem exigência de documento da DUT (família de OMNI-CARDIO-DUT-0001)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30914175"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0001_car">
+        <description>OMNI-CARDIO-DUT-0001 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem exigência de documento e sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30914175"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0003_falta">
+        <description>OMNI-CARDIO-DUT-0003 — documentação incompleta: lista objetiva do que falta (RN 623, art. 12, §6º)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30918030", "30918057", "30912296", "30912300"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0003_ok">
+        <description>OMNI-CARDIO-DUT-0003 — documentação completa: auditoria confere o enquadramento na DUT</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30918030", "30918057", "30912296", "30912300"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0003_nulo">
+        <description>OMNI-CARDIO-DUT-0003 — documentação não informada: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30918030", "30918057", "30912296", "30912300"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0003_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência (caráter 2): liberação sem exigência de documento da DUT (família de OMNI-CARDIO-DUT-0003)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30918030", "30918057", "30912296", "30912300"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0003_car">
+        <description>OMNI-CARDIO-DUT-0003 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem exigência de documento e sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30918030", "30918057", "30912296", "30912300"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0004_falta">
+        <description>OMNI-CARDIO-DUT-0004 — documentação incompleta: lista objetiva do que falta (RN 623, art. 12, §6º)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905079", "30905087", "30913047", "30913055"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0004_ok">
+        <description>OMNI-CARDIO-DUT-0004 — documentação completa: auditoria confere o enquadramento na DUT</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905079", "30905087", "30913047", "30913055"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0004_nulo">
+        <description>OMNI-CARDIO-DUT-0004 — documentação não informada: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905079", "30905087", "30913047", "30913055"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0004_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência (caráter 2): liberação sem exigência de documento da DUT (família de OMNI-CARDIO-DUT-0004)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905079", "30905087", "30913047", "30913055"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0004_car">
+        <description>OMNI-CARDIO-DUT-0004 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem exigência de documento e sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905079", "30905087", "30913047", "30913055"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0007_falta">
+        <description>OMNI-CARDIO-DUT-0007 — documentação incompleta: lista objetiva do que falta (RN 623, art. 12, §6º)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021", "30904161", "30904145", "30904137", "30904064", "30904170"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0007_ok">
+        <description>OMNI-CARDIO-DUT-0007 — documentação completa: auditoria confere o enquadramento na DUT</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021", "30904161", "30904145", "30904137", "30904064", "30904170"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0007_nulo">
+        <description>OMNI-CARDIO-DUT-0007 — documentação não informada: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021", "30904161", "30904145", "30904137", "30904064", "30904170"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0007"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0007_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência (caráter 2): liberação sem exigência de documento da DUT (família de OMNI-CARDIO-DUT-0007)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021", "30904161", "30904145", "30904137", "30904064", "30904170"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d0007_car">
+        <description>OMNI-CARDIO-DUT-0007 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem exigência de documento e sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021", "30904161", "30904145", "30904137", "30904064", "30904170"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0007"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_resto">
+        <description>OMNI-CARDIO-DUT-0007 — código sem DUT no domínio</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30914175", "30918030", "30918057", "30912296", "30912300", "30905079", "30905087", "30913047", "30913055", "30904021", "30904161", "30904145", "30904137", "30904064", "30904170")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_sem_data">
+        <description>OMNI-CARDIO-DUT-0007 — data ausente: regulação</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-DUT-0007"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_mednuc_excludentes" name="Medicina nuclear: cintilografia do miocárdio com estresse e exames do par, a posteriori" namespace="https://omni-saude/dmn/medicina-nuclear">
+  <decision id="rco_mednuc_excludentes" name="Medicina nuclear: cintilografia do miocárdio com estresse e exames do par, a posteriori" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-MEDNUC-MEX-0001. Domínio medicina-nuclear. Hit policy UNIQUE; nenhuma linha nega ou glosa; campo nulo vai à revisão humana; a linha de fechamento (data ausente) vai à regulação.</description>
+    <decisionTable id="dt_mednuc_excludentes" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_parEstresse" label="parEstresse ← TISS conta: 40701140 com 40101045, 40101037, 40101010 ou 40701131 no mesmo beneficiário, prestador e data">
+        <inputExpression id="ie_parEstresse" typeRef="boolean"><text>parEstresse</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-MEDNUC-MEX-0001 — antes do início da vigência (03/12/2026): a regra de pares não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_par">
+        <description>OMNI-MEDNUC-MEX-0001 — estresse físico, teste ergométrico, ECG ou estresse físico e farmacológico no mesmo ato: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40701140", "40701131", "40101045", "40101037", "40101010"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_ok">
+        <description>OMNI-MEDNUC-MEX-0001 — sem par no mesmo beneficiário, prestador e data: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40701140", "40701131", "40101045", "40101037", "40101010"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_nulo">
+        <description>OMNI-MEDNUC-MEX-0001 — par não conferido: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40701140", "40701131", "40101045", "40101037", "40101010"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_resto">
+        <description>OMNI-MEDNUC-MEX-0001 — código fora do par: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40701140", "40701131", "40101045", "40101037", "40101010")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="fim">
+        <description>OMNI-MEDNUC-MEX-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

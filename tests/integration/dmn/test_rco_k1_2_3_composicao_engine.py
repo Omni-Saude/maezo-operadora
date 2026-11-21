@@ -36,8 +36,14 @@ SPEC_DMN = Path(__file__).resolve().parents[3] / "spec" / "processes" / "dmn"
 @pytest.fixture
 async def implantadas(engine_client: httpx.AsyncClient) -> dict[str, str]:
     """Implanta os dois DMN do recorte; devolve `{id da decisao: id da definicao vigente por chave}`."""
+    # Desde o primeiro pin real do K1 (#1367, DL-0198) as decisoes do recorte tambem estao pinadas em
+    # `spec/processes/dmn/rco/`. Colidir com o repo so e aceito quando o arquivo do recorte e BYTE A BYTE o
+    # pinado: implantar de novo nao muda tabela nenhuma do motor; conteudo diferente na mesma chave reprova.
     colisao = sorted(set(rec.ORDEM) & rp.chaves_de_decisao_do_repo(SPEC_DMN))
-    assert colisao == [], f"decisoes do recorte colidem com o repo: {colisao}"
+    divergentes = [
+        d for d in colisao if (SPEC_DMN / "rco" / rec.dmn(d).name).read_bytes() != rec.dmn(d).read_bytes()
+    ]
+    assert divergentes == [], f"decisoes do recorte colidem com o repo com outro conteudo: {divergentes}"
     arquivos = {rec.dmn(d).name: (rec.dmn(d).name, rec.dmn(d).read_bytes(), "text/xml") for d in rec.ORDEM}
     resp = await engine_client.post(
         "/deployment/create",

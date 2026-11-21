@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_coluna_opme_solicitacao" name="Solicitação de OPME em cirurgia de coluna (OMNI-COLUNA-OPM-0001)" namespace="https://omni-saude/dmn/opme-coluna">
+  <decision id="rco_coluna_opme_solicitacao" name="Solicitação de OPME em cirurgia de coluna (OMNI-COLUNA-OPM-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-COLUNA-OPM-0001; OMNI-COLUNA-PRZ-0002. Domínio opme-coluna. Gerado por scripts do piloto; hit policy UNIQUE, sem lacuna (linhas de fechamento nunca negam).</description>
+    <decisionTable id="dt_coluna_opme_solicitacao" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_1_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_2_justificativaTecnicaAnexada" label="justificativaTecnicaAnexada ← anexo de OPME (TISS especificacaoMaterial/justificativa técnica) com características sem nome de fornecedor">
+        <inputExpression id="ie_2_justificativaTecnicaAnexada" typeRef="boolean"><text>justificativaTecnicaAnexada</text></inputExpression>
+      </input>
+      <input id="in_3_registroAnvisaInformado" label="registroAnvisaInformado ← anexo de OPME (TISS registroANVISA) preenchido em todos os itens">
+        <inputExpression id="ie_3_registroAnvisaInformado" typeRef="boolean"><text>registroAnvisaInformado</text></inputExpression>
+      </input>
+      <input id="in_4_quantidadeMarcasIndicadas" label="quantidadeMarcasIndicadas ← anexo de solicitação de OPME (TISS): fabricantes distintos regularizados na Anvisa indicados pelo assistente">
+        <inputExpression id="ie_4_quantidadeMarcasIndicadas" typeRef="integer"><text>quantidadeMarcasIndicadas</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r002">
+        <description>OMNI-COLUNA-AUT-0001 — Antes da vigência das regras canônicas (2026-11-03): fluxo anterior, com revisão</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-COLUNA-PRZ-0002 — Urgência: OPME sem autorização prévia; comunicar em até 2 dias úteis</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PRZ-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-COLUNA-OPM-0001 — Sem justificativa técnica: pedir documento (RN 424 art. 7º, II)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-COLUNA-OPM-0001 — Sem registro Anvisa informado: pedir documento</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-COLUNA-OPM-0001 — Três ou mais marcas: pedido completo, segue para autorização</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&gt;= 3</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-COLUNA-OPM-0001 — Menos de três marcas: junta médica obrigatória (RN 424 art. 7º, par. único)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt; 3, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"junta_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-COLUNA-AUT-0001 — Data ausente: revisão de cadastro da guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

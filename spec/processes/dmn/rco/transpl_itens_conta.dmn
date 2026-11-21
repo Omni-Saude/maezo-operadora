@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_transpl_itens_conta" name="Transplantes: itens da conta (OMNI-TRANSPL-LIM-0001, OMNI-TRANSPL-LIM-0002, OMNI-TRANSPL-CMP-0002)" namespace="https://omni-saude/dmn/transplantes">
+  <decision id="rco_transpl_itens_conta" name="Transplantes: itens da conta (OMNI-TRANSPL-LIM-0001, OMNI-TRANSPL-LIM-0002, OMNI-TRANSPL-CMP-0002)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TRANSPL-LIM-0001 (manutenção de congelamento, até 2 anos pelo termo TUSS 40403807); OMNI-TRANSPL-LIM-0002 (acompanhamento hospitalar/dia do TMO, 40403017); OMNI-TRANSPL-CMP-0002 (diárias de unidade de transplante, TUSS 18). Glosa só de pagamento ao prestador, com recurso; nunca nega cobertura ao beneficiário.</description>
+    <decisionTable id="dt_transpl_itens_conta" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataExecucao do item, ISO AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoItem" label="codigoItem ← TISS codigoProcedimento/codigoItem (TUSS 22 ou TUSS 18)">
+        <inputExpression id="ie_codigoItem" typeRef="string"><text>codigoItem</text></inputExpression>
+      </input>
+      <input id="in_excedenteSobreDias" label="excedenteSobreDias ← TISS quantidadeExecutada de 40403017 menos dias de internação (dataInicioFaturamento a dataFinalFaturamento, contando entrada e alta)">
+        <inputExpression id="ie_excedenteSobreDias" typeRef="integer"><text>excedenteSobreDias</text></inputExpression>
+      </input>
+      <input id="in_cobrancasAnteriores730d" label="cobrancasAnteriores730d ← histórico TISS: cobranças de 40403807 pagas para o mesmo beneficiário nos 730 dias anteriores">
+        <inputExpression id="ie_cobrancasAnteriores730d" typeRef="integer"><text>cobrancasAnteriores730d</text></inputExpression>
+      </input>
+      <input id="in_transplanteNaInternacao" label="transplanteNaInternacao ← guia TISS de internação: tcth | orgao_solido | nenhum (procedimento principal autorizado)">
+        <inputExpression id="ie_transplanteNaInternacao" typeRef="string"><text>transplanteNaInternacao</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="i_pre">
+        <description>Fora da vigência (antes de 2026-11-03)</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_acomp_ok">
+        <description>OMNI-TRANSPL-LIM-0002: acompanhamento diário do TMO em quantidade até os dias de internação</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403017"</text></inputEntry>
+        <inputEntry><text>&lt;= 0</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_acomp_exc">
+        <description>OMNI-TRANSPL-LIM-0002: quantidade de acompanhamento diário acima dos dias de internação: glosa do excedente (Tab. 38: 3189)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403017"</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3189"</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="i_acomp_nulo">
+        <description>OMNI-TRANSPL-LIM-0002: quantidade ou dias ausentes</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403017"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_cong_ok">
+        <description>OMNI-TRANSPL-LIM-0001: primeira cobrança de manutenção de congelamento na janela de 2 anos</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403807"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt;= 0</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_cong_dup">
+        <description>OMNI-TRANSPL-LIM-0001: nova cobrança de manutenção de congelamento dentro de 730 dias: glosa por duplicidade (Tab. 38: 3209)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403807"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3209"</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="i_cong_nulo">
+        <description>OMNI-TRANSPL-LIM-0001: histórico ausente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403807"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dtmo_ok">
+        <description>OMNI-TRANSPL-CMP-0002: diária de unidade de TMO em internação de TCTH</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"60000988"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"tcth"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dtmo_out">
+        <description>OMNI-TRANSPL-CMP-0002: diária de unidade de TMO sem TCTH na internação: auditoria de enfermagem</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"60000988"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("tcth")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dger_ok">
+        <description>OMNI-TRANSPL-CMP-0002: diária de unidade de transplante em geral em internação de transplante de órgão sólido</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"60000996"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"orgao_solido"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dger_out">
+        <description>OMNI-TRANSPL-CMP-0002: diária de unidade de transplante em geral sem transplante de órgão sólido: auditoria de enfermagem</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"60000996"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("orgao_solido")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_fora">
+        <description>Fechamento: item sem regra de conta do domínio transplantes</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("40403017", "40403807", "60000988", "60000996")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_sem_data">
+        <description>OMNI-TRANSPL-LIM-0002: data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

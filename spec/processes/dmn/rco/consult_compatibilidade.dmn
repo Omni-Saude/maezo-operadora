@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_consult_compatibilidade" name="Código de consulta × regime e caráter do atendimento (OMNI-CONSULT-CMP-0001)" namespace="https://omni-saude/dmn/consultas-telemedicina">
+  <decision id="rco_consult_compatibilidade" name="Código de consulta × regime e caráter do atendimento (OMNI-CONSULT-CMP-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CONSULT-CMP-0001. Incompatibilidade vai ao faturamento; nunca glosa automática.</description>
+    <decisionTable id="dt_consult_compatibilidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_regimeAtendimentoTiss" label="regimeAtendimentoTiss ← TISS regimeAtendimento (Tab. 76: 01 ambulatorial, 02 domiciliar, 03 internação, 04 pronto-socorro, 05 telessaúde)">
+        <inputExpression id="ie_2_regimeAtendimentoTiss" typeRef="string"><text>regimeAtendimentoTiss</text></inputExpression>
+      </input>
+      <input id="in_3_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_3_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="p_pre">
+        <description>Antes da vigência: sem conferência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"10101012", "10101039"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sem_data">
+        <description>Data ausente: faturamento confere</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"10101012", "10101039"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_ps_eletivo">
+        <description>Consulta de pronto-socorro em regime ambulatorial e caráter eletivo: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"10101039"</text></inputEntry>
+        <inputEntry><text>"01"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_ps_amb_outro">
+        <description>Consulta de pronto-socorro em regime ambulatorial, caráter de urgência ou ausente: pagar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"10101039"</text></inputEntry>
+        <inputEntry><text>"01"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_ps_ok">
+        <description>Consulta de pronto-socorro em outro regime: pagar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"10101039"</text></inputEntry>
+        <inputEntry><text>not("01")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_cons_ps">
+        <description>Consulta de consultório em regime de pronto-socorro: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"10101012"</text></inputEntry>
+        <inputEntry><text>"04"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_cons_ok">
+        <description>Consulta de consultório em outro regime: pagar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"10101012"</text></inputEntry>
+        <inputEntry><text>not("04")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_fora">
+        <description>Fechamento: outro código, sem efeito desta tabela</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("10101012", "10101039")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

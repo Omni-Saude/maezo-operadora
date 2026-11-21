@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_coluna_pacote_desvios" name="Desvios dos pacotes de coluna: permanência, UTI, complicação e reinternação (OMNI-COLUNA-PAC-0001, PAC-0002)" namespace="https://omni-saude/dmn/opme-coluna">
+  <decision id="rco_coluna_pacote_desvios" name="Desvios dos pacotes de coluna: permanência, UTI, complicação e reinternação (OMNI-COLUNA-PAC-0001, PAC-0002)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-COLUNA-PAC-0001; OMNI-COLUNA-PAC-0002. Domínio opme-coluna. Gerado por scripts do piloto; hit policy UNIQUE, sem lacuna (linhas de fechamento nunca negam).</description>
+    <decisionTable id="dt_coluna_pacote_desvios" hitPolicy="UNIQUE">
+      <input id="in_0_codigoPacote" label="codigoPacote ← TISS codigoProcedimento do pacote (Tabela 98) cobrado na guia de resumo de internação">
+        <inputExpression id="ie_0_codigoPacote" typeRef="string"><text>codigoPacote</text></inputExpression>
+      </input>
+      <input id="in_1_reinternacaoMesmaCausa" label="reinternacaoMesmaCausa ← histórico TISS: nova internação no mesmo prestador até 30 dias da alta, com mesma categoria de CID principal ou mesmo procedimento principal">
+        <inputExpression id="ie_1_reinternacaoMesmaCausa" typeRef="boolean"><text>reinternacaoMesmaCausa</text></inputExpression>
+      </input>
+      <input id="in_2_complicacaoCidSecundario" label="complicacaoCidSecundario ← TISS: CID secundário da guia na lista de complicação do pacote (lista LACUNA: enviar null)">
+        <inputExpression id="ie_2_complicacaoCidSecundario" typeRef="boolean"><text>complicacaoCidSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_utiNaoPrevista" label="utiNaoPrevista ← TISS: diária de UTI (TUSS 49: 51) cobrada sem previsão na autorização">
+        <inputExpression id="ie_3_utiNaoPrevista" typeRef="boolean"><text>utiNaoPrevista</text></inputExpression>
+      </input>
+      <input id="in_4_diasInternacao" label="diasInternacao ← TISS resumo de internação: data da alta menos data da internação, em dias">
+        <inputExpression id="ie_4_diasInternacao" typeRef="integer"><text>diasInternacao</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <output id="out_4_acaoPagamento" name="acaoPagamento" typeRef="string"/>
+      <rule id="r002">
+        <description>OMNI-COLUNA-PAC-0001 — Reinternação pela mesma causa em 30 dias: sem novo pacote; diárias além do limiar pagas</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0001"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"1711"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+        <outputEntry><text>"sem_novo_pacote_diarias_adicionais"</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-COLUNA-PAC-0001 — Complicação por CID secundário: auditoria</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"revisao_complicacao"</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-COLUNA-PAC-0001 — UTI não prevista: diária de UTI paga à parte</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pagar_diaria_uti_a_parte"</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-COLUNA-PAC-0001 — Permanência até 2 dias: pacote integral</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>[0..2]</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote_integral"</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-COLUNA-PAC-0001 — Permanência de 3 a 6 dias: pacote mais diária adicional</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>[3..6]</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pagar_adicional_diario"</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-COLUNA-PAC-0001 — Permanência de 7 dias ou mais: paga diária adicional e revisa</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>&gt;= 7</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pagar_adicional_diario_e_revisar"</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-COLUNA-PAC-0001 — Permanência ausente ou negativa: pedir resumo de internação</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>&lt; 0, null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r009">
+        <description>OMNI-COLUNA-PAC-0002 — Reinternação pela mesma causa em 30 dias: sem novo pacote; diárias além do limiar pagas</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0002"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"1711"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+        <outputEntry><text>"sem_novo_pacote_diarias_adicionais"</text></outputEntry>
+      </rule>
+      <rule id="r010">
+        <description>OMNI-COLUNA-PAC-0002 — Complicação por CID secundário: auditoria</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0002"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"revisao_complicacao"</text></outputEntry>
+      </rule>
+      <rule id="r011">
+        <description>OMNI-COLUNA-PAC-0002 — UTI não prevista: diária de UTI paga à parte</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0002"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pagar_diaria_uti_a_parte"</text></outputEntry>
+      </rule>
+      <rule id="r012">
+        <description>OMNI-COLUNA-PAC-0002 — Permanência até 4 dias: pacote integral</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0002"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>[0..4]</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote_integral"</text></outputEntry>
+      </rule>
+      <rule id="r013">
+        <description>OMNI-COLUNA-PAC-0002 — Permanência de 5 a 9 dias: pacote mais diária adicional</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0002"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>[5..9]</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pagar_adicional_diario"</text></outputEntry>
+      </rule>
+      <rule id="r014">
+        <description>OMNI-COLUNA-PAC-0002 — Permanência de 10 dias ou mais: paga diária adicional e revisa</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0002"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>&gt;= 10</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pagar_adicional_diario_e_revisar"</text></outputEntry>
+      </rule>
+      <rule id="r015">
+        <description>OMNI-COLUNA-PAC-0002 — Permanência ausente ou negativa: pedir resumo de internação</description>
+        <inputEntry><text>"OMNI-PAC-COLUNA-0002"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>&lt; 0, null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-COLUNA-PAC-0001 — Fechamento: guia sem pacote de coluna</description>
+        <inputEntry><text>not("OMNI-PAC-COLUNA-0001", "OMNI-PAC-COLUNA-0002")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

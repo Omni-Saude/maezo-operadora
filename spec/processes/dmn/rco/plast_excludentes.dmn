@@ -1,0 +1,349 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_plast_excludentes" name="Plástica e dermatologia: pares de procedimentos na mesma guia em revisão humana" namespace="https://omni-saude/dmn/plastica-dermatologia">
+  <decision id="rco_plast_excludentes" name="Plástica e dermatologia: pares de procedimentos na mesma guia em revisão humana" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-PLAST-MEX-0001 e MEX-0002. Hit policy UNIQUE; nenhuma linha glosa (par sem base normativa de exclusão): o par vai à auditoria médica; viaAcesso 3 (diferentes vias) é a exceção TISS; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_plast_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento de outra linha da mesma guia e dataExecucao (TUSS 22)">
+        <inputExpression id="ie_1_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <input id="in_2_viaAcessoSecundario" label="viaAcessoSecundario ← TISS viaAcesso da linha secundária (Tab. 61: 1 única, 2 mesma via, 3 diferentes vias)">
+        <inputExpression id="ie_2_viaAcessoSecundario" typeRef="string"><text>viaAcessoSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_codigoPrincipal" label="codigoPrincipal ← TISS codigoProcedimento do procedimento de referência da guia e dataExecucao (TUSS 22)">
+        <inputExpression id="ie_3_codigoPrincipal" typeRef="string"><text>codigoPrincipal</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência (03/12/2026): OMNI-PLAST-MEX-0001 ainda não vale, liberação</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g1_par">
+        <description>OMNI-PLAST-MEX-0001 — par na mesma guia e data sem vias diferentes: auditoria médica, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101255", "30101298", "30101204", "20104073"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>"30101107"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g1_via">
+        <description>OMNI-PLAST-MEX-0001 — par por vias diferentes (viaAcesso 3): dois atos explicados, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101255", "30101298", "30101204", "20104073"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>"30101107"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g1_ok">
+        <description>OMNI-PLAST-MEX-0001 — principal do grupo sem secundário excludente: liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30101255", "30101298", "30101204", "20104073")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101107"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g2_par">
+        <description>OMNI-PLAST-MEX-0001 — par na mesma guia e data sem vias diferentes: auditoria médica, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101298", "20104073"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>"30101255"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g2_via">
+        <description>OMNI-PLAST-MEX-0001 — par por vias diferentes (viaAcesso 3): dois atos explicados, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101298", "20104073"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>"30101255"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g2_ok">
+        <description>OMNI-PLAST-MEX-0001 — principal do grupo sem secundário excludente: liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30101298", "20104073")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101255"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g3_par">
+        <description>OMNI-PLAST-MEX-0001 — par na mesma guia e data sem vias diferentes: auditoria médica, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"20104073", "30101506"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>"30101298"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g3_via">
+        <description>OMNI-PLAST-MEX-0001 — par por vias diferentes (viaAcesso 3): dois atos explicados, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"20104073", "30101506"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>"30101298"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g3_ok">
+        <description>OMNI-PLAST-MEX-0001 — principal do grupo sem secundário excludente: liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("20104073", "30101506")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101298"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g4_par">
+        <description>OMNI-PLAST-MEX-0001 — par na mesma guia e data sem vias diferentes: auditoria médica, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101794", "30101786"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>"30101603"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g4_via">
+        <description>OMNI-PLAST-MEX-0001 — par por vias diferentes (viaAcesso 3): dois atos explicados, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101794", "30101786"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>"30101603"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g4_ok">
+        <description>OMNI-PLAST-MEX-0001 — principal do grupo sem secundário excludente: liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30101794", "30101786")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101603"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g5_par">
+        <description>OMNI-PLAST-MEX-0001 — par na mesma guia e data sem vias diferentes: auditoria médica, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101794"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>"30101492"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g5_via">
+        <description>OMNI-PLAST-MEX-0001 — par por vias diferentes (viaAcesso 3): dois atos explicados, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101794"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>"30101492"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g5_ok">
+        <description>OMNI-PLAST-MEX-0001 — principal do grupo sem secundário excludente: liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30101794")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101492"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g6_par">
+        <description>OMNI-PLAST-MEX-0001 — par na mesma guia e data sem vias diferentes: auditoria médica, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101700"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>"30101670"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g6_via">
+        <description>OMNI-PLAST-MEX-0001 — par por vias diferentes (viaAcesso 3): dois atos explicados, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101700"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>"30101670"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g6_ok">
+        <description>OMNI-PLAST-MEX-0001 — principal do grupo sem secundário excludente: liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101700")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101670"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g7_par">
+        <description>OMNI-PLAST-MEX-0002 — par na mesma guia e data sem vias diferentes: auditoria médica, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101972", "30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101700"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>"30101271"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g7_via">
+        <description>OMNI-PLAST-MEX-0002 — par por vias diferentes (viaAcesso 3): dois atos explicados, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101972", "30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101700"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>"30101271"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g7_ok">
+        <description>OMNI-PLAST-MEX-0002 — principal do grupo sem secundário excludente: liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30101972", "30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101700")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101271"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g8_par">
+        <description>OMNI-PLAST-MEX-0002 — par na mesma guia e data sem vias diferentes: auditoria médica, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101700"</text></inputEntry>
+        <inputEntry><text>not("3")</text></inputEntry>
+        <inputEntry><text>"30101972"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g8_via">
+        <description>OMNI-PLAST-MEX-0002 — par por vias diferentes (viaAcesso 3): dois atos explicados, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101700"</text></inputEntry>
+        <inputEntry><text>"3"</text></inputEntry>
+        <inputEntry><text>"30101972"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g8_ok">
+        <description>OMNI-PLAST-MEX-0002 — principal do grupo sem secundário excludente: liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101700")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101972"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-PLAST-MEX-0001 — código sem par excludente no domínio</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("30101107", "30101255", "30101271", "30101298", "30101492", "30101603", "30101670", "30101972")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-PLAST-MEX-0001 — data ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

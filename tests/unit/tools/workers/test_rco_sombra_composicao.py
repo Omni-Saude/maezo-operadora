@@ -347,10 +347,18 @@ def test_composicao_ausente_nao_avalia(pin_2_3: rco_pin.RcoRulesPin, metrica: li
     assert (dmn.calls, fatos.entregues, metrica) == ([], [], [rco_sombra.COMPOSICAO_AUSENTE])
 
 
+def test_pin_real_fixado_avalia_a_composicao_em_sombra(metrica: list[str]) -> None:
+    """O pin real do repositorio (K1 b8444f52, `fixado`): o grupo e avaliado inteiro, membro a membro na
+    ordem de restricao, so em sombra (a porta devolve `None`)."""
+    assert rco_pin.rco_rules_pin().estado == "fixado"
+    dmn = _dmn_pior_caso()
+    assert rco_sombra.avaliar_composicao_em_sombra(dmn, GRUPO, _Fatos()) is None  # type: ignore[func-returns-value]
+    assert [chave for chave, _ in dmn.calls] == [CARENCIA, CPT]
+    assert metrica == [rco_sombra.COMPOSICAO_ESCOLHIDA]
+
+
 def test_pin_sem_pacote_e_pin_ilegivel(monkeypatch: pytest.MonkeyPatch, metrica: list[str]) -> None:
     dmn = _dmn_pior_caso()
-    assert rco_pin.rco_rules_pin().estado == "sem_pacote"  # o pin real do repositorio
-    rco_sombra.avaliar_composicao_em_sombra(dmn, GRUPO, _Fatos())
     _pinar(monkeypatch, rco_pin.RcoRulesPin(estado="sem_pacote", tables=MappingProxyType({})))
     rco_sombra.avaliar_composicao_em_sombra(dmn, GRUPO, _Fatos())
 
@@ -362,7 +370,6 @@ def test_pin_sem_pacote_e_pin_ilegivel(monkeypatch: pytest.MonkeyPatch, metrica:
     rco_sombra.avaliar_composicao_em_sombra(None, GRUPO, _Fatos())
     assert dmn.calls == []
     assert metrica == [
-        rco_sombra.SEM_PACOTE,
         rco_sombra.SEM_PACOTE,
         rco_sombra.PIN_INDISPONIVEL,
         rco_sombra.SEM_TRANSPORTE,

@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imgconv_pacote" name="Imagem convencional: pacote dos métodos intervencionistas programáveis" namespace="https://omni-saude/dmn/imagem-convencional">
+  <decision id="rco_imgconv_pacote" name="Imagem convencional: pacote dos métodos intervencionistas programáveis" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-IMGCONV-PAC-0001. Domínio imagem-convencional. Hit policy UNIQUE; nenhuma linha nega ou glosa; urgência (EXC-01) e prestador sem pacote (EXC-02) vão para conta aberta (liberar); caráter ausente vai à regulação; prestador com pacote nulo vai ao cadastro; a linha de fechamento (data ausente) vai à revisão humana. A revisão por outro procedimento na guia e por permanência acima do limiar depende do arquivo do pacote e de entradas que ainda não existem (registrado na entrega).</description>
+    <decisionTable id="dt_imgconv_pacote" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_prestadorComPacote" label="prestadorComPacote ← cadastro contratual: pacote OMNI-PAC-IMGCONV-0001 vigente no anexo do contrato do prestador">
+        <inputExpression id="ie_3_prestadorComPacote" typeRef="boolean"><text>prestadorComPacote</text></inputExpression>
+      </input>
+      <input id="in_4_regime" label="regime ← TISS regimeInternacao ou tipo de guia (ambulatorial, internacao, hospital_dia)">
+        <inputExpression id="ie_4_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência: regras IMGCONV não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_fora">
+        <description>código fora do pacote: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40813231", "40813240", "40813746", "40813754", "40813835", "40814092", "40814190")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_urg">
+        <description>OMNI-IMGCONV-PAC-0001 — urgência ou emergência (EXC-01): conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40813231", "40813240", "40813746", "40813754", "40813835", "40814092", "40814190"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_car">
+        <description>OMNI-IMGCONV-PAC-0001 — caráter de atendimento ausente ou inválido: regulação, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40813231", "40813240", "40813746", "40813754", "40813835", "40814092", "40814190"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sem_pac">
+        <description>OMNI-IMGCONV-PAC-0001 — prestador sem o pacote (EXC-02): conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40813231", "40813240", "40813746", "40813754", "40813835", "40814092", "40814190"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_pac_nulo">
+        <description>OMNI-IMGCONV-PAC-0001 — pacote do prestador não informado: cadastro, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40813231", "40813240", "40813746", "40813754", "40813835", "40814092", "40814190"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_pacote">
+        <description>OMNI-IMGCONV-PAC-0001 — eletivo, prestador com pacote, internação ou hospital-dia: pagar o pacote</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40813231", "40813240", "40813746", "40813754", "40813835", "40814092", "40814190"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"internacao", "hospital_dia"</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_reg">
+        <description>OMNI-IMGCONV-PAC-0001 — eletivo, prestador com pacote, regime fora do hospitalar ou ausente: faturamento confere, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40813231", "40813240", "40813746", "40813754", "40813835", "40814092", "40814190"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("internacao", "hospital_dia")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>data ausente: faturamento, sem glosa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

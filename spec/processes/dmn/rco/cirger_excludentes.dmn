@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_cirger_excludentes" name="Pares de procedimentos no mesmo ato em cirurgia geral e do aparelho digestivo" namespace="https://omni-saude/dmn/cirurgia-geral-digestiva">
+  <decision id="rco_cirger_excludentes" name="Pares de procedimentos no mesmo ato em cirurgia geral e do aparelho digestivo (OMNI-CIRGER-MEX-0001; OMNI-CIRGER-MEX-0002; OMNI-CIRGER-MEX-0003; OMNI-CIRGER-MEX-0004; OMNI-CIRGER-MEX-0005; OMNI-CIRGER-MEX-0006)" camunda:historyTimeToLive="P180D">
+    <description>Para cada par ordenado (principal, secundário) da mesma guia e data, decide se o código secundário é pago. As famílias vêm de dominio.yaml (familias_principal e familias_secundario). Regras: OMNI-CIRGER-MEX-0001; OMNI-CIRGER-MEX-0002; OMNI-CIRGER-MEX-0003; OMNI-CIRGER-MEX-0004; OMNI-CIRGER-MEX-0005; OMNI-CIRGER-MEX-0006. Gerado por regras/cirurgia-geral-digestiva/gerar_cirger.py; hit policy UNIQUE; a linha de fechamento nunca nega.</description>
+    <decisionTable id="dt_cirger_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_familiaPrincipal" label="familiaPrincipal ← TISS codigoProcedimento (TUSS 22) do procedimento principal, classificado por dominio.yaml (familias_principal)">
+        <inputExpression id="ie_1_familiaPrincipal" typeRef="string"><text>familiaPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_familiaSecundario" label="familiaSecundario ← TISS codigoProcedimento (TUSS 22) do outro código da mesma guia e data, classificado por dominio.yaml (familias_secundario)">
+        <inputExpression id="ie_2_familiaSecundario" typeRef="string"><text>familiaSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_episodioEmPacote" label="episodioEmPacote ← cadastro de contrato: guia paga em pacote OMNI-PAC-CIRGER vigente para o prestador (booleano)">
+        <inputExpression id="ie_3_episodioEmPacote" typeRef="boolean"><text>episodioEmPacote</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-CIRGER-MEX-0001 — antes da vigência (2027-01-01)</description>
+        <inputEntry><text>&lt; "2027-01-01"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-CIRGER-MEX-0001 — laparotomia exploradora com o tratamento específico na cavidade: incluída</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"abaixamento_aberta","abaixamento_video","abdominal_aberta","abdominal_video","colecistectomia_com_colangiografia_aberta","colecistectomia_com_colangiografia_video","colecistectomia_sem_colangiografia_aberta","colecistectomia_sem_colangiografia_video","colorretal_ressecao_aberta","colorretal_ressecao_video","fechamento_colostomia"</text></inputEntry>
+        <inputEntry><text>"laparotomia_exploradora"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-CIRGER-MEX-0001 — laparotomia exploradora com outro código CIRGER: auditoria confere se trata outra patologia</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"outro_cirger"</text></inputEntry>
+        <inputEntry><text>"laparotomia_exploradora"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-CIRGER-MEX-0001 — duas laparotomias exploradoras no ato (conversão de via): paga-se uma</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"laparotomia_exploradora"</text></inputEntry>
+        <inputEntry><text>"laparotomia_exploradora"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-CIRGER-MEX-0002 — linfadenectomia adjacente na ressecção colorretal: incluída</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colorretal_ressecao_aberta","colorretal_ressecao_video","abaixamento_aberta","abaixamento_video"</text></inputEntry>
+        <inputEntry><text>"linfadenectomia_regional"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-CIRGER-MEX-0002 — linfadenectomia pélvica, ilíaca ou retroperitoneal na ressecção colorretal: auditoria (imagem e anatomopatológico)</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colorretal_ressecao_aberta","colorretal_ressecao_video","abaixamento_aberta","abaixamento_video"</text></inputEntry>
+        <inputEntry><text>"linfadenectomia_a_parte"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-CIRGER-MEX-0002 — enterorrafia inerente à ressecção ou ao fechamento de colostomia: incluída</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colorretal_ressecao_aberta","colorretal_ressecao_video","abaixamento_aberta","abaixamento_video","fechamento_colostomia"</text></inputEntry>
+        <inputEntry><text>"enterorrafia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-CIRGER-MEX-0002 — ressecção colorretal cobrada junto com a cirurgia de abaixamento: incluída</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"abaixamento_aberta","abaixamento_video"</text></inputEntry>
+        <inputEntry><text>"colorretal_ressecao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-CIRGER-MEX-0003 — colangiografia intraoperatória em colecistectomia com colangiografia, em pacote: incluída no pacote</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_com_colangiografia_aberta","colecistectomia_com_colangiografia_video"</text></inputEntry>
+        <inputEntry><text>"rx_colangiografia_intraoperatoria"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3211"</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r009">
+        <description>OMNI-CIRGER-MEX-0003 — colangiografia intraoperatória em colecistectomia com colangiografia, conta aberta: exame de imagem pago à parte</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_com_colangiografia_aberta","colecistectomia_com_colangiografia_video"</text></inputEntry>
+        <inputEntry><text>"rx_colangiografia_intraoperatoria"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r010">
+        <description>OMNI-CIRGER-MEX-0003 — colangiografia intraoperatória sem dado de pacote: faturamento confere</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_com_colangiografia_aberta","colecistectomia_com_colangiografia_video"</text></inputEntry>
+        <inputEntry><text>"rx_colangiografia_intraoperatoria"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r011">
+        <description>OMNI-CIRGER-MEX-0003 — colangiografia cobrada com colecistectomia sem colangiografia: código cirúrgico incoerente</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"colecistectomia_sem_colangiografia_aberta","colecistectomia_sem_colangiografia_video"</text></inputEntry>
+        <inputEntry><text>"rx_colangiografia_intraoperatoria"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r012">
+        <description>OMNI-CIRGER-MEX-0004 — laparoscopia ginecológica com cirurgia digestiva por vídeo: auditoria confirma cromotubagem ou indicação ginecológica</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"abaixamento_video","abdominal_video","colecistectomia_com_colangiografia_video","colecistectomia_sem_colangiografia_video","colorretal_ressecao_video"</text></inputEntry>
+        <inputEntry><text>"laparoscopia_ginecologica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r013">
+        <description>OMNI-CIRGER-MEX-0005 — herniorrafia umbilical com cirurgia por vídeo: exige imagem com anel herniário maior que 1 cm</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"abaixamento_video","abdominal_video","colecistectomia_com_colangiografia_video","colecistectomia_sem_colangiografia_video","colorretal_ressecao_video"</text></inputEntry>
+        <inputEntry><text>"herniorrafia_umbilical"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r014">
+        <description>OMNI-CIRGER-MEX-0006 — excisão de plicoma no ato da hemorroidectomia: incluída</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hemorroidectomia"</text></inputEntry>
+        <inputEntry><text>"plicoma"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0006"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r015">
+        <description>OMNI-CIRGER-MEX-0001 — fechamento: laparotomia exploradora com família fora da cavidade ou ausente</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("abaixamento_aberta","abaixamento_video","abdominal_aberta","abdominal_video","colecistectomia_com_colangiografia_aberta","colecistectomia_com_colangiografia_video","colecistectomia_sem_colangiografia_aberta","colecistectomia_sem_colangiografia_video","colorretal_ressecao_aberta","colorretal_ressecao_video","fechamento_colostomia","outro_cirger","laparotomia_exploradora")</text></inputEntry>
+        <inputEntry><text>"laparotomia_exploradora"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r016">
+        <description>OMNI-CIRGER-MEX-0002 — fechamento: linfadenectomia ou ressecção colorretal fora de ressecção colorretal</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("colorretal_ressecao_aberta","colorretal_ressecao_video","abaixamento_aberta","abaixamento_video")</text></inputEntry>
+        <inputEntry><text>"linfadenectomia_regional","linfadenectomia_a_parte"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r017">
+        <description>OMNI-CIRGER-MEX-0002 — fechamento: enterorrafia fora de ressecção colorretal ou de fechamento de colostomia</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("colorretal_ressecao_aberta","colorretal_ressecao_video","abaixamento_aberta","abaixamento_video","fechamento_colostomia")</text></inputEntry>
+        <inputEntry><text>"enterorrafia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r018">
+        <description>OMNI-CIRGER-MEX-0002 — fechamento: ressecção colorretal com principal que não é abaixamento</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("abaixamento_aberta","abaixamento_video")</text></inputEntry>
+        <inputEntry><text>"colorretal_ressecao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r019">
+        <description>OMNI-CIRGER-MEX-0003 — fechamento: colangiografia com outro principal</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("colecistectomia_com_colangiografia_aberta","colecistectomia_com_colangiografia_video","colecistectomia_sem_colangiografia_aberta","colecistectomia_sem_colangiografia_video")</text></inputEntry>
+        <inputEntry><text>"rx_colangiografia_intraoperatoria"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r020">
+        <description>OMNI-CIRGER-MEX-0004 — fechamento: laparoscopia ginecológica sem cirurgia digestiva por vídeo</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("abaixamento_video","abdominal_video","colecistectomia_com_colangiografia_video","colecistectomia_sem_colangiografia_video","colorretal_ressecao_video")</text></inputEntry>
+        <inputEntry><text>"laparoscopia_ginecologica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r021">
+        <description>OMNI-CIRGER-MEX-0005 — fechamento: herniorrafia umbilical sem cirurgia por vídeo</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("abaixamento_video","abdominal_video","colecistectomia_com_colangiografia_video","colecistectomia_sem_colangiografia_video","colorretal_ressecao_video")</text></inputEntry>
+        <inputEntry><text>"herniorrafia_umbilical"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r022">
+        <description>OMNI-CIRGER-MEX-0006 — fechamento: plicoma sem hemorroidectomia</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("hemorroidectomia")</text></inputEntry>
+        <inputEntry><text>"plicoma"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r023">
+        <description>OMNI-CIRGER-MEX-0001 — fechamento: par sem regra CIRGER</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("laparotomia_exploradora","linfadenectomia_regional","linfadenectomia_a_parte","enterorrafia","colorretal_ressecao","rx_colangiografia_intraoperatoria","laparoscopia_ginecologica","herniorrafia_umbilical","plicoma")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r024">
+        <description>OMNI-CIRGER-MEX-0001 — data ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

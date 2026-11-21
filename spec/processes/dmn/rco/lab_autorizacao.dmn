@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_lab_autorizacao" name="Laboratório: autorização prévia dos códigos com DUT exclusiva" namespace="https://omni-saude/dmn/laboratorio">
+  <decision id="rco_lab_autorizacao" name="Laboratório: autorização prévia dos códigos com DUT exclusiva" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-LAB-AUT-0001 a OMNI-LAB-AUT-0006 (exceto 0005, removida). Domínio laboratorio. Hit policy UNIQUE; nenhuma linha nega; urgência libera; caráter nulo vai à regulação.</description>
+    <decisionTable id="dt_lab_autorizacao" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-LAB-AUT-0001 — antes do início da vigência (03/12/2026): a regra não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a1_eletivo">
+        <description>OMNI-LAB-AUT-0001 — código com DUT exclusiva, eletivo: exige autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40314022", "40314081", "40314111", "40314146", "40314227", "40314294", "40314413", "40314430", "40314677", "40314685"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a1_urg">
+        <description>OMNI-LAB-AUT-0001 — código com DUT exclusiva, urgência ou emergência: libera sem autorização</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40314022", "40314081", "40314111", "40314146", "40314227", "40314294", "40314413", "40314430", "40314677", "40314685"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a1_car">
+        <description>OMNI-LAB-AUT-0001 — código com DUT exclusiva, caráter ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40314022", "40314081", "40314111", "40314146", "40314227", "40314294", "40314413", "40314430", "40314677", "40314685"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a2_eletivo">
+        <description>OMNI-LAB-AUT-0002 — código com DUT exclusiva, eletivo: exige autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40301206", "40301214", "40301982", "40302431", "40302610", "40302717", "40302725", "40312224", "40321029"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a2_urg">
+        <description>OMNI-LAB-AUT-0002 — código com DUT exclusiva, urgência ou emergência: libera sem autorização</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40301206", "40301214", "40301982", "40302431", "40302610", "40302717", "40302725", "40312224", "40321029"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a2_car">
+        <description>OMNI-LAB-AUT-0002 — código com DUT exclusiva, caráter ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40301206", "40301214", "40301982", "40302431", "40302610", "40302717", "40302725", "40312224", "40321029"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a3_eletivo">
+        <description>OMNI-LAB-AUT-0003 — código com DUT exclusiva, eletivo: exige autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40304973", "40308235", "40312020", "40314057", "40314065", "40314235", "40314260", "40314286", "40319326", "40323552"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a3_urg">
+        <description>OMNI-LAB-AUT-0003 — código com DUT exclusiva, urgência ou emergência: libera sem autorização</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40304973", "40308235", "40312020", "40314057", "40314065", "40314235", "40314260", "40314286", "40319326", "40323552"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a3_car">
+        <description>OMNI-LAB-AUT-0003 — código com DUT exclusiva, caráter ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40304973", "40308235", "40312020", "40314057", "40314065", "40314235", "40314260", "40314286", "40319326", "40323552"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a4_eletivo">
+        <description>OMNI-LAB-AUT-0004 — código com DUT exclusiva, eletivo: exige autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40306461", "40308804", "40308898", "40316661", "40324338", "40324346", "40324648"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a4_urg">
+        <description>OMNI-LAB-AUT-0004 — código com DUT exclusiva, urgência ou emergência: libera sem autorização</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40306461", "40308804", "40308898", "40316661", "40324338", "40324346", "40324648"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a4_car">
+        <description>OMNI-LAB-AUT-0004 — código com DUT exclusiva, caráter ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40306461", "40308804", "40308898", "40316661", "40324338", "40324346", "40324648"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a6_eletivo">
+        <description>OMNI-LAB-AUT-0006 — código com DUT exclusiva, eletivo: exige autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40303284", "40303330", "40304760", "40319440", "40319458", "40323986"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a6_urg">
+        <description>OMNI-LAB-AUT-0006 — código com DUT exclusiva, urgência ou emergência: libera sem autorização</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40303284", "40303330", "40304760", "40319440", "40319458", "40323986"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a6_car">
+        <description>OMNI-LAB-AUT-0006 — código com DUT exclusiva, caráter ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40303284", "40303330", "40304760", "40319440", "40319458", "40323986"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0006"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-LAB-AUT-0001 — demais códigos de laboratório: sem autorização</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40301206", "40301214", "40301982", "40302431", "40302610", "40302717", "40302725", "40303284", "40303330", "40304760", "40304973", "40306461", "40308235", "40308804", "40308898", "40312020", "40312224", "40314022", "40314057", "40314065", "40314081", "40314111", "40314146", "40314227", "40314235", "40314260", "40314286", "40314294", "40314413", "40314430", "40314677", "40314685", "40316661", "40319326", "40319440", "40319458", "40321029", "40323552", "40323986", "40324338", "40324346", "40324648")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="fim">
+        <description>OMNI-LAB-AUT-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

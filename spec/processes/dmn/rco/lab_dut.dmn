@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_lab_dut" name="Laboratório: DUT de janela curta ou hospitalar, critério no pedido" namespace="https://omni-saude/dmn/laboratorio">
+  <decision id="rco_lab_dut" name="Laboratório: DUT de janela curta ou hospitalar, critério no pedido" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-LAB-DUT-0001. Domínio laboratorio. Hit policy UNIQUE; nenhuma linha nega; urgência libera com ou sem documento; caráter nulo vai à regulação.</description>
+    <decisionTable id="dt_lab_dut" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_documentacaoCompleta" label="documentacaoCompleta ← solicitação (pedido do médico assistente): critério da DUT descrito (true, false ou ausente)">
+        <inputExpression id="ie_documentacaoCompleta" typeRef="boolean"><text>documentacaoCompleta</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-LAB-DUT-0001 — antes do início da vigência (03/12/2026): a regra não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_urg">
+        <description>OMNI-LAB-DUT-0001 — código com DUT de janela curta, urgência ou emergência: libera, com documentação completa ou não</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40302687", "40304493", "40304906", "40311511", "40314480", "40314561", "40314618", "40314626", "40314669", "40322572", "40323676", "40323684", "40324591", "40324605", "40324788", "40324796", "40325024", "40404153", "40404161"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_car">
+        <description>OMNI-LAB-DUT-0001 — código com DUT de janela curta, caráter ausente ou fora da TUSS 23: regulação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40302687", "40304493", "40304906", "40311511", "40314480", "40314561", "40314618", "40314626", "40314669", "40322572", "40323676", "40323684", "40324591", "40324605", "40324788", "40324796", "40325024", "40404153", "40404161"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_ok">
+        <description>OMNI-LAB-DUT-0001 — código com DUT de janela curta, eletivo, critério da DUT descrito: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40302687", "40304493", "40304906", "40311511", "40314480", "40314561", "40314618", "40314626", "40314669", "40322572", "40323676", "40323684", "40324591", "40324605", "40324788", "40324796", "40325024", "40404153", "40404161"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_falta">
+        <description>OMNI-LAB-DUT-0001 — código com DUT de janela curta, eletivo, critério ausente no pedido: lista do que falta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40302687", "40304493", "40304906", "40311511", "40314480", "40314561", "40314618", "40314626", "40314669", "40322572", "40323676", "40323684", "40324591", "40324605", "40324788", "40324796", "40325024", "40404153", "40404161"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_nulo">
+        <description>OMNI-LAB-DUT-0001 — código com DUT de janela curta, eletivo, documentação sem informação: regulação, sem pendência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40302687", "40304493", "40304906", "40311511", "40314480", "40314561", "40314618", "40314626", "40314669", "40322572", "40323676", "40323684", "40324591", "40324605", "40324788", "40324796", "40325024", "40404153", "40404161"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-LAB-DUT-0001 — demais códigos: sem exigência de documento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40302687", "40304493", "40304906", "40311511", "40314480", "40314561", "40314618", "40314626", "40314669", "40322572", "40323676", "40323684", "40324591", "40324605", "40324788", "40324796", "40325024", "40404153", "40404161")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="fim">
+        <description>OMNI-LAB-DUT-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

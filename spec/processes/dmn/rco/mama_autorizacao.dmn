@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_mama_autorizacao" name="Mastologia: autorização prévia da cirurgia eletiva de mama e de parede torácica; urgência e reconstrução sem autorização" namespace="https://omni-saude/dmn/mastologia">
+  <decision id="rco_mama_autorizacao" name="Mastologia: autorização prévia da cirurgia eletiva de mama e de parede torácica; urgência e reconstrução sem autorização" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-MAMA-AUT-0001 a OMNI-MAMA-AUT-0004. Hit policy UNIQUE; nenhuma linha nega; a autorização vale só para o caráter eletivo (1) das cirurgias hospitalares da lista; urgência ou emergência (2) libera, com ou sem documentação; caráter ausente ou fora da TUSS 23 vai à regulação; reconstrução e simetrização nunca exigem autorização; a falta de documento gera a lista do que falta (RN 623, art. 12, §6º); a linha de fechamento (data ausente) vai à revisão humana. Classes em regras/mastologia/dominio.yaml.</description>
+    <decisionTable id="dt_mama_autorizacao" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_documentacaoCompleta" label="documentacaoCompleta ← solicitação: relatório e exames do pedido anexados e conferidos pela regulação (anexo da guia TISS)">
+        <inputExpression id="ie_3_documentacaoCompleta" typeRef="boolean"><text>documentacaoCompleta</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="a_pre">
+        <description>OMNI-MAMA-AUT-0001 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a1_urg">
+        <description>OMNI-MAMA-AUT-0004 — urgência ou emergência (caráter 2): liberação na entrada, sem autorização nem documento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602033", "30602041", "30602076", "30602084", "30602092", "30602106", "30602114", "30602130", "30602149", "30602157", "30602190", "30602203", "30602289", "30602297", "30602300", "30602319", "30602343", "30602351", "30602386", "30602394", "30602408", "30602416", "30602424", "30602440", "30602459"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a1_falta">
+        <description>OMNI-MAMA-AUT-0003 — pedido eletivo com documentação incompleta: lista objetiva do que falta (RN 623, art. 12, §6º), sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602033", "30602041", "30602076", "30602084", "30602092", "30602106", "30602114", "30602130", "30602149", "30602157", "30602190", "30602203", "30602289", "30602297", "30602300", "30602319", "30602343", "30602351", "30602386", "30602394", "30602408", "30602416", "30602424", "30602440", "30602459"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a1_aut">
+        <description>OMNI-MAMA-AUT-0001 — cirurgia eletiva de mama com documentação completa: exige autorização prévia (resposta em até 10 dias úteis)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602033", "30602041", "30602076", "30602084", "30602092", "30602106", "30602114", "30602130", "30602149", "30602157", "30602190", "30602203", "30602289", "30602297", "30602300", "30602319", "30602343", "30602351", "30602386", "30602394", "30602408", "30602416", "30602424", "30602440", "30602459"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a1_nulo">
+        <description>OMNI-MAMA-AUT-0001 — cirurgia eletiva de mama com documentação não informada: segue para autorização, onde a regulação confere os anexos; sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602033", "30602041", "30602076", "30602084", "30602092", "30602106", "30602114", "30602130", "30602149", "30602157", "30602190", "30602203", "30602289", "30602297", "30602300", "30602319", "30602343", "30602351", "30602386", "30602394", "30602408", "30602416", "30602424", "30602440", "30602459"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a1_car">
+        <description>OMNI-MAMA-AUT-0001 — caráter ausente ou fora da TUSS 23: regulação, sem exigência de documento e sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602033", "30602041", "30602076", "30602084", "30602092", "30602106", "30602114", "30602130", "30602149", "30602157", "30602190", "30602203", "30602289", "30602297", "30602300", "30602319", "30602343", "30602351", "30602386", "30602394", "30602408", "30602416", "30602424", "30602440", "30602459"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a2_urg">
+        <description>OMNI-MAMA-AUT-0004 — urgência ou emergência na parede torácica: liberação na entrada</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30601010", "30601029", "30601037", "30601045", "30601053", "30601070", "30601088", "30601096", "30601100", "30601118", "30601126", "30601134", "30601142", "30601150", "30601169", "30601177", "30601185", "30601193", "30601207", "30601215", "30601240", "30601258", "30601290"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a2_aut">
+        <description>OMNI-MAMA-AUT-0002 — cirurgia eletiva de parede torácica: exige autorização prévia (resposta em até 10 dias úteis)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30601010", "30601029", "30601037", "30601045", "30601053", "30601070", "30601088", "30601096", "30601100", "30601118", "30601126", "30601134", "30601142", "30601150", "30601169", "30601177", "30601185", "30601193", "30601207", "30601215", "30601240", "30601258", "30601290"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a2_car">
+        <description>OMNI-MAMA-AUT-0002 — caráter ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30601010", "30601029", "30601037", "30601045", "30601053", "30601070", "30601088", "30601096", "30601100", "30601118", "30601126", "30601134", "30601142", "30601150", "30601169", "30601177", "30601185", "30601193", "30601207", "30601215", "30601240", "30601258", "30601290"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_rec">
+        <description>OMNI-MAMA-COB-0004 — reconstrução e simetrização da mama: sem autorização caso a caso, em qualquer caráter</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602165", "30602173", "30602211", "30602238", "30602246", "30602254", "30602262", "30602327", "30602467"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-COB-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_rlm">
+        <description>OMNI-MAMA-COB-0005 — retalho livre microcirúrgico: sem autorização prévia; a auditoria de cobertura confere o vínculo com o câncer</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602432"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-COB-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_resto">
+        <description>OMNI-MAMA-AUT-0001 — procedimento ambulatorial do Rol ou código sem exigência de autorização: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30602033", "30602041", "30602076", "30602084", "30602092", "30602106", "30602114", "30602130", "30602149", "30602157", "30602190", "30602203", "30602289", "30602297", "30602300", "30602319", "30602343", "30602351", "30602386", "30602394", "30602408", "30602416", "30602424", "30602440", "30602459", "30601010", "30601029", "30601037", "30601045", "30601053", "30601070", "30601088", "30601096", "30601100", "30601118", "30601126", "30601134", "30601142", "30601150", "30601169", "30601177", "30601185", "30601193", "30601207", "30601215", "30601240", "30601258", "30601290", "30602165", "30602173", "30602211", "30602238", "30602246", "30602254", "30602262", "30602327", "30602467", "30602432")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_sem_data">
+        <description>OMNI-MAMA-AUT-0004 — data ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-AUT-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

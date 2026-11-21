@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_coluna_dut_133" name="DUT 133 - Artroplastia discal de coluna vertebral (OMNI-COLUNA-DUT-0001)" namespace="https://omni-saude/dmn/opme-coluna">
+  <decision id="rco_coluna_dut_133" name="DUT 133 - Artroplastia discal de coluna vertebral (OMNI-COLUNA-DUT-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-COLUNA-DUT-0001. Domínio opme-coluna. Gerado por scripts do piloto; hit policy UNIQUE, sem lacuna (linhas de fechamento nunca negam).</description>
+    <decisionTable id="dt_coluna_dut_133" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_idadeBeneficiario" label="idadeBeneficiario ← cadastro (anos completos na data do atendimento)">
+        <inputExpression id="ie_2_idadeBeneficiario" typeRef="integer"><text>idadeBeneficiario</text></inputExpression>
+      </input>
+      <input id="in_3_quantidadeNiveis" label="quantidadeNiveis ← TISS quantidadeSolicitada de 30715598 (níveis discais)">
+        <inputExpression id="ie_3_quantidadeNiveis" typeRef="integer"><text>quantidadeNiveis</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r002">
+        <description>OMNI-COLUNA-AUT-0001 — Antes da vigência das regras canônicas (2026-11-03): fluxo anterior, com revisão</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-COLUNA-DUT-0001 — Fechamento: DUT 133 não se aplica a outro código</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("30715598")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-COLUNA-DUT-0001 — Mais de um nível: DUT 133 exige um nível (Anexo II, p. 197); a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715598"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"3288"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-COLUNA-DUT-0001 — Adulto, um nível: confirmar doença discal cervical e refratariedade</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715598"</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-COLUNA-DUT-0001 — Menor de 18 anos, um nível: DUT diz 'adulto' sem idade expressa; revisão</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715598"</text></inputEntry>
+        <inputEntry><text>&lt; 18</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-COLUNA-DUT-0001 — Idade ausente, um nível: pedir dado de cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715598"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-COLUNA-DUT-0001 — Número de níveis ausente ou zero: pedir dado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715598"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-COLUNA-AUT-0001 — Data ausente: revisão de cadastro da guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

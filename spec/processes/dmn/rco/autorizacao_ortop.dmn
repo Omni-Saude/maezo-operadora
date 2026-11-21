@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_autorizacao_ortop" name="Autorização prévia em ortopedia (OMNI-ORTOP-AUT-0001; OMNI-ORTOP-COB-0001)" namespace="https://omni-saude/dmn/ortopedia-opme">
+  <decision id="rco_autorizacao_ortop" name="Autorização prévia em ortopedia (OMNI-ORTOP-AUT-0001; OMNI-ORTOP-COB-0001)" camunda:historyTimeToLive="P180D">
+    <description>Decide se o procedimento ortopédico exige autorização prévia. A classe do código vem de regras/ortopedia-opme/dominio.yaml (classes_autorizacao). OMNI-ORTOP-AUT-0001 e OMNI-ORTOP-COB-0001.</description>
+    <decisionTable id="dt_autorizacao_ortop" hitPolicy="UNIQUE">
+      <input id="in_0_dataExecucao" label="dataExecucao ← TISS dataExecucao/dataRealizacao (inteiro AAAAMMDD)">
+        <inputExpression id="ie_0_dataExecucao" typeRef="integer"><text>dataExecucao</text></inputExpression>
+      </input>
+      <input id="in_1_classeProcedimento" label="classeProcedimento ← TISS codigoProcedimento (TUSS 22) classificado por dominio.yaml: ortop_hospitalar | ortop_ambulatorial | fora_rol">
+        <inputExpression id="ie_1_classeProcedimento" typeRef="string"><text>classeProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_regime" label="regime ← TISS tipoAtendimento/regimeInternacao (ambulatorial | hospital_dia | internacao)">
+        <inputExpression id="ie_3_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <input id="in_4_opmeSolicitada" label="opmeSolicitada ← TISS anexo de solicitação de OPME presente na guia (booleano)">
+        <inputExpression id="ie_4_opmeSolicitada" typeRef="boolean"><text>opmeSolicitada</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-ORTOP-AUT-0001 — urgência/emergência: sem autorização prévia (comunicação posterior da OPME)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ortop_hospitalar","ortop_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-ORTOP-AUT-0001 — eletivo de código só hospitalar no Rol</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ortop_hospitalar"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-ORTOP-AUT-0001 — internação eletiva</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ortop_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-ORTOP-AUT-0001 — eletivo ambulatorial com OPME</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ortop_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>not("internacao")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-ORTOP-AUT-0001 — eletivo ambulatorial sem OPME</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ortop_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>not("internacao")</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-ORTOP-AUT-0001 — eletivo ambulatorial sem OPME informada (OPME cobrada sem autorização cai em OMNI-ORTOP-OPM-0005)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ortop_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>not("internacao")</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-ORTOP-AUT-0001 — caráter de atendimento ausente ou inválido</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ortop_hospitalar","ortop_ambulatorial"</text></inputEntry>
+        <inputEntry><text>not("1","2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-ORTOP-COB-0001 — ortotripsia sem correlação no Rol: análise pelos critérios da Lei 9.656, art. 10, §13</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"fora_rol"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-COB-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-ORTOP-AUT-0001 — código fora do escopo do domínio ORTOP</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>not("ortop_hospitalar","ortop_ambulatorial","fora_rol")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r009">
+        <description>OMNI-ORTOP-AUT-0001 — fora da vigência (antes de 03/11/2026): a regra de autorização ORTOP não se aplica</description>
+        <inputEntry><text>&lt; 20261103</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r010">
+        <description>OMNI-ORTOP-AUT-0001 — data de execução ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

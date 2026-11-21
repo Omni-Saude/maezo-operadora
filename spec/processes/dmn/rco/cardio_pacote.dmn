@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_cardio_pacote" name="Cardiovascular: enquadramento do episódio em pacote ou conta aberta" namespace="https://omni-saude/dmn/cardiovascular">
+  <decision id="rco_cardio_pacote" name="Cardiovascular: enquadramento do episódio em pacote ou conta aberta" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CARDIO-PAC-0001 a OMNI-CARDIO-PAC-0004. Enquadramento do episódio cardiovascular no pacote: eletivo em prestador com pacote vigente paga o pacote; urgência, caráter não informado ou prestador sem pacote ficam em conta aberta (HCP-LAN 1). Os códigos 40812065 e 40812073 constam das PAC-0002 e PAC-0003; a decisão cita a PAC-0002 (remuneração da equipe). Nenhuma linha nega ou glosa; fechamento null vai ao faturamento. Os pacotes OMNI-PAC-CARDIO-* ligam-se pelo package-designer.</description>
+    <decisionTable id="dt_cardio_pacote" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_prestadorComPacote" label="prestadorComPacote ← cadastro de contrato: pacote OMNI-PAC-CARDIO vigente para o prestador (booleano)">
+        <inputExpression id="ie_3_prestadorComPacote" typeRef="boolean"><text>prestadorComPacote</text></inputExpression>
+      </input>
+      <input id="in_4_diasInternacao" label="diasInternacao ← resumo de internação TISS: data da alta menos data da internação, em dias (nulo no pedido)">
+        <inputExpression id="ie_4_diasInternacao" typeRef="integer"><text>diasInternacao</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <output id="out_4_modalidadePagamento" name="modalidadePagamento" typeRef="string"/>
+      <rule id="k_pre">
+        <description>OMNI-CARDIO-PAC-0001 — antes da vigência (03/12/2026): conta aberta</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0001_pacote">
+        <description>OMNI-CARDIO-PAC-0001 — eletivo em prestador com pacote vigente: paga o pacote (composição fechada, HCP-LAN 1), permanência até o limite de revisão (14 dias, provisório) ou ainda sem alta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111", "30902010", "30902029", "30902037", "30902045", "30902053", "30903025", "30903033", "30905036", "30905044", "30906164", "30906377", "30913098"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt;= 14, null</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote"</text></outputEntry>
+      </rule>
+      <rule id="k0001_pacote_auditoria">
+        <description>OMNI-CARDIO-PAC-0001 — permanência acima do limite de revisão do OMNI-PAC-CARDIO-0001 (14 dias, provisório): auditoria médica, sem suspender o pagamento do pacote</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111", "30902010", "30902029", "30902037", "30902045", "30902053", "30903025", "30903033", "30905036", "30905044", "30906164", "30906377", "30913098"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&gt; 14</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote"</text></outputEntry>
+      </rule>
+      <rule id="k0001_sem">
+        <description>OMNI-CARDIO-PAC-0001 — eletivo em prestador sem pacote ou sem a informação: conta aberta (EXC-02), nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111", "30902010", "30902029", "30902037", "30902045", "30902053", "30903025", "30903033", "30905036", "30905044", "30906164", "30906377", "30913098"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0001_urg">
+        <description>OMNI-CARDIO-PAC-0001 — urgência ou caráter não informado: conta aberta (EXC-01), nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111", "30902010", "30902029", "30902037", "30902045", "30902053", "30903025", "30903033", "30905036", "30905044", "30906164", "30906377", "30913098"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0002_pacote">
+        <description>OMNI-CARDIO-PAC-0002 — eletivo em prestador com pacote vigente: paga o pacote (composição fechada, HCP-LAN 1)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40812065", "40812073"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote"</text></outputEntry>
+      </rule>
+      <rule id="k0002_sem">
+        <description>OMNI-CARDIO-PAC-0002 — eletivo em prestador sem pacote ou sem a informação: conta aberta (EXC-02), nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40812065", "40812073"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0002_urg">
+        <description>OMNI-CARDIO-PAC-0002 — urgência ou caráter não informado: conta aberta (EXC-01), nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40812065", "40812073"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0003_pacote">
+        <description>OMNI-CARDIO-PAC-0003 — eletivo em prestador com pacote vigente: paga o pacote (composição fechada, HCP-LAN 1)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906016", "30906024", "30906032", "30906040", "30906059", "30906067", "30906075", "30906083", "30906113", "30906121", "30906130", "30906148", "30906156", "30906172", "30906180", "30906199", "30906202", "30906210", "30906229", "30906237", "30906245", "30906253", "30906261", "30906270", "30906288", "30906296", "30906300", "30906318", "30906326", "30906334", "30906342", "30906350", "30906385", "30906393", "30906407", "30906415", "30906423", "30906431", "30906440", "30906458", "30906466", "30910013", "30910021", "30910030", "30910048", "30910056", "30910064", "30910072", "30910080", "30910099", "30910102", "30910110", "30910129", "30910137", "30910145"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote"</text></outputEntry>
+      </rule>
+      <rule id="k0003_sem">
+        <description>OMNI-CARDIO-PAC-0003 — eletivo em prestador sem pacote ou sem a informação: conta aberta (EXC-02), nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906016", "30906024", "30906032", "30906040", "30906059", "30906067", "30906075", "30906083", "30906113", "30906121", "30906130", "30906148", "30906156", "30906172", "30906180", "30906199", "30906202", "30906210", "30906229", "30906237", "30906245", "30906253", "30906261", "30906270", "30906288", "30906296", "30906300", "30906318", "30906326", "30906334", "30906342", "30906350", "30906385", "30906393", "30906407", "30906415", "30906423", "30906431", "30906440", "30906458", "30906466", "30910013", "30910021", "30910030", "30910048", "30910056", "30910064", "30910072", "30910080", "30910099", "30910102", "30910110", "30910129", "30910137", "30910145"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0003_urg">
+        <description>OMNI-CARDIO-PAC-0003 — urgência ou caráter não informado: conta aberta (EXC-01), nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906016", "30906024", "30906032", "30906040", "30906059", "30906067", "30906075", "30906083", "30906113", "30906121", "30906130", "30906148", "30906156", "30906172", "30906180", "30906199", "30906202", "30906210", "30906229", "30906237", "30906245", "30906253", "30906261", "30906270", "30906288", "30906296", "30906300", "30906318", "30906326", "30906334", "30906342", "30906350", "30906385", "30906393", "30906407", "30906415", "30906423", "30906431", "30906440", "30906458", "30906466", "30910013", "30910021", "30910030", "30910048", "30910056", "30910064", "30910072", "30910080", "30910099", "30910102", "30910110", "30910129", "30910137", "30910145"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0004_pacote">
+        <description>OMNI-CARDIO-PAC-0004 — eletivo em prestador com pacote vigente: paga o pacote (composição fechada, HCP-LAN 1), permanência até o limite de revisão (3 dias, provisório) ou ainda sem alta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911044", "30911052", "30911060", "30911079", "30911087", "30911095", "30911109", "40812030", "40812049", "40812057"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt;= 3, null</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote"</text></outputEntry>
+      </rule>
+      <rule id="k0004_pacote_auditoria">
+        <description>OMNI-CARDIO-PAC-0004 — permanência acima do limite de revisão do OMNI-PAC-CARDIO-0002 (3 dias, provisório): auditoria médica, sem suspender o pagamento do pacote</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911044", "30911052", "30911060", "30911079", "30911087", "30911095", "30911109", "40812030", "40812049", "40812057"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote"</text></outputEntry>
+      </rule>
+      <rule id="k0004_sem">
+        <description>OMNI-CARDIO-PAC-0004 — eletivo em prestador sem pacote ou sem a informação: conta aberta (EXC-02), nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911044", "30911052", "30911060", "30911079", "30911087", "30911095", "30911109", "40812030", "40812049", "40812057"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0004_urg">
+        <description>OMNI-CARDIO-PAC-0004 — urgência ou caráter não informado: conta aberta (EXC-01), nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911044", "30911052", "30911060", "30911079", "30911087", "30911095", "30911109", "40812030", "40812049", "40812057"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k_resto">
+        <description>Código fora dos pacotes OMNI-CARDIO-PAC: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111", "30902010", "30902029", "30902037", "30902045", "30902053", "30903025", "30903033", "30905036", "30905044", "30906164", "30906377", "30913098", "40812065", "40812073", "30906016", "30906024", "30906032", "30906040", "30906059", "30906067", "30906075", "30906083", "30906113", "30906121", "30906130", "30906148", "30906156", "30906172", "30906180", "30906199", "30906202", "30906210", "30906229", "30906237", "30906245", "30906253", "30906261", "30906270", "30906288", "30906296", "30906300", "30906318", "30906326", "30906334", "30906342", "30906350", "30906385", "30906393", "30906407", "30906415", "30906423", "30906431", "30906440", "30906458", "30906466", "30910013", "30910021", "30910030", "30910048", "30910056", "30910064", "30910072", "30910080", "30910099", "30910102", "30910110", "30910129", "30910137", "30910145", "30911044", "30911052", "30911060", "30911079", "30911087", "30911095", "30911109", "40812030", "40812049", "40812057")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k_sem_data">
+        <description>Data ausente: faturamento confere, nunca nega</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

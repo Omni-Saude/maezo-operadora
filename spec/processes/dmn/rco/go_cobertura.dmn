@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_go_cobertura" name="Ginecologia e obstetrícia: cobertura fora do Rol e vias da ooforectomia" namespace="https://omni-saude/dmn/ginecologia-obstetricia">
+  <decision id="rco_go_cobertura" name="Ginecologia e obstetrícia: cobertura fora do Rol e vias da ooforectomia" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-GO-COB-0001, 0002, 0003 e 0007. Domínio ginecologia-obstetricia. Hit policy UNIQUE; nenhuma linha nega ou glosa salvo onde indicado com base de nível A; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_go_cobertura" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento de outra linha da mesma guia e data (TUSS 22)">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="c_pre">
+        <description>OMNI-GO-COB-0001 — antes da vigência (03/12/2026): regras de cobertura GO não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_fora_1">
+        <description>OMNI-GO-COB-0001 — procedimento sem correlação no Rol: auditoria médica (Lei 9.656 art. 10 §13), sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31309143", "31309194", "31309216", "31309224", "31309259", "31309291"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-COB-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_fora_2">
+        <description>OMNI-GO-COB-0002 — procedimento sem correlação no Rol: auditoria médica (Lei 9.656 art. 10 §13), sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31303242"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-COB-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_fora_3">
+        <description>OMNI-GO-COB-0007 — procedimento sem correlação no Rol: auditoria médica (Lei 9.656 art. 10 §13), sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31301142", "31304095", "31306080", "31307175", "31307191", "31307213", "31307230", "31307256", "31308015", "31308023", "31308031", "31308040"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-COB-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_oof_1">
+        <description>OMNI-GO-COB-0003 — ooforectomia aberta com a laparoscópica na mesma guia: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31305016"</text></inputEntry>
+        <inputEntry><text>"31305032"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-COB-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_oof_1_ok">
+        <description>OMNI-GO-COB-0003 — ooforectomia aberta: cobertura pelo Rol, sem critério próprio</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31305016"</text></inputEntry>
+        <inputEntry><text>not("31305032")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-COB-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_oof_2">
+        <description>OMNI-GO-COB-0003 — ooforectomia laparoscópica com a aberta na mesma guia: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31305032"</text></inputEntry>
+        <inputEntry><text>"31305016"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-COB-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_oof_2_ok">
+        <description>OMNI-GO-COB-0003 — ooforectomia laparoscópica: cobertura pelo Rol, sem critério próprio</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31305032"</text></inputEntry>
+        <inputEntry><text>not("31305016")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-COB-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_resto">
+        <description>OMNI-GO-COB-0001 — procedimento do Rol ou de outro domínio: sem restrição desta tabela</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("31309143", "31309194", "31309216", "31309224", "31309259", "31309291", "31303242", "31301142", "31304095", "31306080", "31307175", "31307191", "31307213", "31307230", "31307256", "31308015", "31308023", "31308031", "31308040", "31305016", "31305032")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_sem_data">
+        <description>OMNI-GO-COB-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GO-COB-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

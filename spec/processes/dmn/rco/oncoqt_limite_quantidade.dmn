@@ -1,0 +1,1364 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_oncoqt_limite_quantidade" name="Oncologia: edições de quantidade, ciclo e repetição" namespace="https://omni-saude/dmn/oncologia-terapia-sistemica">
+  <decision id="rco_oncoqt_limite_quantidade" name="Oncologia: edições de quantidade, ciclo e repetição" camunda:historyTimeToLive="P3650D">
+    <description>Oncologia: edições de quantidade, ciclo e repetição. Nenhuma linha nega ou glosa; dado ausente vai à revisão humana ou segue sem efeito. Nas regras de pagamento pela dose administrada e de fornecimento por ciclo (OMNI-ONCOQT-LIM-0005 e LIM-0011 a LIM-0026), sinalConta nulo (conferência não calculada) vai à auditoria de faturamento, sem glosa; só false segue sem efeito (OPO-16, decisão PROG-MEL-2-ONCOQT-01).</description>
+    <decisionTable id="dt_oncoqt_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_temaOncoqt" label="temaOncoqt ← TISS codigoProcedimento (TUSS 22) ou item de medicamento (TUSS 20) e solicitação (formulário), pela lista temas_dmn de regras/oncologia-terapia-sistemica/dominio.yaml">
+        <inputExpression id="ie_1_temaOncoqt" typeRef="string"><text>temaOncoqt</text></inputExpression>
+      </input>
+      <input id="in_2_sinalConta" label="sinalConta ← TISS (conta e histórico de guias OMNI: condição da regra do tema presente)">
+        <inputExpression id="ie_2_sinalConta" typeRef="boolean"><text>sinalConta</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="lim0001_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"quimioterapia_sistemica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0001_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"quimioterapia_sistemica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0001_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"quimioterapia_sistemica"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0001_sem_sinal">
+        <description>Condição ausente ou histórico ausente: sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"quimioterapia_sistemica"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0002_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"tema_biomarcador_exigido"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0002_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"tema_biomarcador_exigido"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0002_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"tema_biomarcador_exigido"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0002_sem_sinal">
+        <description>Condição ausente ou histórico ausente: sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"tema_biomarcador_exigido"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0003_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"tema_regime_por_indicacao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0003_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"tema_regime_por_indicacao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0003_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"tema_regime_por_indicacao"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0003_sem_sinal">
+        <description>Condição ausente ou histórico ausente: sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"tema_regime_por_indicacao"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0004_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"tema_biopsia_tumoral"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0004_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"tema_biopsia_tumoral"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0004_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"tema_biopsia_tumoral"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0004_sem_sinal">
+        <description>Condição ausente ou histórico ausente: sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"tema_biopsia_tumoral"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0005_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"tema_medicamentos_e_testes"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0005_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"tema_medicamentos_e_testes"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0005_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"tema_medicamentos_e_testes"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0005_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"tema_medicamentos_e_testes"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0005_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"tema_medicamentos_e_testes"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0006_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"transplante_medula_ossea"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0006_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"transplante_medula_ossea"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0006"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0006_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"transplante_medula_ossea"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0006"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0006_sem_sinal">
+        <description>Condição ausente ou histórico ausente: sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"transplante_medula_ossea"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0007_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_bcr_abl"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0007_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"biomarcador_bcr_abl"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0007_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_bcr_abl"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0007_sem_sinal">
+        <description>Condição ausente ou histórico ausente: sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_bcr_abl"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0008_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_braf"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0008"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0008_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"biomarcador_braf"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0008"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0008_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_braf"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0008"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0008_sem_sinal">
+        <description>Condição ausente ou histórico ausente: sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_braf"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0008"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0009_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_flt3"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0009_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"biomarcador_flt3"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0009"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0009_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_flt3"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0009"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0009_sem_sinal">
+        <description>Condição ausente ou histórico ausente: sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_flt3"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0010_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_msi"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0010"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0010_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"biomarcador_msi"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0010"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0010_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_msi"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0010"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0010_sem_sinal">
+        <description>Condição ausente ou histórico ausente: sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"biomarcador_msi"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0010"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0011_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_rituximabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0011_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_rituximabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0011"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0011_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_rituximabe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0011"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0011_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_rituximabe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0011_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_rituximabe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0011"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0012_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_lenalidomida"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0012"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0012_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_lenalidomida"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0012"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0012_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_lenalidomida"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0012"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0012_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_lenalidomida"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0012"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0012_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_lenalidomida"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0012"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0013_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_pembrolizumabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0013"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0013_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_pembrolizumabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0013_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_pembrolizumabe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0013_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_pembrolizumabe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0013"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0013_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_pembrolizumabe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0014_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_trastuzumabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0014"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0014_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_trastuzumabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0014"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0014_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_trastuzumabe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0014"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0014_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_trastuzumabe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0014"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0014_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_trastuzumabe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0014"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0015_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_bevacizumabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0015"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0015_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_bevacizumabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0015"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0015_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_bevacizumabe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0015"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0015_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_bevacizumabe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0015"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0015_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_bevacizumabe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0015"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0016_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_bortezomibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0016"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0016_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_bortezomibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0016"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0016_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_bortezomibe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0016"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0016_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_bortezomibe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0016"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0016_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_bortezomibe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0016"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0017_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_cabozantinibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0017"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0017_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_cabozantinibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0017"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0017_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_cabozantinibe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0017"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0017_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_cabozantinibe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0017"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0017_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_cabozantinibe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0017"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0018_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_daratumumabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0018"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0018_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_daratumumabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0018"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0018_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_daratumumabe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0018"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0018_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_daratumumabe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0018"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0018_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_daratumumabe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0018"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0019_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_ibrutinibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0019"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0019_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_ibrutinibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0019"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0019_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_ibrutinibe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0019"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0019_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_ibrutinibe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0019"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0019_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_ibrutinibe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0019"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0020_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_imatinibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0020"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0020_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_imatinibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0020"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0020_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_imatinibe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0020"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0020_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_imatinibe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0020"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0020_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_imatinibe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0020"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0021_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_lorlatinibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0021_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_lorlatinibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0021"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0021_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_lorlatinibe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0021"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0021_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_lorlatinibe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0021_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_lorlatinibe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0021"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0022_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_niraparibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0022"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0022_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_niraparibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0022"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0022_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_niraparibe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0022"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0022_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_niraparibe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0022"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0022_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_niraparibe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0022"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0023_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_nivolumabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0023"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0023_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_nivolumabe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0023"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0023_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_nivolumabe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0023"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0023_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_nivolumabe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0023"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0023_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_nivolumabe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0023"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0024_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_osimertinibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0024"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0024_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_osimertinibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0024"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0024_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_osimertinibe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0024"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0024_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_osimertinibe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0024"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0024_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_osimertinibe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0024"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0025_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_regorafenibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0025"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0025_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_regorafenibe"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0025"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0025_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_regorafenibe"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0025"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0025_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_regorafenibe"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0025"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0025_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_regorafenibe"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0025"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0026_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_venetoclax"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0026"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0026_sem_data">
+        <description>Data ausente: conferência humana</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"medicamento_venetoclax"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0026"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0026_sinal">
+        <description>Condição da regra presente: revisão humana, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_venetoclax"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0026"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0026_sem_sinal">
+        <description>Condição conferida e ausente (false): sem efeito</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_venetoclax"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0026"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="lim0026_sinal_nulo">
+        <description>Conferência não calculada (sinalConta nulo: falta a prescrição ou a checagem que permite conferir a quantidade): auditoria de faturamento, sem glosa (OPO-16 (OPME-31))</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"medicamento_venetoclax"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0026"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="fechamento">
+        <description>Fechamento: tema fora desta tabela, sem efeito</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("quimioterapia_sistemica", "tema_biomarcador_exigido", "tema_regime_por_indicacao", "tema_biopsia_tumoral", "tema_medicamentos_e_testes", "transplante_medula_ossea", "biomarcador_bcr_abl", "biomarcador_braf", "biomarcador_flt3", "biomarcador_msi", "medicamento_rituximabe", "medicamento_lenalidomida", "medicamento_pembrolizumabe", "medicamento_trastuzumabe", "medicamento_bevacizumabe", "medicamento_bortezomibe", "medicamento_cabozantinibe", "medicamento_daratumumabe", "medicamento_ibrutinibe", "medicamento_imatinibe", "medicamento_lorlatinibe", "medicamento_niraparibe", "medicamento_nivolumabe", "medicamento_osimertinibe", "medicamento_regorafenibe", "medicamento_venetoclax")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ONCOQT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

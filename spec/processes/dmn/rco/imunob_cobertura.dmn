@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imunob_cobertura" name="Imunoglobulina humana e imunoterapia com alérgenos: cobertura sem negativa automática (OMNI-IMUNOB-COB-0001 a 0006)" namespace="https://omni-saude/dmn/imunobiologicos-imunoglobulinas">
+  <decision id="rco_imunob_cobertura" name="Imunoglobulina humana e imunoterapia com alérgenos: cobertura sem negativa automática (OMNI-IMUNOB-COB-0001 a 0006)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-IMUNOB-COB-0001 a 0006. Nenhuma linha nega; início eletivo ambulatorial de imunoglobulina e casos definidos de imunoterapia vão à auditoria médica.</description>
+    <decisionTable id="dt_imunob_cobertura" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_familiaImunob" label="familiaImunob ← TISS codigoProcedimento (TUSS 22) ou item de medicamento (TUSS 20) pela lista classes de regras/imunobiologicos-imunoglobulinas/dominio.yaml">
+        <inputExpression id="ie_1_familiaImunob" typeRef="string"><text>familiaImunob</text></inputExpression>
+      </input>
+      <input id="in_2_regimeAtendimento" label="regimeAtendimento ← TISS (internacao, urgencia ou ambulatorial)">
+        <inputExpression id="ie_2_regimeAtendimento" typeRef="string"><text>regimeAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_inicioEsquema" label="inicioEsquema ← histórico de guias OMNI ou solicitação (início de esquema novo)">
+        <inputExpression id="ie_3_inicioEsquema" typeRef="boolean"><text>inicioEsquema</text></inputExpression>
+      </input>
+      <input id="in_4_temaImunob" label="temaImunob ← solicitação (finalidade declarada do uso da imunoglobulina)">
+        <inputExpression id="ie_4_temaImunob" typeRef="string"><text>temaImunob</text></inputExpression>
+      </input>
+      <input id="in_5_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_5_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_6_classeAlergeno" label="classeAlergeno ← solicitação (classe do alérgeno da imunoterapia)">
+        <inputExpression id="ie_6_classeAlergeno" typeRef="string"><text>classeAlergeno</text></inputExpression>
+      </input>
+      <input id="in_7_extratoCobradoAParte" label="extratoCobradoAParte ← TISS (item de extrato alergênico na mesma guia)">
+        <inputExpression id="ie_7_extratoCobradoAParte" typeRef="boolean"><text>extratoCobradoAParte</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="c_pre_ig">
+        <description>Imunoglobulina antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoglobulina_humana"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_pre_it">
+        <description>Imunoterapia antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoterapia_alergenos"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_sem_data">
+        <description>Data ausente: regulação confere</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"imunoglobulina_humana", "imunoterapia_alergenos"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_ig_internacao">
+        <description>Imunoglobulina na internação ou na urgência: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoglobulina_humana"</text></inputEntry>
+        <inputEntry><text>"internacao", "urgencia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_ig_continuidade">
+        <description>Imunoglobulina em esquema em curso: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoglobulina_humana"</text></inputEntry>
+        <inputEntry><text>not("internacao", "urgencia")</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_ig_em_bula">
+        <description>Início ambulatorial, indicação em bula: conferência da dose</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoglobulina_humana"</text></inputEntry>
+        <inputEntry><text>not("internacao", "urgencia")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>"indicacao_em_bula"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_ig_fora_com_evidencia">
+        <description>Início ambulatorial, fora da bula com evidência: análise</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoglobulina_humana"</text></inputEntry>
+        <inputEntry><text>not("internacao", "urgencia")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>"fora_da_bula_com_evidencia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_ig_fora_sem_evidencia">
+        <description>Início ambulatorial, fora da bula sem evidência: análise</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoglobulina_humana"</text></inputEntry>
+        <inputEntry><text>not("internacao", "urgencia")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>"fora_da_bula_sem_evidencia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_ig_reposicao">
+        <description>Início ambulatorial, reposição em imunodeficiência: análise do início</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoglobulina_humana"</text></inputEntry>
+        <inputEntry><text>not("internacao", "urgencia")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>"reposicao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0006"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_ig_sem_tema">
+        <description>Início ambulatorial, finalidade ausente ou fora da lista: análise</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoglobulina_humana"</text></inputEntry>
+        <inputEntry><text>not("internacao", "urgencia")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>not("indicacao_em_bula", "fora_da_bula_com_evidencia", "fora_da_bula_sem_evidencia", "reposicao")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_it_extrato">
+        <description>Imunoterapia com extrato cobrado à parte: auditoria</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoterapia_alergenos"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_it_auditoria">
+        <description>Imunoterapia específica com alérgeno alimentar, de contato ou sem classe: auditoria</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoterapia_alergenos"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20104138"</text></inputEntry>
+        <inputEntry><text>not("inalante", "veneno_de_inseto")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_it_livre_esp">
+        <description>Imunoterapia específica com alérgeno inalante ou veneno de inseto: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoterapia_alergenos"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"20104138"</text></inputEntry>
+        <inputEntry><text>"inalante", "veneno_de_inseto"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_it_livre">
+        <description>Imunoterapia inespecífica sem extrato à parte: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoterapia_alergenos"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("20104138")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_fora">
+        <description>Fechamento: família fora desta tabela, sem efeito</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("imunoglobulina_humana", "imunoterapia_alergenos")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

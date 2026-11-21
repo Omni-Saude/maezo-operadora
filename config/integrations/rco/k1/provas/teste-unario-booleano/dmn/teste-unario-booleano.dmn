@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_teste_unario_booleano" name="Teste unário booleano" namespace="https://omni-saude/dmn/fixture-teste-unario-booleano">
+  <decision id="cel01" name="celula true, null" camunda:historyTimeToLive="P3650D">
+    <decisionTable id="dt_cel01" hitPolicy="FIRST">
+      <input id="in_01" label="flag ← fixture">
+        <inputExpression id="ie_01" typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="out_01" name="resultado" typeRef="string"/>
+      <rule id="r01_a"><inputEntry><text>true, null</text></inputEntry><outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r01_b"><inputEntry><text>-</text></inputEntry><outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+  <decision id="cel02" name="celula null, true" camunda:historyTimeToLive="P3650D">
+    <decisionTable id="dt_cel02" hitPolicy="FIRST">
+      <input id="in_02" label="flag ← fixture">
+        <inputExpression id="ie_02" typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="out_02" name="resultado" typeRef="string"/>
+      <rule id="r02_a"><inputEntry><text>null, true</text></inputEntry><outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r02_b"><inputEntry><text>-</text></inputEntry><outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+  <decision id="cel03" name="celula false, null" camunda:historyTimeToLive="P3650D">
+    <decisionTable id="dt_cel03" hitPolicy="FIRST">
+      <input id="in_03" label="flag ← fixture">
+        <inputExpression id="ie_03" typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="out_03" name="resultado" typeRef="string"/>
+      <rule id="r03_a"><inputEntry><text>false, null</text></inputEntry><outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r03_b"><inputEntry><text>-</text></inputEntry><outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+  <decision id="cel04" name="celula null, false" camunda:historyTimeToLive="P3650D">
+    <decisionTable id="dt_cel04" hitPolicy="FIRST">
+      <input id="in_04" label="flag ← fixture">
+        <inputExpression id="ie_04" typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="out_04" name="resultado" typeRef="string"/>
+      <rule id="r04_a"><inputEntry><text>null, false</text></inputEntry><outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r04_b"><inputEntry><text>-</text></inputEntry><outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+  <decision id="cel05" name="celula not(false)" camunda:historyTimeToLive="P3650D">
+    <decisionTable id="dt_cel05" hitPolicy="FIRST">
+      <input id="in_05" label="flag ← fixture">
+        <inputExpression id="ie_05" typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="out_05" name="resultado" typeRef="string"/>
+      <rule id="r05_a"><inputEntry><text>not(false)</text></inputEntry><outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r05_b"><inputEntry><text>-</text></inputEntry><outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+  <decision id="cel06" name="celula not(true)" camunda:historyTimeToLive="P3650D">
+    <decisionTable id="dt_cel06" hitPolicy="FIRST">
+      <input id="in_06" label="flag ← fixture">
+        <inputExpression id="ie_06" typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="out_06" name="resultado" typeRef="string"/>
+      <rule id="r06_a"><inputEntry><text>not(true)</text></inputEntry><outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r06_b"><inputEntry><text>-</text></inputEntry><outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+  <decision id="cel07" name="celula true" camunda:historyTimeToLive="P3650D">
+    <decisionTable id="dt_cel07" hitPolicy="FIRST">
+      <input id="in_07" label="flag ← fixture">
+        <inputExpression id="ie_07" typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="out_07" name="resultado" typeRef="string"/>
+      <rule id="r07_a"><inputEntry><text>true</text></inputEntry><outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r07_b"><inputEntry><text>-</text></inputEntry><outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+  <decision id="cel08" name="celula false" camunda:historyTimeToLive="P3650D">
+    <decisionTable id="dt_cel08" hitPolicy="FIRST">
+      <input id="in_08" label="flag ← fixture">
+        <inputExpression id="ie_08" typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="out_08" name="resultado" typeRef="string"/>
+      <rule id="r08_a"><inputEntry><text>false</text></inputEntry><outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r08_b"><inputEntry><text>-</text></inputEntry><outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+  <decision id="cel09" name="celula null" camunda:historyTimeToLive="P3650D">
+    <decisionTable id="dt_cel09" hitPolicy="FIRST">
+      <input id="in_09" label="flag ← fixture">
+        <inputExpression id="ie_09" typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="out_09" name="resultado" typeRef="string"/>
+      <rule id="r09_a"><inputEntry><text>null</text></inputEntry><outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r09_b"><inputEntry><text>-</text></inputEntry><outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+  <decision id="cel10" name="celula -" camunda:historyTimeToLive="P3650D">
+    <decisionTable id="dt_cel10" hitPolicy="FIRST">
+      <input id="in_10" label="flag ← fixture">
+        <inputExpression id="ie_10" typeRef="boolean"><text>flag</text></inputExpression>
+      </input>
+      <output id="out_10" name="resultado" typeRef="string"/>
+      <rule id="r10_a"><inputEntry><text>-</text></inputEntry><outputEntry><text>"casa"</text></outputEntry></rule>
+      <rule id="r10_b"><inputEntry><text>-</text></inputEntry><outputEntry><text>"nao_casa"</text></outputEntry></rule>
+    </decisionTable>
+  </decision>
+</definitions>

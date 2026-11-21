@@ -1,0 +1,308 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_geral_apresentacao_extemporanea" name="Regras gerais: autorização de apresentação extemporânea da conta (OMNI-GERAL-AUT-0013)" namespace="https://omni-saude/dmn/regras-gerais">
+  <decision id="rco_geral_apresentacao_extemporanea" name="Regras gerais: autorização de apresentação extemporânea da conta (OMNI-GERAL-AUT-0013)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-GERAL-AUT-0013: pedido do prestador para apresentar a conta de uma guia depois do prazo do contrato (decisões C2-prazo-conta-01 e 03). Concede sozinho só atraso imputável à operadora, transição de carteira e devolução técnica, e só com a evidência do motivo achada nos dados da própria operadora (evidenciaOperadora; a declaração do prestador nunca basta), dentro do prazo desde o fim do impedimento (30 dias; 10 na devolução técnica) e abaixo do limiar de abuso (3 pedidos em 12 meses; números provisórios em validacao/calibracao/parametros-provisorios/regras-gerais.csv). Todo o resto vai ao faturamento. A tabela nunca nega: a AAE negada pelo analista leva a conta à glosa 3214 de OMNI-GERAL-GLO-0002, com recurso de glosa. As saídas motivoAae e causaEncaminhamento ficam para a auditoria de abuso por prestador. Base ANS-RN-503 art. 4º, II, art. 13 e art. 15.</description>
+    <decisionTable id="dt_geral_apresentacao_extemporanea" hitPolicy="UNIQUE">
+      <input id="in_motivoExtemporaneidade" label="motivoExtemporaneidade ← cadastro da operadora: motivo declarado pelo prestador no pedido de AAE (atraso_imputavel_operadora | transicao_carteira | devolucao_tecnica | caso_fortuito_forca_maior | ordem_judicial | outro); a declaração sozinha nunca concede">
+        <inputExpression id="ie_motivoExtemporaneidade" typeRef="string"><text>motivoExtemporaneidade</text></inputExpression>
+      </input>
+      <input id="in_evidenciaOperadora" label="evidenciaOperadora ← cadastro da operadora: evidência do motivo achada nos dados da própria operadora, nunca declarada pelo prestador (valores na descrição da cláusula e no dicionário)">
+        <description>evidenciaOperadora ← cadastro da operadora: evidência do motivo achada nos dados da própria operadora, nunca declarada pelo prestador (senha_emitida_apos_atendimento: data de emissão da senha posterior à do atendimento; indisponibilidade_registrada: registro de indisponibilidade do portal ou webservice no prazo; cadastro_regularizado_apos_atendimento: inclusão ou regularização do beneficiário posterior ao atendimento; protocolo_operadora_origem_no_prazo: protocolo da conta na operadora de origem dentro do prazo dela; devolucao_tecnica_registrada: lote recebido no prazo e devolvido por erro técnico, com data da devolução; nenhuma)</description>
+        <inputExpression id="ie_evidenciaOperadora" typeRef="string"><text>evidenciaOperadora</text></inputExpression>
+      </input>
+      <input id="in_diasDesdeFimImpedimento" label="diasDesdeFimImpedimento ← cadastro da operadora: dias corridos entre o fim do impedimento registrado nos dados da operadora (na devolução técnica, a data da devolução) e o pedido de AAE">
+        <inputExpression id="ie_diasDesdeFimImpedimento" typeRef="integer"><text>diasDesdeFimImpedimento</text></inputExpression>
+      </input>
+      <input id="in_pedidosExtemporaneos12mPrestador" label="pedidosExtemporaneos12mPrestador ← cadastro da operadora: pedidos de AAE do prestador nos 12 meses anteriores ao pedido">
+        <inputExpression id="ie_pedidosExtemporaneos12mPrestador" typeRef="integer"><text>pedidosExtemporaneos12mPrestador</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <output id="out_motivoAae" name="motivoAae" typeRef="string"/>
+      <output id="out_causaEncaminhamento" name="causaEncaminhamento" typeRef="string"/>
+      <rule id="a_atraso_imputavel_operadora_concede">
+        <description>atraso imputável à operadora: evidência do motivo nos dados da operadora (senha_emitida_apos_atendimento, indisponibilidade_registrada, cadastro_regularizado_apos_atendimento), até 30 dias do fim do impedimento, abaixo do limiar de abuso: concede</description>
+        <inputEntry><text>"atraso_imputavel_operadora"</text></inputEntry>
+        <inputEntry><text>"senha_emitida_apos_atendimento", "indisponibilidade_registrada", "cadastro_regularizado_apos_atendimento"</text></inputEntry>
+        <inputEntry><text>[0..30]</text></inputEntry>
+        <inputEntry><text>[0..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"atraso_imputavel_operadora"</text></outputEntry>
+        <outputEntry><text>"concessao_automatica"</text></outputEntry>
+      </rule>
+      <rule id="a_atraso_imputavel_operadora_sem_evidencia">
+        <description>atraso imputável à operadora: nenhuma evidência do motivo nos dados da operadora (evidência de outro motivo, nenhuma, ausente ou fora da lista): faturamento</description>
+        <inputEntry><text>"atraso_imputavel_operadora"</text></inputEntry>
+        <inputEntry><text>not("senha_emitida_apos_atendimento", "indisponibilidade_registrada", "cadastro_regularizado_apos_atendimento")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"atraso_imputavel_operadora"</text></outputEntry>
+        <outputEntry><text>"evidencia_nao_verificada"</text></outputEntry>
+      </rule>
+      <rule id="a_atraso_imputavel_operadora_prazo">
+        <description>atraso imputável à operadora: mais de 30 dias do fim do impedimento, valor negativo ou ausente: faturamento</description>
+        <inputEntry><text>"atraso_imputavel_operadora"</text></inputEntry>
+        <inputEntry><text>"senha_emitida_apos_atendimento", "indisponibilidade_registrada", "cadastro_regularizado_apos_atendimento"</text></inputEntry>
+        <inputEntry><text>&gt; 30, &lt; 0, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"atraso_imputavel_operadora"</text></outputEntry>
+        <outputEntry><text>"prazo_impedimento"</text></outputEntry>
+      </rule>
+      <rule id="a_atraso_imputavel_operadora_abuso">
+        <description>atraso imputável à operadora: prestador com 3 ou mais pedidos em 12 meses (limiar de abuso): faturamento</description>
+        <inputEntry><text>"atraso_imputavel_operadora"</text></inputEntry>
+        <inputEntry><text>"senha_emitida_apos_atendimento", "indisponibilidade_registrada", "cadastro_regularizado_apos_atendimento"</text></inputEntry>
+        <inputEntry><text>[0..30]</text></inputEntry>
+        <inputEntry><text>&gt;= 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"atraso_imputavel_operadora"</text></outputEntry>
+        <outputEntry><text>"limiar_abuso"</text></outputEntry>
+      </rule>
+      <rule id="a_atraso_imputavel_operadora_contagem">
+        <description>atraso imputável à operadora: contagem de pedidos do prestador negativa ou ausente: faturamento</description>
+        <inputEntry><text>"atraso_imputavel_operadora"</text></inputEntry>
+        <inputEntry><text>"senha_emitida_apos_atendimento", "indisponibilidade_registrada", "cadastro_regularizado_apos_atendimento"</text></inputEntry>
+        <inputEntry><text>[0..30]</text></inputEntry>
+        <inputEntry><text>&lt; 0, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"atraso_imputavel_operadora"</text></outputEntry>
+        <outputEntry><text>"dado_ausente"</text></outputEntry>
+      </rule>
+      <rule id="a_transicao_carteira_concede">
+        <description>transição de carteira: evidência do motivo nos dados da operadora (protocolo_operadora_origem_no_prazo), até 30 dias do fim do impedimento, abaixo do limiar de abuso: concede</description>
+        <inputEntry><text>"transicao_carteira"</text></inputEntry>
+        <inputEntry><text>"protocolo_operadora_origem_no_prazo"</text></inputEntry>
+        <inputEntry><text>[0..30]</text></inputEntry>
+        <inputEntry><text>[0..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"transicao_carteira"</text></outputEntry>
+        <outputEntry><text>"concessao_automatica"</text></outputEntry>
+      </rule>
+      <rule id="a_transicao_carteira_sem_evidencia">
+        <description>transição de carteira: nenhuma evidência do motivo nos dados da operadora (evidência de outro motivo, nenhuma, ausente ou fora da lista): faturamento</description>
+        <inputEntry><text>"transicao_carteira"</text></inputEntry>
+        <inputEntry><text>not("protocolo_operadora_origem_no_prazo")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"transicao_carteira"</text></outputEntry>
+        <outputEntry><text>"evidencia_nao_verificada"</text></outputEntry>
+      </rule>
+      <rule id="a_transicao_carteira_prazo">
+        <description>transição de carteira: mais de 30 dias do fim do impedimento, valor negativo ou ausente: faturamento</description>
+        <inputEntry><text>"transicao_carteira"</text></inputEntry>
+        <inputEntry><text>"protocolo_operadora_origem_no_prazo"</text></inputEntry>
+        <inputEntry><text>&gt; 30, &lt; 0, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"transicao_carteira"</text></outputEntry>
+        <outputEntry><text>"prazo_impedimento"</text></outputEntry>
+      </rule>
+      <rule id="a_transicao_carteira_abuso">
+        <description>transição de carteira: prestador com 3 ou mais pedidos em 12 meses (limiar de abuso): faturamento</description>
+        <inputEntry><text>"transicao_carteira"</text></inputEntry>
+        <inputEntry><text>"protocolo_operadora_origem_no_prazo"</text></inputEntry>
+        <inputEntry><text>[0..30]</text></inputEntry>
+        <inputEntry><text>&gt;= 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"transicao_carteira"</text></outputEntry>
+        <outputEntry><text>"limiar_abuso"</text></outputEntry>
+      </rule>
+      <rule id="a_transicao_carteira_contagem">
+        <description>transição de carteira: contagem de pedidos do prestador negativa ou ausente: faturamento</description>
+        <inputEntry><text>"transicao_carteira"</text></inputEntry>
+        <inputEntry><text>"protocolo_operadora_origem_no_prazo"</text></inputEntry>
+        <inputEntry><text>[0..30]</text></inputEntry>
+        <inputEntry><text>&lt; 0, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"transicao_carteira"</text></outputEntry>
+        <outputEntry><text>"dado_ausente"</text></outputEntry>
+      </rule>
+      <rule id="a_devolucao_tecnica_concede">
+        <description>devolução técnica do lote: evidência do motivo nos dados da operadora (devolucao_tecnica_registrada), até 10 dias do fim do impedimento, abaixo do limiar de abuso: concede</description>
+        <inputEntry><text>"devolucao_tecnica"</text></inputEntry>
+        <inputEntry><text>"devolucao_tecnica_registrada"</text></inputEntry>
+        <inputEntry><text>[0..10]</text></inputEntry>
+        <inputEntry><text>[0..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"devolucao_tecnica"</text></outputEntry>
+        <outputEntry><text>"concessao_automatica"</text></outputEntry>
+      </rule>
+      <rule id="a_devolucao_tecnica_sem_evidencia">
+        <description>devolução técnica do lote: nenhuma evidência do motivo nos dados da operadora (evidência de outro motivo, nenhuma, ausente ou fora da lista): faturamento</description>
+        <inputEntry><text>"devolucao_tecnica"</text></inputEntry>
+        <inputEntry><text>not("devolucao_tecnica_registrada")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"devolucao_tecnica"</text></outputEntry>
+        <outputEntry><text>"evidencia_nao_verificada"</text></outputEntry>
+      </rule>
+      <rule id="a_devolucao_tecnica_prazo">
+        <description>devolução técnica do lote: mais de 10 dias do fim do impedimento, valor negativo ou ausente: faturamento</description>
+        <inputEntry><text>"devolucao_tecnica"</text></inputEntry>
+        <inputEntry><text>"devolucao_tecnica_registrada"</text></inputEntry>
+        <inputEntry><text>&gt; 10, &lt; 0, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"devolucao_tecnica"</text></outputEntry>
+        <outputEntry><text>"prazo_impedimento"</text></outputEntry>
+      </rule>
+      <rule id="a_devolucao_tecnica_abuso">
+        <description>devolução técnica do lote: prestador com 3 ou mais pedidos em 12 meses (limiar de abuso): faturamento</description>
+        <inputEntry><text>"devolucao_tecnica"</text></inputEntry>
+        <inputEntry><text>"devolucao_tecnica_registrada"</text></inputEntry>
+        <inputEntry><text>[0..10]</text></inputEntry>
+        <inputEntry><text>&gt;= 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"devolucao_tecnica"</text></outputEntry>
+        <outputEntry><text>"limiar_abuso"</text></outputEntry>
+      </rule>
+      <rule id="a_devolucao_tecnica_contagem">
+        <description>devolução técnica do lote: contagem de pedidos do prestador negativa ou ausente: faturamento</description>
+        <inputEntry><text>"devolucao_tecnica"</text></inputEntry>
+        <inputEntry><text>"devolucao_tecnica_registrada"</text></inputEntry>
+        <inputEntry><text>[0..10]</text></inputEntry>
+        <inputEntry><text>&lt; 0, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"devolucao_tecnica"</text></outputEntry>
+        <outputEntry><text>"dado_ausente"</text></outputEntry>
+      </rule>
+      <rule id="a_caso_fortuito_forca_maior">
+        <description>caso fortuito ou força maior: análise humana do faturamento</description>
+        <inputEntry><text>"caso_fortuito_forca_maior"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"caso_fortuito_forca_maior"</text></outputEntry>
+        <outputEntry><text>"motivo_analise_humana"</text></outputEntry>
+      </rule>
+      <rule id="a_ordem_judicial">
+        <description>ordem judicial: análise humana do faturamento</description>
+        <inputEntry><text>"ordem_judicial"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"ordem_judicial"</text></outputEntry>
+        <outputEntry><text>"motivo_analise_humana"</text></outputEntry>
+      </rule>
+      <rule id="a_outro">
+        <description>outro motivo: análise humana do faturamento</description>
+        <inputEntry><text>"outro"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"outro"</text></outputEntry>
+        <outputEntry><text>"motivo_analise_humana"</text></outputEntry>
+      </rule>
+      <rule id="a_motivo_fora_lista">
+        <description>Pedido de AAE com motivo fora da lista fechada: faturamento</description>
+        <inputEntry><text>not("atraso_imputavel_operadora", "transicao_carteira", "devolucao_tecnica", "caso_fortuito_forca_maior", "ordem_judicial", "outro", null)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"dado_ausente"</text></outputEntry>
+      </rule>
+      <rule id="a_sem_pedido">
+        <description>Sem pedido de AAE (motivo nulo): a tabela não se aplica e segue sem efeito (linha final, nunca nega)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"sem_pedido"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

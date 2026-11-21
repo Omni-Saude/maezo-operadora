@@ -30,9 +30,13 @@ mudar um byte quebra o `sha256` fixado no pin. Regra nova ou corrigida se pede n
 - Sem isenção: schema DMN, unicidade de id em toda a árvore, cerca de perspectiva (ADR-0040 D7)
   e classificação PHI das variáveis.
 
-## O arquivo que está aqui hoje
+## O que está aqui hoje
 
-`rco_exemplo_sintetico.dmn` é um **exemplo sintético**. Não é regra de negócio, não veio do rco
-e nenhum BPMN ou worker o consome. Existe só para exercitar a infraestrutura acima (e, depois,
-o lint do vocabulário de saída do K1: `decisao`, `classeAdverso`, `fila`). Sai quando o primeiro
-pacote K1 de verdade for fixado.
+As **236 tabelas do pacote K1** do rco no commit `b8444f52` (manifesto 2.3.0, pacote 5.0.1, dicionário de
+entradas 1.6.0), pinadas em `config/integrations/rco/rules.lock.json` (estado `fixado`). Elas rodam **só em
+sombra**: o indicador `efeito_k1_habilitado` segue desligado e nenhum ambiente o liga.
+
+`rco_exemplo_sintetico.dmn` é um **exemplo sintético** do Maezo. Não é regra de negócio, não veio do rco
+e nenhum BPMN ou worker o consome. Segue declarado em `exemplos_sinteticos` do pin (aceito em qualquer
+estado) porque os testes da infraestrutura desta pasta (deploy, auditoria, cercas, vocabulário de saída)
+o usam como tabela pequena e estável; sai num PR próprio que troque esses testes para as tabelas reais.

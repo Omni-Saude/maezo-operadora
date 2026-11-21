@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_mama_excludentes" name="Mastologia: pares de linfadenectomia axilar na mesma guia vão à auditoria, sem glosa" namespace="https://omni-saude/dmn/mastologia">
+  <decision id="rco_mama_excludentes" name="Mastologia: pares de linfadenectomia axilar na mesma guia vão à auditoria, sem glosa" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-MAMA-MEX-0001. Hit policy UNIQUE; nenhuma linha glosa (a guia TISS não tem lateralidade e o ato bilateral é legítimo); os pares 30602190 × 30602130, 30602190 × 30602203 e 30602149 × 30602130 na mesma guia e data vão à auditoria médica; fechamento com data ausente vai à revisão humana.</description>
+    <decisionTable id="dt_mama_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoPrincipal" label="codigoPrincipal ← TISS codigoProcedimento do procedimento de maior porte da guia (TUSS 22)">
+        <inputExpression id="ie_1_codigoPrincipal" typeRef="string"><text>codigoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento de outra linha da mesma guia e dataExecucao (TUSS 22)">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="m_pre">
+        <description>OMNI-MAMA-MEX-0001 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_190">
+        <description>OMNI-MAMA-MEX-0001 — quadrantectomia com linfadenectomia axilar com linfadenectomia axilar ou quadrantectomia na mesma guia e data: auditoria médica confere o lado operado; sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602190"</text></inputEntry>
+        <inputEntry><text>"30602130", "30602203"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_190_ok">
+        <description>OMNI-MAMA-MEX-0001 — quadrantectomia com linfadenectomia axilar sem par: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602190"</text></inputEntry>
+        <inputEntry><text>not("30602130", "30602203")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_149">
+        <description>OMNI-MAMA-MEX-0001 — mastectomia radical com linfadenectomia axilar na mesma guia e data: auditoria médica confere o lado operado; sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602149"</text></inputEntry>
+        <inputEntry><text>"30602130"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_149_ok">
+        <description>OMNI-MAMA-MEX-0001 — mastectomia radical sem par: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602149"</text></inputEntry>
+        <inputEntry><text>not("30602130")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_resto">
+        <description>OMNI-MAMA-MEX-0001 — outro código principal: sem par de exclusão</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30602190", "30602149")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m_sem_data">
+        <description>OMNI-MAMA-MEX-0001 — data ausente: faturamento, nunca glosa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

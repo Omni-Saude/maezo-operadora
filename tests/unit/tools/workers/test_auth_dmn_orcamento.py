@@ -50,6 +50,11 @@ _FONTES = (
     "carencia_check",
     "auth_criteria_contratual",
 )
+#: A sombra do K1 (DL-0187, `auth_rco`): com o pin real `fixado` (K1 b8444f52) o harness avalia em SOMBRA,
+#: DEPOIS de o motor ACEITAR a conclusao da tarefa, a composicao de carencia/CPT e a elegibilidade. Ela nao
+#: entra no orcamento nem no bloqueio da tarefa (roda depois do complete) e nao roda quando o complete e
+#: recusado; as provas abaixo fixam exatamente isso, a lista completa de chamadas ao motor.
+_SOMBRA_K1 = ["rco_geral_carencia", "rco_geral_elegibilidade"]
 #: Escala do teste: o bloqueio de 30 s de producao vira 1 s aqui.
 _BLOQUEIO_S = 1.0
 
@@ -327,7 +332,7 @@ async def test_medicao_bloqueio_vence_outro_worker_refaz_e_o_complete_tardio_e_r
     assert motor.buscas[1][0] >= _BLOQUEIO_S
     # A: a tecnica parou na primeira tabela (indisponivel), entao a tabela de DUT nem foi consultada.
     assert dmn_a.chamadas_ao_motor == ["dut_rol_coverage", "carencia_check", "auth_criteria_contratual"]
-    assert dmn_b.chamadas_ao_motor == list(_FONTES)
+    assert dmn_b.chamadas_ao_motor == [*_FONTES, *_SOMBRA_K1]  # sombra so depois do complete aceito
     # O complete tardio de A e recusado, e a falha que o harness tenta reportar tambem.
     assert motor.recusas == [("complete", "pod-a", 400), ("failure", "pod-a", 400)]
     eventos = [entrada["event"] for entrada in logs]
@@ -374,7 +379,8 @@ async def test_medicao_a_mesma_replica_rebusca_e_a_segunda_conclusao_e_recusada(
         await harness_a._run_handle(segunda[0])
 
     assert [quem for _t, quem in motor.buscas] == ["pod-a", "pod-a"]
-    assert dmn.chamadas_ao_motor == list(_FONTES) * 2  # trabalho duplicado
+    # trabalho duplicado; a sombra roda so depois da conclusao ACEITA (a primeira), nunca da recusada
+    assert dmn.chamadas_ao_motor == [*_FONTES, *_SOMBRA_K1, *_FONTES]
     assert [quem for quem, _v in motor.concluidas] == ["pod-a"]
     assert motor.recusas == [("complete", "pod-a", 404), ("failure", "pod-a", 404)]
     assert [entrada["event"] for entrada in logs].count("worker_handle_task_crashed") == 1
@@ -418,7 +424,13 @@ async def test_com_orcamento_a_tarefa_termina_dentro_do_bloqueio_e_ninguem_rebus
     [(quem, saida)] = motor.concluidas
     assert quem == "pod-a"
     # 0,3 s + 0,3 s cabem em 0,7 s; a terceira avaliacao e cortada no meio; a quarta nem chega ao motor.
-    assert dmn.chamadas_ao_motor == ["dut_rol_coverage", "dut_criteria_bariatrica", "carencia_check"]
+    # A sombra do K1 vem depois do complete, fora do orcamento da tarefa.
+    assert dmn.chamadas_ao_motor == [
+        "dut_rol_coverage",
+        "dut_criteria_bariatrica",
+        "carencia_check",
+        *_SOMBRA_K1,
+    ]
     assert saida["criterio_tecnico_ok"] is True
     assert saida["criterio_regulatorio_ok"] is False
     assert saida["criterio_contratual_ok"] is False

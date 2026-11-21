@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_oftalmo_pacote" name="Oftalmologia: enquadramento da facectomia com lente intraocular em pacote ou conta aberta" namespace="https://omni-saude/dmn/oftalmologia">
+  <decision id="rco_oftalmo_pacote" name="Oftalmologia: enquadramento da facectomia com lente intraocular em pacote ou conta aberta" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-OFTALMO-PAC-0005. Hit policy UNIQUE; nenhuma linha nega; facectomia com lente intraocular (30306027, 30306035) de um olho (quantidade 1), eletiva, ambulatorial, sem procedimento cirúrgico adicional e em prestador com o pacote OMNI-PAC-OFTALMO-0001 vigente paga o pacote; os dois olhos no mesmo atendimento (EXC-06) e dado não informado vão ao faturamento, a intercorrência ou outro procedimento cirúrgico (EXC-04) à auditoria médica, sem glosa; urgência ou caráter não informado (EXC-01), prestador sem pacote (EXC-02) e internação, hospital-dia ou pronto-socorro (EXC-05) ficam em conta aberta, sujeita às edições automáticas; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_oftalmo_pacote" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_prestadorComPacote" label="prestadorComPacote ← cadastro de contrato: pacote OMNI-PAC-OFTALMO-0001 vigente para o prestador (booleano)">
+        <inputExpression id="ie_3_prestadorComPacote" typeRef="boolean"><text>prestadorComPacote</text></inputExpression>
+      </input>
+      <input id="in_4_quantidade" label="quantidade ← TISS quantidadeExecutada do procedimento principal no item da guia">
+        <inputExpression id="ie_4_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <input id="in_5_procedimentoCirurgicoAdicional" label="procedimentoCirurgicoAdicional ← TISS codigoProcedimento: a guia traz, na mesma data, outro código cirúrgico (TUSS 22, grupo 3) fora da composição do pacote, inclusive a facectomia repetida em outro item">
+        <inputExpression id="ie_5_procedimentoCirurgicoAdicional" typeRef="boolean"><text>procedimentoCirurgicoAdicional</text></inputExpression>
+      </input>
+      <input id="in_6_regime" label="regime ← TISS regimeAtendimento (TUSS 76) ou regimeInternacao (ambulatorial, pronto_socorro, hospital_dia, internacao)">
+        <inputExpression id="ie_6_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <output id="out_4_modalidadePagamento" name="modalidadePagamento" typeRef="string"/>
+      <rule id="k_pre">
+        <description>OMNI-OFTALMO-PAC-0005 — antes da vigência (03/12/2026): conta aberta</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k_resto">
+        <description>OMNI-OFTALMO-PAC-0005 — código fora do pacote OMNI-PAC-OFTALMO-0001: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30306027", "30306035")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0005_urg">
+        <description>OMNI-OFTALMO-PAC-0005 — urgência ou caráter não informado (EXC-01): conta aberta, sujeita às edições</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306027", "30306035"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0005_sem">
+        <description>OMNI-OFTALMO-PAC-0005 — eletivo em prestador sem pacote ou sem informação do cadastro (EXC-02): conta aberta, sujeita às edições</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306027", "30306035"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0005_bilateral">
+        <description>OMNI-OFTALMO-PAC-0005 — quantidade executada acima de uma unidade, os dois olhos no mesmo atendimento (EXC-06): faturamento confere a composição antes de pagar o segundo olho, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306027", "30306035"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0005_qtd_nula">
+        <description>OMNI-OFTALMO-PAC-0005 — quantidade executada não informada ou menor que uma unidade: faturamento confere, nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306027", "30306035"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0005_adicional">
+        <description>OMNI-OFTALMO-PAC-0005 — outro procedimento cirúrgico ou intercorrência no mesmo ato (EXC-04): auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306027", "30306035"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0005_adic_nulo">
+        <description>OMNI-OFTALMO-PAC-0005 — procedimento cirúrgico adicional não informado: faturamento confere, nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306027", "30306035"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0005_internacao">
+        <description>OMNI-OFTALMO-PAC-0005 — atendimento em internação, hospital-dia ou pronto-socorro (EXC-05): conta aberta, sujeita às edições</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306027", "30306035"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>"internacao", "hospital_dia", "pronto_socorro"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0005_regime_nulo">
+        <description>OMNI-OFTALMO-PAC-0005 — regime de atendimento não informado: faturamento confere, nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306027", "30306035"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>not("ambulatorial", "internacao", "hospital_dia", "pronto_socorro")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+      <rule id="k0005_pacote">
+        <description>OMNI-OFTALMO-PAC-0005 — facectomia com lente intraocular de um olho, eletiva, ambulatorial, sem procedimento adicional, em prestador com pacote vigente: paga o pacote (composição fechada, HCP-LAN 1)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30306027", "30306035"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote"</text></outputEntry>
+      </rule>
+      <rule id="k_sem_data">
+        <description>OMNI-OFTALMO-PAC-0005 — data ausente: faturamento confere, nunca nega</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

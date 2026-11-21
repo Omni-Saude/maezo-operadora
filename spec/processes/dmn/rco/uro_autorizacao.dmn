@@ -1,0 +1,385 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_uro_autorizacao" name="Urologia: autorização prévia da cirurgia eletiva e dos códigos com DUT; urgência sem autorização" namespace="https://omni-saude/dmn/urologia">
+  <decision id="rco_uro_autorizacao" name="Urologia: autorização prévia da cirurgia eletiva e dos códigos com DUT; urgência sem autorização" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-URO-AUT-0001 a OMNI-URO-AUT-0011. Domínio urologia. Hit policy UNIQUE; nenhuma linha nega ou glosa; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_uro_autorizacao" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="a_pre">
+        <description>OMNI-URO-AUT-0011 — antes da vigência (03/12/2026): regras de autorização URO não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a01_elet">
+        <description>OMNI-URO-AUT-0001 — cirurgia eletiva da família: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103014", "31103022", "31103049", "31103065", "31103073", "31103081", "31103090", "31103103", "31103111", "31103138", "31103146", "31103154", "31103162", "31103170", "31103200", "31103219", "31103227", "31103243", "31103251", "31103260", "31103278", "31103286", "31103294", "31103308", "31103316", "31103324", "31103332", "31103340", "31103359", "31103367", "31103375", "31103383", "31103413", "31103448", "31103456", "31103464", "31103472", "31103480", "31103499", "31103502", "31103529", "31103537", "31103561", "31103596"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a01_urg">
+        <description>OMNI-URO-AUT-0011 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-URO-AUT-0001)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103014", "31103022", "31103049", "31103065", "31103073", "31103081", "31103090", "31103103", "31103111", "31103138", "31103146", "31103154", "31103162", "31103170", "31103200", "31103219", "31103227", "31103243", "31103251", "31103260", "31103278", "31103286", "31103294", "31103308", "31103316", "31103324", "31103332", "31103340", "31103359", "31103367", "31103375", "31103383", "31103413", "31103448", "31103456", "31103464", "31103472", "31103480", "31103499", "31103502", "31103529", "31103537", "31103561", "31103596"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a01_car">
+        <description>OMNI-URO-AUT-0001 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103014", "31103022", "31103049", "31103065", "31103073", "31103081", "31103090", "31103103", "31103111", "31103138", "31103146", "31103154", "31103162", "31103170", "31103200", "31103219", "31103227", "31103243", "31103251", "31103260", "31103278", "31103286", "31103294", "31103308", "31103316", "31103324", "31103332", "31103340", "31103359", "31103367", "31103375", "31103383", "31103413", "31103448", "31103456", "31103464", "31103472", "31103480", "31103499", "31103502", "31103529", "31103537", "31103561", "31103596"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a02_elet">
+        <description>OMNI-URO-AUT-0002 — cirurgia eletiva da família: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31205020", "31205038", "31205046", "31205070"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a02_urg">
+        <description>OMNI-URO-AUT-0011 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-URO-AUT-0002)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31205020", "31205038", "31205046", "31205070"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a02_car">
+        <description>OMNI-URO-AUT-0002 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31205020", "31205038", "31205046", "31205070"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a03_elet">
+        <description>OMNI-URO-AUT-0003 — cirurgia eletiva da família: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31204031", "31204040", "31204058"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a03_urg">
+        <description>OMNI-URO-AUT-0011 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-URO-AUT-0003)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31204031", "31204040", "31204058"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a03_car">
+        <description>OMNI-URO-AUT-0003 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31204031", "31204040", "31204058"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a04_elet">
+        <description>OMNI-URO-AUT-0004 — cirurgia eletiva da família: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31202039", "31202063", "31202071"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a04_urg">
+        <description>OMNI-URO-AUT-0011 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-URO-AUT-0004)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31202039", "31202063", "31202071"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a04_car">
+        <description>OMNI-URO-AUT-0004 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31202039", "31202063", "31202071"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a05_elet">
+        <description>OMNI-URO-AUT-0005 — cirurgia eletiva da família: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31206018", "31206026", "31206042", "31206050", "31206069", "31206077", "31206085", "31206093", "31206107", "31206115", "31206123", "31206140", "31206158", "31206166", "31206182", "31206190", "31206239", "31206247", "31206255", "31206263"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a05_urg">
+        <description>OMNI-URO-AUT-0011 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-URO-AUT-0005)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31206018", "31206026", "31206042", "31206050", "31206069", "31206077", "31206085", "31206093", "31206107", "31206115", "31206123", "31206140", "31206158", "31206166", "31206182", "31206190", "31206239", "31206247", "31206255", "31206263"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a05_car">
+        <description>OMNI-URO-AUT-0005 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31206018", "31206026", "31206042", "31206050", "31206069", "31206077", "31206085", "31206093", "31206107", "31206115", "31206123", "31206140", "31206158", "31206166", "31206182", "31206190", "31206239", "31206247", "31206255", "31206263"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0005"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a06_elet">
+        <description>OMNI-URO-AUT-0006 — cirurgia eletiva da família: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31201016", "31201024", "31201032", "31201040", "31201067", "31201075", "31201091", "31201105", "31201113", "31201121", "31201130", "31201148", "31201180"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a06_urg">
+        <description>OMNI-URO-AUT-0011 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-URO-AUT-0006)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31201016", "31201024", "31201032", "31201040", "31201067", "31201075", "31201091", "31201105", "31201113", "31201121", "31201130", "31201148", "31201180"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a06_car">
+        <description>OMNI-URO-AUT-0006 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31201016", "31201024", "31201032", "31201040", "31201067", "31201075", "31201091", "31201105", "31201113", "31201121", "31201130", "31201148", "31201180"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0006"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a07_elet">
+        <description>OMNI-URO-AUT-0007 — cirurgia eletiva da família: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31101011", "31101020", "31101038", "31101046", "31101054", "31101062", "31101070", "31101097", "31101100", "31101119", "31101127", "31101135", "31101151", "31101160", "31101178", "31101186", "31101194", "31101208", "31101216", "31101224", "31101232", "31101240", "31101259", "31101275", "31101283", "31101291", "31101305", "31101321", "31101330", "31101348", "31101356", "31101364", "31101372", "31101380", "31101399", "31101410", "31101429", "31101437", "31101445", "31101453", "31101461", "31101470", "31101488", "31101518", "31101526", "31101534", "31101542", "31101550", "31101569", "31101577", "31101585", "31101607", "31101615"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a07_urg">
+        <description>OMNI-URO-AUT-0011 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-URO-AUT-0007)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31101011", "31101020", "31101038", "31101046", "31101054", "31101062", "31101070", "31101097", "31101100", "31101119", "31101127", "31101135", "31101151", "31101160", "31101178", "31101186", "31101194", "31101208", "31101216", "31101224", "31101232", "31101240", "31101259", "31101275", "31101283", "31101291", "31101305", "31101321", "31101330", "31101348", "31101356", "31101364", "31101372", "31101380", "31101399", "31101410", "31101429", "31101437", "31101445", "31101453", "31101461", "31101470", "31101488", "31101518", "31101526", "31101534", "31101542", "31101550", "31101569", "31101577", "31101585", "31101607", "31101615"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a07_car">
+        <description>OMNI-URO-AUT-0007 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31101011", "31101020", "31101038", "31101046", "31101054", "31101062", "31101070", "31101097", "31101100", "31101119", "31101127", "31101135", "31101151", "31101160", "31101178", "31101186", "31101194", "31101208", "31101216", "31101224", "31101232", "31101240", "31101259", "31101275", "31101283", "31101291", "31101305", "31101321", "31101330", "31101348", "31101356", "31101364", "31101372", "31101380", "31101399", "31101410", "31101429", "31101437", "31101445", "31101453", "31101461", "31101470", "31101488", "31101518", "31101526", "31101534", "31101542", "31101550", "31101569", "31101577", "31101585", "31101607", "31101615"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0007"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a08_elet">
+        <description>OMNI-URO-AUT-0008 — cirurgia eletiva da família: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31203019", "31203035", "31203043", "31203051", "31203060", "31203078", "31203094", "31203108", "31203116", "31203124", "31203132", "31203167"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0008"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a08_urg">
+        <description>OMNI-URO-AUT-0011 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-URO-AUT-0008)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31203019", "31203035", "31203043", "31203051", "31203060", "31203078", "31203094", "31203108", "31203116", "31203124", "31203132", "31203167"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a08_car">
+        <description>OMNI-URO-AUT-0008 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31203019", "31203035", "31203043", "31203051", "31203060", "31203078", "31203094", "31203108", "31203116", "31203124", "31203132", "31203167"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0008"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a09_elet">
+        <description>OMNI-URO-AUT-0009 — cirurgia eletiva da família: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102018", "31102034", "31102042", "31102050", "31102069", "31102077", "31102085", "31102093", "31102107", "31102115", "31102123", "31102131", "31102174", "31102182", "31102204", "31102220", "31102239", "31102247", "31102255", "31102263", "31102271", "31102280", "31102298", "31102301", "31102310", "31102328", "31102344", "31102352", "31102360", "31102379", "31102409", "31102417", "31102425", "31102433", "31102441", "31102450", "31102468", "31102476", "31102514", "31102530", "31102549", "31102557", "31102565", "31102590"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a09_urg">
+        <description>OMNI-URO-AUT-0011 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-URO-AUT-0009)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102018", "31102034", "31102042", "31102050", "31102069", "31102077", "31102085", "31102093", "31102107", "31102115", "31102123", "31102131", "31102174", "31102182", "31102204", "31102220", "31102239", "31102247", "31102255", "31102263", "31102271", "31102280", "31102298", "31102301", "31102310", "31102328", "31102344", "31102352", "31102360", "31102379", "31102409", "31102417", "31102425", "31102433", "31102441", "31102450", "31102468", "31102476", "31102514", "31102530", "31102549", "31102557", "31102565", "31102590"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a09_car">
+        <description>OMNI-URO-AUT-0009 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102018", "31102034", "31102042", "31102050", "31102069", "31102077", "31102085", "31102093", "31102107", "31102115", "31102123", "31102131", "31102174", "31102182", "31102204", "31102220", "31102239", "31102247", "31102255", "31102263", "31102271", "31102280", "31102298", "31102301", "31102310", "31102328", "31102344", "31102352", "31102360", "31102379", "31102409", "31102417", "31102425", "31102433", "31102441", "31102450", "31102468", "31102476", "31102514", "31102530", "31102549", "31102557", "31102565", "31102590"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0009"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a10_elet">
+        <description>OMNI-URO-AUT-0010 — cirurgia eletiva da família: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31104037", "31104053", "31104070", "31104088", "31104096", "31104100", "31104118", "31104126", "31104134", "31104150", "31104177", "31104185", "31104193", "31104207", "31104215", "31104223", "31104231", "31104240", "31104274", "31104282", "31104290", "31104304"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0010"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a10_urg">
+        <description>OMNI-URO-AUT-0011 — urgência ou emergência: liberação sem autorização prévia (família de OMNI-URO-AUT-0010)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31104037", "31104053", "31104070", "31104088", "31104096", "31104100", "31104118", "31104126", "31104134", "31104150", "31104177", "31104185", "31104193", "31104207", "31104215", "31104223", "31104231", "31104240", "31104274", "31104282", "31104290", "31104304"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a10_car">
+        <description>OMNI-URO-AUT-0010 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31104037", "31104053", "31104070", "31104088", "31104096", "31104100", "31104118", "31104126", "31104134", "31104150", "31104177", "31104185", "31104193", "31104207", "31104215", "31104223", "31104231", "31104240", "31104274", "31104282", "31104290", "31104304"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0010"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_resto">
+        <description>OMNI-URO-AUT-0011 — procedimento ambulatorial sem DUT ou de outro domínio: sem autorização desta tabela</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("31103014", "31103022", "31103049", "31103065", "31103073", "31103081", "31103090", "31103103", "31103111", "31103138", "31103146", "31103154", "31103162", "31103170", "31103200", "31103219", "31103227", "31103243", "31103251", "31103260", "31103278", "31103286", "31103294", "31103308", "31103316", "31103324", "31103332", "31103340", "31103359", "31103367", "31103375", "31103383", "31103413", "31103448", "31103456", "31103464", "31103472", "31103480", "31103499", "31103502", "31103529", "31103537", "31103561", "31103596", "31205020", "31205038", "31205046", "31205070", "31204031", "31204040", "31204058", "31202039", "31202063", "31202071", "31206018", "31206026", "31206042", "31206050", "31206069", "31206077", "31206085", "31206093", "31206107", "31206115", "31206123", "31206140", "31206158", "31206166", "31206182", "31206190", "31206239", "31206247", "31206255", "31206263", "31201016", "31201024", "31201032", "31201040", "31201067", "31201075", "31201091", "31201105", "31201113", "31201121", "31201130", "31201148", "31201180", "31101011", "31101020", "31101038", "31101046", "31101054", "31101062", "31101070", "31101097", "31101100", "31101119", "31101127", "31101135", "31101151", "31101160", "31101178", "31101186", "31101194", "31101208", "31101216", "31101224", "31101232", "31101240", "31101259", "31101275", "31101283", "31101291", "31101305", "31101321", "31101330", "31101348", "31101356", "31101364", "31101372", "31101380", "31101399", "31101410", "31101429", "31101437", "31101445", "31101453", "31101461", "31101470", "31101488", "31101518", "31101526", "31101534", "31101542", "31101550", "31101569", "31101577", "31101585", "31101607", "31101615", "31203019", "31203035", "31203043", "31203051", "31203060", "31203078", "31203094", "31203108", "31203116", "31203124", "31203132", "31203167", "31102018", "31102034", "31102042", "31102050", "31102069", "31102077", "31102085", "31102093", "31102107", "31102115", "31102123", "31102131", "31102174", "31102182", "31102204", "31102220", "31102239", "31102247", "31102255", "31102263", "31102271", "31102280", "31102298", "31102301", "31102310", "31102328", "31102344", "31102352", "31102360", "31102379", "31102409", "31102417", "31102425", "31102433", "31102441", "31102450", "31102468", "31102476", "31102514", "31102530", "31102549", "31102557", "31102565", "31102590", "31104037", "31104053", "31104070", "31104088", "31104096", "31104100", "31104118", "31104126", "31104134", "31104150", "31104177", "31104185", "31104193", "31104207", "31104215", "31104223", "31104231", "31104240", "31104274", "31104282", "31104290", "31104304")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_sem_data">
+        <description>OMNI-URO-AUT-0011 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

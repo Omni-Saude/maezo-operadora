@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_coluna_opme_prova_uso" name="Prova de uso da OPME na conta (OMNI-COLUNA-GLO-0001)" namespace="https://omni-saude/dmn/opme-coluna">
+  <decision id="rco_coluna_opme_prova_uso" name="Prova de uso da OPME na conta (OMNI-COLUNA-GLO-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-COLUNA-GLO-0001. Domínio opme-coluna. Gerado por scripts do piloto; hit policy UNIQUE, sem lacuna (linhas de fechamento nunca negam).</description>
+    <decisionTable id="dt_coluna_opme_prova_uso" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_opmeAutorizada" label="opmeAutorizada ← senha de autorização do item (TISS senha) válida para a OPME cobrada">
+        <inputExpression id="ie_1_opmeAutorizada" typeRef="boolean"><text>opmeAutorizada</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_etiquetaRastreabilidade" label="etiquetaRastreabilidade ← anexo da conta: etiqueta do implante (lote, fabricante, registro Anvisa)">
+        <inputExpression id="ie_3_etiquetaRastreabilidade" typeRef="boolean"><text>etiquetaRastreabilidade</text></inputExpression>
+      </input>
+      <input id="in_4_notaFiscalFornecedor" label="notaFiscalFornecedor ← anexo da conta: nota fiscal do fornecedor da OPME">
+        <inputExpression id="ie_4_notaFiscalFornecedor" typeRef="boolean"><text>notaFiscalFornecedor</text></inputExpression>
+      </input>
+      <input id="in_5_prazoDocumentoVencido" label="prazoDocumentoVencido ← fluxo Camunda: a OMNI pediu o documento faltante e o prazo de 5 dias úteis venceu">
+        <inputExpression id="ie_5_prazoDocumentoVencido" typeRef="boolean"><text>prazoDocumentoVencido</text></inputExpression>
+      </input>
+      <input id="in_6_quantidadeAcimaAutorizada" label="quantidadeAcimaAutorizada ← TISS quantidadeExecutada do item maior que a quantidade autorizada">
+        <inputExpression id="ie_6_quantidadeAcimaAutorizada" typeRef="boolean"><text>quantidadeAcimaAutorizada</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r002">
+        <description>OMNI-COLUNA-AUT-0001 — Antes da vigência das regras canônicas (2026-11-03): fluxo anterior, com revisão</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-COLUNA-GLO-0001 — OPME eletiva sem autorização: glosa do item (1818)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"1818"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-COLUNA-GLO-0001 — OPME de urgência sem autorização: auditoria posterior</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-COLUNA-GLO-0001 — Autorização não informada: pedir a senha</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-COLUNA-GLO-0001 — Sem etiqueta: pedir etiqueta em 5 dias úteis (3263)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>"3263"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-COLUNA-GLO-0001 — Etiqueta comprovadamente ausente após o prazo: glosa só do item (3263)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3263"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-COLUNA-GLO-0001 — Sem nota fiscal: pedir em 5 dias úteis (3255)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>"3255"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r009">
+        <description>OMNI-COLUNA-GLO-0001 — Nota fiscal comprovadamente ausente após o prazo: glosa só do item (3255)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3255"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r010">
+        <description>OMNI-COLUNA-GLO-0001 — Prova de uso completa e quantidade acima da autorizada: glosa do excedente (3210)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3210"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r011">
+        <description>OMNI-COLUNA-GLO-0001 — Prova de uso completa: pagar</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r012">
+        <description>OMNI-COLUNA-GLO-0001 — OPME sem autorização com caráter ausente ou inválido: não presume eletivo; auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>not("1","2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r013">
+        <description>OMNI-COLUNA-GLO-0001 — Etiqueta não extraída (nula) após o prazo: auditoria confere antes de glosar</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r014">
+        <description>OMNI-COLUNA-GLO-0001 — Nota fiscal não extraída (nula) após o prazo: auditoria confere antes de glosar</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-COLUNA-AUT-0001 — Data ausente: revisão de cadastro da guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

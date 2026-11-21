@@ -1,0 +1,483 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_clin_pacote" name="Procedimentos clínicos: composição da conta de dietas e fórmulas na internação (sem pacote de episódio)" namespace="https://omni-saude/dmn/procedimentos-clinicos">
+  <decision id="rco_clin_pacote" name="Procedimentos clínicos: composição da conta de dietas e fórmulas na internação (sem pacote de episódio)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CLIN-PAC-0001, PAC-0002 e PAC-0003. Domínio procedimentos-clinicos. Regras de composição de conta, não pacote de episódio (decisão CLIN-17): pagar_pacote significa pagar o item pela composição da diária. Hit policy UNIQUE; nenhuma linha nega ou glosa; item incluído na diária e cobrado à parte, item à parte sem prescrição e checagem e classe ausente vão à revisão do faturamento; fechamento null vai à regulação.</description>
+    <decisionTable id="dt_clin_pacote" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_regime" label="regime ← TISS regimeInternacao ou regimeAtendimento (ambulatorial, internacao, hospital_dia, pronto_socorro)">
+        <inputExpression id="ie_1_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <input id="in_2_classeItemNutricao" label="classeItemNutricao ← cadastro OMNI de materiais: classe do item de nutrição">
+        <inputExpression id="ie_2_classeItemNutricao" typeRef="string"><text>classeItemNutricao</text></inputExpression>
+      </input>
+      <input id="in_3_cobradoAParte" label="cobradoAParte ← TISS conta: item lançado em linha separada da diária hospitalar (booleano)">
+        <inputExpression id="ie_3_cobradoAParte" typeRef="boolean"><text>cobradoAParte</text></inputExpression>
+      </input>
+      <input id="in_4_prescricaoEChecagem" label="prescricaoEChecagem ← anexo da conta: prescrição médica e checagem da enfermagem no prontuário (booleano)">
+        <inputExpression id="ie_4_prescricaoEChecagem" typeRef="boolean"><text>prescricaoEChecagem</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-CLIN-PAC-0001 — antes da vigência (03/12/2026): regras CLIN não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_formula_infantil_padrao_na">
+        <description>OMNI-CLIN-PAC-0001 — formula_infantil_padrao está na diária: pagar pela composição</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"formula_infantil_padrao"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_formula_infantil_padrao_cobra">
+        <description>OMNI-CLIN-PAC-0001 — formula_infantil_padrao cobrado à parte da diária: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"formula_infantil_padrao"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_formula_infantil_padrao_nulo">
+        <description>OMNI-CLIN-PAC-0001 — formula_infantil_padrao, lançamento do item não extraído: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"formula_infantil_padrao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_formula_infantil_ar_ha_prematuro_na">
+        <description>OMNI-CLIN-PAC-0001 — formula_infantil_ar_ha_prematuro está na diária: pagar pela composição</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"formula_infantil_ar_ha_prematuro"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_formula_infantil_ar_ha_prematuro_cobra">
+        <description>OMNI-CLIN-PAC-0001 — formula_infantil_ar_ha_prematuro cobrado à parte da diária: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"formula_infantil_ar_ha_prematuro"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_formula_infantil_ar_ha_prematuro_nulo">
+        <description>OMNI-CLIN-PAC-0001 — formula_infantil_ar_ha_prematuro, lançamento do item não extraído: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"formula_infantil_ar_ha_prematuro"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dieta_oral_na">
+        <description>OMNI-CLIN-PAC-0002 — dieta_oral está na diária: pagar pela composição</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_oral"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dieta_oral_cobra">
+        <description>OMNI-CLIN-PAC-0002 — dieta_oral cobrado à parte da diária: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_oral"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dieta_oral_nulo">
+        <description>OMNI-CLIN-PAC-0002 — dieta_oral, lançamento do item não extraído: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_oral"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dieta_artesanal_na">
+        <description>OMNI-CLIN-PAC-0002 — dieta_artesanal está na diária: pagar pela composição</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_artesanal"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dieta_artesanal_cobra">
+        <description>OMNI-CLIN-PAC-0002 — dieta_artesanal cobrado à parte da diária: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_artesanal"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dieta_artesanal_nulo">
+        <description>OMNI-CLIN-PAC-0002 — dieta_artesanal, lançamento do item não extraído: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_artesanal"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dieta_manipulada_na">
+        <description>OMNI-CLIN-PAC-0003 — dieta_manipulada está na diária: pagar pela composição</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_manipulada"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dieta_manipulada_cobra">
+        <description>OMNI-CLIN-PAC-0003 — dieta_manipulada cobrado à parte da diária: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_manipulada"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="i_dieta_manipulada_nulo">
+        <description>OMNI-CLIN-PAC-0003 — dieta_manipulada, lançamento do item não extraído: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_manipulada"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_formula_dietoterapica_especifica_ok">
+        <description>OMNI-CLIN-PAC-0001 — formula_dietoterapica_especifica é remunerado à parte, com prescrição e checagem: pagar por serviço</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"formula_dietoterapica_especifica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_formula_dietoterapica_especifica_sem">
+        <description>OMNI-CLIN-PAC-0001 — formula_dietoterapica_especifica sem prescrição e checagem registradas: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"formula_dietoterapica_especifica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_complemento_leite_humano_ok">
+        <description>OMNI-CLIN-PAC-0001 — complemento_leite_humano é remunerado à parte, com prescrição e checagem: pagar por serviço</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"complemento_leite_humano"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_complemento_leite_humano_sem">
+        <description>OMNI-CLIN-PAC-0001 — complemento_leite_humano sem prescrição e checagem registradas: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"complemento_leite_humano"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_dieta_enteral_industrializada_especial_ok">
+        <description>OMNI-CLIN-PAC-0002 — dieta_enteral_industrializada_especial é remunerado à parte, com prescrição e checagem: pagar por serviço</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_enteral_industrializada_especial"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_dieta_enteral_industrializada_especial_sem">
+        <description>OMNI-CLIN-PAC-0002 — dieta_enteral_industrializada_especial sem prescrição e checagem registradas: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_enteral_industrializada_especial"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_dieta_industrializada_ok">
+        <description>OMNI-CLIN-PAC-0003 — dieta_industrializada é remunerado à parte, com prescrição e checagem: pagar por serviço</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_industrializada"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_dieta_industrializada_sem">
+        <description>OMNI-CLIN-PAC-0003 — dieta_industrializada sem prescrição e checagem registradas: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"dieta_industrializada"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_modular_ok">
+        <description>OMNI-CLIN-PAC-0003 — modular é remunerado à parte, com prescrição e checagem: pagar por serviço</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"modular"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_modular_sem">
+        <description>OMNI-CLIN-PAC-0003 — modular sem prescrição e checagem registradas: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"modular"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_complemento_nutricional_ok">
+        <description>OMNI-CLIN-PAC-0003 — complemento_nutricional é remunerado à parte, com prescrição e checagem: pagar por serviço</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"complemento_nutricional"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_complemento_nutricional_sem">
+        <description>OMNI-CLIN-PAC-0003 — complemento_nutricional sem prescrição e checagem registradas: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"complemento_nutricional"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_suplemento_oral_ok">
+        <description>OMNI-CLIN-PAC-0003 — suplemento_oral é remunerado à parte, com prescrição e checagem: pagar por serviço</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"suplemento_oral"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_suplemento_oral_sem">
+        <description>OMNI-CLIN-PAC-0003 — suplemento_oral sem prescrição e checagem registradas: faturamento, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>"suplemento_oral"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_nula">
+        <description>OMNI-CLIN-PAC-0001 — classe do item ausente na internação: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_outra">
+        <description>OMNI-CLIN-PAC-0001 — classe de nutrição sem regra de composição nesta decisão: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>not(null, "complemento_leite_humano", "complemento_nutricional", "dieta_artesanal", "dieta_enteral_industrializada_especial", "dieta_industrializada", "dieta_manipulada", "dieta_oral", "formula_dietoterapica_especifica", "formula_infantil_ar_ha_prematuro", "formula_infantil_padrao", "modular", "suplemento_oral")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="reg_nulo">
+        <description>OMNI-CLIN-PAC-0001 — regime não informado: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="reg_outro">
+        <description>OMNI-CLIN-PAC-0001 — fora da internação a composição da diária não se aplica: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not(null, "internacao")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-CLIN-PAC-0001 — data ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CLIN-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

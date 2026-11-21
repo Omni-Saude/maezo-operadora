@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_mednuc_pacote" name="Medicina nuclear: composição da conta (exame por ato, taxa de radiofármaco e etapas do linfonodo sentinela)" namespace="https://omni-saude/dmn/medicina-nuclear">
+  <decision id="rco_mednuc_pacote" name="Medicina nuclear: composição da conta (exame por ato, taxa de radiofármaco e etapas do linfonodo sentinela)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-MEDNUC-PAC-0001; OMNI-MEDNUC-PAC-0002. Domínio medicina-nuclear. Hit policy UNIQUE; nenhuma linha nega ou glosa; campo nulo vai à revisão humana; a linha de fechamento (data ausente) vai à regulação.</description>
+    <decisionTable id="dt_mednuc_pacote" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_fatorAcrescimoTecnica" label="fatorAcrescimoTecnica ← TISS reducaoAcrescimo do item maior que 1 sem previsão no contrato do prestador (true = sem previsão)">
+        <inputExpression id="ie_fatorAcrescimoTecnica" typeRef="boolean"><text>fatorAcrescimoTecnica</text></inputExpression>
+      </input>
+      <input id="in_quantidadeTaxaRadiofarmaco" label="quantidadeTaxaRadiofarmaco ← TISS conta: taxas de unidade de radiofármaco (TUSS 18) do mesmo exame">
+        <inputExpression id="ie_quantidadeTaxaRadiofarmaco" typeRef="integer"><text>quantidadeTaxaRadiofarmaco</text></inputExpression>
+      </input>
+      <input id="in_componenteRepetidoMesmoAto" label="componenteRepetidoMesmoAto ← TISS conta: mesmo código da lista mais de uma vez para o mesmo beneficiário e data">
+        <inputExpression id="ie_componenteRepetidoMesmoAto" typeRef="boolean"><text>componenteRepetidoMesmoAto</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-MEDNUC-PAC-0001 — antes do início da vigência (03/12/2026): a composição de conta não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_acr">
+        <description>OMNI-MEDNUC-PAC-0001 — acréscimo de técnica sem previsão no contrato do prestador: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40701042", "40701050", "40701069", "40701140", "40702022", "40703045", "40706010", "40707016", "40707032", "40703037"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_taxa">
+        <description>OMNI-MEDNUC-PAC-0001 — mais de uma taxa de radiofármaco para o mesmo exame: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40701042", "40701050", "40701069", "40701140", "40702022", "40703045", "40706010", "40707016", "40707032", "40703037"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_ok">
+        <description>OMNI-MEDNUC-PAC-0001 — exame por ato e radiofármaco à parte, uma taxa por exame: paga a composição</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40701042", "40701050", "40701069", "40701140", "40702022", "40703045", "40706010", "40707016", "40707032", "40703037"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_qtd_nulo">
+        <description>OMNI-MEDNUC-PAC-0001 — taxa de radiofármaco não informada: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40701042", "40701050", "40701069", "40701140", "40702022", "40703045", "40706010", "40707016", "40707032", "40703037"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_acr_nulo">
+        <description>OMNI-MEDNUC-PAC-0001 — acréscimo de técnica não informado: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40701042", "40701050", "40701069", "40701140", "40702022", "40703045", "40706010", "40707016", "40707032", "40703037"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p2_rep">
+        <description>OMNI-MEDNUC-PAC-0002 — código de etapa do linfonodo sentinela repetido no mesmo ato: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40708101", "40708098", "40708071", "40708080"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p2_ok">
+        <description>OMNI-MEDNUC-PAC-0002 — cada etapa uma vez por ato: paga a composição</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40708101", "40708098", "40708071", "40708080"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p2_nulo">
+        <description>OMNI-MEDNUC-PAC-0002 — repetição não conferida: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40708101", "40708098", "40708071", "40708080"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_resto">
+        <description>OMNI-MEDNUC-PAC-0001 — código sem regra de composição: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40701042", "40701050", "40701069", "40701140", "40702022", "40703045", "40706010", "40707016", "40707032", "40703037", "40708101", "40708098", "40708071", "40708080")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="fim">
+        <description>OMNI-MEDNUC-PAC-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MEDNUC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

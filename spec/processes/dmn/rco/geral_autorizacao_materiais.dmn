@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_geral_autorizacao_materiais" name="Regras gerais: autorização prévia de materiais pela classe (OMNI-GERAL-AUT-0001)" namespace="https://omni-saude/dmn/regras-gerais">
+  <decision id="rco_geral_autorizacao_materiais" name="Regras gerais: autorização prévia de materiais pela classe (OMNI-GERAL-AUT-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-GERAL-AUT-0001: prótese implantável e OPME fora da lista livre exigem autorização no eletivo; lista livre e material comum não exigem; urgência libera; classe ausente vai à auditoria de enfermagem. Autorização não é negativa.</description>
+    <decisionTable id="dt_geral_autorizacao_materiais" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_classeMaterial" label="classeMaterial ← cadastro OMNI de materiais: classe do item TISS codigoMaterial (TUSS 19): protese_implantavel | opme_fora_da_lista | sem_autorizacao_lista | material_comum">
+        <inputExpression id="ie_classeMaterial" typeRef="string"><text>classeMaterial</text></inputExpression>
+      </input>
+      <input id="in_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="a_pre">
+        <description>Fora da vigência (antes de 2026-11-03)</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_urgencia">
+        <description>OMNI-GERAL-AUT-0001: prótese ou OPME na urgência: sem autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"protese_implantavel", "opme_fora_da_lista"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_eletivo">
+        <description>OMNI-GERAL-AUT-0001: prótese ou OPME fora da lista no eletivo ou caráter ausente: exige autorização</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"protese_implantavel", "opme_fora_da_lista"</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_livre">
+        <description>OMNI-GERAL-AUT-0001: material da lista livre ou de uso comum: sem autorização</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"sem_autorizacao_lista", "material_comum"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_fechamento">
+        <description>OMNI-GERAL-AUT-0001: classe ausente ou desconhecida: auditoria de enfermagem (linha final, nunca nega)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("protese_implantavel", "opme_fora_da_lista", "sem_autorizacao_lista", "material_comum")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_sem_data">
+        <description>OMNI-GERAL-AUT-0001: data ausente (linha final, nunca nega)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

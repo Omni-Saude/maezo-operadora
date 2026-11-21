@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_neuro_pacote" name="Neurocirurgia: pacote da rizotomia e da denervação facetária por radiofrequência (OMNI-NEURO-PAC-0001)" namespace="https://omni-saude/dmn/neurocirurgia-neuroestimulacao">
+  <decision id="rco_neuro_pacote" name="Neurocirurgia: pacote da rizotomia e da denervação facetária por radiofrequência (OMNI-NEURO-PAC-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-NEURO-PAC-0001. Enquadramento no pacote OMNI-PAC-NEURO-0001 (rizotomia percutânea 31403336 e denervação facetária 31403034): só eletivo (caraterAtendimento 1) em prestador com o pacote no contrato; urgência e prestador sem pacote ficam em conta aberta (EXC-01, EXC-02); campo nulo vai ao faturamento. A composição por segmento e os honorários ficam na tabela do pacote e na tabela de honorários. Hit policy UNIQUE; nenhuma linha nega ou glosa; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_neuro_pacote" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataExecucao do procedimento principal, AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimentoPrincipal" label="codigoProcedimentoPrincipal ← TISS codigoProcedimento do procedimento principal da guia (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimentoPrincipal" typeRef="string"><text>codigoProcedimentoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_prestadorComPacote" label="prestadorComPacote ← cadastro contratual: pacote OMNI-PAC-NEURO-0001 vigente no anexo do contrato do prestador">
+        <inputExpression id="ie_3_prestadorComPacote" typeRef="boolean"><text>prestadorComPacote</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="p_pre">
+        <description>OMNI-NEURO-PAC-0001 — antes da vigência (03/12/2026): conta aberta</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEURO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_fora">
+        <description>OMNI-NEURO-PAC-0001 — procedimento sem pacote no domínio: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("31403336", "31403034")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEURO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_urg">
+        <description>OMNI-NEURO-PAC-0001 — urgência (EXC-01): conta aberta, sem pacote</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31403336", "31403034"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEURO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_car_nulo">
+        <description>OMNI-NEURO-PAC-0001 — caráter nulo ou fora da TUSS 23: faturamento, sem pacote e sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31403336", "31403034"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEURO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sem_pac">
+        <description>OMNI-NEURO-PAC-0001 — prestador sem o pacote no contrato (EXC-02): conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31403336", "31403034"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEURO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_pac_nulo">
+        <description>OMNI-NEURO-PAC-0001 — cadastro do pacote ausente: faturamento, sem pacote e sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31403336", "31403034"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEURO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_pacote">
+        <description>OMNI-NEURO-PAC-0001 — eletivo em prestador com o pacote: pagar o pacote (TUSS 79, modelo 02)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31403336", "31403034"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEURO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sem_data">
+        <description>OMNI-NEURO-PAC-0001 — data ausente: faturamento</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-NEURO-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

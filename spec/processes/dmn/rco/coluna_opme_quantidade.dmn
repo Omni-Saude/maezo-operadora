@@ -1,0 +1,1009 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_coluna_opme_quantidade" name="Lista positiva e quantidade de OPME por nível (OMNI-COLUNA-OPM-0002, OPM-0003)" namespace="https://omni-saude/dmn/opme-coluna">
+  <decision id="rco_coluna_opme_quantidade" name="Lista positiva e quantidade de OPME por nível (OMNI-COLUNA-OPM-0002, OPM-0003)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-COLUNA-OPM-0002; OMNI-COLUNA-OPM-0003. Domínio opme-coluna. Gerado por scripts do piloto; hit policy UNIQUE, sem lacuna (linhas de fechamento nunca negam).</description>
+    <decisionTable id="dt_coluna_opme_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_categoriaOpme" label="categoriaOpme ← categoria do item do anexo de OPME (TISS codigoMaterial TUSS 19 → categoria OMNI; tabela de correspondência em LACUNA)">
+        <inputExpression id="ie_1_categoriaOpme" typeRef="string"><text>categoriaOpme</text></inputExpression>
+      </input>
+      <input id="in_2_quantidadeNiveis" label="quantidadeNiveis ← TISS quantidadeSolicitada do procedimento principal por segmento (artrodese)">
+        <inputExpression id="ie_2_quantidadeNiveis" typeRef="integer"><text>quantidadeNiveis</text></inputExpression>
+      </input>
+      <input id="in_3_quantidadeSolicitada" label="quantidadeSolicitada ← TISS quantidadeSolicitada do item de OPME (unidades; enxerto em gramas)">
+        <inputExpression id="ie_3_quantidadeSolicitada" typeRef="integer"><text>quantidadeSolicitada</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r002">
+        <description>OMNI-COLUNA-AUT-0001 — Antes da vigência das regras canônicas (2026-11-03): fluxo anterior, com revisão</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-COLUNA-OPM-0002 — Quantidade ausente ou negativa: pedir dado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt; 0, null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_pedicular, 1 nível(is): até 4</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_pedicular"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>[0..4]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_pedicular, 1 nível(is): acima de 4 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_pedicular"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>&gt; 4</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_pedicular, 2 nível(is): até 6</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_pedicular"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>[0..6]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_pedicular, 2 nível(is): acima de 6 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_pedicular"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>&gt; 6</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_pedicular, 3 nível(is): até 8</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_pedicular"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>[0..8]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r009">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_pedicular, 3 nível(is): acima de 8 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_pedicular"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>&gt; 8</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r010">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_pedicular, 4 níveis ou mais: construção longa vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_pedicular"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r011">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_pedicular, níveis ausentes ou zero: pedir dado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_pedicular"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r012">
+        <description>OMNI-COLUNA-OPM-0002 — conector_parafuso, 1 nível(is): até 4</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"conector_parafuso"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>[0..4]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r013">
+        <description>OMNI-COLUNA-OPM-0002 — conector_parafuso, 1 nível(is): acima de 4 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"conector_parafuso"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>&gt; 4</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r014">
+        <description>OMNI-COLUNA-OPM-0002 — conector_parafuso, 2 nível(is): até 6</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"conector_parafuso"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>[0..6]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r015">
+        <description>OMNI-COLUNA-OPM-0002 — conector_parafuso, 2 nível(is): acima de 6 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"conector_parafuso"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>&gt; 6</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r016">
+        <description>OMNI-COLUNA-OPM-0002 — conector_parafuso, 3 nível(is): até 8</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"conector_parafuso"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>[0..8]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r017">
+        <description>OMNI-COLUNA-OPM-0002 — conector_parafuso, 3 nível(is): acima de 8 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"conector_parafuso"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>&gt; 8</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r018">
+        <description>OMNI-COLUNA-OPM-0002 — conector_parafuso, 4 níveis ou mais: construção longa vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"conector_parafuso"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r019">
+        <description>OMNI-COLUNA-OPM-0002 — conector_parafuso, níveis ausentes ou zero: pedir dado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"conector_parafuso"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r020">
+        <description>OMNI-COLUNA-OPM-0002 — haste_longitudinal, 1 nível(is): até 2</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"haste_longitudinal"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>[0..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r021">
+        <description>OMNI-COLUNA-OPM-0002 — haste_longitudinal, 1 nível(is): acima de 2 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"haste_longitudinal"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r022">
+        <description>OMNI-COLUNA-OPM-0002 — haste_longitudinal, 2 nível(is): até 2</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"haste_longitudinal"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>[0..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r023">
+        <description>OMNI-COLUNA-OPM-0002 — haste_longitudinal, 2 nível(is): acima de 2 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"haste_longitudinal"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r024">
+        <description>OMNI-COLUNA-OPM-0002 — haste_longitudinal, 3 nível(is): até 2</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"haste_longitudinal"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>[0..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r025">
+        <description>OMNI-COLUNA-OPM-0002 — haste_longitudinal, 3 nível(is): acima de 2 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"haste_longitudinal"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r026">
+        <description>OMNI-COLUNA-OPM-0002 — haste_longitudinal, 4 níveis ou mais: construção longa vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"haste_longitudinal"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r027">
+        <description>OMNI-COLUNA-OPM-0002 — haste_longitudinal, níveis ausentes ou zero: pedir dado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"haste_longitudinal"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r028">
+        <description>OMNI-COLUNA-OPM-0002 — cage_intersomatico, 1 nível(is): até 1</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cage_intersomatico"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r029">
+        <description>OMNI-COLUNA-OPM-0002 — cage_intersomatico, 1 nível(is): acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cage_intersomatico"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r030">
+        <description>OMNI-COLUNA-OPM-0002 — cage_intersomatico, 2 nível(is): até 2</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cage_intersomatico"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>[0..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r031">
+        <description>OMNI-COLUNA-OPM-0002 — cage_intersomatico, 2 nível(is): acima de 2 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cage_intersomatico"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r032">
+        <description>OMNI-COLUNA-OPM-0002 — cage_intersomatico, 3 nível(is): até 3</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cage_intersomatico"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>[0..3]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r033">
+        <description>OMNI-COLUNA-OPM-0002 — cage_intersomatico, 3 nível(is): acima de 3 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cage_intersomatico"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r034">
+        <description>OMNI-COLUNA-OPM-0002 — cage_intersomatico, 4 níveis ou mais: construção longa vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cage_intersomatico"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r035">
+        <description>OMNI-COLUNA-OPM-0002 — cage_intersomatico, níveis ausentes ou zero: pedir dado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cage_intersomatico"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r036">
+        <description>OMNI-COLUNA-OPM-0002 — placa_cervical, 1 nível(is): até 1</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"placa_cervical"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r037">
+        <description>OMNI-COLUNA-OPM-0002 — placa_cervical, 1 nível(is): acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"placa_cervical"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r038">
+        <description>OMNI-COLUNA-OPM-0002 — placa_cervical, 2 nível(is): até 1</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"placa_cervical"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r039">
+        <description>OMNI-COLUNA-OPM-0002 — placa_cervical, 2 nível(is): acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"placa_cervical"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r040">
+        <description>OMNI-COLUNA-OPM-0002 — placa_cervical, 3 nível(is): até 1</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"placa_cervical"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r041">
+        <description>OMNI-COLUNA-OPM-0002 — placa_cervical, 3 nível(is): acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"placa_cervical"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r042">
+        <description>OMNI-COLUNA-OPM-0002 — placa_cervical, 4 níveis ou mais: construção longa vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"placa_cervical"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r043">
+        <description>OMNI-COLUNA-OPM-0002 — placa_cervical, níveis ausentes ou zero: pedir dado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"placa_cervical"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r044">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_placa, 1 nível(is): até 4</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_placa"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>[0..4]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r045">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_placa, 1 nível(is): acima de 4 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_placa"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>&gt; 4</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r046">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_placa, 2 nível(is): até 6</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_placa"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>[0..6]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r047">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_placa, 2 nível(is): acima de 6 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_placa"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>&gt; 6</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r048">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_placa, 3 nível(is): até 8</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_placa"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>[0..8]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r049">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_placa, 3 nível(is): acima de 8 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_placa"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>&gt; 8</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r050">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_placa, 4 níveis ou mais: construção longa vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_placa"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r051">
+        <description>OMNI-COLUNA-OPM-0002 — parafuso_placa, níveis ausentes ou zero: pedir dado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"parafuso_placa"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r052">
+        <description>OMNI-COLUNA-OPM-0002 — cross_link, 1 nível(is): até 0</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cross_link"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>[0..0]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r053">
+        <description>OMNI-COLUNA-OPM-0002 — cross_link, 1 nível(is): acima de 0 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cross_link"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r054">
+        <description>OMNI-COLUNA-OPM-0002 — cross_link, 2 nível(is): até 0</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cross_link"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>[0..0]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r055">
+        <description>OMNI-COLUNA-OPM-0002 — cross_link, 2 nível(is): acima de 0 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cross_link"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r056">
+        <description>OMNI-COLUNA-OPM-0002 — cross_link, 3 nível(is): até 1</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cross_link"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r057">
+        <description>OMNI-COLUNA-OPM-0002 — cross_link, 3 nível(is): acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cross_link"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r058">
+        <description>OMNI-COLUNA-OPM-0002 — cross_link, 4 níveis ou mais: construção longa vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cross_link"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r059">
+        <description>OMNI-COLUNA-OPM-0002 — cross_link, níveis ausentes ou zero: pedir dado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"cross_link"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r060">
+        <description>OMNI-COLUNA-OPM-0002 — enxerto_sintetico_gramas, 1 nível(is): até 10</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"enxerto_sintetico_gramas"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>[0..10]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r061">
+        <description>OMNI-COLUNA-OPM-0002 — enxerto_sintetico_gramas, 1 nível(is): acima de 10 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"enxerto_sintetico_gramas"</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>&gt; 10</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r062">
+        <description>OMNI-COLUNA-OPM-0002 — enxerto_sintetico_gramas, 2 nível(is): até 20</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"enxerto_sintetico_gramas"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>[0..20]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r063">
+        <description>OMNI-COLUNA-OPM-0002 — enxerto_sintetico_gramas, 2 nível(is): acima de 20 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"enxerto_sintetico_gramas"</text></inputEntry>
+        <inputEntry><text>2</text></inputEntry>
+        <inputEntry><text>&gt; 20</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r064">
+        <description>OMNI-COLUNA-OPM-0002 — enxerto_sintetico_gramas, 3 nível(is): até 20</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"enxerto_sintetico_gramas"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>[0..20]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r065">
+        <description>OMNI-COLUNA-OPM-0002 — enxerto_sintetico_gramas, 3 nível(is): acima de 20 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"enxerto_sintetico_gramas"</text></inputEntry>
+        <inputEntry><text>3</text></inputEntry>
+        <inputEntry><text>&gt; 20</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r066">
+        <description>OMNI-COLUNA-OPM-0002 — enxerto_sintetico_gramas, 4 níveis ou mais: construção longa vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"enxerto_sintetico_gramas"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r067">
+        <description>OMNI-COLUNA-OPM-0002 — enxerto_sintetico_gramas, níveis ausentes ou zero: pedir dado</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"enxerto_sintetico_gramas"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r068">
+        <description>OMNI-COLUNA-OPM-0003 — broca_perfuracao: até 1 por ato</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r069">
+        <description>OMNI-COLUNA-OPM-0003 — broca_perfuracao: acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r070">
+        <description>OMNI-COLUNA-OPM-0003 — broca_desgaste: até 1 por ato</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r071">
+        <description>OMNI-COLUNA-OPM-0003 — broca_desgaste: acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"broca_desgaste"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r072">
+        <description>OMNI-COLUNA-OPM-0002 — agulha_puncao_fio_guia: até 1 por ato</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"agulha_puncao_fio_guia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r073">
+        <description>OMNI-COLUNA-OPM-0002 — agulha_puncao_fio_guia: acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"agulha_puncao_fio_guia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r074">
+        <description>OMNI-COLUNA-OPM-0002 — introdutor_endoscopico: até 1 por ato</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"introdutor_endoscopico"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r075">
+        <description>OMNI-COLUNA-OPM-0002 — introdutor_endoscopico: acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"introdutor_endoscopico"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r076">
+        <description>OMNI-COLUNA-OPM-0002 — fresa_protegida_endoscopica: até 1 por ato</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"fresa_protegida_endoscopica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r077">
+        <description>OMNI-COLUNA-OPM-0002 — fresa_protegida_endoscopica: acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"fresa_protegida_endoscopica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r078">
+        <description>OMNI-COLUNA-OPM-0002 — pinca_endoscopica: até 1 por ato</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"pinca_endoscopica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r079">
+        <description>OMNI-COLUNA-OPM-0002 — pinca_endoscopica: acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"pinca_endoscopica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r080">
+        <description>OMNI-COLUNA-OPM-0002 — equipo_bomba_endoscopica: até 1 por ato</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"equipo_bomba_endoscopica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>[0..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r081">
+        <description>OMNI-COLUNA-OPM-0002 — equipo_bomba_endoscopica: acima de 1 vai à auditoria</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"equipo_bomba_endoscopica"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r082">
+        <description>OMNI-COLUNA-OPM-0002 — Fechamento: item fora da lista positiva vai à auditoria (divergência: junta)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("parafuso_pedicular", "conector_parafuso", "haste_longitudinal", "cage_intersomatico", "placa_cervical", "parafuso_placa", "cross_link", "enxerto_sintetico_gramas", "broca_perfuracao", "broca_desgaste", "agulha_puncao_fio_guia", "introdutor_endoscopico", "fresa_protegida_endoscopica", "pinca_endoscopica", "equipo_bomba_endoscopica")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-COLUNA-AUT-0001 — Data ausente: revisão de cadastro da guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

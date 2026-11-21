@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_anatpat_pacote" name="Anatomia patológica: composição da conta da microscopia eletrônica" namespace="https://omni-saude/dmn/anatomia-patologica">
+  <decision id="rco_anatpat_pacote" name="Anatomia patológica: composição da conta da microscopia eletrônica" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-ANATPAT-PAC-0001. Domínio anatomia-patologica. Hit policy UNIQUE; nenhuma linha nega ou glosa; campo do laudo nulo vai à mesma revisão do valor que dispara a conferência e só o valor declarado libera ou paga (OPO-15); sem pacote de episódio (pagamento por ato, HCP-LAN 1); a linha de fechamento (data ausente) vai à regulação.</description>
+    <decisionTable id="dt_anatpat_pacote" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_microscopioEletronico" label="microscopioEletronico ← laudo anexo à conta: uso de microscópio eletrônico (true, false ou ausente; ausente vai ao faturamento)">
+        <inputExpression id="ie_microscopioEletronico" typeRef="boolean"><text>microscopioEletronico</text></inputExpression>
+      </input>
+      <input id="in_quantidadeAcimaDocumentada" label="quantidadeAcimaDocumentada ← laudo anexo à conta: quantidade cobrada acima dos espécimes documentados (true, false ou ausente; ausente vai ao faturamento)">
+        <inputExpression id="ie_quantidadeAcimaDocumentada" typeRef="boolean"><text>quantidadeAcimaDocumentada</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-ANATPAT-PAC-0001 — antes do início da vigência (03/12/2026): a composição não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="me_sem">
+        <description>OMNI-ANATPAT-PAC-0001 — microscopia eletrônica sem uso do equipamento ou sem o uso informado: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601064"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="me_qtd_t">
+        <description>OMNI-ANATPAT-PAC-0001 — microscopia eletrônica acima dos espécimes documentados ou sem a conferência informada: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601064"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="me_ok_t">
+        <description>OMNI-ANATPAT-PAC-0001 — microscopia eletrônica com uso do equipamento e quantidade dentro dos espécimes documentados: paga por espécime</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601064"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="rev_me">
+        <description>OMNI-ANATPAT-PAC-0001 — revisão de lâminas ou cortes com uso do microscópio eletrônico ou sem o uso informado: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601153"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="rev_ok">
+        <description>OMNI-ANATPAT-PAC-0001 — revisão de lâminas ou cortes seriados sem uso do microscópio eletrônico: sem pendência</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601153"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-ANATPAT-PAC-0001 — código fora da composição: libera</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>not("40601064", "40601153")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="fim">
+        <description>OMNI-ANATPAT-PAC-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

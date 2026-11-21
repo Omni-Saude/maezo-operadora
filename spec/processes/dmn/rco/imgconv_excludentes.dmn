@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imgconv_excludentes" name="Imagem convencional: pares de códigos no mesmo ato" namespace="https://omni-saude/dmn/imagem-convencional">
+  <decision id="rco_imgconv_excludentes" name="Imagem convencional: pares de códigos no mesmo ato" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-IMGCONV-MEX-0001; MEX-0002; MEX-0003. Domínio imagem-convencional. Hit policy UNIQUE; nenhuma linha nega ou glosa; o par detectado vai ao faturamento (as linhas são excludentes entre si por ordem de prioridade: exame-base, angiografia com terapêutica, artro-RM, ultrassom); par ausente ou não calculado libera; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_imgconv_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_parExameBase" label="parExameBase ← TISS conta: código de pares_exame_base de dominio.yaml sem o código do exame-base do mesmo método na mesma guia">
+        <inputExpression id="ie_1_parExameBase" typeRef="boolean"><text>parExameBase</text></inputExpression>
+      </input>
+      <input id="in_2_parAngioTerapeutica" label="parAngioTerapeutica ← TISS conta: código de angiografia diagnóstica com código de terapêutica vascular no mesmo beneficiário, prestador e data">
+        <inputExpression id="ie_2_parAngioTerapeutica" typeRef="boolean"><text>parAngioTerapeutica</text></inputExpression>
+      </input>
+      <input id="in_3_parArtroRM" label="parArtroRM ← TISS conta: artro-RM 41102010 com a punção articular 30713137 no mesmo beneficiário, prestador e data">
+        <inputExpression id="ie_3_parArtroRM" typeRef="boolean"><text>parArtroRM</text></inputExpression>
+      </input>
+      <input id="in_4_parUltrassom" label="parUltrassom ← TISS conta: par de pares_ultrassom de dominio.yaml no mesmo beneficiário, prestador e data">
+        <inputExpression id="ie_4_parUltrassom" typeRef="boolean"><text>parUltrassom</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência: regras IMGCONV não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m1_base">
+        <description>OMNI-IMGCONV-MEX-0001 — procedimento guiado sem o exame-base na guia: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m1_angio">
+        <description>OMNI-IMGCONV-MEX-0001 — angiografia no mesmo ato da terapêutica vascular: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m2_artro">
+        <description>OMNI-IMGCONV-MEX-0002 — artro-RM com punção articular cobrada à parte: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="m3_us">
+        <description>OMNI-IMGCONV-MEX-0003 — par de ultrassonografia no mesmo ato: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_par">
+        <description>nenhum par detectado ou par não calculado: liberar (nunca nega)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>data ausente: faturamento, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

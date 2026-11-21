@@ -29,6 +29,7 @@ must still run this file, because an agent graph is the natural place for a prod
 from __future__ import annotations
 
 import copy
+import json
 import re
 import shutil
 import xml.etree.ElementTree as ET
@@ -391,10 +392,15 @@ def test_o_interlock_so_e_levantado_pela_condicao_i_ou_ii(tmp_path: Path) -> Non
         novo = texto.replace('_DMN_CARENCIA_CHECK = "carencia_check"', f'_DMN_CARENCIA_CHECK = "{chave}"')
         assert novo != texto, "the consumer anchor moved — update this forgery"
         worker.write_text(novo, encoding="utf-8")
+        # The real lock is `fixado` since the first K1 pin (b8444f52): the forgery SETS the state it
+        # wants instead of assuming which one is committed.
         lock = r / RCO_LOCK_REL
-        lock.write_text(
-            lock.read_text(encoding="utf-8").replace('"sem_pacote"', f'"{estado}"'), encoding="utf-8"
+        texto_lock, trocas = re.subn(
+            r'"estado": "[a-z_]+"', f'"estado": "{estado}"', lock.read_text(encoding="utf-8"), count=1
         )
+        assert trocas == 1, "the lock's `estado` anchor moved — update this forgery"
+        lock.write_text(texto_lock, encoding="utf-8")
+        assert json.loads(texto_lock)["estado"] == estado
 
     r = raiz("ii_so_tabela_removida", tabela=None)
     assert interlock_t1_vigente(r) is True

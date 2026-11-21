@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_plast_cobertura" name="Plástica e dermatologia: cobertura de pele e partes moles" namespace="https://omni-saude/dmn/plastica-dermatologia">
+  <decision id="rco_plast_cobertura" name="Plástica e dermatologia: cobertura de pele e partes moles" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-PLAST-COB-0001, COB-0002 e COB-0004. Hit policy UNIQUE; nenhuma linha nega (cobertura obrigatória); estético declarado, código fora do Rol, par de suturas, queimadura de primeiro grau e curativo repetido vão à auditoria médica; urgência (caráter 2) é liberada por OMNI-PLAST-AUT-0006; caráter e data ausentes vão à regulação; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_plast_cobertura" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_1_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento de outra linha da mesma guia e dataExecucao (TUSS 22)">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_finalidadeEsteticaDeclarada" label="finalidadeEsteticaDeclarada ← solicitação: relatório do médico assistente declara finalidade estética (booleano; ausente não é gatilho)">
+        <inputExpression id="ie_3_finalidadeEsteticaDeclarada" typeRef="boolean"><text>finalidadeEsteticaDeclarada</text></inputExpression>
+      </input>
+      <input id="in_4_grauQueimadura" label="grauQueimadura ← anexo: grau da queimadura informado no relatório do atendimento (inteiro; fora da guia TISS)">
+        <inputExpression id="ie_4_grauQueimadura" typeRef="integer"><text>grauQueimadura</text></inputExpression>
+      </input>
+      <input id="in_5_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_5_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência (03/12/2026): OMNI-PLAST-COB-0002 ainda não vale, liberação</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="urg">
+        <description>OMNI-PLAST-AUT-0006 — urgência ou emergência (caráter 2): liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101018", "30101050", "30101069", "30101085", "30101093", "30101107", "30101115", "30101123", "30101140", "30101158", "30101166", "30101174", "30101182", "30101204", "30101212", "30101220", "30101239", "30101247", "30101255", "30101263", "30101271", "30101280", "30101298", "30101301", "30101310", "30101328", "30101336", "30101344", "30101352", "30101360", "30101379", "30101387", "30101425", "30101433", "30101441", "30101450", "30101468", "30101476", "30101484", "30101492", "30101506", "30101514", "30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101590", "30101603", "30101611", "30101620", "30101638", "30101646", "30101662", "30101670", "30101689", "30101697", "30101700", "30101719", "30101735", "30101743", "30101751", "30101760", "30101778", "30101786", "30101794", "30101808", "30101816", "30101824", "30101832", "30101840", "30101867", "30101875", "30101883", "30101891", "30101913", "30101921", "30101930", "30101948", "30101956", "30101964", "30101972", "30102014", "30102022", "30102030", "30102049", "30102057", "30101026", "30101034", "30101042", "30101190", "30101395", "30101409", "30101417", "30101654", "30101859", "30101905"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-AUT-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="car_s">
+        <description>OMNI-PLAST-COB-0001 — caráter ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101786", "30101794"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="car_q">
+        <description>OMNI-PLAST-COB-0004 — caráter ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101212", "30101220", "30101239", "30101280", "30101387"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="car_o">
+        <description>OMNI-PLAST-COB-0002 — caráter ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101018", "30101050", "30101069", "30101085", "30101093", "30101107", "30101115", "30101123", "30101140", "30101158", "30101166", "30101174", "30101182", "30101204", "30101247", "30101255", "30101263", "30101271", "30101298", "30101301", "30101310", "30101328", "30101336", "30101344", "30101352", "30101360", "30101379", "30101425", "30101433", "30101441", "30101450", "30101468", "30101476", "30101484", "30101492", "30101506", "30101514", "30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101590", "30101603", "30101611", "30101620", "30101638", "30101646", "30101662", "30101670", "30101689", "30101697", "30101700", "30101719", "30101735", "30101743", "30101751", "30101760", "30101778", "30101808", "30101816", "30101824", "30101832", "30101840", "30101867", "30101875", "30101883", "30101891", "30101913", "30101921", "30101930", "30101948", "30101956", "30101964", "30101972", "30102014", "30102022", "30102030", "30102049", "30102057", "30101026", "30101034", "30101042", "30101190", "30101395", "30101409", "30101417", "30101654", "30101859", "30101905"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="s_est">
+        <description>OMNI-PLAST-COB-0002 — sutura com finalidade estética declarada: auditoria médica, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101786", "30101794"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="s_par_a">
+        <description>OMNI-PLAST-COB-0001 — 30101786 e 30101794 na mesma guia e data: auditoria médica confere o código</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"30101794"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101786"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="s_par_b">
+        <description>OMNI-PLAST-COB-0001 — 30101794 e 30101786 na mesma guia e data: auditoria médica confere o código</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"30101786"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101794"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="s_ok_a">
+        <description>OMNI-PLAST-COB-0001 — sutura de extensos ferimentos sem o par na guia: cobertura obrigatória, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>not("30101794")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101786"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="s_ok_b">
+        <description>OMNI-PLAST-COB-0001 — sutura de pequenos ferimentos sem o par na guia: cobertura obrigatória, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>not("30101786")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101794"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q_est">
+        <description>OMNI-PLAST-COB-0002 — curativo, desbridamento ou escarectomia com finalidade estética declarada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101212", "30101220", "30101239", "30101280", "30101387"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q_g1">
+        <description>OMNI-PLAST-COB-0004 — queimadura de primeiro grau no relatório: auditoria médica, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <inputEntry><text>"30101212", "30101220", "30101239", "30101280", "30101387"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q_par_c">
+        <description>OMNI-PLAST-COB-0004 — curativo e desbridamento ou escarectomia na mesma guia e data: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"30101280", "30101387"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not(1)</text></inputEntry>
+        <inputEntry><text>"30101212", "30101220", "30101239"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q_ok_c">
+        <description>OMNI-PLAST-COB-0004 — curativo sem desbridamento na guia: cobertura obrigatória, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>not("30101280", "30101387")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not(1)</text></inputEntry>
+        <inputEntry><text>"30101212", "30101220", "30101239"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q_par_d">
+        <description>OMNI-PLAST-COB-0004 — desbridamento ou escarectomia e curativo na mesma guia e data: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"30101212", "30101220", "30101239"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not(1)</text></inputEntry>
+        <inputEntry><text>"30101280", "30101387"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="q_ok_d">
+        <description>OMNI-PLAST-COB-0004 — desbridamento ou escarectomia sem curativo na guia: cobertura obrigatória, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>not("30101212", "30101220", "30101239")</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not(1)</text></inputEntry>
+        <inputEntry><text>"30101280", "30101387"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_est">
+        <description>OMNI-PLAST-COB-0002 — finalidade estética declarada no relatório: auditoria médica (Lei 9.656, art. 10, II; RN 465, art. 17), sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101018", "30101050", "30101069", "30101085", "30101093", "30101107", "30101115", "30101123", "30101140", "30101158", "30101166", "30101174", "30101182", "30101204", "30101247", "30101255", "30101263", "30101271", "30101298", "30101301", "30101310", "30101328", "30101336", "30101344", "30101352", "30101360", "30101379", "30101425", "30101433", "30101441", "30101450", "30101468", "30101476", "30101484", "30101492", "30101506", "30101514", "30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101590", "30101603", "30101611", "30101620", "30101638", "30101646", "30101662", "30101670", "30101689", "30101697", "30101700", "30101719", "30101735", "30101743", "30101751", "30101760", "30101778", "30101808", "30101816", "30101824", "30101832", "30101840", "30101867", "30101875", "30101883", "30101891", "30101913", "30101921", "30101930", "30101948", "30101956", "30101964", "30101972", "30102014", "30102022", "30102030", "30102049", "30102057", "30101026", "30101034", "30101042", "30101190", "30101395", "30101409", "30101417", "30101654", "30101859", "30101905"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_fora">
+        <description>OMNI-PLAST-COB-0002 — código sem correlação no Rol: auditoria médica pelo art. 10, §13, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101026", "30101034", "30101042", "30101190", "30101395", "30101409", "30101417", "30101654", "30101859", "30101905"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_ok">
+        <description>OMNI-PLAST-COB-0002 — procedimento do Rol sem gatilho: cobertura obrigatória, liberação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"30101018", "30101050", "30101069", "30101085", "30101093", "30101107", "30101115", "30101123", "30101140", "30101158", "30101166", "30101174", "30101182", "30101204", "30101247", "30101255", "30101263", "30101271", "30101298", "30101301", "30101310", "30101328", "30101336", "30101344", "30101352", "30101360", "30101379", "30101425", "30101433", "30101441", "30101450", "30101468", "30101476", "30101484", "30101492", "30101506", "30101514", "30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101590", "30101603", "30101611", "30101620", "30101638", "30101646", "30101662", "30101670", "30101689", "30101697", "30101700", "30101719", "30101735", "30101743", "30101751", "30101760", "30101778", "30101808", "30101816", "30101824", "30101832", "30101840", "30101867", "30101875", "30101883", "30101891", "30101913", "30101921", "30101930", "30101948", "30101956", "30101964", "30101972", "30102014", "30102022", "30102030", "30102049", "30102057"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-PLAST-COB-0002 — código fora do escopo do domínio: sem exigência neste domínio</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("30101018", "30101050", "30101069", "30101085", "30101093", "30101107", "30101115", "30101123", "30101140", "30101158", "30101166", "30101174", "30101182", "30101204", "30101212", "30101220", "30101239", "30101247", "30101255", "30101263", "30101271", "30101280", "30101298", "30101301", "30101310", "30101328", "30101336", "30101344", "30101352", "30101360", "30101379", "30101387", "30101425", "30101433", "30101441", "30101450", "30101468", "30101476", "30101484", "30101492", "30101506", "30101514", "30101522", "30101530", "30101549", "30101557", "30101565", "30101573", "30101581", "30101590", "30101603", "30101611", "30101620", "30101638", "30101646", "30101662", "30101670", "30101689", "30101697", "30101700", "30101719", "30101735", "30101743", "30101751", "30101760", "30101778", "30101786", "30101794", "30101808", "30101816", "30101824", "30101832", "30101840", "30101867", "30101875", "30101883", "30101891", "30101913", "30101921", "30101930", "30101948", "30101956", "30101964", "30101972", "30102014", "30102022", "30102030", "30102049", "30102057", "30101026", "30101034", "30101042", "30101190", "30101395", "30101409", "30101417", "30101654", "30101859", "30101905")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-PLAST-COB-0002 — data ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-PLAST-COB-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

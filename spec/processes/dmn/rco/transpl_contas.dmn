@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_transpl_contas" name="Transplantes: pagamento por pacote do episódio (OMNI-TRANSPL-PAC-0001 a OMNI-TRANSPL-PAC-0004)" namespace="https://omni-saude/dmn/transplantes">
+  <decision id="rco_transpl_contas" name="Transplantes: pagamento por pacote do episódio (OMNI-TRANSPL-PAC-0001 a OMNI-TRANSPL-PAC-0004)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TRANSPL-PAC-0001 (TCTH autólogo); PAC-0002 (TCTH alogênico); PAC-0003 (transplante renal); PAC-0004 (transplante hepático). Tabelas em regras/pacotes/transplantes/. Desvio muda só a forma de pagar; nunca nega cobertura.</description>
+    <decisionTable id="dt_transpl_contas" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataInicioFaturamento (início da internação), ISO AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimentoPrincipal" label="codigoProcedimentoPrincipal ← TISS codigoProcedimento do procedimento principal da guia de resumo de internação">
+        <inputExpression id="ie_codigoProcedimentoPrincipal" typeRef="string"><text>codigoProcedimentoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_tipoTcth" label="tipoTcth ← solicitação da autorização vinculada: autologo | alogenico_aparentado | alogenico_nao_aparentado">
+        <inputExpression id="ie_tipoTcth" typeRef="string"><text>tipoTcth</text></inputExpression>
+      </input>
+      <input id="in_pacoteContratado" label="pacoteContratado ← cadastro do contrato do prestador: pacote OMNI-PAC-TRANSPL vigente para o procedimento">
+        <inputExpression id="ie_pacoteContratado" typeRef="boolean"><text>pacoteContratado</text></inputExpression>
+      </input>
+      <input id="in_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23)">
+        <inputExpression id="ie_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_diasInternacao" label="diasInternacao ← TISS dataInicioFaturamento a dataFinalFaturamento (diárias da internação)">
+        <inputExpression id="ie_diasInternacao" typeRef="integer"><text>diasInternacao</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="c_pre">
+        <description>Fora da vigência (antes de 2026-11-03): conta aberta</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_auto_pac">
+        <description>OMNI-TRANSPL-PAC-0001: pacote dentro do limiar de 21 diárias</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>&lt;= 21</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_auto_out">
+        <description>OMNI-TRANSPL-PAC-0001: acima do limiar, pacote mais diárias adicionais (outlier de permanência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>[22..42]</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_auto_rev">
+        <description>OMNI-TRANSPL-PAC-0001: acima de 42 diárias, pacote mantido e caso vai à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>&gt; 42</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_auto_semdias">
+        <description>OMNI-TRANSPL-PAC-0001: dias de internação ausentes</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_auto_urg">
+        <description>OMNI-TRANSPL-PAC-0001: TCTH autólogo não eletivo sai do pacote (conta aberta)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_auto_sempac">
+        <description>OMNI-TRANSPL-PAC-0001: prestador sem pacote contratado: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"autologo"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_alo_pac">
+        <description>OMNI-TRANSPL-PAC-0002: pacote dentro do limiar de 30 diárias</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado", "alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>&lt;= 30</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_alo_out">
+        <description>OMNI-TRANSPL-PAC-0002: acima do limiar, pacote mais diárias adicionais (outlier de permanência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado", "alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>[31..60]</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_alo_rev">
+        <description>OMNI-TRANSPL-PAC-0002: acima de 60 diárias, pacote mantido e caso vai à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado", "alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>&gt; 60</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_alo_semdias">
+        <description>OMNI-TRANSPL-PAC-0002: dias de internação ausentes</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado", "alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_alo_urg">
+        <description>OMNI-TRANSPL-PAC-0002: TCTH alogênico não eletivo sai do pacote (conta aberta)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado", "alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_alo_sempac">
+        <description>OMNI-TRANSPL-PAC-0002: prestador sem pacote contratado: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>"alogenico_aparentado", "alogenico_nao_aparentado"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_tcth_semtipo">
+        <description>OMNI-TRANSPL-PAC-0001: TCTH sem tipo informado vai ao faturamento</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"40403033"</text></inputEntry>
+        <inputEntry><text>not("autologo", "alogenico_aparentado", "alogenico_nao_aparentado")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_renal_pac">
+        <description>OMNI-TRANSPL-PAC-0003: pacote dentro do limiar de 15 diárias</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31506011"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt;= 15</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_renal_out">
+        <description>OMNI-TRANSPL-PAC-0003: acima do limiar, pacote mais diárias adicionais (outlier de permanência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31506011"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>[16..30]</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_renal_rev">
+        <description>OMNI-TRANSPL-PAC-0003: acima de 30 diárias, pacote mantido e caso vai à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31506011"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 30</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_renal_semdias">
+        <description>OMNI-TRANSPL-PAC-0003: dias de internação ausentes</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31506011"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_renal_sempac">
+        <description>OMNI-TRANSPL-PAC-0003: prestador sem pacote contratado: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31506011"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_hep_pac">
+        <description>OMNI-TRANSPL-PAC-0004: pacote dentro do limiar de 15 diárias</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31505015"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt;= 15</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_hep_out">
+        <description>OMNI-TRANSPL-PAC-0004: acima do limiar, pacote mais diárias adicionais (outlier de permanência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31505015"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>[16..30]</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_hep_rev">
+        <description>OMNI-TRANSPL-PAC-0004: acima de 30 diárias, pacote mantido e caso vai à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31505015"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 30</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_hep_semdias">
+        <description>OMNI-TRANSPL-PAC-0004: dias de internação ausentes</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31505015"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0004"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_hep_sempac">
+        <description>OMNI-TRANSPL-PAC-0004: prestador sem pacote contratado: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31505015"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_fora">
+        <description>Fechamento: procedimento principal sem pacote do domínio transplantes (conta aberta)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("40403033", "31506011", "31505015")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_sem_data">
+        <description>OMNI-TRANSPL-PAC-0001: data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TRANSPL-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

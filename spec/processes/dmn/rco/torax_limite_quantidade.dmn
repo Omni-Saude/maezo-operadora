@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_torax_limite_quantidade" name="Tórax: filtro de barreira antibacteriana acima da quantidade por internação" namespace="https://omni-saude/dmn/torax-pneumologia">
+  <decision id="rco_torax_limite_quantidade" name="Tórax: filtro de barreira antibacteriana acima da quantidade por internação" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TORAX-LIM-0001. Hit policy UNIQUE; nenhuma linha glosa: acima do limite vai à auditoria de enfermagem. O limite é o parâmetro filtro_barreira_por_internacao da regra; o worker calcula excedeLimiteFiltroBarreira. Nulo não dispara crítica.</description>
+    <decisionTable id="dt_torax_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_excedeLimiteFiltroBarreira" label="excedeLimiteFiltroBarreira ← TISS quantidade de material (TUSS 19) da classe filtro de barreira na internação, pelo cadastro OMNI de materiais, acima do parâmetro da OMNI-TORAX-LIM-0001">
+        <inputExpression id="ie_1_excedeLimiteFiltroBarreira" typeRef="boolean"><text>excedeLimiteFiltroBarreira</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="l_pre">
+        <description>OMNI-TORAX-LIM-0001 — antes da vigência (2026-12-03)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_acima">
+        <description>OMNI-TORAX-LIM-0001 — filtros acima do limite por internação: auditoria de enfermagem</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_enfermagem"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_ok">
+        <description>OMNI-TORAX-LIM-0001 — dentro do limite, sem filtro ou classe não informada: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_sem_data">
+        <description>OMNI-TORAX-LIM-0001 — data ausente: faturamento (fechamento, nunca negativa)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

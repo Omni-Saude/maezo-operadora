@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_uro_opme" name="Urologia: OPME da endourologia por ato (OMNI-URO-OPM-0001)" namespace="https://omni-saude/dmn/urologia">
+  <decision id="rco_uro_opme" name="Urologia: OPME da endourologia por ato (OMNI-URO-OPM-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-URO-OPM-0001. Lista positiva por procedimento de regras/urologia/dominio.yaml (listas_opme), quantidade máxima provisória (OPS-UNIMEDFESP-OPME-2026 p. 156, nível C; validacao/calibracao/parametros-provisorios.csv). Dentro do limite paga; acima, fora da lista ou sem classificação vai à auditoria médica e, na divergência, à junta (ANS-RN-424). Hit policy UNIQUE; nenhuma linha nega ou glosa; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_uro_opme" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataExecucao do procedimento, AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento do ato cirúrgico (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_categoriaOpme" label="categoriaOpme ← TISS codigoItem da OPME (TUSS 19) classificado pelo cadastro OMNI de materiais (fibra_laser_urologica); sem correspondência vai nulo">
+        <inputExpression id="ie_2_categoriaOpme" typeRef="string"><text>categoriaOpme</text></inputExpression>
+      </input>
+      <input id="in_3_quantidade" label="quantidade ← TISS quantidadeExecutada da categoria por guia e dataExecucao (ato)">
+        <inputExpression id="ie_3_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="o_pre">
+        <description>OMNI-URO-OPM-0001 — antes da vigência (03/12/2026): sem efeito desta tabela</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_fora">
+        <description>OMNI-URO-OPM-0001 — procedimento sem lista de OPME URO: sem efeito desta tabela</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("31101577", "31102360", "31102565", "31103448", "31103561", "31102590")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31102590">
+        <description>OMNI-URO-OPM-0001 — 31102590: agente de preenchimento sem quantidade na lista positiva: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102590"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31101577_fibra_laser_urologica_ok">
+        <description>OMNI-URO-OPM-0001 — fibra_laser_urologica até 1 por ato em 31101577: paga</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31101577"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31101577_fibra_laser_urologica_exc">
+        <description>OMNI-URO-OPM-0001 — fibra_laser_urologica acima de 1 por ato em 31101577: auditoria médica (junta na divergência), sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31101577"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31101577_fibra_laser_urologica_qnulo">
+        <description>OMNI-URO-OPM-0001 — quantidade de fibra_laser_urologica ausente em 31101577: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31101577"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31101577_fora">
+        <description>OMNI-URO-OPM-0001 — categoria fora da lista de 31101577 ou sem classificação: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31101577"</text></inputEntry>
+        <inputEntry><text>not("fibra_laser_urologica")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31102360_fibra_laser_urologica_ok">
+        <description>OMNI-URO-OPM-0001 — fibra_laser_urologica até 1 por ato em 31102360: paga</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102360"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31102360_fibra_laser_urologica_exc">
+        <description>OMNI-URO-OPM-0001 — fibra_laser_urologica acima de 1 por ato em 31102360: auditoria médica (junta na divergência), sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102360"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31102360_fibra_laser_urologica_qnulo">
+        <description>OMNI-URO-OPM-0001 — quantidade de fibra_laser_urologica ausente em 31102360: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102360"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31102360_fora">
+        <description>OMNI-URO-OPM-0001 — categoria fora da lista de 31102360 ou sem classificação: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102360"</text></inputEntry>
+        <inputEntry><text>not("fibra_laser_urologica")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31102565_fibra_laser_urologica_ok">
+        <description>OMNI-URO-OPM-0001 — fibra_laser_urologica até 1 por ato em 31102565: paga</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102565"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31102565_fibra_laser_urologica_exc">
+        <description>OMNI-URO-OPM-0001 — fibra_laser_urologica acima de 1 por ato em 31102565: auditoria médica (junta na divergência), sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102565"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31102565_fibra_laser_urologica_qnulo">
+        <description>OMNI-URO-OPM-0001 — quantidade de fibra_laser_urologica ausente em 31102565: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102565"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31102565_fora">
+        <description>OMNI-URO-OPM-0001 — categoria fora da lista de 31102565 ou sem classificação: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31102565"</text></inputEntry>
+        <inputEntry><text>not("fibra_laser_urologica")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31103448_fibra_laser_urologica_ok">
+        <description>OMNI-URO-OPM-0001 — fibra_laser_urologica até 1 por ato em 31103448: paga</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103448"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31103448_fibra_laser_urologica_exc">
+        <description>OMNI-URO-OPM-0001 — fibra_laser_urologica acima de 1 por ato em 31103448: auditoria médica (junta na divergência), sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103448"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31103448_fibra_laser_urologica_qnulo">
+        <description>OMNI-URO-OPM-0001 — quantidade de fibra_laser_urologica ausente em 31103448: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103448"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31103448_fora">
+        <description>OMNI-URO-OPM-0001 — categoria fora da lista de 31103448 ou sem classificação: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103448"</text></inputEntry>
+        <inputEntry><text>not("fibra_laser_urologica")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31103561_fibra_laser_urologica_ok">
+        <description>OMNI-URO-OPM-0001 — fibra_laser_urologica até 1 por ato em 31103561: paga</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103561"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31103561_fibra_laser_urologica_exc">
+        <description>OMNI-URO-OPM-0001 — fibra_laser_urologica acima de 1 por ato em 31103561: auditoria médica (junta na divergência), sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103561"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31103561_fibra_laser_urologica_qnulo">
+        <description>OMNI-URO-OPM-0001 — quantidade de fibra_laser_urologica ausente em 31103561: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103561"</text></inputEntry>
+        <inputEntry><text>"fibra_laser_urologica"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_31103561_fora">
+        <description>OMNI-URO-OPM-0001 — categoria fora da lista de 31103561 ou sem classificação: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"31103561"</text></inputEntry>
+        <inputEntry><text>not("fibra_laser_urologica")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_sem_data">
+        <description>OMNI-URO-OPM-0001 — data ausente: faturamento, sem glosa (fechamento)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

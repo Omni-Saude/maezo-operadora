@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_cirger_peca_anatomopatologica" name="Peça cirúrgica enviada à anatomia patológica" namespace="https://omni-saude/dmn/cirurgia-geral-digestiva">
+  <decision id="rco_cirger_peca_anatomopatologica" name="Peça cirúrgica enviada à anatomia patológica (OMNI-CIRGER-CMP-0001)" camunda:historyTimeToLive="P180D">
+    <description>Requisitos objetivos da peça cirúrgica de procedimento CIRGER enviada a exame anatomopatológico. A não conformidade vai à auditoria médica; nunca retém o pagamento da cirurgia. Regras: OMNI-CIRGER-CMP-0001. Gerado por regras/cirurgia-geral-digestiva/gerar_cirger.py; hit policy UNIQUE; a linha de fechamento nunca nega.</description>
+    <decisionTable id="dt_cirger_peca_anatomopatologica" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_classeProcedimento" label="classeProcedimento ← TISS codigoProcedimento (TUSS 22) classificado por dominio.yaml: cirger_hospitalar | cirger_ambulatorial">
+        <inputExpression id="ie_1_classeProcedimento" typeRef="string"><text>classeProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_especimeStatus" label="especimeStatus ← TISS anexo da requisição do exame anatomopatológico: condição da peça (adequado | inadequado | nao_identificado)">
+        <inputExpression id="ie_2_especimeStatus" typeRef="string"><text>especimeStatus</text></inputExpression>
+      </input>
+      <input id="in_3_tipoEspecime" label="tipoEspecime ← TISS anexo da requisição do exame anatomopatológico: tipo de material (especime_biopsia | especime_ressecao | especime_citologia | sangue_total | urina | fezes)">
+        <inputExpression id="ie_3_tipoEspecime" typeRef="string"><text>tipoEspecime</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-CIRGER-CMP-0001 — antes da vigência (2027-01-01)</description>
+        <inputEntry><text>&lt; "2027-01-01"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-CIRGER-CMP-0001 — classe fora do domínio CIRGER</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("cirger_hospitalar","cirger_ambulatorial")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-CIRGER-CMP-0001 — sem peça enviada a exame</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"cirger_hospitalar","cirger_ambulatorial"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-CIRGER-CMP-0001 — peça inadequada ou mal fixada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"cirger_hospitalar","cirger_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"inadequado"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-CIRGER-CMP-0001 — peça sem identificação: auditoria médica (rastreabilidade)</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"cirger_hospitalar","cirger_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"nao_identificado"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-CIRGER-CMP-0001 — peça adequada de tecido: conforme</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"cirger_hospitalar","cirger_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>"especime_biopsia","especime_ressecao","especime_citologia"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-CIRGER-CMP-0001 — material incompatível com exame de tecido: auditoria médica</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"cirger_hospitalar","cirger_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>"sangue_total","urina","fezes"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-CIRGER-CMP-0001 — tipo de material ausente ou não previsto: auditoria médica</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"cirger_hospitalar","cirger_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>not("especime_biopsia","especime_ressecao","especime_citologia","sangue_total","urina","fezes")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-CIRGER-CMP-0001 — condição da peça não prevista: auditoria médica</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"cirger_hospitalar","cirger_ambulatorial"</text></inputEntry>
+        <inputEntry><text>not("adequado","inadequado","nao_identificado",null)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r009">
+        <description>OMNI-CIRGER-CMP-0001 — data ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

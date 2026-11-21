@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_cirger_compatibilidade" name="Refluxo gastroesofágico: código de hérnia diafragmática não serve" namespace="https://omni-saude/dmn/cirurgia-geral-digestiva">
+  <decision id="rco_cirger_compatibilidade" name="Refluxo gastroesofágico: código de hérnia diafragmática não serve (OMNI-CIRGER-CMP-0002)" camunda:historyTimeToLive="P180D">
+    <description>Confere a compatibilidade entre o código de hérnia diafragmática e o CID principal de doença do refluxo gastroesofágico. Divergência vai à auditoria médica, que orienta o código de refluxo; nunca nega. Regras: OMNI-CIRGER-CMP-0002. Gerado por regras/cirurgia-geral-digestiva/gerar_cirger.py; hit policy UNIQUE; a linha de fechamento nunca nega.</description>
+    <decisionTable id="dt_cirger_compatibilidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_familiaProcedimento" label="familiaProcedimento ← TISS codigoProcedimento (TUSS 22) classificado por dominio.yaml: hernia_diafragmatica | outra">
+        <inputExpression id="ie_1_familiaProcedimento" typeRef="string"><text>familiaProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_cidPrincipal" label="cidPrincipal ← TISS diagnosticoPrincipal/CID-10 (4 caracteres, sem ponto)">
+        <inputExpression id="ie_2_cidPrincipal" typeRef="string"><text>cidPrincipal</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-CIRGER-CMP-0002 — antes da vigência (2027-01-01)</description>
+        <inputEntry><text>&lt; "2027-01-01"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-CIRGER-CMP-0002 — código de hérnia diafragmática com CID de refluxo: auditoria orienta o código de refluxo</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernia_diafragmatica"</text></inputEntry>
+        <inputEntry><text>"K210","K219"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-CIRGER-CMP-0002 — código de hérnia diafragmática com outro CID ou CID ausente</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>"hernia_diafragmatica"</text></inputEntry>
+        <inputEntry><text>not("K210","K219")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-CIRGER-CMP-0002 — fechamento: outro procedimento</description>
+        <inputEntry><text>&gt;= "2027-01-01"</text></inputEntry>
+        <inputEntry><text>not("hernia_diafragmatica")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-CIRGER-CMP-0002 — data ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CIRGER-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imgconv_criterio" name="Imagem convencional: sem autorização e critério publicado" namespace="https://omni-saude/dmn/imagem-convencional">
+  <decision id="rco_imgconv_criterio" name="Imagem convencional: sem autorização e critério publicado" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-IMGCONV-AUT-0004; AUT-0005; AUT-0006; AUT-0007; AUT-0008; AUT-0009. Domínio imagem-convencional. Hit policy UNIQUE; nenhuma linha nega ou glosa; urgência libera; caráter ausente ou inválido vai à regulação; critério incompleto gera a lista do que falta; a linha de fechamento (data ausente) vai à revisão humana. Separada de imgconv_autorizacao para caber no orçamento do motor (decisão IMGCONV-14).</description>
+    <decisionTable id="dt_imgconv_criterio" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_documentacaoCompleta" label="documentacaoCompleta ← solicitação: itens de efeito.documentacao_exigida conferidos no pedido (dados do solicitante e indicação clínica)">
+        <inputExpression id="ie_3_documentacaoCompleta" typeRef="boolean"><text>documentacaoCompleta</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>antes da vigência: regras IMGCONV não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="urg">
+        <description>OMNI-IMGCONV-AUT-0009 — urgência ou emergência: liberar sem critério nem autorização (OMNI-URG-*)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0009"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0004_ok">
+        <description>OMNI-IMGCONV-AUT-0004 — eletivo sem autorização prévia: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40801012", "40801020", "40801039", "40801047", "40801055", "40801063", "40801071", "40801080", "40801098", "40801101", "40801110", "40801128", "40801136", "40801160", "40801179", "40801187", "40801195", "40801209", "40802019", "40802027", "40802035", "40802043", "40802051", "40802060", "40802078", "40802086", "40802094", "40802108", "40802116", "40803015", "40803023", "40803031", "40803040", "40803058", "40803066", "40803074", "40803082", "40803090", "40803104", "40803112", "40803120", "40803139", "40803147", "40803155", "40804011", "40804020", "40804038", "40804046", "40804054", "40804062", "40804070", "40804089", "40804097", "40804100", "40804119", "40804127", "40804135", "40805018", "40805026", "40805034", "40805042", "40805050", "40805069", "40805077", "40806014", "40806022", "40806030", "40806049", "40806057", "40806065", "40806073", "40806081", "40806090", "40806103", "40806111", "40806120", "40806189", "40806200", "40807010", "40807029", "40807037", "40807045", "40807053", "40807061", "40807070", "40807088", "40807096", "40808017", "40808025", "40808033", "40808041", "40808050", "40808122", "40808130", "40808149", "40808157", "40808165", "40808335", "40808343", "40808360", "40808378", "40809021", "40809030", "40809048", "40809056", "40809064", "40809072", "40809080", "40809102", "40810011", "40810020", "40810046", "40811018", "40811026", "40812014", "40812022", "40812065", "40812073", "40812081", "40812090", "40812103", "40812111", "40812120", "40812138", "40812146"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0004_car">
+        <description>OMNI-IMGCONV-AUT-0004 — caráter de atendimento ausente ou inválido: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40801012", "40801020", "40801039", "40801047", "40801055", "40801063", "40801071", "40801080", "40801098", "40801101", "40801110", "40801128", "40801136", "40801160", "40801179", "40801187", "40801195", "40801209", "40802019", "40802027", "40802035", "40802043", "40802051", "40802060", "40802078", "40802086", "40802094", "40802108", "40802116", "40803015", "40803023", "40803031", "40803040", "40803058", "40803066", "40803074", "40803082", "40803090", "40803104", "40803112", "40803120", "40803139", "40803147", "40803155", "40804011", "40804020", "40804038", "40804046", "40804054", "40804062", "40804070", "40804089", "40804097", "40804100", "40804119", "40804127", "40804135", "40805018", "40805026", "40805034", "40805042", "40805050", "40805069", "40805077", "40806014", "40806022", "40806030", "40806049", "40806057", "40806065", "40806073", "40806081", "40806090", "40806103", "40806111", "40806120", "40806189", "40806200", "40807010", "40807029", "40807037", "40807045", "40807053", "40807061", "40807070", "40807088", "40807096", "40808017", "40808025", "40808033", "40808041", "40808050", "40808122", "40808130", "40808149", "40808157", "40808165", "40808335", "40808343", "40808360", "40808378", "40809021", "40809030", "40809048", "40809056", "40809064", "40809072", "40809080", "40809102", "40810011", "40810020", "40810046", "40811018", "40811026", "40812014", "40812022", "40812065", "40812073", "40812081", "40812090", "40812103", "40812111", "40812120", "40812138", "40812146"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0006_ok">
+        <description>OMNI-IMGCONV-AUT-0006 — eletivo sem autorização prévia: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901017", "40901025", "40901033", "40901041", "40901050", "40901068", "40901076", "40901092", "40901114", "40901122", "40901130", "40901149", "40901173", "40901181", "40901190", "40901203", "40901211", "40901220", "40901238", "40901246", "40901270", "40901289", "40901297", "40901300", "40901319", "40901335", "40901351", "40901360", "40901378", "40901386", "40901394", "40901408", "40901416", "40901424", "40901432", "40901440", "40901459", "40901467", "40901475", "40901483", "40901505", "40901513", "40901521", "40901530", "40901548", "40901572", "40901602", "40901610", "40901629", "40901637", "40901645", "40901653", "40901661", "40901696", "40901700", "40901718", "40901734", "40901742", "40901750", "40901769", "40901858", "40902137"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0006_car">
+        <description>OMNI-IMGCONV-AUT-0006 — caráter de atendimento ausente ou inválido: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901017", "40901025", "40901033", "40901041", "40901050", "40901068", "40901076", "40901092", "40901114", "40901122", "40901130", "40901149", "40901173", "40901181", "40901190", "40901203", "40901211", "40901220", "40901238", "40901246", "40901270", "40901289", "40901297", "40901300", "40901319", "40901335", "40901351", "40901360", "40901378", "40901386", "40901394", "40901408", "40901416", "40901424", "40901432", "40901440", "40901459", "40901467", "40901475", "40901483", "40901505", "40901513", "40901521", "40901530", "40901548", "40901572", "40901602", "40901610", "40901629", "40901637", "40901645", "40901653", "40901661", "40901696", "40901700", "40901718", "40901734", "40901742", "40901750", "40901769", "40901858", "40902137"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0006"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0008_ok">
+        <description>OMNI-IMGCONV-AUT-0008 — eletivo sem autorização prévia: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901106"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0008"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0008_car">
+        <description>OMNI-IMGCONV-AUT-0008 — caráter de atendimento ausente ou inválido: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40901106"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0008"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0005_ok">
+        <description>OMNI-IMGCONV-AUT-0005 — critério publicado cumprido, eletivo: liberar sem autorização</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101359", "41102010"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0005_falta">
+        <description>OMNI-IMGCONV-AUT-0005 — dado do critério ausente, eletivo: lista do que falta, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101359", "41102010"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0005_nulo">
+        <description>OMNI-IMGCONV-AUT-0005 — conferência não informada, eletivo: lista do que falta, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101359", "41102010"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0005_car">
+        <description>OMNI-IMGCONV-AUT-0005 — caráter de atendimento ausente ou inválido: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41101359", "41102010"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0005"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0007_ok">
+        <description>OMNI-IMGCONV-AUT-0007 — critério publicado cumprido, eletivo: liberar sem autorização</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40808181", "40808270", "40809153", "40809161", "40809170", "40809188", "40809196", "40809200", "40809218", "40809226", "40813363", "40813410", "40813428", "40813436", "40813444", "40813452", "40813460", "40813479", "40813487", "40813495", "40813509", "40813517", "40813525", "40813533", "40813860", "40814114", "40814130", "40814149", "40902013", "40902021", "40902030", "40902048", "40902056", "40902064", "40902072", "40902080", "40902110", "40902129", "41002016", "41002032"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0007_falta">
+        <description>OMNI-IMGCONV-AUT-0007 — dado do critério ausente, eletivo: lista do que falta, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40808181", "40808270", "40809153", "40809161", "40809170", "40809188", "40809196", "40809200", "40809218", "40809226", "40813363", "40813410", "40813428", "40813436", "40813444", "40813452", "40813460", "40813479", "40813487", "40813495", "40813509", "40813517", "40813525", "40813533", "40813860", "40814114", "40814130", "40814149", "40902013", "40902021", "40902030", "40902048", "40902056", "40902064", "40902072", "40902080", "40902110", "40902129", "41002016", "41002032"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0007_nulo">
+        <description>OMNI-IMGCONV-AUT-0007 — conferência não informada, eletivo: lista do que falta, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40808181", "40808270", "40809153", "40809161", "40809170", "40809188", "40809196", "40809200", "40809218", "40809226", "40813363", "40813410", "40813428", "40813436", "40813444", "40813452", "40813460", "40813479", "40813487", "40813495", "40813509", "40813517", "40813525", "40813533", "40813860", "40814114", "40814130", "40814149", "40902013", "40902021", "40902030", "40902048", "40902056", "40902064", "40902072", "40902080", "40902110", "40902129", "41002016", "41002032"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="aut0007_car">
+        <description>OMNI-IMGCONV-AUT-0007 — caráter de atendimento ausente ou inválido: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40808181", "40808270", "40809153", "40809161", "40809170", "40809188", "40809196", "40809200", "40809218", "40809226", "40813363", "40813410", "40813428", "40813436", "40813444", "40813452", "40813460", "40813479", "40813487", "40813495", "40813509", "40813517", "40813525", "40813533", "40813860", "40814114", "40814130", "40814149", "40902013", "40902021", "40902030", "40902048", "40902056", "40902064", "40902072", "40902080", "40902110", "40902129", "41002016", "41002032"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0007"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>código fora das regras de critério deste arquivo: liberar (imgconv_autorizacao decide os demais)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40801012", "40801020", "40801039", "40801047", "40801055", "40801063", "40801071", "40801080", "40801098", "40801101", "40801110", "40801128", "40801136", "40801160", "40801179", "40801187", "40801195", "40801209", "40802019", "40802027", "40802035", "40802043", "40802051", "40802060", "40802078", "40802086", "40802094", "40802108", "40802116", "40803015", "40803023", "40803031", "40803040", "40803058", "40803066", "40803074", "40803082", "40803090", "40803104", "40803112", "40803120", "40803139", "40803147", "40803155", "40804011", "40804020", "40804038", "40804046", "40804054", "40804062", "40804070", "40804089", "40804097", "40804100", "40804119", "40804127", "40804135", "40805018", "40805026", "40805034", "40805042", "40805050", "40805069", "40805077", "40806014", "40806022", "40806030", "40806049", "40806057", "40806065", "40806073", "40806081", "40806090", "40806103", "40806111", "40806120", "40806189", "40806200", "40807010", "40807029", "40807037", "40807045", "40807053", "40807061", "40807070", "40807088", "40807096", "40808017", "40808025", "40808033", "40808041", "40808050", "40808122", "40808130", "40808149", "40808157", "40808165", "40808181", "40808270", "40808335", "40808343", "40808360", "40808378", "40809021", "40809030", "40809048", "40809056", "40809064", "40809072", "40809080", "40809102", "40809153", "40809161", "40809170", "40809188", "40809196", "40809200", "40809218", "40809226", "40810011", "40810020", "40810046", "40811018", "40811026", "40812014", "40812022", "40812065", "40812073", "40812081", "40812090", "40812103", "40812111", "40812120", "40812138", "40812146", "40813363", "40813410", "40813428", "40813436", "40813444", "40813452", "40813460", "40813479", "40813487", "40813495", "40813509", "40813517", "40813525", "40813533", "40813860", "40814114", "40814130", "40814149", "40901017", "40901025", "40901033", "40901041", "40901050", "40901068", "40901076", "40901092", "40901106", "40901114", "40901122", "40901130", "40901149", "40901173", "40901181", "40901190", "40901203", "40901211", "40901220", "40901238", "40901246", "40901270", "40901289", "40901297", "40901300", "40901319", "40901335", "40901351", "40901360", "40901378", "40901386", "40901394", "40901408", "40901416", "40901424", "40901432", "40901440", "40901459", "40901467", "40901475", "40901483", "40901505", "40901513", "40901521", "40901530", "40901548", "40901572", "40901602", "40901610", "40901629", "40901637", "40901645", "40901653", "40901661", "40901696", "40901700", "40901718", "40901734", "40901742", "40901750", "40901769", "40901858", "40902013", "40902021", "40902030", "40902048", "40902056", "40902064", "40902072", "40902080", "40902110", "40902129", "40902137", "41002016", "41002032", "41101359", "41102010")</text></inputEntry>
+        <inputEntry><text>not("2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMGCONV-AUT-0005"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

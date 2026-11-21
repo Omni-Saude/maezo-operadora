@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_bariat_autorizacao" name="Cirurgia bariátrica: autorização prévia e cobertura parcial temporária (OMNI-BARIAT-AUT-0001, OMNI-BARIAT-CAR-0001)" namespace="https://omni-saude/dmn/cirurgia-bariatrica">
+  <decision id="rco_bariat_autorizacao" name="Cirurgia bariátrica: autorização prévia e cobertura parcial temporária (OMNI-BARIAT-AUT-0001, OMNI-BARIAT-CAR-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-BARIAT-AUT-0001; OMNI-BARIAT-CAR-0001. Domínio cirurgia-bariatrica. Hit policy UNIQUE; a linha de fechamento nunca nega. A recomendação de negativa 3173 (decisão da auditoria médica) só vale com CPT vigente informada pelo cadastro (dado objetivo, ANS-RN-558).</description>
+    <decisionTable id="dt_bariat_autorizacao" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido de autorização), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_cptObesidadeAtiva" label="cptObesidadeAtiva ← cadastro (contrato): cobertura parcial temporária vigente na data, ligada a doença preexistente de obesidade declarada pelo beneficiário">
+        <inputExpression id="ie_3_cptObesidadeAtiva" typeRef="boolean"><text>cptObesidadeAtiva</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="a_pre">
+        <description>Antes da vigência (2026-11-03): auditoria médica analisa o pedido</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390", "31002013", "31002285"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_sem_data">
+        <description>OMNI-BARIAT-AUT-0001: data ausente vai à regulação</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390", "31002013", "31002285"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_cpt_elet">
+        <description>OMNI-BARIAT-CAR-0001: CPT de obesidade vigente suspende a cirurgia eletiva (Lei 9.656 art. 11; RN 558 art. 2º, II): recomendação de negativa 3173; a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390", "31002013", "31002285"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"3173"</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-CAR-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="a_cpt_urg">
+        <description>OMNI-BARIAT-CAR-0001: CPT vigente em pedido de urgência: regulação, sem negativa automática</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390", "31002013", "31002285"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-CAR-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_cpt_nulo">
+        <description>OMNI-BARIAT-CAR-0001: situação de CPT não informada pelo cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390", "31002013", "31002285"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-CAR-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_elet">
+        <description>OMNI-BARIAT-AUT-0001: cirurgia bariátrica eletiva exige autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390", "31002013", "31002285"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_urg">
+        <description>OMNI-BARIAT-AUT-0001: pedido marcado como urgência ou caráter ausente vai à regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390", "31002013", "31002285"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_fora">
+        <description>Fechamento (OMNI-BARIAT-AUT-0001): código fora do domínio bariátrico segue a regra do seu domínio</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("31002218", "31002390", "31002013", "31002285")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

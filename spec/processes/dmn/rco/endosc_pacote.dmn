@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_endosc_pacote" name="Endoscopia: enquadramento nos pacotes OMNI-PAC-ENDOSC-0001 e 0002" namespace="https://omni-saude/dmn/endoscopia">
+  <decision id="rco_endosc_pacote" name="Endoscopia: enquadramento nos pacotes OMNI-PAC-ENDOSC-0001 e 0002" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-ENDOSC-PAC-0001; OMNI-ENDOSC-PAC-0002. Domínio endoscopia. Hit policy UNIQUE; nenhuma linha nega ou glosa; a linha de fechamento (data ausente) vai à revisão humana.</description>
+    <decisionTable id="dt_endosc_pacote" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimentoPrincipal" label="codigoProcedimentoPrincipal ← TISS codigoProcedimento do procedimento principal da guia (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimentoPrincipal" typeRef="string"><text>codigoProcedimentoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_prestadorComPacote" label="prestadorComPacote ← cadastro contratual: pacote OMNI-PAC-ENDOSC do procedimento vigente no contrato do prestador (booleano)">
+        <inputExpression id="ie_3_prestadorComPacote" typeRef="boolean"><text>prestadorComPacote</text></inputExpression>
+      </input>
+      <input id="in_4_procedimentoAdicional" label="procedimentoAdicional ← TISS outro codigoProcedimento cirúrgico ou endoscópico na mesma guia (booleano)">
+        <inputExpression id="ie_4_procedimentoAdicional" typeRef="boolean"><text>procedimentoAdicional</text></inputExpression>
+      </input>
+      <input id="in_5_diasInternacao" label="diasInternacao ← derivado: dias entre TISS dataInicioFaturamento e dataFinalFaturamento da guia de internação (nulo no pedido)">
+        <inputExpression id="ie_5_diasInternacao" typeRef="integer"><text>diasInternacao</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-ENDOSC-PAC-0001 — antes da vigência (03/12/2026): regras ENDOSC não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_pac">
+        <description>OMNI-ENDOSC-PAC-0001 — eletivo em prestador com pacote, sem outro procedimento, internação de até 5 dias (limite_revisao_dias do pacote): pagar pacote</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40202011", "40202054", "40202119", "40202208", "40202283", "40202356", "40202364", "40202399", "40202470", "40202500", "40202526", "40202798"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&lt;= 5</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_pac_longo">
+        <description>OMNI-ENDOSC-PAC-0001 — internação de mais de 5 dias (limite_revisao_dias do pacote, provisório): auditoria médica, sem suspender o pagamento do pacote</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40202011", "40202054", "40202119", "40202208", "40202283", "40202356", "40202364", "40202399", "40202470", "40202500", "40202526", "40202798"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt; 5</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_pac_pedido">
+        <description>OMNI-ENDOSC-PAC-0001 — dias de internação ainda não informados (pedido ou guia sem resumo de internação): pagar pacote; a contagem de dias é conferida na conta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40202011", "40202054", "40202119", "40202208", "40202283", "40202356", "40202364", "40202399", "40202470", "40202500", "40202526", "40202798"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_adic">
+        <description>OMNI-ENDOSC-PAC-0001 — outro procedimento na mesma guia: auditoria médica decide se sai do pacote</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40202011", "40202054", "40202119", "40202208", "40202283", "40202356", "40202364", "40202399", "40202470", "40202500", "40202526", "40202798"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_adic_nulo">
+        <description>OMNI-ENDOSC-PAC-0001 — outro procedimento não informado: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40202011", "40202054", "40202119", "40202208", "40202283", "40202356", "40202364", "40202399", "40202470", "40202500", "40202526", "40202798"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_sem">
+        <description>OMNI-ENDOSC-PAC-0001 — prestador sem pacote (EXC-02): conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40202011", "40202054", "40202119", "40202208", "40202283", "40202356", "40202364", "40202399", "40202470", "40202500", "40202526", "40202798"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_cad_nulo">
+        <description>OMNI-ENDOSC-PAC-0001 — pacote do prestador não informado: cadastro, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40202011", "40202054", "40202119", "40202208", "40202283", "40202356", "40202364", "40202399", "40202470", "40202500", "40202526", "40202798"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p1_urg">
+        <description>OMNI-ENDOSC-PAC-0001 — urgência (EXC-01) ou caráter não eletivo: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201031", "40202011", "40202054", "40202119", "40202208", "40202283", "40202356", "40202364", "40202399", "40202470", "40202500", "40202526", "40202798"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p2_pac">
+        <description>OMNI-ENDOSC-PAC-0002 — eletivo em prestador com pacote, sem outro procedimento: pagar pacote</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201082", "40201120", "40201171", "40202038", "40202615", "40202666", "40202690"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p2_adic">
+        <description>OMNI-ENDOSC-PAC-0002 — outro procedimento na mesma guia: auditoria médica decide se sai do pacote</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201082", "40201120", "40201171", "40202038", "40202615", "40202666", "40202690"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p2_adic_nulo">
+        <description>OMNI-ENDOSC-PAC-0002 — outro procedimento não informado: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201082", "40201120", "40201171", "40202038", "40202615", "40202666", "40202690"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p2_sem">
+        <description>OMNI-ENDOSC-PAC-0002 — prestador sem pacote (EXC-02): conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201082", "40201120", "40201171", "40202038", "40202615", "40202666", "40202690"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p2_cad_nulo">
+        <description>OMNI-ENDOSC-PAC-0002 — pacote do prestador não informado: cadastro, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201082", "40201120", "40201171", "40202038", "40202615", "40202666", "40202690"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p2_urg">
+        <description>OMNI-ENDOSC-PAC-0002 — urgência (EXC-01) ou caráter não eletivo: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40201082", "40201120", "40201171", "40202038", "40202615", "40202666", "40202690"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_resto">
+        <description>OMNI-ENDOSC-PAC-0001 — código fora dos pacotes do domínio: conta aberta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40201031", "40202011", "40202054", "40202119", "40202208", "40202283", "40202356", "40202364", "40202399", "40202470", "40202500", "40202526", "40202798", "40201082", "40201120", "40201171", "40202038", "40202615", "40202666", "40202690")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-ENDOSC-PAC-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ENDOSC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

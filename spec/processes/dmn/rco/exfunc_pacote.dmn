@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_exfunc_pacote" name="Exames funcionais: composição da conta por ato, sem pacote de episódio (PAC-0001 a PAC-0003)" namespace="https://omni-saude/dmn/exames-funcionais">
+  <decision id="rco_exfunc_pacote" name="Exames funcionais: composição da conta por ato, sem pacote de episódio (PAC-0001 a PAC-0003)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-EXFUNC-PAC-0001 a PAC-0003. Hit policy UNIQUE; nenhuma linha nega ou glosa; divergência de composição vai ao faturamento; dado ausente libera, exceto data ausente e fator ausente no segundo olho (regulação).</description>
+    <decisionTable id="dt_exfunc_pacote" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_quantidade" label="quantidade ← TISS quantidadeExecutada do item">
+        <inputExpression id="ie_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <input id="in_parPolissonografia" label="parPolissonografia ← TISS conta do prestador: 40103528 com 40103536 no mesmo beneficiário, prestador e data">
+        <inputExpression id="ie_parPolissonografia" typeRef="boolean"><text>parPolissonografia</text></inputExpression>
+      </input>
+      <input id="in_diariaSoParaExame" label="diariaSoParaExame ← TISS conta do prestador: diária cobrada só para fazer o exame em regime ambulatorial ou hospital-dia">
+        <inputExpression id="ie_diariaSoParaExame" typeRef="boolean"><text>diariaSoParaExame</text></inputExpression>
+      </input>
+      <input id="in_ordemOlho" label="ordemOlho ← TISS conta do prestador: primeiro ou segundo olho do mesmo beneficiário, prestador e data">
+        <inputExpression id="ie_ordemOlho" typeRef="string"><text>ordemOlho</text></inputExpression>
+      </input>
+      <input id="in_fatorReducao" label="fatorReducao ← TISS reducaoAcrescimo da linha (fator multiplicativo)">
+        <inputExpression id="ie_fatorReducao" typeRef="double"><text>fatorReducao</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="c_pre">
+        <description>OMNI-EXFUNC-PAC-0001 — antes do início da vigência (03/12/2026): sem composição nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41301471", "40103528", "40103536", "40103544", "41501144"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_sem_data">
+        <description>OMNI-EXFUNC-PAC-0001 — data ausente: regulação confere</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"41301471", "40103528", "40103536", "40103544", "41501144"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c1_rev">
+        <description>OMNI-EXFUNC-PAC-0001 — teste do reflexo vermelho acima da quantidade máxima provisória: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41301471"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c1_ok">
+        <description>OMNI-EXFUNC-PAC-0001 — teste do reflexo vermelho até a quantidade máxima: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41301471"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c1_nulo">
+        <description>OMNI-EXFUNC-PAC-0001 — teste do reflexo vermelho sem quantidade: regulação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41301471"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2_par">
+        <description>OMNI-EXFUNC-PAC-0002 — polissonografia com polissonograma no mesmo ato: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40103528", "40103536", "40103544"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2_dia">
+        <description>OMNI-EXFUNC-PAC-0002 — diária cobrada só para fazer a polissonografia: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40103528", "40103536", "40103544"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2_ok">
+        <description>OMNI-EXFUNC-PAC-0002 — polissonografia sem par e sem diária só para o exame: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40103528", "40103536", "40103544"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3_nulo">
+        <description>OMNI-EXFUNC-PAC-0003 — tomografia de coerência óptica no segundo olho sem fator de redução: regulação</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41501144"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"segundo"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3_rev">
+        <description>OMNI-EXFUNC-PAC-0003 — tomografia de coerência óptica no segundo olho sem redução: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41501144"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"segundo"</text></inputEntry>
+        <inputEntry><text>&gt;= 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3_ok">
+        <description>OMNI-EXFUNC-PAC-0003 — tomografia de coerência óptica no segundo olho com fator de redução: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41501144"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"segundo"</text></inputEntry>
+        <inputEntry><text>&lt; 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3_outro">
+        <description>OMNI-EXFUNC-PAC-0003 — tomografia de coerência óptica no primeiro olho ou sem ordem informada: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"41501144"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("segundo")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_fora">
+        <description>OMNI-EXFUNC-PAC-0001 — fechamento: código sem composição no domínio, sem efeito desta tabela</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("41301471", "40103528", "40103536", "40103544", "41501144")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-EXFUNC-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

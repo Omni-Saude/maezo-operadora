@@ -1,0 +1,1411 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_coluna_excludentes" name="Pares de procedimentos de coluna que não se somam (OMNI-COLUNA-MEX-0001 a 0006)" namespace="https://omni-saude/dmn/opme-coluna">
+  <decision id="rco_coluna_excludentes" name="Pares de procedimentos de coluna que não se somam (OMNI-COLUNA-MEX-0001 a 0006)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-COLUNA-MEX-0001; OMNI-COLUNA-MEX-0002; OMNI-COLUNA-MEX-0003; OMNI-COLUNA-MEX-0004; OMNI-COLUNA-MEX-0005; OMNI-COLUNA-MEX-0006. Domínio opme-coluna. Gerado por scripts do piloto; hit policy UNIQUE, sem lacuna (linhas de fechamento nunca negam).</description>
+    <decisionTable id="dt_coluna_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoPrincipal" label="codigoPrincipal ← TISS codigoProcedimento do procedimento de referência na mesma guia/ato">
+        <inputExpression id="ie_1_codigoPrincipal" typeRef="string"><text>codigoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento do outro procedimento na mesma guia/ato">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_codigoSecundarioOutraData" label="codigoSecundarioOutraData ← TISS codigoProcedimento de outra linha da mesma guia com dataExecucao DIFERENTE da linha avaliada e que forma par com o codigoPrincipal (derivado); nulo se não houver">
+        <inputExpression id="ie_3_codigoSecundarioOutraData" typeRef="string"><text>codigoSecundarioOutraData</text></inputExpression>
+      </input>
+      <input id="in_3b_dataExecucaoInformada" label="dataExecucaoInformada ← TISS dataExecucao das linhas da guia que formam par com o codigoPrincipal (derivado): false se alguma não tem data; nulo se a guia não foi extraída">
+        <inputExpression id="ie_3b_dataExecucaoInformada" typeRef="boolean"><text>dataExecucaoInformada</text></inputExpression>
+      </input>
+      <input id="in_4_cidExcecaoDescompressao" label="cidExcecaoDescompressao ← TISS CID principal da guia (derivado): na lista de compressão tumoral, traumática ou inflamatória (lista em LACUNA: enviar nulo)">
+        <inputExpression id="ie_4_cidExcecaoDescompressao" typeRef="boolean"><text>cidExcecaoDescompressao</text></inputExpression>
+      </input>
+      <input id="in_5_substituicaoCorpoVertebralNaGuia" label="substituicaoCorpoVertebralNaGuia ← TISS codigoProcedimento das linhas da guia (derivado): 30715288 (substituição de corpo vertebral) entre os executados">
+        <inputExpression id="ie_5_substituicaoCorpoVertebralNaGuia" typeRef="boolean"><text>substituicaoCorpoVertebralNaGuia</text></inputExpression>
+      </input>
+      <input id="in_6_descricaoCirurgicaAnexada" label="descricaoCirurgicaAnexada ← anexo da conta: descrição cirúrgica presente (sim/não); o texto nunca entra no payload">
+        <inputExpression id="ie_6_descricaoCirurgicaAnexada" typeRef="boolean"><text>descricaoCirurgicaAnexada</text></inputExpression>
+      </input>
+      <input id="in_7_prazoDocumentoVencido" label="prazoDocumentoVencido ← fluxo Camunda: a OMNI pediu o documento faltante e o prazo de 5 dias úteis venceu">
+        <inputExpression id="ie_7_prazoDocumentoVencido" typeRef="boolean"><text>prazoDocumentoVencido</text></inputExpression>
+      </input>
+      <input id="in_8_quantidade" label="quantidade ← TISS quantidadeExecutada da linha do codigoSecundario (30715016) na mesma guia: a base do 30715385 cobre um segmento">
+        <inputExpression id="ie_8_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r002">
+        <description>OMNI-COLUNA-AUT-0001 — Antes da vigência das regras canônicas (2026-11-03): fluxo anterior, com revisão</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r019">
+        <description>OMNI-COLUNA-MEX-0004 — Par exige análise: mesmo segmento ou grau de listese</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>"30715024", "30715113"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r022">
+        <description>OMNI-COLUNA-MEX-0004 — Listese de baixo grau não soma código próprio</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715024"</text></inputEntry>
+        <inputEntry><text>"30715113"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r027">
+        <description>OMNI-COLUNA-MEX-0004 — Ressecção ampliada: substituição de código a analisar</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715288"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r031">
+        <description>OMNI-COLUNA-MEX-0004 — Osteotomias e segmentos inclusos na escoliose, salvo justificativa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715105"</text></inputEntry>
+        <inputEntry><text>"30715229", "30715016", "30715024"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r032">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715105: sem exclusão</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715105"</text></inputEntry>
+        <inputEntry><text>not("30715229", "30715016", "30715024")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r033">
+        <description>OMNI-COLUNA-MEX-0004 — Corpectomia já descomprime, via de regra</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715288"</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r034">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715288: sem exclusão</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715288"</text></inputEntry>
+        <inputEntry><text>not("30715091")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r035">
+        <description>OMNI-COLUNA-MEX-0004 — Descompressão na fratura só com fragmento no canal e sem lesão raquimedular</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715164"</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r036">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715164: sem exclusão</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715164"</text></inputEntry>
+        <inputEntry><text>not("30715091")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r037">
+        <description>OMNI-COLUNA-MEX-0004 — Lesão intramedular e tumor intradural no mesmo ato</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715350"</text></inputEntry>
+        <inputEntry><text>"30715202"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r038">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715350: sem exclusão</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715350"</text></inputEntry>
+        <inputEntry><text>not("30715202")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r039">
+        <description>OMNI-COLUNA-MEX-0006 — Outras afecções incruento é excludente com fratura conservadora (v36 p. 170)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715121"</text></inputEntry>
+        <inputEntry><text>"30715237"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0006"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r040">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715121: sem exclusão</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715121"</text></inputEntry>
+        <inputEntry><text>not("30715237")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r041">
+        <description>OMNI-COLUNA-MEX-0006 — Outras afecções incruento é excludente com redução incruenta (v36 p. 170)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715156"</text></inputEntry>
+        <inputEntry><text>"30715237"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0006"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r042">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715156: sem exclusão</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715156"</text></inputEntry>
+        <inputEntry><text>not("30715237")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g0_1">
+        <description>OMNI-COLUNA-MEX-0001 — laminectomia como via de acesso: mesma data, descrição cirúrgica anexada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715180", "30715393", "30715369", "30715202"</text></inputEntry>
+        <inputEntry><text>"30715199"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g0_2">
+        <description>OMNI-COLUNA-MEX-0001 — laminectomia como via de acesso: mesma data e sem exceção declarada (par interpretativo): análise da fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715180", "30715393", "30715369", "30715202"</text></inputEntry>
+        <inputEntry><text>"30715199"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g1_1">
+        <description>OMNI-COLUNA-MEX-0002 — descompressão com hérnia, canal estreito ou lesão raquimedular: CID de exceção declarado: a auditoria médica confere antes de liberar</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715180", "30715393", "30715369", "30715318"</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g1_2">
+        <description>OMNI-COLUNA-MEX-0002 — descompressão com hérnia, canal estreito ou lesão raquimedular: descrição cirúrgica anexada e sem CID de exceção: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715180", "30715393", "30715369", "30715318"</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g1_3">
+        <description>OMNI-COLUNA-MEX-0002 — descompressão com hérnia, canal estreito ou lesão raquimedular: mesma data e sem exceção declarada (par interpretativo): análise da fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715180", "30715393", "30715369", "30715318"</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g2_1">
+        <description>OMNI-COLUNA-MEX-0002 — laminectomia com a descompressão: mesma data, descrição cirúrgica anexada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>"30715199"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g2_2">
+        <description>OMNI-COLUNA-MEX-0002 — laminectomia com a descompressão: mesma data e sem exceção declarada (par interpretativo): análise da fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>"30715199"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g3_1">
+        <description>OMNI-COLUNA-MEX-0003 — enxerto ósseo com artrodese, pseudartrose ou tumor ósseo: mesma data, descrição cirúrgica anexada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715016", "30715024", "30715245", "30715385"</text></inputEntry>
+        <inputEntry><text>"30732026"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g3_2">
+        <description>OMNI-COLUNA-MEX-0003 — enxerto ósseo com artrodese, pseudartrose ou tumor ósseo: mesma data e sem exceção declarada (par interpretativo): análise da fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715016", "30715024", "30715245", "30715385"</text></inputEntry>
+        <inputEntry><text>"30732026"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g4_1">
+        <description>OMNI-COLUNA-MEX-0003 — artrodese póstero-lateral com a ressecção de tumor ósseo vertebral: 30715288 na guia: a fonte manda substituir o 30715385 por 30715288 mais a artrodese, se justificado; a auditoria médica confere, nunca libera automaticamente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715024"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g4_2">
+        <description>OMNI-COLUNA-MEX-0003 — artrodese póstero-lateral com a ressecção de tumor ósseo vertebral: descrição cirúrgica anexada e sem 30715288 na guia: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715024"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g4_3">
+        <description>OMNI-COLUNA-MEX-0003 — artrodese póstero-lateral com a ressecção de tumor ósseo vertebral: mesma data e sem exceção declarada (par interpretativo): análise da fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715024"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g6_1">
+        <description>OMNI-COLUNA-MEX-0003 — artrodese com instrumentação inclusa no descritor da ressecção de tumor ósseo vertebral: 30715288 na guia: o descritor do 30715385 já traz a substituição (a fonte manda substituir por 30715288 mais a artrodese, se justificado); a auditoria médica confere, nunca libera automaticamente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g6_2">
+        <description>OMNI-COLUNA-MEX-0003 — artrodese com instrumentação inclusa no descritor da ressecção de tumor ósseo vertebral: descrição cirúrgica anexada e sem 30715288 na guia: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g6_3">
+        <description>OMNI-COLUNA-MEX-0003 — artrodese com instrumentação inclusa no descritor da ressecção de tumor ósseo vertebral: mesma data, sem 30715288, sem descrição e prazo da descrição não vencido: pedir a descrição cirúrgica (5 dias úteis)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g6_4">
+        <description>OMNI-COLUNA-MEX-0003 — artrodese com instrumentação inclusa no descritor da ressecção de tumor ósseo vertebral: mesma data, sem exceção, descrição ausente, prazo vencido e um segmento (quantidade 1): glosa do código secundário</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>1</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="g6_5">
+        <description>OMNI-COLUNA-MEX-0003 — artrodese com instrumentação inclusa no descritor da ressecção de tumor ósseo vertebral: mesma data, sem exceção, descrição ausente e prazo vencido, mas quantidade diferente de um segmento ou nula: a base cobre um segmento, auditoria médica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt; 1, &gt; 1, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g6_6">
+        <description>OMNI-COLUNA-MEX-0003 — artrodese com instrumentação inclusa no descritor da ressecção de tumor ósseo vertebral: mesma data, sem exceção, anexo não extraído (nulo) e prazo vencido: auditoria médica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g6_7">
+        <description>OMNI-COLUNA-MEX-0003 — artrodese com instrumentação inclusa no descritor da ressecção de tumor ósseo vertebral: mesma data, exceção não determinável (dado nulo) e prazo vencido: auditoria médica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g5_1">
+        <description>OMNI-COLUNA-MEX-0005 — hérnia endoscópica com hérnia aberta: mesma data, descrição cirúrgica anexada: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715059"</text></inputEntry>
+        <inputEntry><text>"30715180"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g5_2">
+        <description>OMNI-COLUNA-MEX-0005 — hérnia endoscópica com hérnia aberta: mesma data e sem exceção declarada (par interpretativo): análise da fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"30715059"</text></inputEntry>
+        <inputEntry><text>"30715180"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xa_1">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715180, 30715393, 30715369: sem exclusão (antes de 2026-12-16 também em outra data de execução)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"30715180", "30715393", "30715369"</text></inputEntry>
+        <inputEntry><text>not("30715199", "30715091")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xa_2">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715180, 30715393, 30715369: sem exclusão, sem par em outra data de execução</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715180", "30715393", "30715369"</text></inputEntry>
+        <inputEntry><text>not("30715199", "30715091")</text></inputEntry>
+        <inputEntry><text>not("30715199", "30715091")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xa_o1">
+        <description>OMNI-COLUNA-MEX-0001 — par com outra data de execução na mesma guia, a partir de 2026-12-16: a data é declarada pelo prestador e não libera (fracionamento); fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715180", "30715393", "30715369"</text></inputEntry>
+        <inputEntry><text>not("30715199", "30715091")</text></inputEntry>
+        <inputEntry><text>"30715199"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xa_o2">
+        <description>OMNI-COLUNA-MEX-0002 — par com outra data de execução na mesma guia, a partir de 2026-12-16: a data é declarada pelo prestador e não libera (fracionamento); fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715180", "30715393", "30715369"</text></inputEntry>
+        <inputEntry><text>not("30715199", "30715091")</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xa_n">
+        <description>OMNI-COLUNA-MEX-0001 — data de execução ausente em linha que forma par, a partir de 2026-12-16: pedir a descrição cirúrgica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715180", "30715393", "30715369"</text></inputEntry>
+        <inputEntry><text>not("30715199", "30715091")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xb_1">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715202: sem exclusão (antes de 2026-12-16 também em outra data de execução)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"30715202"</text></inputEntry>
+        <inputEntry><text>not("30715199")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xb_2">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715202: sem exclusão, sem par em outra data de execução</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715202"</text></inputEntry>
+        <inputEntry><text>not("30715199")</text></inputEntry>
+        <inputEntry><text>not("30715199")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xb_o1">
+        <description>OMNI-COLUNA-MEX-0001 — par com outra data de execução na mesma guia, a partir de 2026-12-16: a data é declarada pelo prestador e não libera (fracionamento); fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715202"</text></inputEntry>
+        <inputEntry><text>not("30715199")</text></inputEntry>
+        <inputEntry><text>"30715199"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xb_n">
+        <description>OMNI-COLUNA-MEX-0001 — data de execução ausente em linha que forma par, a partir de 2026-12-16: pedir a descrição cirúrgica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715202"</text></inputEntry>
+        <inputEntry><text>not("30715199")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xc_1">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715318: sem exclusão (antes de 2026-12-16 também em outra data de execução)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"30715318"</text></inputEntry>
+        <inputEntry><text>not("30715091")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xc_2">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715318: sem exclusão, sem par em outra data de execução</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715318"</text></inputEntry>
+        <inputEntry><text>not("30715091")</text></inputEntry>
+        <inputEntry><text>not("30715091")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xc_o2">
+        <description>OMNI-COLUNA-MEX-0002 — par com outra data de execução na mesma guia, a partir de 2026-12-16: a data é declarada pelo prestador e não libera (fracionamento); fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715318"</text></inputEntry>
+        <inputEntry><text>not("30715091")</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xc_n">
+        <description>OMNI-COLUNA-MEX-0002 — data de execução ausente em linha que forma par, a partir de 2026-12-16: pedir a descrição cirúrgica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715318"</text></inputEntry>
+        <inputEntry><text>not("30715091")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xd_1">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715091: sem exclusão (antes de 2026-12-16 também em outra data de execução)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>not("30715199")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xd_2">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715091: sem exclusão, sem par em outra data de execução</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>not("30715199")</text></inputEntry>
+        <inputEntry><text>not("30715199")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xd_o2">
+        <description>OMNI-COLUNA-MEX-0002 — par com outra data de execução na mesma guia, a partir de 2026-12-16: a data é declarada pelo prestador e não libera (fracionamento); fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>not("30715199")</text></inputEntry>
+        <inputEntry><text>"30715199"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xd_n">
+        <description>OMNI-COLUNA-MEX-0002 — data de execução ausente em linha que forma par, a partir de 2026-12-16: pedir a descrição cirúrgica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715091"</text></inputEntry>
+        <inputEntry><text>not("30715199")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xe_1">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715016: sem exclusão (antes de 2026-12-16 também em outra data de execução)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715024", "30715113")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xe_2">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715016: sem exclusão, sem par em outra data de execução</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715024", "30715113")</text></inputEntry>
+        <inputEntry><text>not("30732026")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xe_o3">
+        <description>OMNI-COLUNA-MEX-0003 — par com outra data de execução na mesma guia, a partir de 2026-12-16: a data é declarada pelo prestador e não libera (fracionamento); fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715024", "30715113")</text></inputEntry>
+        <inputEntry><text>"30732026"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xe_n">
+        <description>OMNI-COLUNA-MEX-0003 — data de execução ausente em linha que forma par, a partir de 2026-12-16: pedir a descrição cirúrgica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715016"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715024", "30715113")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xf_1">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715024: sem exclusão (antes de 2026-12-16 também em outra data de execução)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"30715024"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715113")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xf_2">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715024: sem exclusão, sem par em outra data de execução</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715024"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715113")</text></inputEntry>
+        <inputEntry><text>not("30732026")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xf_o3">
+        <description>OMNI-COLUNA-MEX-0003 — par com outra data de execução na mesma guia, a partir de 2026-12-16: a data é declarada pelo prestador e não libera (fracionamento); fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715024"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715113")</text></inputEntry>
+        <inputEntry><text>"30732026"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xf_n">
+        <description>OMNI-COLUNA-MEX-0003 — data de execução ausente em linha que forma par, a partir de 2026-12-16: pedir a descrição cirúrgica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715024"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715113")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xh_1">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715245: sem exclusão (antes de 2026-12-16 também em outra data de execução)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"30715245"</text></inputEntry>
+        <inputEntry><text>not("30732026")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xh_2">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715245: sem exclusão, sem par em outra data de execução</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715245"</text></inputEntry>
+        <inputEntry><text>not("30732026")</text></inputEntry>
+        <inputEntry><text>not("30732026")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xh_o3">
+        <description>OMNI-COLUNA-MEX-0003 — par com outra data de execução na mesma guia, a partir de 2026-12-16: a data é declarada pelo prestador e não libera (fracionamento); fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715245"</text></inputEntry>
+        <inputEntry><text>not("30732026")</text></inputEntry>
+        <inputEntry><text>"30732026"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xh_n">
+        <description>OMNI-COLUNA-MEX-0003 — data de execução ausente em linha que forma par, a partir de 2026-12-16: pedir a descrição cirúrgica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715245"</text></inputEntry>
+        <inputEntry><text>not("30732026")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xi_1">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715385: sem exclusão (antes de 2026-12-16 também em outra data de execução)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715016", "30715024", "30715288")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xi_2">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715385: sem exclusão, sem par em outra data de execução</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715016", "30715024", "30715288")</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715016", "30715024")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xi_o3">
+        <description>OMNI-COLUNA-MEX-0003 — par com outra data de execução na mesma guia, a partir de 2026-12-16: a data é declarada pelo prestador e não libera (fracionamento); fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715016", "30715024", "30715288")</text></inputEntry>
+        <inputEntry><text>"30732026", "30715016", "30715024"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xi_n">
+        <description>OMNI-COLUNA-MEX-0003 — data de execução ausente em linha que forma par, a partir de 2026-12-16: pedir a descrição cirúrgica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715385"</text></inputEntry>
+        <inputEntry><text>not("30732026", "30715016", "30715024", "30715288")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xj_1">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715059: sem exclusão (antes de 2026-12-16 também em outra data de execução)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"30715059"</text></inputEntry>
+        <inputEntry><text>not("30715180")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xj_2">
+        <description>OMNI-COLUNA-MEX-0001 — Demais associações com 30715059: sem exclusão, sem par em outra data de execução</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715059"</text></inputEntry>
+        <inputEntry><text>not("30715180")</text></inputEntry>
+        <inputEntry><text>not("30715180")</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xj_o5">
+        <description>OMNI-COLUNA-MEX-0005 — par com outra data de execução na mesma guia, a partir de 2026-12-16: a data é declarada pelo prestador e não libera (fracionamento); fila faturamento, item pendente</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715059"</text></inputEntry>
+        <inputEntry><text>not("30715180")</text></inputEntry>
+        <inputEntry><text>"30715180"</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xj_n">
+        <description>OMNI-COLUNA-MEX-0005 — data de execução ausente em linha que forma par, a partir de 2026-12-16: pedir a descrição cirúrgica, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"30715059"</text></inputEntry>
+        <inputEntry><text>not("30715180")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r043">
+        <description>OMNI-COLUNA-MEX-0001 — Fechamento: principal sem pares no domínio</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("30715180", "30715393", "30715369", "30715202", "30715091", "30715318", "30715016", "30715024", "30715245", "30715385", "30715059", "30715105", "30715288", "30715164", "30715350", "30715121", "30715156")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-COLUNA-AUT-0001 — Data ausente: revisão de cadastro da guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-COLUNA-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

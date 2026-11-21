@@ -9,8 +9,8 @@ escalada, nao corrigida no teste. Prova tambem que um `esperado` invertido e rec
 com pacote fixado, roda TODAS as `provas[]` dele no CIB Seven e falha em qualquer divergencia (decisao da
 ROOT, 16/11/2026: pin real so com provas executadas com sucesso). Este arquivo roda no shard `restante`
 da lane `integration`, que todo PR que toca `config/integrations/rco/**` dispara (filtro de caminhos da
-lane: so `docs/**`, `*.md`, `src/maezo/portal/web/**` e `.github/**` pulam). Sem pacote (`sem_pacote`) o
-teste afirma esse estado explicitamente: nunca passa vazio sem motivo.
+lane: so `docs/**`, `*.md`, `src/maezo/portal/web/**` e `.github/**` pulam). Desde o primeiro pin real (K1
+b8444f52) o pin de bordo e `fixado`, e o teste EXIGE esse estado: nunca passa vazio sem motivo.
 """
 
 from __future__ import annotations
@@ -91,12 +91,12 @@ async def test_provas_do_pacote_pinado_casam_no_motor(engine_client: httpx.Async
         motor=rp.MotorCibSeven(engine_client),
         chaves_do_repo=rp.chaves_de_decisao_do_repo(SPEC_DMN),
     )
-    if resultado.estado == rp.ESTADO_SEM_PACOTE:
-        # Sem pacote nao ha prova a rodar: o pin tem de DIZER isso (nada de pasta k1/ nem artefatos).
-        lock = json.loads(PIN.read_text(encoding="utf-8"))
-        assert (lock["estado"], lock["manifest_pin"], lock["artifacts"]) == ("sem_pacote", None, [])
-        assert (resultado.provas, resultado.casos, resultado.divergencias) == ((), 0, ())
-        return
+    # Pin real fixado (K1 b8444f52): as provas[] do pacote TEM de rodar; sem pacote aqui e regressao.
+    lock = json.loads(PIN.read_text(encoding="utf-8"))
+    assert (lock["estado"], lock["provenance"]["rco_commit_sha"]) == (
+        "fixado",
+        "b8444f52e33eda556b5d2dab7837b046d5bd769e",
+    )
     assert resultado.estado == rp.ESTADO_FIXADO
     assert resultado.provas, "pacote fixado sem provas executadas"
     assert resultado.casos > 0, "pacote fixado sem casos avaliados no motor"

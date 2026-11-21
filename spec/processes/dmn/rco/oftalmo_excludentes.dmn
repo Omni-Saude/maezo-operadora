@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_oftalmo_excludentes" name="Oftalmologia: pares excludentes da cirurgia vitreorretiniana e consulta com fundoscopia" namespace="https://omni-saude/dmn/oftalmologia">
+  <decision id="rco_oftalmo_excludentes" name="Oftalmologia: pares excludentes da cirurgia vitreorretiniana e consulta com fundoscopia" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-OFTALMO-MEX-0001 e OMNI-OFTALMO-PAC-0003. Hit policy UNIQUE; nenhuma linha nega ou glosa; os pares vão à revisão humana (auditoria médica na cirurgia vitreorretiniana, faturamento na consulta com fundoscopia na mesma data e prestador executante), sem glosa automática por falta de base normativa; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_oftalmo_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoPrincipal" label="codigoPrincipal ← TISS codigoProcedimento do procedimento de maior porte da guia (TUSS 22)">
+        <inputExpression id="ie_1_codigoPrincipal" typeRef="string"><text>codigoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento de outra linha da mesma guia e dataExecucao (TUSS 22)">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="x_pre">
+        <description>OMNI-OFTALMO-MEX-0001 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x0001a_par">
+        <description>OMNI-OFTALMO-MEX-0001 — implante de silicone intravítreo com troca fluido-gasosa: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30307040"</text></inputEntry>
+        <inputEntry><text>"30307090"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x0001a_ok">
+        <description>OMNI-OFTALMO-MEX-0001 — principal do grupo sem secundário excludente</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30307040"</text></inputEntry>
+        <inputEntry><text>not("30307090")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x0001b_par">
+        <description>OMNI-OFTALMO-MEX-0001 — retinopexia com introflexão escleral com retinopexia pneumática: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30312086"</text></inputEntry>
+        <inputEntry><text>"30312094"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x0001b_ok">
+        <description>OMNI-OFTALMO-MEX-0001 — principal do grupo sem secundário excludente</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30312086"</text></inputEntry>
+        <inputEntry><text>not("30312094")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x0003_par">
+        <description>OMNI-OFTALMO-PAC-0003 — consulta com fundoscopia ou biomicroscopia de fundo no mesmo dia: auditoria, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"10101012"</text></inputEntry>
+        <inputEntry><text>"41301439", "41301420"</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x0003_ok">
+        <description>OMNI-OFTALMO-PAC-0003 — principal do grupo sem secundário excludente</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"10101012"</text></inputEntry>
+        <inputEntry><text>not("41301439", "41301420")</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-PAC-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_resto">
+        <description>OMNI-OFTALMO-MEX-0001 — principal sem par no domínio</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30307040", "30312086", "10101012")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_sem_data">
+        <description>OMNI-OFTALMO-MEX-0001 — data ausente: regulação</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

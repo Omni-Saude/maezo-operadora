@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_hemot_limite_quantidade" name="Hemoterapia: quantidade por unidade, plaquetas por aférese e por peso, tipagem e pesquisa de anticorpos" namespace="https://omni-saude/dmn/hemoterapia">
+  <decision id="rco_hemot_limite_quantidade" name="Hemoterapia: quantidade por unidade, plaquetas por aférese e por peso, tipagem e pesquisa de anticorpos" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-HEMOT-LIM-0001 a OMNI-HEMOT-LIM-0004. Hit policy UNIQUE; nenhuma linha nega; máximos em parâmetros provisórios (validacao/calibracao/parametros-provisorios/hemoterapia.csv): 1 por unidade (LIM-0001), 1 plaqueta por aférese por dia (LIM-0002), tipagem 1 por conta e intervalo de 3 dias entre pesquisas de anticorpos (LIM-0004); excesso vai à auditoria, nunca à glosa; campo ausente libera; fechamento null vai à regulação.</description>
+    <decisionTable id="dt_hemot_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22; TUSS 20 na albumina)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_quantidade" label="quantidade ← TISS quantidadeExecutada do item (inteiro; soma no dia ou na conta conforme a regra)">
+        <inputExpression id="ie_2_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <input id="in_3_justificativaHematologista" label="justificativaHematologista ← anexo da conta: registro do hematologista para quantidade acima do máximo (true, false ou ausente)">
+        <inputExpression id="ie_3_justificativaHematologista" typeRef="boolean"><text>justificativaHematologista</text></inputExpression>
+      </input>
+      <input id="in_4_quantidadeAcimaPorUnidade" label="quantidadeAcimaPorUnidade ← TISS quantidadeExecutada e unidades de hemocomponente da conta: quantidade acima do máximo por unidade (true, false ou ausente sem unidade)">
+        <inputExpression id="ie_4_quantidadeAcimaPorUnidade" typeRef="boolean"><text>quantidadeAcimaPorUnidade</text></inputExpression>
+      </input>
+      <input id="in_5_natIndividualNaConta" label="natIndividualNaConta ← TISS codigoProcedimento da conta: NAT individual (40403262, 40403289 ou 40403890) junto do NAT em conjunto (true, false ou ausente)">
+        <inputExpression id="ie_5_natIndividualNaConta" typeRef="boolean"><text>natIndividualNaConta</text></inputExpression>
+      </input>
+      <input id="in_6_quantidadeAcimaPorPeso" label="quantidadeAcimaPorPeso ← TISS quantidadeExecutada e solicitação (pesoKg do receptor): quantidade acima do máximo da faixa de peso (true, false ou ausente sem peso)">
+        <inputExpression id="ie_6_quantidadeAcimaPorPeso" typeRef="boolean"><text>quantidadeAcimaPorPeso</text></inputExpression>
+      </input>
+      <input id="in_7_diasDesdeUltimoMesmoCodigo" label="diasDesdeUltimoMesmoCodigo ← TISS dataExecucao do mesmo código no histórico de contas do mesmo receptor, em dias (ausente sem histórico)">
+        <inputExpression id="ie_7_diasDesdeUltimoMesmoCodigo" typeRef="integer"><text>diasDesdeUltimoMesmoCodigo</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-HEMOT-LIM-0001 — antes do início da vigência (03/12/2026): a regra não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_acima">
+        <description>OMNI-HEMOT-LIM-0001 — exame por bolsa acima do máximo por unidade de hemocomponente: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40403408", "40403106", "40403386", "40403424", "40403440", "40403467", "40403483", "40403505", "40403521", "40403548", "40403564", "40403580", "40403602", "40403629", "40403645", "40403661", "40403262", "40403289", "40403890"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_ok">
+        <description>OMNI-HEMOT-LIM-0001 — exame por bolsa dentro do máximo ou sem unidade de hemocomponente na conta: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40403408", "40403106", "40403386", "40403424", "40403440", "40403467", "40403483", "40403505", "40403521", "40403548", "40403564", "40403580", "40403602", "40403629", "40403645", "40403661", "40403262", "40403289", "40403890"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_nat_junto">
+        <description>OMNI-HEMOT-LIM-0001 — NAT em conjunto com NAT individual na mesma conta: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40404366"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_nat_acima">
+        <description>OMNI-HEMOT-LIM-0001 — NAT em conjunto acima do máximo por unidade de hemocomponente: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40404366"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_nat_ok">
+        <description>OMNI-HEMOT-LIM-0001 — NAT em conjunto sem NAT individual e dentro do máximo, ou campo ausente: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40404366"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_rev">
+        <description>OMNI-HEMOT-LIM-0002 — plaquetas por aférese acima do máximo por dia sem registro do hematologista: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40402061"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_just">
+        <description>OMNI-HEMOT-LIM-0002 — plaquetas por aférese acima do máximo com registro do hematologista: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40402061"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_ok">
+        <description>OMNI-HEMOT-LIM-0002 — plaquetas por aférese dentro do máximo por dia ou quantidade não informada: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40402061"</text></inputEntry>
+        <inputEntry><text>&lt;= 1, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l3_rev">
+        <description>OMNI-HEMOT-LIM-0003 — plaquetas randômicas acima do máximo pela faixa de peso do receptor: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40402070"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l3_ok">
+        <description>OMNI-HEMOT-LIM-0003 — plaquetas randômicas dentro do máximo pelo peso ou peso não informado: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40402070"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l4_tip_rev">
+        <description>OMNI-HEMOT-LIM-0004 — tipagem ABO e Rh do receptor acima do máximo por conta: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40403920", "40403971", "40403998"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l4_tip_ok">
+        <description>OMNI-HEMOT-LIM-0004 — tipagem ABO e Rh do receptor dentro do máximo por conta ou quantidade não informada: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40403920", "40403971", "40403998"</text></inputEntry>
+        <inputEntry><text>&lt;= 1, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l4_ac_rev">
+        <description>OMNI-HEMOT-LIM-0004 — pesquisa de anticorpos repetida dentro do intervalo mínimo: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40403343", "40403351", "40403360", "40404560"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l4_ac_ok">
+        <description>OMNI-HEMOT-LIM-0004 — pesquisa de anticorpos fora do intervalo mínimo ou sem histórico do receptor: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40403343", "40403351", "40403360", "40404560"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 3, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-HEMOT-LIM-0001 — código sem limite de quantidade nesta decisão: segue</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40402061", "40402070", "40403106", "40403262", "40403289", "40403343", "40403351", "40403360", "40403386", "40403408", "40403424", "40403440", "40403467", "40403483", "40403505", "40403521", "40403548", "40403564", "40403580", "40403602", "40403629", "40403645", "40403661", "40403890", "40403920", "40403971", "40403998", "40404366", "40404560")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-HEMOT-LIM-0001 — data de atendimento ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

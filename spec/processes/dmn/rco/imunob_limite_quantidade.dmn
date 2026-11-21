@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imunob_limite_quantidade" name="Planejamento técnico da imunoterapia: uma cobrança por unidade de 30 dias (OMNI-IMUNOB-LIM-0001)" namespace="https://omni-saude/dmn/imunobiologicos-imunoglobulinas">
+  <decision id="rco_imunob_limite_quantidade" name="Planejamento técnico da imunoterapia: uma cobrança por unidade de 30 dias (OMNI-IMUNOB-LIM-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-IMUNOB-LIM-0001. Cobrança repetida na unidade vai ao faturamento; nenhuma linha glosa.</description>
+    <decisionTable id="dt_imunob_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_familiaImunob" label="familiaImunob ← TISS codigoProcedimento (TUSS 22) ou item de medicamento (TUSS 20) pela lista classes de regras/imunobiologicos-imunoglobulinas/dominio.yaml">
+        <inputExpression id="ie_1_familiaImunob" typeRef="string"><text>familiaImunob</text></inputExpression>
+      </input>
+      <input id="in_2_planejamentoNaJanela" label="planejamentoNaJanela ← TISS (histórico de guias OMNI: outro planejamento na unidade de 30 dias)">
+        <inputExpression id="ie_2_planejamentoNaJanela" typeRef="boolean"><text>planejamentoNaJanela</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="l_pre">
+        <description>Antes da vigência: sem exigência nova</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoterapia_alergenos"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_sem_data">
+        <description>Data ausente: faturamento confere</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"imunoterapia_alergenos"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_repetido">
+        <description>Outro planejamento na mesma unidade de 30 dias: faturamento</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoterapia_alergenos"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_unico">
+        <description>Planejamento único na unidade ou histórico ausente: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"imunoterapia_alergenos"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_fora">
+        <description>Fechamento: família fora desta tabela, sem efeito</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("imunoterapia_alergenos")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-IMUNOB-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

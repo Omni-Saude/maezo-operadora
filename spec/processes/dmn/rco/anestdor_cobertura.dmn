@@ -1,0 +1,385 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_anestdor_cobertura" name="Anestesia, terapia da dor e acupuntura: cobertura (anuloplastia, auxiliar de anestesia, consulta pré-anestésica, toxina para síndrome miofascial)" namespace="https://omni-saude/dmn/anestesia-terapia-dor">
+  <decision id="rco_anestdor_cobertura" name="Anestesia, terapia da dor e acupuntura: cobertura (anuloplastia, auxiliar de anestesia, consulta pré-anestésica, toxina para síndrome miofascial)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-ANESTDOR-COB-0001 a OMNI-ANESTDOR-COB-0004. Hit policy UNIQUE; nenhuma linha nega ou glosa: o que exige conferência vai à revisão humana (auditoria médica, faturamento ou regulação) e dado ausente vai à regulação; a linha final (data ausente) vai à revisão humana. Limiar de duração do auxiliar (6 h) e de neonato (28 dias) são parâmetros provisórios do dominio.yaml, aplicados pelo worker nas entradas derivadas.</description>
+    <decisionTable id="dt_anestdor_cobertura" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataExecucao (conta) ou dataSolicitacao (pedido), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_descricaoCitaAnuloNucleoplastia" label="descricaoCitaAnuloNucleoplastia ← TISS descricaoProcedimento da guia (texto livre cita anuloplastia ou nucleoplastia; sem código TUSS 22 correspondente)">
+        <inputExpression id="ie_1_descricaoCitaAnuloNucleoplastia" typeRef="boolean"><text>descricaoCitaAnuloNucleoplastia</text></inputExpression>
+      </input>
+      <input id="in_2_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_2_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_3_cboExecutante" label="cboExecutante ← TISS CBO do profissional executante (Tabela 24)">
+        <inputExpression id="ie_3_cboExecutante" typeRef="string"><text>cboExecutante</text></inputExpression>
+      </input>
+      <input id="in_4_visitaPreAnestesicaNaInternacao" label="visitaPreAnestesicaNaInternacao ← fluxo Camunda: visita hospitalar 10102019 do anestesiologista na mesma internação, antes do ato anestésico (grauParticipacao 06)">
+        <inputExpression id="ie_4_visitaPreAnestesicaNaInternacao" typeRef="boolean"><text>visitaPreAnestesicaNaInternacao</text></inputExpression>
+      </input>
+      <input id="in_5_indicacaoSmf" label="indicacaoSmf ← solicitação: relatório do médico assistente declara síndrome miofascial (campo fora da TISS)">
+        <inputExpression id="ie_5_indicacaoSmf" typeRef="boolean"><text>indicacaoSmf</text></inputExpression>
+      </input>
+      <input id="in_6_grauParticipacao" label="grauParticipacao ← TISS grauParticipacao (Tabela 35: 06 anestesista, 07 auxiliar de anestesista, 09 perfusionista)">
+        <inputExpression id="ie_6_grauParticipacao" typeRef="string"><text>grauParticipacao</text></inputExpression>
+      </input>
+      <input id="in_7_atoAcimaDuracaoMinima" label="atoAcimaDuracaoMinima ← TISS horaInicial e horaFinal do ato anestésico, derivado pelo worker contra o limiar de horas do dominio.yaml">
+        <inputExpression id="ie_7_atoAcimaDuracaoMinima" typeRef="boolean"><text>atoAcimaDuracaoMinima</text></inputExpression>
+      </input>
+      <input id="in_8_perfusionistaNaEquipe" label="perfusionistaNaEquipe ← TISS grauParticipacao 09 (perfusionista) na equipe do ato, derivado pelo worker">
+        <inputExpression id="ie_8_perfusionistaNaEquipe" typeRef="boolean"><text>perfusionistaNaEquipe</text></inputExpression>
+      </input>
+      <input id="in_9_beneficiarioNeonato" label="beneficiarioNeonato ← cadastro dataNascimento e TISS dataExecucao, derivado pelo worker contra o limiar de dias do dominio.yaml">
+        <inputExpression id="ie_9_beneficiarioNeonato" typeRef="boolean"><text>beneficiarioNeonato</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r_pre">
+        <description>Antes da vigência (2026-12-03): nenhuma regra do domínio vale</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c1_anulo">
+        <description>OMNI-ANESTDOR-COB-0001 — pedido de anuloplastia ou nucleoplastia: auditoria médica, sem negativa automática (Tab. 38 3283)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3283"</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c4_smf">
+        <description>OMNI-ANESTDOR-COB-0004 — toxina botulínica para síndrome miofascial, fora da DUT 8: auditoria médica, sem negativa (Tab. 38 3288)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"20103140"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3288"</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c4_sem_smf">
+        <description>OMNI-ANESTDOR-COB-0004 — toxina sem síndrome miofascial (ou indicação ausente): a regra não se aplica; segue a DUT 8 no domínio dono do código</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"20103140"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3_consulta">
+        <description>OMNI-ANESTDOR-COB-0003 — consulta pré-anestésica por anestesiologista (CBO 225151): paga como consulta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"10101012"</text></inputEntry>
+        <inputEntry><text>"225151"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3_consulta_outro_cbo">
+        <description>OMNI-ANESTDOR-COB-0003 — consulta de executante de outra especialidade: a regra não se aplica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"10101012"</text></inputEntry>
+        <inputEntry><text>not("225151")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3_visita_sim">
+        <description>OMNI-ANESTDOR-COB-0003 — visita hospitalar do anestesiologista na internação antes do ato: faturamento, sem glosa (Tab. 38 3252)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"10102019"</text></inputEntry>
+        <inputEntry><text>"225151"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3252"</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0003"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3_visita_nao">
+        <description>OMNI-ANESTDOR-COB-0003 — visita hospitalar sem relação com o ato anestésico: paga normalmente</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"10102019"</text></inputEntry>
+        <inputEntry><text>"225151"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3_visita_nula">
+        <description>OMNI-ANESTDOR-COB-0003 — visita hospitalar com vínculo ao ato ausente: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"10102019"</text></inputEntry>
+        <inputEntry><text>"225151"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c3_visita_outro_cbo">
+        <description>OMNI-ANESTDOR-COB-0003 — visita de executante de outra especialidade: a regra não se aplica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"10102019"</text></inputEntry>
+        <inputEntry><text>not("225151")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2_dur">
+        <description>OMNI-ANESTDOR-COB-0002 — auxiliar de anestesista (grau 07) em ato acima da duração mínima: aceito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("20103140", "10101012", "10102019")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"07"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2_perf">
+        <description>OMNI-ANESTDOR-COB-0002 — auxiliar de anestesista com perfusionista (grau 09) na equipe: aceito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("20103140", "10101012", "10102019")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"07"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2_neo">
+        <description>OMNI-ANESTDOR-COB-0002 — auxiliar de anestesista em neonato: aceito</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("20103140", "10101012", "10102019")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"07"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2_nenhum">
+        <description>OMNI-ANESTDOR-COB-0002 — auxiliar de anestesista sem duração, perfusionista nem neonato: auditoria médica, sem glosa (Tab. 38 1832)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("20103140", "10101012", "10102019")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"07"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"1832"</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2_dur_nula">
+        <description>OMNI-ANESTDOR-COB-0002 — duração do ato ausente: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("20103140", "10101012", "10102019")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"07"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2_perf_nula">
+        <description>OMNI-ANESTDOR-COB-0002 — equipe do ato ausente: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("20103140", "10101012", "10102019")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"07"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c2_neo_nulo">
+        <description>OMNI-ANESTDOR-COB-0002 — data de nascimento ausente: regulação, nunca negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("20103140", "10101012", "10102019")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>"07"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANESTDOR-COB-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_outro">
+        <description>Item sem gatilho de cobertura deste domínio (outro grau de participação ou grau ausente): nenhuma exigência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("20103140", "10101012", "10102019")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("07")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r_final">
+        <description>Data ausente: regulação, nunca negativa (fechamento)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

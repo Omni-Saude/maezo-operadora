@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_imobilizacao_ortop" name="Imobilização inclusa e taxa de imobilização (OMNI-ORTOP-MEX-0005 e 0006)" namespace="https://omni-saude/dmn/ortopedia-opme">
+  <decision id="rco_imobilizacao_ortop" name="Imobilização inclusa e taxa de imobilização (OMNI-ORTOP-MEX-0005 e 0006)" camunda:historyTimeToLive="P180D">
+    <description>Primeira imobilização inclusa no procedimento ortopédico e taxa de sala de imobilização só fora da internação; em internado, a glosa da taxa só vale quando a composição da diária do contrato inclui a imobilização (cadastro). OMNI-ORTOP-MEX-0005, OMNI-ORTOP-MEX-0006.</description>
+    <decisionTable id="dt_imobilizacao_ortop" hitPolicy="UNIQUE">
+      <input id="in_0_dataExecucao" label="dataExecucao ← TISS dataExecucao/dataRealizacao (inteiro AAAAMMDD)">
+        <inputExpression id="ie_0_dataExecucao" typeRef="integer"><text>dataExecucao</text></inputExpression>
+      </input>
+      <input id="in_1_codigoItem" label="codigoItem ← TISS codigoProcedimento (TUSS 22) ou código da taxa (TUSS 18)">
+        <inputExpression id="ie_1_codigoItem" typeRef="string"><text>codigoItem</text></inputExpression>
+      </input>
+      <input id="in_2_regime" label="regime ← TISS tipoAtendimento/regimeInternacao (ambulatorial | pronto_socorro | hospital_dia | internacao)">
+        <inputExpression id="ie_2_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <input id="in_3_procedimentoOrtopedicoNaGuia" label="procedimentoOrtopedicoNaGuia ← mesma guia TISS e dataExecucao com código cirúrgico ou de redução do domínio ORTOP (booleano)">
+        <inputExpression id="ie_3_procedimentoOrtopedicoNaGuia" typeRef="boolean"><text>procedimentoOrtopedicoNaGuia</text></inputExpression>
+      </input>
+      <input id="in_4_diariaIncluiImobilizacao" label="diariaIncluiImobilizacao ← cadastro do contrato do prestador: a composição da diária e das taxas inclui a imobilização (booleano; nulo se o contrato não declara)">
+        <inputExpression id="ie_4_diariaIncluiImobilizacao" typeRef="boolean"><text>diariaIncluiImobilizacao</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-ORTOP-MEX-0005 — primeira imobilização inclusa no porte do procedimento ortopédico da mesma guia</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30711010","30711029","30711037"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-ORTOP-MEX-0005 — imobilização sem procedimento ortopédico na guia (troca ou tratamento conservador)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30711010","30711029","30711037"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-ORTOP-MEX-0005 — sem informação sobre procedimento na guia</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"30711010","30711029","30711037"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003_a">
+        <description>OMNI-ORTOP-MEX-0006 — taxa de imobilização não gessada em internado: a diária do contrato inclui a imobilização, glosa</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"60022264","60000422"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0006"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r003_b">
+        <description>OMNI-ORTOP-MEX-0006 — taxa de imobilização não gessada em internado: contrato sem a imobilização na diária, libera</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"60022264","60000422"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003_c">
+        <description>OMNI-ORTOP-MEX-0006 — taxa de imobilização não gessada em internado: composição da diária não declarada no cadastro, taxa pendente na fila faturamento</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"60022264","60000422"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0006"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-ORTOP-MEX-0006 — taxa de imobilização não gessada fora da internação</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"60022264","60000422"</text></inputEntry>
+        <inputEntry><text>not("internacao")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005_a">
+        <description>OMNI-ORTOP-MEX-0006 — taxa de imobilização gessada em internado: a diária do contrato inclui a imobilização, glosa</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"60022256","60000414"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0006"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r005_b">
+        <description>OMNI-ORTOP-MEX-0006 — taxa de imobilização gessada em internado: contrato sem a imobilização na diária, libera</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"60022256","60000414"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005_c">
+        <description>OMNI-ORTOP-MEX-0006 — taxa de imobilização gessada em internado: composição da diária não declarada no cadastro, taxa pendente na fila faturamento</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"60022256","60000414"</text></inputEntry>
+        <inputEntry><text>"internacao"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0006"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-ORTOP-MEX-0006 — taxa de imobilização gessada em ambulatório ou pronto-socorro</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"60022256","60000414"</text></inputEntry>
+        <inputEntry><text>not("internacao")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-ORTOP-MEX-0005 — item sem regra de imobilização</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>not("30711010","30711029","30711037","60022264","60000422","60022256","60000414")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-ORTOP-MEX-0005 — fora da vigência (antes de 03/11/2026): as regras de imobilização não se aplica</description>
+        <inputEntry><text>&lt; 20261103</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r009">
+        <description>OMNI-ORTOP-MEX-0005 — data de execução ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-MEX-0005"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

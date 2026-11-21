@@ -1,0 +1,765 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_urg_roteamento_opme" name="Pagamento e auditoria da OPME em urgência (OMNI-URG-OPM-0001, OMNI-URG-GLO-0001, OMNI-URG-PRZ-0001)" namespace="https://omni-saude/dmn/urgencia">
+  <decision id="rco_urg_roteamento_opme" name="Pagamento e auditoria da OPME em urgência (OMNI-URG-OPM-0001, OMNI-URG-GLO-0001, OMNI-URG-PRZ-0001)" camunda:historyTimeToLive="P180D">
+    <description>Urgência garante o acesso, não o pagamento (PROG-COORD-10): o item de OPME de urgência só é pago depois da comprovação de uso (etiquetaRastreabilidade = true, requisitos RAS-*); sem ela, ou sem a informação, o item fica pendente (exigir_documento), sem glosa, enquanto o prazo de envio da conta não vence; vencido o prazo (prazoComprovacaoUsoVencido), o item não é pago e é glosado com 3263, com recurso, e a justificativa do excedente ou da OPME fora da lista não recebida depois de 5 dias úteis da notificação também vai à glosa, ausente ou não informada (PROG-RCO-7b). Com a comprovação, a OPME é paga pelo valor de referência; a diferença acima da referência só é paga com justificativa aceita, com auditoria retrospectiva pela faixa do ECU. O procedimento nunca é glosado nem negado; nada é cobrado do beneficiário. OMNI-URG-OPM-0001, OMNI-URG-GLO-0001, OMNI-URG-PRZ-0001.</description>
+    <decisionTable id="dt_urg_roteamento_opme" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataExecucao do procedimento principal (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_1_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_2_opmeNaGuia" label="opmeNaGuia ← TISS guia com item de OPME (TUSS 19) cobrado na conta">
+        <inputExpression id="ie_2_opmeNaGuia" typeRef="boolean"><text>opmeNaGuia</text></inputExpression>
+      </input>
+      <input id="in_3_opmeNaLista" label="opmeNaLista ← cadastro OMNI: categoria de cada OPME da guia (TISS codigoMaterial, TUSS 19) na lista positiva do domínio e na quantidade máxima; nulo = categoria não identificada">
+        <description>opmeNaLista ← cadastro OMNI: categoria de cada OPME da guia (TISS codigoMaterial, TUSS 19) na lista positiva do domínio e dentro da quantidade máxima; nulo = categoria não identificada (desde 16/12/2026: exigir_documento, item pendente; antes, tratado como na lista)</description>
+        <inputExpression id="ie_3_opmeNaLista" typeRef="boolean"><text>opmeNaLista</text></inputExpression>
+      </input>
+      <input id="in_4_opmeAcimaReferencia" label="opmeAcimaReferencia ← TISS valor apresentado da OPME maior que o valor de referência da categoria (cadastro OMNI)">
+        <inputExpression id="ie_4_opmeAcimaReferencia" typeRef="boolean"><text>opmeAcimaReferencia</text></inputExpression>
+      </input>
+      <input id="in_5_escoreEcu" label="escoreEcu ← Escore de Consistência da Urgência calculado pelo worker sobre campos TISS e de cadastro (regras/urgencia/dominio.yaml)">
+        <inputExpression id="ie_5_escoreEcu" typeRef="integer"><text>escoreEcu</text></inputExpression>
+      </input>
+      <input id="in_6_documentacaoCompleta" label="documentacaoCompleta ← anexo da conta: justificativa técnica e documentação mínima da faixa do ECU recebidas">
+        <inputExpression id="ie_6_documentacaoCompleta" typeRef="boolean"><text>documentacaoCompleta</text></inputExpression>
+      </input>
+      <input id="in_7_diasUteisDesdeNotificacao" label="diasUteisDesdeNotificacao ← fluxo Camunda: dias úteis desde a notificação da OMNI ao prestador pedindo a documentação (prazo de 5 dias úteis)">
+        <inputExpression id="ie_7_diasUteisDesdeNotificacao" typeRef="integer"><text>diasUteisDesdeNotificacao</text></inputExpression>
+      </input>
+      <input id="in_8_etiquetaRastreabilidade" label="etiquetaRastreabilidade ← anexo da conta: comprovação de uso da OPME enviada (etiqueta do implante, embalagem com etiqueta ou radiografia de controle; requisitos RAS-* de OMNI-TAB-OPME-0001), booleano">
+        <inputExpression id="ie_8_etiquetaRastreabilidade" typeRef="boolean"><text>etiquetaRastreabilidade</text></inputExpression>
+      </input>
+      <input id="in_9_prazoComprovacaoUsoVencido" label="prazoComprovacaoUsoVencido ← cálculo do worker sobre a guia TISS (dataFinalFaturamento ou dataExecucao) e o anexo da conta: passou o prazo de envio da conta (OMNI-GERAL-GLO-0002, condicoes.periodo_dias) sem a comprovação de uso da OPME (booleano)">
+        <inputExpression id="ie_9_prazoComprovacaoUsoVencido" typeRef="boolean"><text>prazoComprovacaoUsoVencido</text></inputExpression>
+      </input>
+      <input id="in_10_documentacaoOpmeNaoRecebidaNoPrazo" label="documentacaoOpmeNaoRecebidaNoPrazo ← fluxo Camunda e registro de recebimento: prazo de OMNI-URG-GLO-0001 vencido sem a documentação mínima (nulo = não calculado, nunca glosa)">
+        <description>documentacaoOpmeNaoRecebidaNoPrazo ← cálculo da OMNI sobre o registro de recebimento da justificativa (portal ou anexo da conta) e o fluxo Camunda: passaram 5 dias úteis da notificação ao prestador (prazo de OMNI-URG-GLO-0001, efeito.prazos) sem a justificativa técnica e a documentação mínima recebidas (booleano; nulo = não calculado, nunca glosa)</description>
+        <inputExpression id="ie_10_documentacaoOpmeNaoRecebidaNoPrazo" typeRef="boolean"><text>documentacaoOpmeNaoRecebidaNoPrazo</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-URG-OPM-0001 — fora da vigência (antes de 03/11/2026): a regra URG não se aplica</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-URG-OPM-0001 — caráter eletivo: fora do escopo (valem as regras de OPME do domínio clínico)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-URG-OPM-0001 — caráter ausente ou inválido: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("1","2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-URG-OPM-0001 — urgência sem OPME na guia: a regra não se aplica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-URG-OPM-0001 — urgência sem informação de OPME na guia: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-OPM-0001 — OPME da lista (ou sem lista publicada) até o valor de referência: paga o valor apresentado</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r007">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-OPM-0001 — valor de referência ausente para a OPME: faturamento confere antes de pagar acima de zero</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r008">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-GLO-0001 — OPME acima da referência, ECU baixo (0–24), justificativa recebida: paga a referência; diferença após conferência (amostra de 10% à auditoria)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt; 25</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_referencia"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r009">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-GLO-0001 — OPME acima da referência, ECU médio (25–49), justificativa recebida: paga a referência; auditoria médica de 100% antes da diferença</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>[25..49]</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_referencia"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r010">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-GLO-0001 — OPME acima da referência, ECU alto (≥ 50), documentação recebida: paga a referência; auditoria médica prioritária em 72 horas</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&gt;= 50</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_referencia"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r011">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-GLO-0001 — OPME acima da referência, ECU não calculado: paga a referência; auditoria médica antes da diferença</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_referencia"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r012">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-GLO-0001 — OPME acima da referência sem documentação após 5 dias úteis da notificação: glosa só da diferença (o procedimento e a referência são pagos)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt; 5</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3217"</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+
+      </rule>
+      <rule id="r013">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-PRZ-0001 — OPME acima da referência, documentação pendente no prazo de 5 dias úteis: paga a referência e pede a documentação</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&lt;= 5,null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-PRZ-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r014">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-PRZ-0001 — OPME acima da referência, documentação ainda não registrada: paga a referência e pede a documentação</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>not(false)</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-PRZ-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r015">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-OPM-0001 — OPME fora da lista ou acima da quantidade, justificativa recebida: auditoria médica (paga pela referência da categoria equivalente se aceita)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r016">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-OPM-0001 — OPME fora da lista ou acima da quantidade sem justificativa após 5 dias úteis da notificação: glosa só do item, com recurso</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt; 5</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3217"</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+
+      </rule>
+      <rule id="r017">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-PRZ-0001 — OPME fora da lista ou acima da quantidade, justificativa pendente no prazo de 5 dias úteis: pede a documentação</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&lt;= 5,null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-PRZ-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r018">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-PRZ-0001 — fechamento: OPME fora da lista ou acima da quantidade, documentação ainda não registrada: pede a documentação (nunca negar)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-PRZ-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r019">
+        <description>[1.0.7, de 03/11 a 15/12/2026] OMNI-URG-GLO-0001 — OPME acima da referência sem documentação após 5 dias úteis, procedimento sem lista positiva publicada (opmeNaLista nula): auditoria médica, sem glosa automática (campo nulo nunca vira glosa, D-d4-06)</description>
+        <inputEntry><text>["2026-11-03".."2026-12-16"[</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt; 5</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+
+      </rule>
+      <rule id="r206">
+        <description>[2.0.0, a partir de 16/12/2026] OMNI-URG-OPM-0001 — OPME da lista até o valor de referência, com comprovação de uso: paga o valor apresentado (auditoria posterior)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r207">
+        <description>[2.0.0, a partir de 16/12/2026] OMNI-URG-OPM-0001 — valor de referência ausente para a OPME da lista, com comprovação de uso: faturamento confere antes de pagar acima de zero</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r208">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-GLO-0001 — OPME da lista acima da referência, com comprovação de uso, ECU baixo (0–24), justificativa recebida no prazo (ou prazo ainda não calculado): paga a referência; diferença após conferência (amostra de 10% à auditoria)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&lt; 25</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"pagar_referencia"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r209">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-GLO-0001 — OPME da lista acima da referência, com comprovação de uso, ECU médio (25–49), justificativa recebida: paga a referência; auditoria médica de 100% antes da diferença</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>[25..49]</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"pagar_referencia"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r210">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-GLO-0001 — OPME da lista acima da referência, com comprovação de uso, ECU alto (≥ 50), documentação recebida: paga a referência; auditoria médica prioritária em 72 horas</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>&gt;= 50</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"pagar_referencia"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r211">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-GLO-0001 — OPME da lista acima da referência, com comprovação de uso, ECU não calculado: paga a referência; auditoria médica antes da diferença</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"pagar_referencia"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r212">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-GLO-0001 — OPME da lista acima da referência, com comprovação de uso e prazo de envio da conta não vencido, justificativa do excedente não recebida em 5 dias úteis da notificação (documentacaoOpmeNaoRecebidaNoPrazo = true, calculado pela OMNI; vale para quem declara não ter e para quem não informa; nulo não glosa; PROG-RCO-7b, OPO-03): glosa só da diferença (o procedimento e a referência são pagos)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3217"</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r213">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-PRZ-0001 — OPME da lista acima da referência, com comprovação de uso, justificativa do excedente ausente ou não informada, dentro de 5 dias úteis da notificação ou prazo não calculado: pede a justificativa; o item fica pendente, sem pagamento, até a resposta ou o fim do prazo</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-PRZ-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r219">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-OPM-0001 — OPME da lista acima da referência, com comprovação de uso, justificativa não recebida em 5 dias úteis, mas o prazo de envio da conta não foi calculado (prazoComprovacaoUsoVencido nulo): pendente, sem glosa, até o cálculo</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r215">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-OPM-0001 — OPME fora da lista ou acima da quantidade, com comprovação de uso, justificativa recebida no prazo (ou prazo ainda não calculado): auditoria médica (paga pela referência da categoria equivalente se aceita)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r216">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-OPM-0001 — OPME fora da lista ou acima da quantidade, com comprovação de uso e prazo de envio da conta não vencido, justificativa não recebida em 5 dias úteis da notificação (documentacaoOpmeNaoRecebidaNoPrazo = true, calculado pela OMNI; vale para quem declara não ter e para quem não informa; nulo não glosa; PROG-RCO-7b, OPO-03): glosa só do item, com recurso</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3217"</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r217">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-PRZ-0001 — OPME fora da lista ou acima da quantidade, com comprovação de uso, justificativa ausente ou não informada, dentro de 5 dias úteis da notificação ou prazo não calculado: pede a documentação</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-PRZ-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r220">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-OPM-0001 — OPME fora da lista ou acima da quantidade, com comprovação de uso, justificativa não recebida em 5 dias úteis, mas o prazo de envio da conta não foi calculado (prazoComprovacaoUsoVencido nulo): pendente, sem glosa, até o cálculo</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r020">
+        <description>[2.0.0, a partir de 16/12/2026] OMNI-URG-OPM-0001 — urgência com OPME na conta sem comprovação de uso (etiqueta false): o uso foi livre e o procedimento não é negado nem glosado (ANS-RN-424, art. 3º, I); o item de OPME fica pendente, sem pagamento, até a comprovação (PROG-COORD-10, OPO-01); sem glosa enquanto o prazo de envio da conta não venceu ou o vencimento não foi informado; vencido, vale r023 (PROG-RCO-7b)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r021">
+        <description>[2.0.0, a partir de 16/12/2026] OMNI-URG-OPM-0001 — urgência com OPME na conta e comprovação de uso não informada (nula): mesmo tratamento da comprovação ausente (paridade false × nulo); o item fica pendente até a comprovação (PROG-COORD-10, OPO-01); campo nulo nunca vira glosa; vencido o prazo de envio da conta, vale r023 (PROG-RCO-7b)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r022">
+        <description>[2.0.0, a partir de 16/12/2026] OMNI-URG-OPM-0001 — urgência com comprovação de uso e categoria da OPME não identificada na lista positiva (opmeNaLista nula): o item fica pendente até a identificação da categoria; o nulo nunca tem tratamento melhor que a categoria identificada (OPO-01, OPME-04); sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r023">
+        <description>[3.0.0, a partir de 16/12/2026] OMNI-URG-OPM-0001 — urgência com OPME na conta e o prazo de envio da conta (OMNI-GERAL-GLO-0002) vencido sem a comprovação de uso: o item de OPME não é pago e é glosado com 3263, com recurso de glosa (PROG-COORD-10, PROG-RCO-7b, OPO-03). O procedimento não é negado nem glosado (ANS-RN-424, art. 3º, I). A etiqueta não é testada nesta linha porque a entrada derivada já embute a ausência de comprovação; prazo nulo nunca glosa (D4) e cai nas linhas do pedido de documento</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3263"</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-URG-OPM-0001 — data de execução ausente: faturamento confere</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-URG-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

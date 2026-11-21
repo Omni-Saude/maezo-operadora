@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_oftalmo_limite_quantidade" name="Oftalmologia: limite de quantidade por guia e data" namespace="https://omni-saude/dmn/oftalmologia">
+  <decision id="rco_oftalmo_limite_quantidade" name="Oftalmologia: limite de quantidade por guia e data" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-OFTALMO-LIM-0001 e OMNI-OFTALMO-LIM-0002. Hit policy UNIQUE; nenhuma linha nega; implante de dispositivo microinvasivo para glaucoma (30310172) acima de 1 e fotocoagulação (30312043) acima de 2 por guia e data vão à auditoria médica; quantidade nula ou menor que 1 vai ao faturamento; fechamento null vai à revisão humana.</description>
+    <decisionTable id="dt_oftalmo_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_quantidade" label="quantidade ← TISS quantidadeExecutada do código (ou da categoria de OPME) na mesma guia e dataExecucao">
+        <inputExpression id="ie_2_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="l_pre">
+        <description>OMNI-OFTALMO-LIM-0001 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l0001_acima">
+        <description>OMNI-OFTALMO-LIM-0001 — quantidade acima do limite por guia e data: auditoria médica, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30310172"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l0001_ok">
+        <description>OMNI-OFTALMO-LIM-0001 — quantidade dentro do limite</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30310172"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l0001_qtd">
+        <description>OMNI-OFTALMO-LIM-0001 — quantidade não informada ou inválida: faturamento confere, nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30310172"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l0002_acima">
+        <description>OMNI-OFTALMO-LIM-0002 — quantidade acima do limite por guia e data: auditoria médica, sem glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30312043"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l0002_ok">
+        <description>OMNI-OFTALMO-LIM-0002 — quantidade dentro do limite</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30312043"</text></inputEntry>
+        <inputEntry><text>[1..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l0002_qtd">
+        <description>OMNI-OFTALMO-LIM-0002 — quantidade não informada ou inválida: faturamento confere, nunca nega</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30312043"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_resto">
+        <description>OMNI-OFTALMO-LIM-0001 — código sem limite neste domínio</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30310172", "30312043")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l_sem_data">
+        <description>OMNI-OFTALMO-LIM-0001 — data ausente: regulação</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-OFTALMO-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

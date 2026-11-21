@@ -2147,7 +2147,10 @@ def identify_glosa_entry(
     the K1 input builder (`fatos_prazo_conta_rco`). It returns `None`, swallows every exception and
     writes no process variable: `out` is built before and never touched by it. Its only traces are the
     `rco_` entry of this task's `dmn_versions` (with the builder's `derivacoes`/`entradasNulas`) and the
-    observational K1 decision record. Inert today: the rco pin is `sem_pacote`.
+    observational K1 decision record. With the pin fixed (K1 b8444f52) this is real work on every intake:
+    ONE synchronous engine call, bounded by `rco_sombra.PRAZO_SOMBRA_S` (5 s), inside this task (the engine
+    deploy carries the 237 rco DMN: the 236 pinned tables plus the synthetic example). No decision effect:
+    `out` is unchanged and `efeito_k1_habilitado` stays false (it is not even read on the shadow path).
     """
     del kafka  # unused — identify_glosa emits no domain event
     input_data = _build_glosa_input(variables)

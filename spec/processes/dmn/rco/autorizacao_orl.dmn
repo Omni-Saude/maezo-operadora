@@ -1,0 +1,589 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_autorizacao_orl" name="ORL: autorização prévia e documentação mínima (OMNI-ORL-AUT-0001 a 0003, COB-0001, DUT-0004)" namespace="https://omni-saude/dmn/otorrino-cabeca-pescoco">
+  <decision id="rco_autorizacao_orl" name="ORL: autorização prévia e documentação mínima (OMNI-ORL-AUT-0001 a 0003, COB-0001, DUT-0004)" camunda:historyTimeToLive="P3650D">
+    <description>Decide se o procedimento de otorrinolaringologia ou de cabeça e pescoço exige autorização prévia. A classe do código vem de regras/otorrino-cabeca-pescoco/dominio.yaml (classes_autorizacao). Documento ausente gera pendência, nunca negativa (C-saneamento-02); gatilho clínico vai à auditoria (C-saneamento-04). OMNI-ORL-AUT-0001, AUT-0002, AUT-0003, COB-0001 e DUT-0004.</description>
+    <decisionTable id="dt_autorizacao_orl" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_classeProcedimento" label="classeProcedimento ← TISS codigoProcedimento (TUSS 22) classificado por regras/otorrino-cabeca-pescoco/dominio.yaml (classes_autorizacao): orl_hospitalar | orl_ambulatorial | orl_dut | orl_dut_revisao | fora_rol">
+        <inputExpression id="ie_1_classeProcedimento" typeRef="string"><text>classeProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_3_regime" label="regime ← TISS tipoAtendimento/regimeInternacao (ambulatorial | hospital_dia | internacao)">
+        <inputExpression id="ie_3_regime" typeRef="string"><text>regime</text></inputExpression>
+      </input>
+      <input id="in_4_opmeSolicitada" label="opmeSolicitada ← TISS anexo de solicitação de OPME presente na guia, sem contar os itens dispensados em dominio.yaml (booleano)">
+        <inputExpression id="ie_4_opmeSolicitada" typeRef="boolean"><text>opmeSolicitada</text></inputExpression>
+      </input>
+      <input id="in_5_documentacaoCompleta" label="documentacaoCompleta ← solicitação: documentos mínimos da família (dominio.yaml documentacao_minima) presentes no anexo do pedido (booleano)">
+        <inputExpression id="ie_5_documentacaoCompleta" typeRef="boolean"><text>documentacaoCompleta</text></inputExpression>
+      </input>
+      <input id="in_6_gatilhoClinicoRevisao" label="gatilhoClinicoRevisao ← solicitação: formulário estruturado marca um gatilho objetivo de dominio.yaml gatilhos_revisao_clinica (booleano)">
+        <inputExpression id="ie_6_gatilhoClinicoRevisao" typeRef="boolean"><text>gatilhoClinicoRevisao</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="a_pre">
+        <description>OMNI-ORL-AUT-0001 — fora da vigência (antes de 02/12/2026): a regra de autorização ORL não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_fora_rol">
+        <description>OMNI-ORL-COB-0001 — código sem correlação no Rol: análise pelos critérios da Lei 9.656, art. 10, §13</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"fora_rol"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-COB-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_classe">
+        <description>OMNI-ORL-AUT-0001 — código fora do escopo do domínio ORL ou classe ausente</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>not("orl_hospitalar","orl_ambulatorial","orl_dut","orl_dut_revisao","fora_rol")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_urg">
+        <description>OMNI-ORL-AUT-0001 — urgência ou emergência: sem autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_hospitalar","orl_ambulatorial","orl_dut","orl_dut_revisao"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_car">
+        <description>OMNI-ORL-AUT-0001 — caráter de atendimento ausente ou inválido</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_hospitalar","orl_ambulatorial","orl_dut","orl_dut_revisao"</text></inputEntry>
+        <inputEntry><text>not("1","2")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_h_gat">
+        <description>OMNI-ORL-AUT-0003 — eletivo, código só hospitalar ou com DUT: gatilho clínico objetivo leva à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_hospitalar","orl_dut"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_h_doc_false">
+        <description>OMNI-ORL-AUT-0002 — eletivo, código só hospitalar ou com DUT: documento mínimo ausente (pendência, sem negativa)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_hospitalar","orl_dut"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_h_ok_false_true">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código só hospitalar ou com DUT</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_hospitalar","orl_dut"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_h_ok_false_null">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código só hospitalar ou com DUT</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_hospitalar","orl_dut"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_h_doc_null">
+        <description>OMNI-ORL-AUT-0002 — eletivo, código só hospitalar ou com DUT: documento mínimo ausente (pendência, sem negativa)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_hospitalar","orl_dut"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_h_ok_null_true">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código só hospitalar ou com DUT</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_hospitalar","orl_dut"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_h_ok_null_null">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código só hospitalar ou com DUT</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_hospitalar","orl_dut"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_r_gat">
+        <description>OMNI-ORL-AUT-0003 — eletivo, código com DUT de análise clínica (DUT 144): gatilho clínico objetivo leva à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_dut_revisao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_r_doc_false">
+        <description>OMNI-ORL-AUT-0002 — eletivo, código com DUT de análise clínica (DUT 144): documento mínimo ausente (pendência, sem negativa)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_dut_revisao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_r_ok_false_true">
+        <description>OMNI-ORL-DUT-0004 — eletivo, código com DUT de análise clínica (DUT 144)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_dut_revisao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_r_ok_false_null">
+        <description>OMNI-ORL-DUT-0004 — eletivo, código com DUT de análise clínica (DUT 144)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_dut_revisao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_r_doc_null">
+        <description>OMNI-ORL-AUT-0002 — eletivo, código com DUT de análise clínica (DUT 144): documento mínimo ausente (pendência, sem negativa)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_dut_revisao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_r_ok_null_true">
+        <description>OMNI-ORL-DUT-0004 — eletivo, código com DUT de análise clínica (DUT 144)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_dut_revisao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_r_ok_null_null">
+        <description>OMNI-ORL-DUT-0004 — eletivo, código com DUT de análise clínica (DUT 144)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_dut_revisao"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_i_gat">
+        <description>OMNI-ORL-AUT-0003 — eletivo, código ambulatorial em internação ou hospital-dia: gatilho clínico objetivo leva à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"internacao","hospital_dia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_i_doc_false">
+        <description>OMNI-ORL-AUT-0002 — eletivo, código ambulatorial em internação ou hospital-dia: documento mínimo ausente (pendência, sem negativa)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"internacao","hospital_dia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_i_ok_false_true">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código ambulatorial em internação ou hospital-dia</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"internacao","hospital_dia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_i_ok_false_null">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código ambulatorial em internação ou hospital-dia</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"internacao","hospital_dia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_i_doc_null">
+        <description>OMNI-ORL-AUT-0002 — eletivo, código ambulatorial em internação ou hospital-dia: documento mínimo ausente (pendência, sem negativa)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"internacao","hospital_dia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_i_ok_null_true">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código ambulatorial em internação ou hospital-dia</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"internacao","hospital_dia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_i_ok_null_null">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código ambulatorial em internação ou hospital-dia</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"internacao","hospital_dia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_o_gat">
+        <description>OMNI-ORL-AUT-0003 — eletivo, código ambulatorial com OPME: gatilho clínico objetivo leva à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_o_doc_false">
+        <description>OMNI-ORL-AUT-0002 — eletivo, código ambulatorial com OPME: documento mínimo ausente (pendência, sem negativa)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_o_ok_false_true">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código ambulatorial com OPME</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_o_ok_false_null">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código ambulatorial com OPME</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_o_doc_null">
+        <description>OMNI-ORL-AUT-0002 — eletivo, código ambulatorial com OPME: documento mínimo ausente (pendência, sem negativa)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_o_ok_null_true">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código ambulatorial com OPME</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_o_ok_null_null">
+        <description>OMNI-ORL-AUT-0001 — eletivo, código ambulatorial com OPME</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_amb_lib">
+        <description>OMNI-ORL-AUT-0001 — eletivo ambulatorial sem OPME: sem autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_amb_lib_nulo">
+        <description>OMNI-ORL-AUT-0001 — eletivo ambulatorial sem OPME informada (OPME cobrada sem autorização cai em OMNI-ORL-OPM-0004)</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>"ambulatorial"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_amb_reg">
+        <description>OMNI-ORL-AUT-0001 — código ambulatorial com regime ausente ou inválido</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"orl_ambulatorial"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>not("ambulatorial","internacao","hospital_dia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_sem_data">
+        <description>OMNI-ORL-AUT-0001 — data ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

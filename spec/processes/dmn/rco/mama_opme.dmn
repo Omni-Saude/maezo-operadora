@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_mama_opme" name="Mastologia: implante mamário e expansor tecidual com lista positiva por procedimento" namespace="https://omni-saude/dmn/mastologia">
+  <decision id="rco_mama_opme" name="Mastologia: implante mamário e expansor tecidual com lista positiva por procedimento" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-MAMA-OPM-0001. Lista positiva de OPME por procedimento (dominio.yaml, listas_opme) com limite provisório de 1 unidade por categoria por unidade executada do procedimento (validacao/calibracao/parametros-provisorios/mastologia.csv): dentro do limite libera; acima, fora da lista ou sem categoria vai à auditoria médica; quantidade não informada vai ao faturamento; nenhuma linha glosa nem nega, e a troca do implante em complicação é garantida (Lei 9.656/1998, art. 10-A, §4º). Urgência segue OMNI-URG-OPM-0001. Data ausente vai à revisão humana.</description>
+    <decisionTable id="dt_mama_opme" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_categoriaOpme" label="categoriaOpme ← TISS codigoItem da OPME (TUSS 19) classificado pelo cadastro OMNI de materiais (implante_mamario, expansor_tecidual_mamario); sem correspondência vai nulo">
+        <inputExpression id="ie_2_categoriaOpme" typeRef="string"><text>categoriaOpme</text></inputExpression>
+      </input>
+      <input id="in_3_quantidadeAcimaLimite" label="quantidadeAcimaLimite ← TISS quantidade da categoria de OPME maior que o limite por unidade executada do procedimento (quantidadeExecutada), calculado pelo fluxo Camunda; nulo se alguma das quantidades faltar">
+        <inputExpression id="ie_3_quantidadeAcimaLimite" typeRef="boolean"><text>quantidadeAcimaLimite</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="o_pre">
+        <description>OMNI-MAMA-OPM-0001 — antes da vigência (03/12/2026)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_fora">
+        <description>OMNI-MAMA-OPM-0001 — procedimento sem lista de implante ou expansor: sem limite desta regra</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30602165", "30602173", "30602262", "30602327")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602165_implante_mamario_ok">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario dentro de 1 unidade por unidade executada do procedimento: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602165"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602165_implante_mamario_exc">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario acima do limite por unidade executada: auditoria médica, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602165"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602165_implante_mamario_qnulo">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario com quantidade não informada: faturamento, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602165"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602165_fora">
+        <description>OMNI-MAMA-OPM-0001 — item fora da lista do procedimento ou sem categoria: auditoria médica, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602165"</text></inputEntry>
+        <inputEntry><text>not("implante_mamario")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602173_implante_mamario_ok">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario dentro de 1 unidade por unidade executada do procedimento: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602173"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602173_implante_mamario_exc">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario acima do limite por unidade executada: auditoria médica, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602173"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602173_implante_mamario_qnulo">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario com quantidade não informada: faturamento, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602173"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602173_fora">
+        <description>OMNI-MAMA-OPM-0001 — item fora da lista do procedimento ou sem categoria: auditoria médica, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602173"</text></inputEntry>
+        <inputEntry><text>not("implante_mamario")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602262_expansor_tecidual_mamario_ok">
+        <description>OMNI-MAMA-OPM-0001 — expansor_tecidual_mamario dentro de 1 unidade por unidade executada do procedimento: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602262"</text></inputEntry>
+        <inputEntry><text>"expansor_tecidual_mamario"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602262_expansor_tecidual_mamario_exc">
+        <description>OMNI-MAMA-OPM-0001 — expansor_tecidual_mamario acima do limite por unidade executada: auditoria médica, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602262"</text></inputEntry>
+        <inputEntry><text>"expansor_tecidual_mamario"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602262_expansor_tecidual_mamario_qnulo">
+        <description>OMNI-MAMA-OPM-0001 — expansor_tecidual_mamario com quantidade não informada: faturamento, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602262"</text></inputEntry>
+        <inputEntry><text>"expansor_tecidual_mamario"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602262_implante_mamario_ok">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario dentro de 1 unidade por unidade executada do procedimento: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602262"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602262_implante_mamario_exc">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario acima do limite por unidade executada: auditoria médica, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602262"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602262_implante_mamario_qnulo">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario com quantidade não informada: faturamento, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602262"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602262_fora">
+        <description>OMNI-MAMA-OPM-0001 — item fora da lista do procedimento ou sem categoria: auditoria médica, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602262"</text></inputEntry>
+        <inputEntry><text>not("expansor_tecidual_mamario", "implante_mamario")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602327_implante_mamario_ok">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario dentro de 1 unidade por unidade executada do procedimento: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602327"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602327_implante_mamario_exc">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario acima do limite por unidade executada: auditoria médica, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602327"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602327_implante_mamario_qnulo">
+        <description>OMNI-MAMA-OPM-0001 — implante_mamario com quantidade não informada: faturamento, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602327"</text></inputEntry>
+        <inputEntry><text>"implante_mamario"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_30602327_fora">
+        <description>OMNI-MAMA-OPM-0001 — item fora da lista do procedimento ou sem categoria: auditoria médica, nunca glosa automática</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30602327"</text></inputEntry>
+        <inputEntry><text>not("implante_mamario")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="o_sem_data">
+        <description>OMNI-MAMA-OPM-0001 — data ausente: faturamento, nunca glosa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-MAMA-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

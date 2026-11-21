@@ -6,8 +6,9 @@ O Maezo recebe o pacote K1 byte a byte (contrato `docs/programa/contrato-k1.md` 
 pin `rules.lock.json`, no formato de `config/integrations/amh/contracts.lock.json`:
 
 - os DMN em `spec/processes/dmn/rco/<arquivo>.dmn`, pasta plana (`decisoes[].caminho_consumidor`);
-- o manifesto e os anexos em `config/integrations/rco/k1/` (pasta plana): `manifesto.json`,
-  `vocabulario.json`, `entradas.json` e `k6-filas.json`, com os nomes que o manifesto der;
+- o manifesto e os anexos em `config/integrations/rco/k1/` (plana, salvo as provas): `manifesto.json`,
+  `vocabulario.json`, `entradas.json` e `k6-filas.json`, com os nomes que o manifesto der, e as provas do
+  motor em `k1/provas/<id>/` (os arquivos de `provas[].arquivos`, desde o formato 2.1.0);
 - **os exemplos do pacote (`exemplos/<id>.json`) ficam fora do lock e fora da árvore**: são material de
   teste do rco (contrato §3). Os testes do leitor usam um pacote sintético
   (`tests/unit/platform/rco_k1_sintetico.py`).
@@ -34,14 +35,17 @@ segue só biblioteca padrão.
 §1; mesma notação do K2, HEL-3a). O hex cru dispara o detector de segredos (gitleaks) e é recusado
 pelo gate e pelo runtime. `lock_format.version` `2.0.0` marca essa notação.
 
-## Estado `sem_pacote` (o estado comitado hoje)
+## Estado `sem_pacote`
 
 - `provenance.rco_commit_sha` = `null`, `manifest_pin` = `null`, `artifacts` = `[]`.
 - `spec/processes/dmn/rco/` pode estar ausente ou conter só `README.md` e os arquivos listados em
   `exemplos_sinteticos`, cada um com o sha256 certo; `config/integrations/rco/k1/` ausente ou vazia.
 - Qualquer outro arquivo nas pastas (um `.dmn` "de verdade" solto, por exemplo) reprova.
 
-## Estado `fixado`
+## Estado `fixado` (o estado comitado hoje)
+
+Pin real: K1 do rco no commit `b8444f52` (manifesto 2.3.0, pacote 5.0.1, dicionário 1.6.0), 236 decisões, em
+sombra (`efeito_k1_habilitado` desligado). O exemplo sintético do Maezo segue em `exemplos_sinteticos`.
 
 O gate e o runtime (`rco_pin.load_rco_rules_pin`) recusam o pin inteiro quando:
 
@@ -126,7 +130,8 @@ deploy no motor: `version`/`deploymentId` do motor ainda não são cruzados com 
 
 O pin não se edita à mão para "consertar" digest. Ele muda só quando: (1) o rco publica um K1 novo
 — copiar `k1/dmn/*.dmn` byte a byte para `spec/processes/dmn/rco/` e `k1/manifesto.json` mais os
-anexos para `config/integrations/rco/k1/` (nunca `exemplos/`), preencher `provenance` (de `origem`),
+anexos para `config/integrations/rco/k1/`, e cada `k1/provas/<id>/` de `provas[]` byte a byte para
+`config/integrations/rco/k1/provas/<id>/` (nunca `exemplos/`), preencher `provenance` (de `origem`),
 `manifest_pin` (o `sha256` é o conteúdo de `manifesto.sha256`) e `artifacts` (de `decisoes[]`) e passar
 `estado` para `fixado`; ou (2) entra ou sai um exemplo sintético declarado. O sha256 de cada entrada é
 `sha256:` seguido do hex de `sha256sum <arquivo>` na árvore.

@@ -1,0 +1,847 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_cardio_autorizacao" name="Cardiovascular: autorização prévia da cirurgia e da intervenção eletivas; urgência sem autorização" namespace="https://omni-saude/dmn/cardiovascular">
+  <decision id="rco_cardio_autorizacao" name="Cardiovascular: autorização prévia da cirurgia e da intervenção eletivas; urgência sem autorização" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CARDIO-AUT-0001 a OMNI-CARDIO-AUT-0026. Hit policy UNIQUE; nenhuma linha nega ou glosa; a linha de fechamento (data ausente) vai à revisão humana. Classe de cada código em regras/cardiovascular/dominio.yaml (classes_autorizacao).</description>
+    <decisionTable id="dt_cardio_autorizacao" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência ou emergência)">
+        <inputExpression id="ie_2_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="a_pre">
+        <description>OMNI-CARDIO-AUT-0021 — antes da vigência (03/12/2026): regras de autorização CARDIO não se aplicam</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0001_elet">
+        <description>OMNI-CARDIO-AUT-0001 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30914019", "30914027", "30914043", "30914051", "30914060", "30914078", "30914086", "30914094", "30914108", "30914116", "30914132", "30914140", "30914159", "30914167", "30914175"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0001_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0001)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30914019", "30914027", "30914043", "30914051", "30914060", "30914078", "30914086", "30914094", "30914108", "30914116", "30914132", "30914140", "30914159", "30914167", "30914175"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0001_car">
+        <description>OMNI-CARDIO-AUT-0001 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30914019", "30914027", "30914043", "30914051", "30914060", "30914078", "30914086", "30914094", "30914108", "30914116", "30914132", "30914140", "30914159", "30914167", "30914175"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0002_elet">
+        <description>OMNI-CARDIO-AUT-0002 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30907012", "30907020", "30907039", "30907047", "30907080", "30907098", "30907101", "30907110", "30907128", "30907136", "30907144", "30907152"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0002_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0002)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30907012", "30907020", "30907039", "30907047", "30907080", "30907098", "30907101", "30907110", "30907128", "30907136", "30907144", "30907152"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0002_car">
+        <description>OMNI-CARDIO-AUT-0002 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30907012", "30907020", "30907039", "30907047", "30907080", "30907098", "30907101", "30907110", "30907128", "30907136", "30907144", "30907152"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003_elet">
+        <description>OMNI-CARDIO-AUT-0003 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0003)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0003_car">
+        <description>OMNI-CARDIO-AUT-0003 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0004_elet">
+        <description>OMNI-CARDIO-AUT-0004 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911060", "30911095", "30911109", "30911125", "30911133", "30912083"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0004_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0004)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911060", "30911095", "30911109", "30911125", "30911133", "30912083"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0004_car">
+        <description>OMNI-CARDIO-AUT-0004 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911060", "30911095", "30911109", "30911125", "30911133", "30912083"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0005_elet">
+        <description>OMNI-CARDIO-AUT-0005 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905036", "30905044", "30905052", "30905060", "30916011"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0005_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0005)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905036", "30905044", "30905052", "30905060", "30916011"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0005_car">
+        <description>OMNI-CARDIO-AUT-0005 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905036", "30905044", "30905052", "30905060", "30916011"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0005"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0006_elet">
+        <description>OMNI-CARDIO-AUT-0006 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30915015", "30915023", "30915031", "30915040", "30915058", "30915066"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0006"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0006_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0006)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30915015", "30915023", "30915031", "30915040", "30915058", "30915066"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0006_car">
+        <description>OMNI-CARDIO-AUT-0006 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30915015", "30915023", "30915031", "30915040", "30915058", "30915066"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0006"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0007_elet">
+        <description>OMNI-CARDIO-AUT-0007 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0007_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0007)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0007_car">
+        <description>OMNI-CARDIO-AUT-0007 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0007"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0008_elet">
+        <description>OMNI-CARDIO-AUT-0008 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30903025", "30903033", "30906377"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0008"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0008_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0008)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30903025", "30903033", "30906377"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0008_car">
+        <description>OMNI-CARDIO-AUT-0008 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30903025", "30903033", "30906377"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0008"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0010_elet">
+        <description>OMNI-CARDIO-AUT-0010 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904013", "30904080", "30904099", "30904102", "30904110", "30904129", "30904137", "30904145", "30904153", "30904170"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0010"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0010_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0010)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904013", "30904080", "30904099", "30904102", "30904110", "30904129", "30904137", "30904145", "30904153", "30904170"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0010_car">
+        <description>OMNI-CARDIO-AUT-0010 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904013", "30904080", "30904099", "30904102", "30904110", "30904129", "30904137", "30904145", "30904153", "30904170"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0010"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0011_elet">
+        <description>OMNI-CARDIO-AUT-0011 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911150", "30911176", "30912016", "30918014", "30918022", "30918030", "30918057", "30918065", "30918073", "30918081", "30918090"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0011_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0011)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911150", "30911176", "30912016", "30918014", "30918022", "30918030", "30918057", "30918065", "30918073", "30918081", "30918090"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0011_car">
+        <description>OMNI-CARDIO-AUT-0011 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911150", "30911176", "30912016", "30918014", "30918022", "30918030", "30918057", "30918065", "30918073", "30918081", "30918090"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0011"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0012_elet">
+        <description>OMNI-CARDIO-AUT-0012 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912059", "30912067", "30912121", "30912130", "30912148", "30912245", "30912253", "30912288", "30912300"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0012"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0012_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0012)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912059", "30912067", "30912121", "30912130", "30912148", "30912245", "30912253", "30912288", "30912300"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0012_car">
+        <description>OMNI-CARDIO-AUT-0012 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912059", "30912067", "30912121", "30912130", "30912148", "30912245", "30912253", "30912288", "30912300"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0012"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0013_elet">
+        <description>OMNI-CARDIO-AUT-0013 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911028", "30911141"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0013"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0013_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0013)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911028", "30911141"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0013_car">
+        <description>OMNI-CARDIO-AUT-0013 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911028", "30911141"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0013"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0014_elet">
+        <description>OMNI-CARDIO-AUT-0014 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30903017", "30903041", "30911036", "30917018", "30917034", "30917042"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0014"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0014_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0014)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30903017", "30903041", "30911036", "30917018", "30917034", "30917042"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0014_car">
+        <description>OMNI-CARDIO-AUT-0014 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30903017", "30903041", "30911036", "30917018", "30917034", "30917042"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0014"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0015_elet">
+        <description>OMNI-CARDIO-AUT-0015 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912040", "30912075", "30912113", "30912199", "30912210", "30912270", "30912318"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0015"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0015_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0015)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912040", "30912075", "30912113", "30912199", "30912210", "30912270", "30912318"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0015_car">
+        <description>OMNI-CARDIO-AUT-0015 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912040", "30912075", "30912113", "30912199", "30912210", "30912270", "30912318"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0015"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0016_elet">
+        <description>OMNI-CARDIO-AUT-0016 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064", "30904161"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0016"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0016_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0016)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064", "30904161"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0016_car">
+        <description>OMNI-CARDIO-AUT-0016 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064", "30904161"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0016"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0017_elet">
+        <description>OMNI-CARDIO-AUT-0017 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905028", "30912024", "30912032", "30912091", "30912105", "30912180", "30912237", "30912261"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0017"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0017_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0017)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905028", "30912024", "30912032", "30912091", "30912105", "30912180", "30912237", "30912261"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0017_car">
+        <description>OMNI-CARDIO-AUT-0017 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905028", "30912024", "30912032", "30912091", "30912105", "30912180", "30912237", "30912261"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0017"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0018_elet">
+        <description>OMNI-CARDIO-AUT-0018 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905010", "30905079", "30905087", "30913047", "30913055"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0018"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0018_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0018)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905010", "30905079", "30905087", "30913047", "30913055"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0018_car">
+        <description>OMNI-CARDIO-AUT-0018 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30905010", "30905079", "30905087", "30913047", "30913055"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0018"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0019_elet">
+        <description>OMNI-CARDIO-AUT-0019 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912296"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0019"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0019_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0019)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912296"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0019_car">
+        <description>OMNI-CARDIO-AUT-0019 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912296"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0019"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0020_elet">
+        <description>OMNI-CARDIO-AUT-0020 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911044", "30911052", "30911079", "30911087"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0020"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0020_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0020)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911044", "30911052", "30911079", "30911087"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0020_car">
+        <description>OMNI-CARDIO-AUT-0020 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911044", "30911052", "30911079", "30911087"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0020"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0022_elet">
+        <description>OMNI-CARDIO-AUT-0022 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30902010", "30902029", "30902037", "30902045", "30902053"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0022"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0022_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0022)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30902010", "30902029", "30902037", "30902045", "30902053"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0022_car">
+        <description>OMNI-CARDIO-AUT-0022 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30902010", "30902029", "30902037", "30902045", "30902053"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0022"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0023_elet">
+        <description>OMNI-CARDIO-AUT-0023 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30908019", "30908027", "30908035", "30908043", "30908051", "30908060", "30908078", "30908086", "30908094", "30908108"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0023"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0023_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0023)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30908019", "30908027", "30908035", "30908043", "30908051", "30908060", "30908078", "30908086", "30908094", "30908108"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0023_car">
+        <description>OMNI-CARDIO-AUT-0023 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30908019", "30908027", "30908035", "30908043", "30908051", "30908060", "30908078", "30908086", "30908094", "30908108"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0023"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0024_elet">
+        <description>OMNI-CARDIO-AUT-0024 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906016", "30906024", "30906032", "30906083", "30906172", "30906180", "30906229", "30906237", "30906245", "30906253", "30906393", "30906415", "30910013", "30910030", "30910072"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0024"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0024_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0024)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906016", "30906024", "30906032", "30906083", "30906172", "30906180", "30906229", "30906237", "30906245", "30906253", "30906393", "30906415", "30910013", "30910030", "30910072"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0024_car">
+        <description>OMNI-CARDIO-AUT-0024 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906016", "30906024", "30906032", "30906083", "30906172", "30906180", "30906229", "30906237", "30906245", "30906253", "30906393", "30906415", "30910013", "30910030", "30910072"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0024"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0026_elet">
+        <description>OMNI-CARDIO-AUT-0026 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906067", "30906199", "30906210", "30906342", "30906350", "30906431", "30906440", "30906458", "30910064", "30910110"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0026"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0026_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0026)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906067", "30906199", "30906210", "30906342", "30906350", "30906431", "30906440", "30906458", "30910064", "30910110"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0026_car">
+        <description>OMNI-CARDIO-AUT-0026 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906067", "30906199", "30906210", "30906342", "30906350", "30906431", "30906440", "30906458", "30910064", "30910110"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0026"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0025_elet">
+        <description>OMNI-CARDIO-AUT-0025 — pedido eletivo: autorização prévia</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906040", "30906059", "30906075", "30906113", "30906121", "30906130", "30906148", "30906156", "30906202", "30906261", "30906270", "30906288", "30906296", "30906300", "30906318", "30906326", "30906334", "30906385", "30906407", "30906423", "30906466", "30910021", "30910048", "30910056", "30910080", "30910099", "30910102", "30910129", "30910137", "30910145"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <outputEntry><text>"exigir_autorizacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0025"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0025_urg">
+        <description>OMNI-CARDIO-AUT-0021 — urgência ou emergência: liberação (família de OMNI-CARDIO-AUT-0025)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906040", "30906059", "30906075", "30906113", "30906121", "30906130", "30906148", "30906156", "30906202", "30906261", "30906270", "30906288", "30906296", "30906300", "30906318", "30906326", "30906334", "30906385", "30906407", "30906423", "30906466", "30910021", "30910048", "30910056", "30910080", "30910099", "30910102", "30910129", "30910137", "30910145"</text></inputEntry>
+        <inputEntry><text>"2"</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a0025_car">
+        <description>OMNI-CARDIO-AUT-0025 — caráter de atendimento ausente ou fora da TUSS 23: regulação, sem negativa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30906040", "30906059", "30906075", "30906113", "30906121", "30906130", "30906148", "30906156", "30906202", "30906261", "30906270", "30906288", "30906296", "30906300", "30906318", "30906326", "30906334", "30906385", "30906407", "30906423", "30906466", "30910021", "30910048", "30910056", "30910080", "30910099", "30910102", "30910129", "30910137", "30910145"</text></inputEntry>
+        <inputEntry><text>not("1", "2")</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0025"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_resto">
+        <description>OMNI-CARDIO-AUT-0021 — código sem autorização no domínio (sem restrição adicional ou de outro domínio)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30914019", "30914027", "30914043", "30914051", "30914060", "30914078", "30914086", "30914094", "30914108", "30914116", "30914132", "30914140", "30914159", "30914167", "30914175", "30907012", "30907020", "30907039", "30907047", "30907080", "30907098", "30907101", "30907110", "30907128", "30907136", "30907144", "30907152", "30901014", "30901022", "30901030", "30901049", "30901057", "30901065", "30901073", "30901081", "30901090", "30901103", "30901111", "30911060", "30911095", "30911109", "30911125", "30911133", "30912083", "30905036", "30905044", "30905052", "30905060", "30916011", "30915015", "30915023", "30915031", "30915040", "30915058", "30915066", "30904021", "30903025", "30903033", "30906377", "30904013", "30904080", "30904099", "30904102", "30904110", "30904129", "30904137", "30904145", "30904153", "30904170", "30911150", "30911176", "30912016", "30918014", "30918022", "30918030", "30918057", "30918065", "30918073", "30918081", "30918090", "30912059", "30912067", "30912121", "30912130", "30912148", "30912245", "30912253", "30912288", "30912300", "30911028", "30911141", "30903017", "30903041", "30911036", "30917018", "30917034", "30917042", "30912040", "30912075", "30912113", "30912199", "30912210", "30912270", "30912318", "30904064", "30904161", "30905028", "30912024", "30912032", "30912091", "30912105", "30912180", "30912237", "30912261", "30905010", "30905079", "30905087", "30913047", "30913055", "30912296", "30911044", "30911052", "30911079", "30911087", "30902010", "30902029", "30902037", "30902045", "30902053", "30908019", "30908027", "30908035", "30908043", "30908051", "30908060", "30908078", "30908086", "30908094", "30908108", "30906016", "30906024", "30906032", "30906083", "30906172", "30906180", "30906229", "30906237", "30906245", "30906253", "30906393", "30906415", "30910013", "30910030", "30910072", "30906067", "30906199", "30906210", "30906342", "30906350", "30906431", "30906440", "30906458", "30910064", "30910110", "30906040", "30906059", "30906075", "30906113", "30906121", "30906130", "30906148", "30906156", "30906202", "30906261", "30906270", "30906288", "30906296", "30906300", "30906318", "30906326", "30906334", "30906385", "30906407", "30906423", "30906466", "30910021", "30910048", "30910056", "30910080", "30910099", "30910102", "30910129", "30910137", "30910145")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="a_sem_data">
+        <description>OMNI-CARDIO-AUT-0021 — data ausente: regulação (fechamento, nunca negativa)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-AUT-0021"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

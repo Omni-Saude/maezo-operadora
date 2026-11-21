@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_bariat_opme_quantidade" name="Cirurgia bariátrica: OPME por procedimento (OMNI-BARIAT-OPM-0001)" namespace="https://omni-saude/dmn/cirurgia-bariatrica">
+  <decision id="rco_bariat_opme_quantidade" name="Cirurgia bariátrica: OPME por procedimento (OMNI-BARIAT-OPM-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-BARIAT-OPM-0001. Lista positiva provisória por procedimento, com quantidade máxima (referência OPS-UNIMEDFESP-OPME-2026, p. 101–102). Dentro do limite libera; acima ou fora da lista vai à auditoria médica e, na divergência, à junta (ANS-RN-424). Nunca nega nem glosa.</description>
+    <decisionTable id="dt_bariat_opme_quantidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido de autorização), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_categoriaOpme" label="categoriaOpme ← TISS codigoMaterial (TUSS 19) do anexo de OPME classificado pela tabela do dominio.yaml (endogrampeador, carga_grampeador, trocater, agulha_biopsia, banda_gastrica); sem correspondência vai nulo">
+        <inputExpression id="ie_2_categoriaOpme" typeRef="string"><text>categoriaOpme</text></inputExpression>
+      </input>
+      <input id="in_3_quantidadeSolicitada" label="quantidadeSolicitada ← TISS quantidadeSolicitada do item de OPME no anexo">
+        <inputExpression id="ie_3_quantidadeSolicitada" typeRef="integer"><text>quantidadeSolicitada</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="p_pre">
+        <description>Antes da vigência: auditoria médica analisa a OPME</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390", "31002013", "31002285"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sem_data">
+        <description>OMNI-BARIAT-OPM-0001: data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390", "31002013", "31002285"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_aberta">
+        <description>OMNI-BARIAT-OPM-0001: gastroplastia aberta sem lista positiva de OPME: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002390_endogrampeador_ok">
+        <description>OMNI-BARIAT-OPM-0001: endogrampeador até 1 em 31002390: libera</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"endogrampeador"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002390_endogrampeador_exc">
+        <description>OMNI-BARIAT-OPM-0001: endogrampeador acima de 1 em 31002390: auditoria médica (junta na divergência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"endogrampeador"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002390_carga_grampeador_ok">
+        <description>OMNI-BARIAT-OPM-0001: carga_grampeador até 5 em 31002390: libera</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"carga_grampeador"</text></inputEntry>
+        <inputEntry><text>[1..5]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002390_carga_grampeador_exc">
+        <description>OMNI-BARIAT-OPM-0001: carga_grampeador acima de 5 em 31002390: auditoria médica (junta na divergência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"carga_grampeador"</text></inputEntry>
+        <inputEntry><text>&gt; 5</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002390_trocater_ok">
+        <description>OMNI-BARIAT-OPM-0001: trocater até 2 em 31002390: libera</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>[1..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002390_trocater_exc">
+        <description>OMNI-BARIAT-OPM-0001: trocater acima de 2 em 31002390: auditoria médica (junta na divergência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002390_agulha_biopsia_ok">
+        <description>OMNI-BARIAT-OPM-0001: agulha_biopsia até 1 em 31002390: libera</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"agulha_biopsia"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002390_agulha_biopsia_exc">
+        <description>OMNI-BARIAT-OPM-0001: agulha_biopsia acima de 1 em 31002390: auditoria médica (junta na divergência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"agulha_biopsia"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002390_qtd">
+        <description>OMNI-BARIAT-OPM-0001: quantidade ausente ou menor que 1 em 31002390: regulação</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"endogrampeador", "carga_grampeador", "trocater", "agulha_biopsia"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002390_cat">
+        <description>OMNI-BARIAT-OPM-0001: categoria fora da lista de 31002390 ou sem classificação: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>not("endogrampeador", "carga_grampeador", "trocater", "agulha_biopsia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002285_banda_gastrica_ok">
+        <description>OMNI-BARIAT-OPM-0001: banda_gastrica até 1 em 31002285: libera</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002285"</text></inputEntry>
+        <inputEntry><text>"banda_gastrica"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002285_banda_gastrica_exc">
+        <description>OMNI-BARIAT-OPM-0001: banda_gastrica acima de 1 em 31002285: auditoria médica (junta na divergência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002285"</text></inputEntry>
+        <inputEntry><text>"banda_gastrica"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002285_trocater_ok">
+        <description>OMNI-BARIAT-OPM-0001: trocater até 1 em 31002285: libera</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002285"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002285_trocater_exc">
+        <description>OMNI-BARIAT-OPM-0001: trocater acima de 1 em 31002285: auditoria médica (junta na divergência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002285"</text></inputEntry>
+        <inputEntry><text>"trocater"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002285_qtd">
+        <description>OMNI-BARIAT-OPM-0001: quantidade ausente ou menor que 1 em 31002285: regulação</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002285"</text></inputEntry>
+        <inputEntry><text>"banda_gastrica", "trocater"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002285_cat">
+        <description>OMNI-BARIAT-OPM-0001: categoria fora da lista de 31002285 ou sem classificação: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002285"</text></inputEntry>
+        <inputEntry><text>not("banda_gastrica", "trocater")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002013_banda_gastrica_ok">
+        <description>OMNI-BARIAT-OPM-0001: banda_gastrica até 1 em 31002013: libera</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002013"</text></inputEntry>
+        <inputEntry><text>"banda_gastrica"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002013_banda_gastrica_exc">
+        <description>OMNI-BARIAT-OPM-0001: banda_gastrica acima de 1 em 31002013: auditoria médica (junta na divergência)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002013"</text></inputEntry>
+        <inputEntry><text>"banda_gastrica"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002013_qtd">
+        <description>OMNI-BARIAT-OPM-0001: quantidade ausente ou menor que 1 em 31002013: regulação</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002013"</text></inputEntry>
+        <inputEntry><text>"banda_gastrica"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_31002013_cat">
+        <description>OMNI-BARIAT-OPM-0001: categoria fora da lista de 31002013 ou sem classificação: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002013"</text></inputEntry>
+        <inputEntry><text>not("banda_gastrica")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_fora">
+        <description>Fechamento (OMNI-BARIAT-OPM-0001): procedimento sem lista de OPME do domínio</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("31002218", "31002390", "31002013", "31002285")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

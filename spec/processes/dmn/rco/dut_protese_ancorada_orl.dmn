@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_dut_protese_ancorada_orl" name="ORL: prótese auditiva ancorada no osso na DUT 44 (OMNI-ORL-DUT-0002)" namespace="https://omni-saude/dmn/otorrino-cabeca-pescoco">
+  <decision id="rco_dut_protese_ancorada_orl" name="ORL: prótese auditiva ancorada no osso na DUT 44 (OMNI-ORL-DUT-0002)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-ORL-DUT-0002: DUT 44 do Anexo II da RN 465/2021 atualizado até a RN 681/2026 (p. 48-49). Nos itens 1 e 2, os limiares numéricos da própria DUT (gap, via óssea, reconhecimento de fala) são dados objetivos: limiar não atendido recebe recomendação de negativa (Tab. 38 3288), com decisão da auditoria médica. Os critérios clínicos e os itens 3 e 4 vão à auditoria médica.</description>
+    <decisionTable id="dt_dut_protese_ancorada_orl" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao, AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_itemDut44" label="itemDut44 ← solicitação (anexo do pedido: relatório com enquadramento): condutiva_mista_unilateral | condutiva_mista_bilateral | neurossensorial_unilateral_profunda | banda_elastica">
+        <inputExpression id="ie_1_itemDut44" typeRef="string"><text>itemDut44</text></inputExpression>
+      </input>
+      <input id="in_2_gapMedioDb" label="gapMedioDb ← solicitação (anexo do pedido: audiometria): gap aéreo-ósseo médio em 0,5, 1, 2 e 3 kHz, em dB">
+        <inputExpression id="ie_2_gapMedioDb" typeRef="double"><text>gapMedioDb</text></inputExpression>
+      </input>
+      <input id="in_3_limiarViaOsseaDb" label="limiarViaOsseaDb ← solicitação (anexo do pedido: audiometria): limiar médio por via óssea em 0,5, 1, 2 e 3 kHz na orelha a implantar (no bilateral, a pior orelha), em dB">
+        <inputExpression id="ie_3_limiarViaOsseaDb" typeRef="double"><text>limiarViaOsseaDb</text></inputExpression>
+      </input>
+      <input id="in_4_reconhecimentoFalaPct" label="reconhecimentoFalaPct ← solicitação (anexo do pedido: logoaudiometria): % de reconhecimento de fala em conjunto aberto, monossílabos, sem AASI">
+        <inputExpression id="ie_4_reconhecimentoFalaPct" typeRef="double"><text>reconhecimentoFalaPct</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="b_pre">
+        <description>OMNI-ORL-DUT-0002 — fora da vigência (antes de 02/12/2026): a DUT 44 é conferida pela auditoria médica</description>
+        <inputEntry><text>&lt; "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="b_gap">
+        <description>OMNI-ORL-DUT-0002 — DUT 44, itens 1.b e 2.b: gap médio até 30 dB não atende (Tab. 38 3288, com reanálise); a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"condutiva_mista_unilateral","condutiva_mista_bilateral"</text></inputEntry>
+        <inputEntry><text>&lt;= 30</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"3288"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="b_vo">
+        <description>OMNI-ORL-DUT-0002 — DUT 44, itens 1.c e 2.c: via óssea média de 60 dB ou pior não atende (Tab. 38 3288); a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"condutiva_mista_unilateral","condutiva_mista_bilateral"</text></inputEntry>
+        <inputEntry><text>&gt; 30</text></inputEntry>
+        <inputEntry><text>&gt;= 60</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"3288"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="b_irf">
+        <description>OMNI-ORL-DUT-0002 — DUT 44, itens 1.d e 2.d: reconhecimento de fala até 60% não atende (Tab. 38 3288); a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"condutiva_mista_unilateral","condutiva_mista_bilateral"</text></inputEntry>
+        <inputEntry><text>&gt; 30</text></inputEntry>
+        <inputEntry><text>&lt; 60</text></inputEntry>
+        <inputEntry><text>&lt;= 60</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"3288"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="b_ok">
+        <description>OMNI-ORL-DUT-0002 — limiares numéricos da DUT 44 atendidos; item a (impossibilidade de AASI) e, no bilateral, a diferença interaural vão à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"condutiva_mista_unilateral","condutiva_mista_bilateral"</text></inputEntry>
+        <inputEntry><text>&gt; 30</text></inputEntry>
+        <inputEntry><text>&lt; 60</text></inputEntry>
+        <inputEntry><text>&gt; 60</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="b_gap_nulo">
+        <description>OMNI-ORL-DUT-0002 — gap não informado: regulação pede a audiometria</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"condutiva_mista_unilateral","condutiva_mista_bilateral"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="b_vo_nulo">
+        <description>OMNI-ORL-DUT-0002 — via óssea não informada: regulação pede a audiometria</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"condutiva_mista_unilateral","condutiva_mista_bilateral"</text></inputEntry>
+        <inputEntry><text>&gt; 30</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="b_irf_nulo">
+        <description>OMNI-ORL-DUT-0002 — reconhecimento de fala não informado: regulação pede o exame</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>"condutiva_mista_unilateral","condutiva_mista_bilateral"</text></inputEntry>
+        <inputEntry><text>&gt; 30</text></inputEntry>
+        <inputEntry><text>&lt; 60</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="b_outro">
+        <description>OMNI-ORL-DUT-0002 — itens 3 (neurossensorial unilateral profunda) e 4 (banda elástica) ou item não informado: auditoria médica, nunca negativa automática</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>not("condutiva_mista_unilateral","condutiva_mista_bilateral")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="b_sem_data">
+        <description>OMNI-ORL-DUT-0002 — data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0002"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

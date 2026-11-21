@@ -1,0 +1,877 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_cardio_opme" name="Cardiovascular: OPME do ritmo cardíaco e da eletrofisiologia, lista positiva e quantidade" namespace="https://omni-saude/dmn/cardiovascular">
+  <decision id="rco_cardio_opme" name="Cardiovascular: OPME do ritmo cardíaco e da eletrofisiologia, lista positiva e quantidade" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CARDIO-OPM-0001, OMNI-CARDIO-OPM-0002, OMNI-CARDIO-OPM-0007. Lista positiva de OPME por código de procedimento com quantidade máxima por ato (dominio.yaml, listas_opme): dentro da lista libera; acima, fora da lista ou sem categoria vai à auditoria médica; quantidade nula ou menor que 1 vai ao faturamento; gerador de tipo diferente do código vai à auditoria (OPM-0007). Quantidades provisórias em validacao/calibracao/parametros-provisorios.csv (L-faseE-cardio-04). Nenhuma linha nega ou glosa; fechamento null vai à regulação.</description>
+    <decisionTable id="dt_cardio_opme" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_categoriaOpme" label="categoriaOpme ← TISS codigoMaterial (TUSS 19) do anexo de OPME classificado pelo cadastro OMNI de materiais; sem correspondência vai nulo">
+        <inputExpression id="ie_2_categoriaOpme" typeRef="string"><text>categoriaOpme</text></inputExpression>
+      </input>
+      <input id="in_3_quantidadeSolicitada" label="quantidadeSolicitada ← TISS quantidadeSolicitada do item de OPME no anexo">
+        <inputExpression id="ie_3_quantidadeSolicitada" typeRef="integer"><text>quantidadeSolicitada</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="p_pre">
+        <description>OMNI-CARDIO-OPM-0001 — antes da vigência (03/12/2026): sem conferência</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p01_ok">
+        <description>OMNI-CARDIO-OPM-0001 — cateter_ablacao até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912016", "30918073", "30918081", "30918090"</text></inputEntry>
+        <inputEntry><text>"cateter_ablacao"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p01_acima">
+        <description>OMNI-CARDIO-OPM-0001 — cateter_ablacao acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912016", "30918073", "30918081", "30918090"</text></inputEntry>
+        <inputEntry><text>"cateter_ablacao"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p01_qtd">
+        <description>OMNI-CARDIO-OPM-0001 — cateter_ablacao sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912016", "30918073", "30918081", "30918090"</text></inputEntry>
+        <inputEntry><text>"cateter_ablacao"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p02_ok">
+        <description>OMNI-CARDIO-OPM-0001 — cateter_mapeamento_tridimensional até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30918030", "30918057"</text></inputEntry>
+        <inputEntry><text>"cateter_mapeamento_tridimensional"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p02_acima">
+        <description>OMNI-CARDIO-OPM-0001 — cateter_mapeamento_tridimensional acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30918030", "30918057"</text></inputEntry>
+        <inputEntry><text>"cateter_mapeamento_tridimensional"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p02_qtd">
+        <description>OMNI-CARDIO-OPM-0001 — cateter_mapeamento_tridimensional sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30918030", "30918057"</text></inputEntry>
+        <inputEntry><text>"cateter_mapeamento_tridimensional"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p03_ok">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_cdi até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p03_acima">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_cdi acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p03_qtd">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_cdi sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p04_ok">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_cdi até 2 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021"</text></inputEntry>
+        <inputEntry><text>"eletrodo_cdi"</text></inputEntry>
+        <inputEntry><text>[1..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p04_acima">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_cdi acima de 2 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021"</text></inputEntry>
+        <inputEntry><text>"eletrodo_cdi"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p04_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_cdi sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021"</text></inputEntry>
+        <inputEntry><text>"eletrodo_cdi"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p05_ok">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_marcapasso_multissitio até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_multissitio"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p05_acima">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_marcapasso_multissitio acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_multissitio"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p05_qtd">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_marcapasso_multissitio sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_multissitio"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p06_ok">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_marcapasso até 3 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064"</text></inputEntry>
+        <inputEntry><text>"eletrodo_marcapasso"</text></inputEntry>
+        <inputEntry><text>[1..3]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p06_acima">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_marcapasso acima de 3 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064"</text></inputEntry>
+        <inputEntry><text>"eletrodo_marcapasso"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p06_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_marcapasso sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064"</text></inputEntry>
+        <inputEntry><text>"eletrodo_marcapasso"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p07_ok">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_marcapasso até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904102", "30904137"</text></inputEntry>
+        <inputEntry><text>"eletrodo_marcapasso"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p07_acima">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_marcapasso acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904102", "30904137"</text></inputEntry>
+        <inputEntry><text>"eletrodo_marcapasso"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p07_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_marcapasso sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904102", "30904137"</text></inputEntry>
+        <inputEntry><text>"eletrodo_marcapasso"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p08_ok">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_marcapasso_monocameral até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_monocameral"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p08_acima">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_marcapasso_monocameral acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_monocameral"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p08_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_marcapasso_monocameral sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_monocameral"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p09_ok">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_marcapasso_bicameral até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_bicameral"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p09_acima">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_marcapasso_bicameral acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_bicameral"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p09_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_marcapasso_bicameral sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_bicameral"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p10_ok">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_marcapasso_multissitio até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_multissitio"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p10_acima">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_marcapasso_multissitio acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_multissitio"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p10_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_marcapasso_multissitio sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_multissitio"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p11_ok">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_cdi até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p11_acima">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_cdi acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p11_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_cdi sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p12_ok">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_cdi_multissitio até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi_multissitio"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p12_acima">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_cdi_multissitio acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi_multissitio"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p12_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — gerador_cdi_multissitio sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi_multissitio"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p13_ok">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_marcapasso_monocameral até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904137"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_monocameral"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p13_acima">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_marcapasso_monocameral acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904137"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_monocameral"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p13_qtd">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_marcapasso_monocameral sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904137"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_monocameral"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p14_ok">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_marcapasso_bicameral até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904145"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_bicameral"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p14_acima">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_marcapasso_bicameral acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904145"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_bicameral"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p14_qtd">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_marcapasso_bicameral sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904145"</text></inputEntry>
+        <inputEntry><text>"gerador_marcapasso_bicameral"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p15_ok">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_marcapasso até 2 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904145"</text></inputEntry>
+        <inputEntry><text>"eletrodo_marcapasso"</text></inputEntry>
+        <inputEntry><text>[1..2]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p15_acima">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_marcapasso acima de 2 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904145"</text></inputEntry>
+        <inputEntry><text>"eletrodo_marcapasso"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p15_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_marcapasso sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904145"</text></inputEntry>
+        <inputEntry><text>"eletrodo_marcapasso"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p16_ok">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_cdi_multissitio até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904161"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi_multissitio"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p16_acima">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_cdi_multissitio acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904161"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi_multissitio"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p16_qtd">
+        <description>OMNI-CARDIO-OPM-0007 — gerador_cdi_multissitio sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904161"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi_multissitio"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p17_ok">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_cdi até 3 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904161"</text></inputEntry>
+        <inputEntry><text>"eletrodo_cdi"</text></inputEntry>
+        <inputEntry><text>[1..3]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p17_acima">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_cdi acima de 3 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904161"</text></inputEntry>
+        <inputEntry><text>"eletrodo_cdi"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p17_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — eletrodo_cdi sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904161"</text></inputEntry>
+        <inputEntry><text>"eletrodo_cdi"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p18_ok">
+        <description>OMNI-CARDIO-OPM-0002 — monitor_eventos_implantavel até 1 por ato: dentro da lista positiva</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904170"</text></inputEntry>
+        <inputEntry><text>"monitor_eventos_implantavel"</text></inputEntry>
+        <inputEntry><text>[1..1]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p18_acima">
+        <description>OMNI-CARDIO-OPM-0002 — monitor_eventos_implantavel acima de 1 por ato: auditoria médica (nunca glosa)</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904170"</text></inputEntry>
+        <inputEntry><text>"monitor_eventos_implantavel"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p18_qtd">
+        <description>OMNI-CARDIO-OPM-0002 — monitor_eventos_implantavel sem quantidade válida: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904170"</text></inputEntry>
+        <inputEntry><text>"monitor_eventos_implantavel"</text></inputEntry>
+        <inputEntry><text>null, &lt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_gerador_cdi">
+        <description>OMNI-CARDIO-OPM-0007 — gerador de tipo diferente do código (gerador_cdi): auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi_multissitio", "gerador_marcapasso_bicameral", "gerador_marcapasso_monocameral", "gerador_marcapasso_multissitio"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_gerador_marcapasso_multissitio">
+        <description>OMNI-CARDIO-OPM-0007 — gerador de tipo diferente do código (gerador_marcapasso_multissitio): auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi", "gerador_cdi_multissitio", "gerador_marcapasso_bicameral", "gerador_marcapasso_monocameral"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_gerador_marcapasso_monocameral">
+        <description>OMNI-CARDIO-OPM-0007 — gerador de tipo diferente do código (gerador_marcapasso_monocameral): auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904137"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi", "gerador_cdi_multissitio", "gerador_marcapasso_bicameral", "gerador_marcapasso_multissitio"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_gerador_marcapasso_bicameral">
+        <description>OMNI-CARDIO-OPM-0007 — gerador de tipo diferente do código (gerador_marcapasso_bicameral): auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904145"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi", "gerador_cdi_multissitio", "gerador_marcapasso_monocameral", "gerador_marcapasso_multissitio"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_gerador_cdi_multissitio">
+        <description>OMNI-CARDIO-OPM-0007 — gerador de tipo diferente do código (gerador_cdi_multissitio): auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904161"</text></inputEntry>
+        <inputEntry><text>"gerador_cdi", "gerador_marcapasso_bicameral", "gerador_marcapasso_monocameral", "gerador_marcapasso_multissitio"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0007"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f01_fora">
+        <description>OMNI-CARDIO-OPM-0001 — item fora da lista positiva do código, ou sem categoria no cadastro: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30911150", "30911176", "30918014", "30918022", "30918065"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f02_fora">
+        <description>OMNI-CARDIO-OPM-0001 — item fora da lista positiva do código, ou sem categoria no cadastro: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30912016", "30918073", "30918081", "30918090"</text></inputEntry>
+        <inputEntry><text>not("cateter_ablacao")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f03_fora">
+        <description>OMNI-CARDIO-OPM-0001 — item fora da lista positiva do código, ou sem categoria no cadastro: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30918030", "30918057"</text></inputEntry>
+        <inputEntry><text>not("cateter_mapeamento_tridimensional")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f04_fora">
+        <description>OMNI-CARDIO-OPM-0002 — item fora da lista positiva do código, ou sem categoria no cadastro: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904013", "30904080", "30904099", "30904110", "30904153"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f05_fora">
+        <description>OMNI-CARDIO-OPM-0002 — item fora da lista positiva do código, ou sem categoria no cadastro: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904021", "30904161"</text></inputEntry>
+        <inputEntry><text>not("eletrodo_cdi", "gerador_cdi", "gerador_cdi_multissitio", "gerador_marcapasso_bicameral", "gerador_marcapasso_monocameral", "gerador_marcapasso_multissitio")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f06_fora">
+        <description>OMNI-CARDIO-OPM-0002 — item fora da lista positiva do código, ou sem categoria no cadastro: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904064", "30904137", "30904145"</text></inputEntry>
+        <inputEntry><text>not("eletrodo_marcapasso", "gerador_cdi", "gerador_cdi_multissitio", "gerador_marcapasso_bicameral", "gerador_marcapasso_monocameral", "gerador_marcapasso_multissitio")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f07_fora">
+        <description>OMNI-CARDIO-OPM-0002 — item fora da lista positiva do código, ou sem categoria no cadastro: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904102"</text></inputEntry>
+        <inputEntry><text>not("eletrodo_marcapasso")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f08_fora">
+        <description>OMNI-CARDIO-OPM-0002 — item fora da lista positiva do código, ou sem categoria no cadastro: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904129"</text></inputEntry>
+        <inputEntry><text>not("gerador_cdi", "gerador_cdi_multissitio", "gerador_marcapasso_bicameral", "gerador_marcapasso_monocameral", "gerador_marcapasso_multissitio")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f09_fora">
+        <description>OMNI-CARDIO-OPM-0002 — item fora da lista positiva do código, ou sem categoria no cadastro: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30904170"</text></inputEntry>
+        <inputEntry><text>not("monitor_eventos_implantavel")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_resto">
+        <description>Código sem OPME na lista do domínio: sem conferência</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30911150", "30911176", "30912016", "30918014", "30918022", "30918030", "30918057", "30918065", "30918073", "30918081", "30918090", "30904013", "30904021", "30904064", "30904080", "30904099", "30904102", "30904110", "30904129", "30904137", "30904145", "30904153", "30904161", "30904170")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sem_data">
+        <description>Data ausente: regulação confere, nunca nega</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CARDIO-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

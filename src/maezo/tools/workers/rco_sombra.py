@@ -31,9 +31,13 @@ POR QUE NADA PRODUZ EFEITO (razoes independentes, como `adequacao._record_gap_sh
 MINIMIZACAO (a mesma da migracao 0035): log, auditoria e registro levam so codigos, inteiros, a versao
 do dicionario e hashes; nunca chave de negocio, numero de guia ou lote, beneficiario ou prestador.
 
-INERTE HOJE: o pin esta em `sem_pacote` (nenhuma tabela `rco_` pinada): a funcao sai antes de montar.
-Com o pacote pinado, os termos de `diasAteApresentacao` ainda nao tem produtor no Maezo (ver
-`contas.fatos_prazo_conta_rco`): as entradas entram nulas, com o motivo, e nulo nunca nega nem glosa.
+COM O PIN FIXADO (K1 b8444f52): a sombra roda de verdade. O intake de contas faz UMA chamada sincrona ao motor
+(ate `PRAZO_SOMBRA_S`) dentro da tarefa; o AUTH faz, DEPOIS do complete, ate 3 (composicao de carencia/CPT e
+elegibilidade), mais o append do fato `SHADOW` e as insercoes do registro K1; o deploy do motor leva os 237
+DMN do rco. Nenhum efeito na decisao (`efeito_k1_habilitado` segue falso). Com pin `sem_pacote` (nenhuma
+tabela `rco_` pinada) a funcao sai antes de montar, sem motor. Os termos de `diasAteApresentacao` ainda nao
+tem produtor no Maezo (ver `contas.fatos_prazo_conta_rco`): as entradas entram nulas, com o motivo, e nulo
+nunca nega nem glosa.
 
 GUARDA DA COMPOSICAO (DL-0173): `avaliar` chama `rco_composicao.exigir_avaliacao_isolada` antes de montar;
 uma decisao que e membro (ou padrao) de um grupo de `composicoes[]` nunca e avaliada sozinha (desfecho

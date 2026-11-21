@@ -1,0 +1,2485 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_opme_lista_ortop" name="Lista positiva de OPME por procedimento ortopédico (OMNI-ORTOP-OPM-0001 a 0003)" namespace="https://omni-saude/dmn/ortopedia-opme">
+  <decision id="rco_opme_lista_ortop" name="Lista positiva de OPME por procedimento ortopédico (OMNI-ORTOP-OPM-0001 a 0003)" camunda:historyTimeToLive="P180D">
+    <description>Confere categoria e quantidade de OPME e instrumentos de corte contra o procedimento. OMNI-ORTOP-OPM-0001, OMNI-ORTOP-OPM-0002, OMNI-ORTOP-OPM-0003.</description>
+    <decisionTable id="dt_opme_lista_ortop" hitPolicy="UNIQUE">
+      <input id="in_0_dataExecucao" label="dataExecucao ← TISS dataExecucao/dataRealizacao (inteiro AAAAMMDD)">
+        <inputExpression id="ie_0_dataExecucao" typeRef="integer"><text>dataExecucao</text></inputExpression>
+      </input>
+      <input id="in_1_familiaProcedimento" label="familiaProcedimento ← TISS codigoProcedimento principal (TUSS 22) classificado por dominio.yaml (familias_opme)">
+        <inputExpression id="ie_1_familiaProcedimento" typeRef="string"><text>familiaProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_categoriaOpme" label="categoriaOpme ← cadastro OMNI de materiais: categoria do item TISS codigoMaterial (TUSS 19)">
+        <inputExpression id="ie_2_categoriaOpme" typeRef="string"><text>categoriaOpme</text></inputExpression>
+      </input>
+      <input id="in_3_quantidade" label="quantidade ← TISS quantidadeSolicitada/quantidadeExecutada do item">
+        <inputExpression id="ie_3_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="r000">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: haste_femoral até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"haste_femoral"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r001">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: haste_femoral acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"haste_femoral"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r002">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: haste_femoral sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"haste_femoral"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r003">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: componente_cefalico até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"componente_cefalico"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r004">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: componente_cefalico acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"componente_cefalico"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r005">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: componente_cefalico sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"componente_cefalico"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r006">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: componente_acetabular até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"componente_acetabular"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r007">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: componente_acetabular acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"componente_acetabular"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r008">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: componente_acetabular sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"componente_acetabular"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r009">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: insert_acetabular até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"insert_acetabular"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r010">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: insert_acetabular acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"insert_acetabular"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r011">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: insert_acetabular sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"insert_acetabular"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r012">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: parafuso_acetabular até 3</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"parafuso_acetabular"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r013">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: parafuso_acetabular acima de 3 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"parafuso_acetabular"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r014">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: parafuso_acetabular sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"parafuso_acetabular"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r015">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: cimento_ortopedico até 3</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r016">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: cimento_ortopedico acima de 3 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r017">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: cimento_ortopedico sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r018">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: kit_cimentacao até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r019">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: kit_cimentacao acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r020">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: kit_cimentacao sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r021">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: restritor_cimento até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r022">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: restritor_cimento acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r023">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: restritor_cimento sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r024">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: centralizador_protese até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"centralizador_protese"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r025">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: centralizador_protese acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"centralizador_protese"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r026">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: centralizador_protese sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"centralizador_protese"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r027">
+        <description>OMNI-ORTOP-OPM-0002 — ATQ: lamina_serra_sagital até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r028">
+        <description>OMNI-ORTOP-OPM-0002 — ATQ: lamina_serra_sagital acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r029">
+        <description>OMNI-ORTOP-OPM-0002 — ATQ: lamina_serra_sagital sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r030">
+        <description>OMNI-ORTOP-OPM-0002 — ATQ: instrumental reutilizável incluso na taxa de sala</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"instrumental_reutilizavel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r031">
+        <description>OMNI-ORTOP-OPM-0002 — ATQ: broca ou fresa descartável fora do Anexo III para ortopedia [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r032">
+        <description>OMNI-ORTOP-OPM-0002 — ATQ: broca ou fresa descartável (ids da tabela e ids antigos) fora do Anexo III para ortopedia [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao","broca_desgaste","fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r033">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: material fora da lista positiva (auditoria; divergência vai à junta médica) [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>not("haste_femoral","componente_cefalico","componente_acetabular","insert_acetabular","parafuso_acetabular","cimento_ortopedico","kit_cimentacao","restritor_cimento","centralizador_protese","lamina_serra_sagital","instrumental_reutilizavel","fresa_corte_ortopedia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r034">
+        <description>OMNI-ORTOP-OPM-0001 — ATQ: material fora da lista positiva (auditoria; divergência vai à junta médica) [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"ATQ"</text></inputEntry>
+        <inputEntry><text>not("haste_femoral","componente_cefalico","componente_acetabular","insert_acetabular","parafuso_acetabular","cimento_ortopedico","kit_cimentacao","restritor_cimento","centralizador_protese","lamina_serra_sagital","instrumental_reutilizavel","broca_perfuracao","broca_desgaste","fresa_corte_ortopedia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r035">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: haste_femoral até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"haste_femoral"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r036">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: haste_femoral acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"haste_femoral"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r037">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: haste_femoral sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"haste_femoral"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r038">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: cabeca_bipolar_ou_unipolar até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"cabeca_bipolar_ou_unipolar"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r039">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: cabeca_bipolar_ou_unipolar acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"cabeca_bipolar_ou_unipolar"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r040">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: cabeca_bipolar_ou_unipolar sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"cabeca_bipolar_ou_unipolar"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r041">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: cimento_ortopedico até 2</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>&lt;= 2</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r042">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: cimento_ortopedico acima de 2 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r043">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: cimento_ortopedico sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r044">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: kit_cimentacao até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r045">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: kit_cimentacao acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r046">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: kit_cimentacao sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r047">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: restritor_cimento até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r048">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: restritor_cimento acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r049">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: restritor_cimento sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r050">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: centralizador_protese até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"centralizador_protese"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r051">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: centralizador_protese acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"centralizador_protese"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r052">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: centralizador_protese sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"centralizador_protese"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r053">
+        <description>OMNI-ORTOP-OPM-0002 — PARC: lamina_serra_sagital até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r054">
+        <description>OMNI-ORTOP-OPM-0002 — PARC: lamina_serra_sagital acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r055">
+        <description>OMNI-ORTOP-OPM-0002 — PARC: lamina_serra_sagital sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r056">
+        <description>OMNI-ORTOP-OPM-0002 — PARC: instrumental reutilizável incluso na taxa de sala</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"instrumental_reutilizavel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r057">
+        <description>OMNI-ORTOP-OPM-0002 — PARC: broca ou fresa descartável fora do Anexo III para ortopedia [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r058">
+        <description>OMNI-ORTOP-OPM-0002 — PARC: broca ou fresa descartável (ids da tabela e ids antigos) fora do Anexo III para ortopedia [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao","broca_desgaste","fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r059">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: material fora da lista positiva (auditoria; divergência vai à junta médica) [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>not("haste_femoral","cabeca_bipolar_ou_unipolar","cimento_ortopedico","kit_cimentacao","restritor_cimento","centralizador_protese","lamina_serra_sagital","instrumental_reutilizavel","fresa_corte_ortopedia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r060">
+        <description>OMNI-ORTOP-OPM-0001 — PARC: material fora da lista positiva (auditoria; divergência vai à junta médica) [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"PARC"</text></inputEntry>
+        <inputEntry><text>not("haste_femoral","cabeca_bipolar_ou_unipolar","cimento_ortopedico","kit_cimentacao","restritor_cimento","centralizador_protese","lamina_serra_sagital","instrumental_reutilizavel","broca_perfuracao","broca_desgaste","fresa_corte_ortopedia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r061">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: haste_femoral_revisao até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"haste_femoral_revisao"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r062">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: haste_femoral_revisao acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"haste_femoral_revisao"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r063">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: haste_femoral_revisao sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"haste_femoral_revisao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r064">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: componente_cefalico até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"componente_cefalico"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r065">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: componente_cefalico acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"componente_cefalico"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r066">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: componente_cefalico sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"componente_cefalico"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r067">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: componente_acetabular_revisao até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"componente_acetabular_revisao"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r068">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: componente_acetabular_revisao acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"componente_acetabular_revisao"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r069">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: componente_acetabular_revisao sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"componente_acetabular_revisao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r070">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: insert_acetabular até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"insert_acetabular"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r071">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: insert_acetabular acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"insert_acetabular"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r072">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: insert_acetabular sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"insert_acetabular"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r073">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: parafuso_acetabular até 3</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"parafuso_acetabular"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r074">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: parafuso_acetabular acima de 3 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"parafuso_acetabular"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r075">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: parafuso_acetabular sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"parafuso_acetabular"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r076">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: reforco_acetabular até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"reforco_acetabular"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r077">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: reforco_acetabular acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"reforco_acetabular"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r078">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: reforco_acetabular sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"reforco_acetabular"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r079">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: tela_reconstrucao até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"tela_reconstrucao"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r080">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: tela_reconstrucao acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"tela_reconstrucao"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r081">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: tela_reconstrucao sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"tela_reconstrucao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r082">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: cimento_ortopedico até 3</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>&lt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r083">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: cimento_ortopedico acima de 3 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r084">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: cimento_ortopedico sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r085">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: kit_cimentacao até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r086">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: kit_cimentacao acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r087">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: kit_cimentacao sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r088">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: restritor_cimento até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r089">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: restritor_cimento acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r090">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: restritor_cimento sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r091">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: centralizador_protese até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"centralizador_protese"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r092">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: centralizador_protese acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"centralizador_protese"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r093">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: centralizador_protese sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"centralizador_protese"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r094">
+        <description>OMNI-ORTOP-OPM-0002 — REVQ: lamina_serra_sagital até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r095">
+        <description>OMNI-ORTOP-OPM-0002 — REVQ: lamina_serra_sagital acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r096">
+        <description>OMNI-ORTOP-OPM-0002 — REVQ: lamina_serra_sagital sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r097">
+        <description>OMNI-ORTOP-OPM-0002 — REVQ: instrumental reutilizável incluso na taxa de sala</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"instrumental_reutilizavel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r098">
+        <description>OMNI-ORTOP-OPM-0002 — REVQ: broca ou fresa descartável fora do Anexo III para ortopedia [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r099">
+        <description>OMNI-ORTOP-OPM-0002 — REVQ: broca ou fresa descartável (ids da tabela e ids antigos) fora do Anexo III para ortopedia [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao","broca_desgaste","fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r100">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: material fora da lista positiva (auditoria; divergência vai à junta médica) [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>not("haste_femoral_revisao","componente_cefalico","componente_acetabular_revisao","insert_acetabular","parafuso_acetabular","reforco_acetabular","tela_reconstrucao","cimento_ortopedico","kit_cimentacao","restritor_cimento","centralizador_protese","lamina_serra_sagital","instrumental_reutilizavel","fresa_corte_ortopedia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r101">
+        <description>OMNI-ORTOP-OPM-0001 — REVQ: material fora da lista positiva (auditoria; divergência vai à junta médica) [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"REVQ"</text></inputEntry>
+        <inputEntry><text>not("haste_femoral_revisao","componente_cefalico","componente_acetabular_revisao","insert_acetabular","parafuso_acetabular","reforco_acetabular","tela_reconstrucao","cimento_ortopedico","kit_cimentacao","restritor_cimento","centralizador_protese","lamina_serra_sagital","instrumental_reutilizavel","broca_perfuracao","broca_desgaste","fresa_corte_ortopedia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r102">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: componente_femoral_joelho até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"componente_femoral_joelho"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r103">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: componente_femoral_joelho acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"componente_femoral_joelho"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r104">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: componente_femoral_joelho sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"componente_femoral_joelho"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r105">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: base_tibial até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"base_tibial"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r106">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: base_tibial acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"base_tibial"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r107">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: base_tibial sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"base_tibial"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r108">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: insert_tibial até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"insert_tibial"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r109">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: insert_tibial acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"insert_tibial"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r110">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: insert_tibial sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"insert_tibial"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r111">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: componente_patelar até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"componente_patelar"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r112">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: componente_patelar acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"componente_patelar"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r113">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: componente_patelar sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"componente_patelar"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r114">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: cimento_ortopedico até 2</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>&lt;= 2</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r115">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: cimento_ortopedico acima de 2 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r116">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: cimento_ortopedico sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r117">
+        <description>OMNI-ORTOP-OPM-0002 — ATJ: lamina_serra_sagital até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r118">
+        <description>OMNI-ORTOP-OPM-0002 — ATJ: lamina_serra_sagital acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r119">
+        <description>OMNI-ORTOP-OPM-0002 — ATJ: lamina_serra_sagital sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r120">
+        <description>OMNI-ORTOP-OPM-0002 — ATJ: instrumental reutilizável incluso na taxa de sala</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"instrumental_reutilizavel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r121">
+        <description>OMNI-ORTOP-OPM-0002 — ATJ: broca ou fresa descartável fora do Anexo III para ortopedia [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r122">
+        <description>OMNI-ORTOP-OPM-0002 — ATJ: broca ou fresa descartável (ids da tabela e ids antigos) fora do Anexo III para ortopedia [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao","broca_desgaste","fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r123">
+        <description>OMNI-ORTOP-OPM-0003 — ATJ: parafuso bioabsorvível em cirurgia de joelho</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>"parafuso_bioabsorvivel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r124">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: material fora da lista positiva (auditoria; divergência vai à junta médica) [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>not("componente_femoral_joelho","base_tibial","insert_tibial","componente_patelar","cimento_ortopedico","lamina_serra_sagital","instrumental_reutilizavel","fresa_corte_ortopedia","parafuso_bioabsorvivel")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r125">
+        <description>OMNI-ORTOP-OPM-0001 — ATJ: material fora da lista positiva (auditoria; divergência vai à junta médica) [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"ATJ"</text></inputEntry>
+        <inputEntry><text>not("componente_femoral_joelho","base_tibial","insert_tibial","componente_patelar","cimento_ortopedico","lamina_serra_sagital","instrumental_reutilizavel","broca_perfuracao","broca_desgaste","parafuso_bioabsorvivel","fresa_corte_ortopedia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r126">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: componente_femoral_joelho até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"componente_femoral_joelho"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r127">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: componente_femoral_joelho acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"componente_femoral_joelho"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r128">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: componente_femoral_joelho sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"componente_femoral_joelho"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r129">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: base_tibial até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"base_tibial"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r130">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: base_tibial acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"base_tibial"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r131">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: base_tibial sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"base_tibial"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r132">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: insert_tibial até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"insert_tibial"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r133">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: insert_tibial acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"insert_tibial"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r134">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: insert_tibial sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"insert_tibial"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r135">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: componente_patelar até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"componente_patelar"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r136">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: componente_patelar acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"componente_patelar"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r137">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: componente_patelar sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"componente_patelar"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r138">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: aumento_femoral até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"aumento_femoral"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r139">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: aumento_femoral acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"aumento_femoral"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r140">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: aumento_femoral sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"aumento_femoral"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r141">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: aumento_tibial até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"aumento_tibial"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r142">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: aumento_tibial acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"aumento_tibial"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r143">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: aumento_tibial sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"aumento_tibial"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r144">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: haste_extensao_femoral até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"haste_extensao_femoral"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r145">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: haste_extensao_femoral acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"haste_extensao_femoral"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r146">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: haste_extensao_femoral sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"haste_extensao_femoral"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r147">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: haste_extensao_tibial até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"haste_extensao_tibial"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r148">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: haste_extensao_tibial acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"haste_extensao_tibial"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r149">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: haste_extensao_tibial sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"haste_extensao_tibial"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r150">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: cimento_ortopedico até 2</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>&lt;= 2</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r151">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: cimento_ortopedico acima de 2 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r152">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: cimento_ortopedico sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"cimento_ortopedico"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r153">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: kit_cimentacao até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r154">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: kit_cimentacao acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r155">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: kit_cimentacao sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"kit_cimentacao"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r156">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: restritor_cimento até 2</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>&lt;= 2</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r157">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: restritor_cimento acima de 2 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>&gt; 2</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r158">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: restritor_cimento sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"restritor_cimento"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r159">
+        <description>OMNI-ORTOP-OPM-0002 — REVJ: lamina_serra_sagital até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r160">
+        <description>OMNI-ORTOP-OPM-0002 — REVJ: lamina_serra_sagital acima de 1 (justificativa técnica)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r161">
+        <description>OMNI-ORTOP-OPM-0002 — REVJ: lamina_serra_sagital sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r162">
+        <description>OMNI-ORTOP-OPM-0002 — REVJ: instrumental reutilizável incluso na taxa de sala</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"instrumental_reutilizavel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r163">
+        <description>OMNI-ORTOP-OPM-0002 — REVJ: broca ou fresa descartável fora do Anexo III para ortopedia [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r164">
+        <description>OMNI-ORTOP-OPM-0002 — REVJ: broca ou fresa descartável (ids da tabela e ids antigos) fora do Anexo III para ortopedia [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao","broca_desgaste","fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r165">
+        <description>OMNI-ORTOP-OPM-0003 — REVJ: parafuso bioabsorvível em cirurgia de joelho</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>"parafuso_bioabsorvivel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r166">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: material fora da lista positiva (auditoria; divergência vai à junta médica) [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>not("componente_femoral_joelho","base_tibial","insert_tibial","componente_patelar","aumento_femoral","aumento_tibial","haste_extensao_femoral","haste_extensao_tibial","cimento_ortopedico","kit_cimentacao","restritor_cimento","lamina_serra_sagital","instrumental_reutilizavel","fresa_corte_ortopedia","parafuso_bioabsorvivel")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r167">
+        <description>OMNI-ORTOP-OPM-0001 — REVJ: material fora da lista positiva (auditoria; divergência vai à junta médica) [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"REVJ"</text></inputEntry>
+        <inputEntry><text>not("componente_femoral_joelho","base_tibial","insert_tibial","componente_patelar","aumento_femoral","aumento_tibial","haste_extensao_femoral","haste_extensao_tibial","cimento_ortopedico","kit_cimentacao","restritor_cimento","lamina_serra_sagital","instrumental_reutilizavel","broca_perfuracao","broca_desgaste","parafuso_bioabsorvivel","fresa_corte_ortopedia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r168">
+        <description>OMNI-ORTOP-OPM-0002 — OST_JT: lâmina sagital até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"OST_JT"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r169">
+        <description>OMNI-ORTOP-OPM-0002 — OST_JT: lâmina sagital acima de 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"OST_JT"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r170">
+        <description>OMNI-ORTOP-OPM-0002 — OST_JT: lâmina sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"OST_JT"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r171">
+        <description>OMNI-ORTOP-OPM-0002 — OST_JT: instrumental reutilizável incluso na taxa de sala</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"OST_JT"</text></inputEntry>
+        <inputEntry><text>"instrumental_reutilizavel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r172">
+        <description>OMNI-ORTOP-OPM-0002 — OST_JT: broca ou fresa descartável fora do Anexo III para ortopedia [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"OST_JT"</text></inputEntry>
+        <inputEntry><text>"fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r173">
+        <description>OMNI-ORTOP-OPM-0002 — OST_JT: broca ou fresa descartável (ids da tabela e ids antigos) fora do Anexo III para ortopedia [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"OST_JT"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao","broca_desgaste","fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r174">
+        <description>OMNI-ORTOP-OPM-0003 — OST_JT: parafuso bioabsorvível em joelho ou tornozelo</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"OST_JT"</text></inputEntry>
+        <inputEntry><text>"parafuso_bioabsorvivel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r175">
+        <description>OMNI-ORTOP-OPM-0001 — OST_JT: sem lista positiva própria; material segue autorização e prova de uso [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"OST_JT"</text></inputEntry>
+        <inputEntry><text>not("lamina_serra_sagital","instrumental_reutilizavel","fresa_corte_ortopedia","parafuso_bioabsorvivel")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r176">
+        <description>OMNI-ORTOP-OPM-0001 — OST_JT: sem lista positiva própria; material segue autorização e prova de uso [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"OST_JT"</text></inputEntry>
+        <inputEntry><text>not("lamina_serra_sagital","instrumental_reutilizavel","broca_perfuracao","broca_desgaste","parafuso_bioabsorvivel","fresa_corte_ortopedia",null)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r177">
+        <description>OMNI-ORTOP-OPM-0001 — OST_JT: item de OPME sem categoria classificada vai à auditoria médica [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"OST_JT"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r178">
+        <description>OMNI-ORTOP-OPM-0002 — OST_OUT: lâmina sagital até 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"OST_OUT"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r179">
+        <description>OMNI-ORTOP-OPM-0002 — OST_OUT: lâmina sagital acima de 1</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"OST_OUT"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>"3190"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r180">
+        <description>OMNI-ORTOP-OPM-0002 — OST_OUT: lâmina sem quantidade</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"OST_OUT"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r181">
+        <description>OMNI-ORTOP-OPM-0002 — OST_OUT: instrumental reutilizável incluso na taxa de sala</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"OST_OUT"</text></inputEntry>
+        <inputEntry><text>"instrumental_reutilizavel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r182">
+        <description>OMNI-ORTOP-OPM-0002 — OST_OUT: broca ou fresa descartável fora do Anexo III para ortopedia [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"OST_OUT"</text></inputEntry>
+        <inputEntry><text>"fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r183">
+        <description>OMNI-ORTOP-OPM-0002 — OST_OUT: broca ou fresa descartável (ids da tabela e ids antigos) fora do Anexo III para ortopedia [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"OST_OUT"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao","broca_desgaste","fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r184">
+        <description>OMNI-ORTOP-OPM-0001 — OST_OUT: sem lista positiva própria; material segue autorização e prova de uso [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"OST_OUT"</text></inputEntry>
+        <inputEntry><text>not("lamina_serra_sagital","instrumental_reutilizavel","fresa_corte_ortopedia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r185">
+        <description>OMNI-ORTOP-OPM-0001 — OST_OUT: sem lista positiva própria; material segue autorização e prova de uso [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"OST_OUT"</text></inputEntry>
+        <inputEntry><text>not("lamina_serra_sagital","instrumental_reutilizavel","broca_perfuracao","broca_desgaste","fresa_corte_ortopedia",null)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r186">
+        <description>OMNI-ORTOP-OPM-0001 — OST_OUT: item de OPME sem categoria classificada vai à auditoria médica [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"OST_OUT"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r187">
+        <description>OMNI-ORTOP-OPM-0002 — JT_OUT: lâmina sagital em procedimento sem osteotomia ou artroplastia (Anexo III)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"JT_OUT"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r188">
+        <description>OMNI-ORTOP-OPM-0002 — JT_OUT: instrumental reutilizável incluso na taxa de sala</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"JT_OUT"</text></inputEntry>
+        <inputEntry><text>"instrumental_reutilizavel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r189">
+        <description>OMNI-ORTOP-OPM-0002 — JT_OUT: broca ou fresa descartável fora do Anexo III para ortopedia [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"JT_OUT"</text></inputEntry>
+        <inputEntry><text>"fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r190">
+        <description>OMNI-ORTOP-OPM-0002 — JT_OUT: broca ou fresa descartável (ids da tabela e ids antigos) fora do Anexo III para ortopedia [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"JT_OUT"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao","broca_desgaste","fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r191">
+        <description>OMNI-ORTOP-OPM-0003 — JT_OUT: parafuso bioabsorvível em joelho ou tornozelo</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"JT_OUT"</text></inputEntry>
+        <inputEntry><text>"parafuso_bioabsorvivel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r192">
+        <description>OMNI-ORTOP-OPM-0001 — JT_OUT: sem lista positiva própria; material segue autorização e prova de uso [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"JT_OUT"</text></inputEntry>
+        <inputEntry><text>not("lamina_serra_sagital","instrumental_reutilizavel","fresa_corte_ortopedia","parafuso_bioabsorvivel")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r193">
+        <description>OMNI-ORTOP-OPM-0001 — JT_OUT: sem lista positiva própria; material segue autorização e prova de uso [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"JT_OUT"</text></inputEntry>
+        <inputEntry><text>not("lamina_serra_sagital","instrumental_reutilizavel","broca_perfuracao","broca_desgaste","parafuso_bioabsorvivel","fresa_corte_ortopedia",null)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r194">
+        <description>OMNI-ORTOP-OPM-0001 — JT_OUT: item de OPME sem categoria classificada vai à auditoria médica [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"JT_OUT"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r195">
+        <description>OMNI-ORTOP-OPM-0002 — RESTO: lâmina sagital em procedimento sem osteotomia ou artroplastia (Anexo III)</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"RESTO"</text></inputEntry>
+        <inputEntry><text>"lamina_serra_sagital"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r196">
+        <description>OMNI-ORTOP-OPM-0002 — RESTO: instrumental reutilizável incluso na taxa de sala</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>"RESTO"</text></inputEntry>
+        <inputEntry><text>"instrumental_reutilizavel"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3207"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="r197">
+        <description>OMNI-ORTOP-OPM-0002 — RESTO: broca ou fresa descartável fora do Anexo III para ortopedia [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"RESTO"</text></inputEntry>
+        <inputEntry><text>"fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r198">
+        <description>OMNI-ORTOP-OPM-0002 — RESTO: broca ou fresa descartável (ids da tabela e ids antigos) fora do Anexo III para ortopedia [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"RESTO"</text></inputEntry>
+        <inputEntry><text>"broca_perfuracao","broca_desgaste","fresa_corte_ortopedia"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r199">
+        <description>OMNI-ORTOP-OPM-0001 — RESTO: sem lista positiva própria; material segue autorização e prova de uso [até 15/12/2026, versão anterior]</description>
+        <inputEntry><text>[20261103..20261216[</text></inputEntry>
+        <inputEntry><text>"RESTO"</text></inputEntry>
+        <inputEntry><text>not("lamina_serra_sagital","instrumental_reutilizavel","fresa_corte_ortopedia")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r200">
+        <description>OMNI-ORTOP-OPM-0001 — RESTO: sem lista positiva própria; material segue autorização e prova de uso [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"RESTO"</text></inputEntry>
+        <inputEntry><text>not("lamina_serra_sagital","instrumental_reutilizavel","broca_perfuracao","broca_desgaste","fresa_corte_ortopedia",null)</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r201">
+        <description>OMNI-ORTOP-OPM-0001 — RESTO: item de OPME sem categoria classificada vai à auditoria médica [desde 16/12/2026]</description>
+        <inputEntry><text>&gt;= 20261216</text></inputEntry>
+        <inputEntry><text>"RESTO"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r202">
+        <description>OMNI-ORTOP-OPM-0001 — código fora do escopo do domínio ORTOP</description>
+        <inputEntry><text>&gt;= 20261103</text></inputEntry>
+        <inputEntry><text>not("ATQ","PARC","REVQ","ATJ","REVJ","OST_JT","OST_OUT","JT_OUT","RESTO")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r203">
+        <description>OMNI-ORTOP-OPM-0001 — fora da vigência (antes de 03/11/2026): a lista de OPME ORTOP não se aplica</description>
+        <inputEntry><text>&lt; 20261103</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="r204">
+        <description>OMNI-ORTOP-OPM-0001 — data de execução ausente na guia</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORTOP-OPM-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

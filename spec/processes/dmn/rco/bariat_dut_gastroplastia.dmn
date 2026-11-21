@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_bariat_dut_gastroplastia" name="Gastroplastia: enquadramento na DUT 27 e cirurgia revisional (OMNI-BARIAT-DUT-0001, OMNI-BARIAT-CMP-0001)" namespace="https://omni-saude/dmn/cirurgia-bariatrica">
+  <decision id="rco_bariat_dut_gastroplastia" name="Gastroplastia: enquadramento na DUT 27 e cirurgia revisional (OMNI-BARIAT-DUT-0001, OMNI-BARIAT-CMP-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-BARIAT-DUT-0001 (DUT 27, Anexo II da RN 465/2021 atualizado até a RN 681/2026, p. 30–31); OMNI-BARIAT-CMP-0001. Libera só quando idade, IMC, tempo de tratamento e a ausência de critério de exclusão bastam. Idade abaixo de 16 anos, IMC abaixo de 35 ou tratamento clínico abaixo de 24 meses (dados objetivos da DUT) recebem recomendação de negativa 3288, com decisão da auditoria médica. Campo ausente vai à regulação ou ao cadastro; critério clínico vai à auditoria médica (PROG-COORD-03).</description>
+    <decisionTable id="dt_bariat_dut_gastroplastia" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido de autorização), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_cirurgiaBariatricaPrevia" label="cirurgiaBariatricaPrevia ← TISS histórico de guias OMNI do beneficiário (codigoProcedimento 31002218, 31002390, 31002013 ou 31002285 já realizado) ou solicitação (declaração no relatório)">
+        <inputExpression id="ie_2_cirurgiaBariatricaPrevia" typeRef="boolean"><text>cirurgiaBariatricaPrevia</text></inputExpression>
+      </input>
+      <input id="in_3_idadeBeneficiario" label="idadeBeneficiario ← cadastro (idade em anos completos na data da solicitação)">
+        <inputExpression id="ie_3_idadeBeneficiario" typeRef="integer"><text>idadeBeneficiario</text></inputExpression>
+      </input>
+      <input id="in_4_imc" label="imc ← solicitação (relatório médico do pedido): índice de massa corpórea em kg/m², campo fora do TISS">
+        <inputExpression id="ie_4_imc" typeRef="double"><text>imc</text></inputExpression>
+      </input>
+      <input id="in_5_tempoTratamentoClinicoMeses" label="tempoTratamentoClinicoMeses ← solicitação (relatório médico do pedido): meses de tratamento clínico da obesidade documentado, campo fora do TISS">
+        <inputExpression id="ie_5_tempoTratamentoClinicoMeses" typeRef="integer"><text>tempoTratamentoClinicoMeses</text></inputExpression>
+      </input>
+      <input id="in_6_contraindicacaoDut" label="contraindicacaoDut ← solicitação (relatório médico do pedido): o médico assinala algum critério de exclusão da DUT (DUT 27, Grupo III); campo fora do TISS">
+        <inputExpression id="ie_6_contraindicacaoDut" typeRef="boolean"><text>contraindicacaoDut</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="g_pre">
+        <description>Antes da vigência: auditoria médica analisa a DUT 27</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_sem_data">
+        <description>OMNI-BARIAT-DUT-0001: data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_revisional">
+        <description>OMNI-BARIAT-CMP-0001: cirurgia bariátrica anterior: cirurgia revisional vai à auditoria médica, sem negativa pela DUT</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_previa_nula">
+        <description>OMNI-BARIAT-CMP-0001: histórico de cirurgia bariátrica não informado: regulação confirma se é primária ou revisional</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_idade_nula">
+        <description>OMNI-BARIAT-DUT-0001: idade ausente no cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_menor16">
+        <description>OMNI-BARIAT-DUT-0001: menos de 16 anos não atende ao Grupo I da DUT 27 (dado objetivo de cadastro): recomendação de negativa 3288; a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&lt; 16</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"3288"</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="g_adolescente">
+        <description>OMNI-BARIAT-DUT-0001: 16 ou 17 anos dependem de escore-z do IMC e de epífises consolidadas (DUT 27, Grupo I, b): auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>[16..17]</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_imc_nulo">
+        <description>OMNI-BARIAT-DUT-0001: IMC não informado no pedido: regulação pede o relatório (campo fora do TISS nunca nega)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_imc_baixo">
+        <description>OMNI-BARIAT-DUT-0001: IMC abaixo de 35 não atende ao Grupo II da DUT 27 (dado objetivo do pedido): recomendação de negativa 3288; a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>&lt; 35</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"3288"</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="g50_ok">
+        <description>OMNI-BARIAT-DUT-0001: IMC de 50 ou mais (Grupo II, c) sem critério de exclusão assinalado: libera</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>&gt;= 50</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g50_contra">
+        <description>OMNI-BARIAT-DUT-0001: IMC de 50 ou mais com critério de exclusão assinalado (Grupo III): auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>&gt;= 50</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g50_contra_nulo">
+        <description>OMNI-BARIAT-DUT-0001: IMC de 50 ou mais sem resposta sobre os critérios de exclusão: regulação</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>&gt;= 50</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_trat_nulo">
+        <description>OMNI-BARIAT-DUT-0001: IMC de 35 a 49,9 sem o tempo de tratamento clínico: regulação</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>[35..50[</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_trat_curto">
+        <description>OMNI-BARIAT-DUT-0001: IMC de 35 a 49,9 com tratamento clínico inferior a 24 meses não atende ao Grupo II, a ou b: recomendação de negativa 3288; a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>[35..50[</text></inputEntry>
+        <inputEntry><text>&lt; 24</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"3288"</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="g40_ok">
+        <description>OMNI-BARIAT-DUT-0001: IMC de 40 a 49,9, tratamento clínico de 24 meses ou mais, sem critério de exclusão: libera</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>[40..50[</text></inputEntry>
+        <inputEntry><text>&gt;= 24</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g40_contra">
+        <description>OMNI-BARIAT-DUT-0001: IMC de 40 a 49,9 com critério de exclusão assinalado: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>[40..50[</text></inputEntry>
+        <inputEntry><text>&gt;= 24</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g40_contra_nulo">
+        <description>OMNI-BARIAT-DUT-0001: IMC de 40 a 49,9 sem resposta sobre os critérios de exclusão: regulação</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>[40..50[</text></inputEntry>
+        <inputEntry><text>&gt;= 24</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g35_comorb">
+        <description>OMNI-BARIAT-DUT-0001: IMC de 35 a 39,9 com tratamento de 24 meses ou mais: auditoria médica confere a comorbidade que ameaça a vida (Grupo II, a)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>[35..40[</text></inputEntry>
+        <inputEntry><text>&gt;= 24</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_fora">
+        <description>Fechamento (OMNI-BARIAT-DUT-0001): código sem a DUT 27</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("31002218", "31002390")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-DUT-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

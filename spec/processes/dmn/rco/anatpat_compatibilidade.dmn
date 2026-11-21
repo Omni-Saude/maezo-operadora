@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_anatpat_compatibilidade" name="Anatomia patológica: espécime e número de blocos" namespace="https://omni-saude/dmn/anatomia-patologica">
+  <decision id="rco_anatpat_compatibilidade" name="Anatomia patológica: espécime e número de blocos" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-ANATPAT-CMP-0001; OMNI-ANATPAT-CMP-0002. Domínio anatomia-patologica. Hit policy UNIQUE; nenhuma linha nega ou glosa; status do espécime ou número de blocos nulo vai à mesma auditoria médica do valor que dispara a conferência e só o valor declarado "adequado" libera (OPO-15); qualquer outro valor de status, inclusive fora da lista do dicionário, vai à mesma auditoria; a linha de fechamento (data ausente) vai à regulação.</description>
+    <decisionTable id="dt_anatpat_compatibilidade" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_statusEspecime" label="statusEspecime ← requisição ou laudo anexo à conta: adequado | inadequado | nao_identificado | incompativel (ausente vai à auditoria médica)">
+        <inputExpression id="ie_statusEspecime" typeRef="string"><text>statusEspecime</text></inputExpression>
+      </input>
+      <input id="in_blocosHistologicos" label="blocosHistologicos ← laudo anexo à conta: número de blocos histológicos (ausente vai à auditoria médica nos códigos com faixa de blocos)">
+        <inputExpression id="ie_blocosHistologicos" typeRef="integer"><text>blocosHistologicos</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-ANATPAT-CMP-0001 — antes do início da vigência (03/12/2026): sem conferência</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_rev">
+        <description>OMNI-ANATPAT-CMP-0001 — espécime inadequado, sem identificação, incompatível, de valor fora da lista ou sem status informado: auditoria médica, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601013", "40601021", "40601030", "40601048", "40601056", "40601064", "40601110", "40601129", "40601137", "40601145", "40601161", "40601226", "40601234", "40601242", "40601323", "40601331", "40601340", "40601358", "40601366", "40601374", "40601390", "40601404", "40601412", "40601420"</text></inputEntry>
+        <inputEntry><text>not("adequado")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="e_ok">
+        <description>OMNI-ANATPAT-CMP-0001 — espécime adequado: sem pendência</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601013", "40601021", "40601030", "40601048", "40601056", "40601064", "40601110", "40601129", "40601137", "40601145", "40601161", "40601226", "40601234", "40601242", "40601323", "40601331", "40601340", "40601358", "40601366", "40601374", "40601390", "40601404", "40601412", "40601420"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f_rev_esp">
+        <description>OMNI-ANATPAT-CMP-0001 — fragmentos múltiplos, espécime com problema ou sem status informado: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601196"</text></inputEntry>
+        <inputEntry><text>not("adequado")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f_menor">
+        <description>OMNI-ANATPAT-CMP-0002 — fragmentos múltiplos com menos de três blocos: auditoria médica posterior</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601196"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>&lt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f_ok">
+        <description>OMNI-ANATPAT-CMP-0002 — fragmentos múltiplos com três blocos ou mais: sem pendência</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601196"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>&gt;= 3</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="f_nulo">
+        <description>OMNI-ANATPAT-CMP-0002 — fragmentos múltiplos sem número de blocos: auditoria médica posterior, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601196"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="s_rev_esp">
+        <description>OMNI-ANATPAT-CMP-0001 — peça simples, espécime com problema ou sem status informado: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601200"</text></inputEntry>
+        <inputEntry><text>not("adequado")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="s_menor">
+        <description>OMNI-ANATPAT-CMP-0002 — peça simples com menos de três blocos: auditoria médica posterior</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601200"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>&lt; 3</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="s_ok">
+        <description>OMNI-ANATPAT-CMP-0002 — peça simples com três a seis blocos: sem pendência</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601200"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>[3..6]</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="s_maior">
+        <description>OMNI-ANATPAT-CMP-0002 — peça simples com mais de seis blocos: auditoria médica posterior</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601200"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>&gt; 6</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="s_nulo">
+        <description>OMNI-ANATPAT-CMP-0002 — peça simples sem número de blocos: auditoria médica posterior, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601200"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_rev_esp">
+        <description>OMNI-ANATPAT-CMP-0001 — peça complexa, espécime com problema ou sem status informado: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601218"</text></inputEntry>
+        <inputEntry><text>not("adequado")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_menor">
+        <description>OMNI-ANATPAT-CMP-0002 — peça complexa com menos de sete blocos: auditoria médica posterior</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601218"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>&lt; 7</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_ok">
+        <description>OMNI-ANATPAT-CMP-0002 — peça complexa com sete blocos ou mais: sem pendência</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601218"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>&gt;= 7</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_nulo">
+        <description>OMNI-ANATPAT-CMP-0002 — peça complexa sem número de blocos: auditoria médica posterior, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40601218"</text></inputEntry>
+        <inputEntry><text>"adequado"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-ANATPAT-CMP-0001 — código sem conferência de espécime nem de blocos: libera</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>not("40601013", "40601021", "40601030", "40601048", "40601056", "40601064", "40601110", "40601129", "40601137", "40601145", "40601161", "40601196", "40601200", "40601218", "40601226", "40601234", "40601242", "40601323", "40601331", "40601340", "40601358", "40601366", "40601374", "40601390", "40601404", "40601412", "40601420")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="fim">
+        <description>OMNI-ANATPAT-CMP-0001 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ANATPAT-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

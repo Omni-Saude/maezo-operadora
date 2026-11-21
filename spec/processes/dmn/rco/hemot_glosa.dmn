@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_hemot_glosa" name="Hemoterapia: bolsa reservada e não transfundida" namespace="https://omni-saude/dmn/hemoterapia">
+  <decision id="rco_hemot_glosa" name="Hemoterapia: bolsa reservada e não transfundida" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-HEMOT-GLO-0001. Hit policy UNIQUE; nenhuma linha glosa nem nega: unidade de hemocomponente ou modificação sem transfusão efetivada, declarada falsa ou não informada, vai ao faturamento, sem glosa (a prova de compatibilidade da reserva continua cobrável); só a transfusão efetivada informada libera (OPO-15); fechamento null vai à regulação.</description>
+    <decisionTable id="dt_hemot_glosa" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22; TUSS 20 na albumina)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_transfusaoEfetivada" label="transfusaoEfetivada ← anexo da conta: transfusão registrada da unidade no prontuário (true, false ou ausente)">
+        <inputExpression id="ie_2_transfusaoEfetivada" typeRef="boolean"><text>transfusaoEfetivada</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-HEMOT-GLO-0001 — antes do início da vigência (03/12/2026): a regra não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-16"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-GLO-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_rev">
+        <description>OMNI-HEMOT-GLO-0001 — unidade de hemocomponente ou modificação sem transfusão efetivada ou com o campo não informado: faturamento, sem glosa automática (OPO-15: o nulo segue a mesma linha do falso)</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40402045", "40402053", "40402061", "40402070", "40402088", "40402096", "40402100", "40402118", "40402126", "40402134", "40402142", "40402150", "40402169"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="g_ok">
+        <description>OMNI-HEMOT-GLO-0001 — unidade de hemocomponente ou modificação com transfusão efetivada informada: libera</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>"40402045", "40402053", "40402061", "40402070", "40402088", "40402096", "40402100", "40402118", "40402126", "40402134", "40402142", "40402150", "40402169"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-GLO-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-HEMOT-GLO-0001 — código fora das unidades de hemocomponente (inclui a prova de compatibilidade 40403408 da reserva): libera</description>
+        <inputEntry><text>&gt;= "2026-12-16"</text></inputEntry>
+        <inputEntry><text>not("40402045", "40402053", "40402061", "40402070", "40402088", "40402096", "40402100", "40402118", "40402126", "40402134", "40402142", "40402150", "40402169")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-GLO-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="sem_data">
+        <description>OMNI-HEMOT-GLO-0001 — data de atendimento ausente: regulação, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-HEMOT-GLO-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_geral_cpt" name="Regras gerais: cobertura parcial temporária (OMNI-GERAL-CAR-0004)" namespace="https://omni-saude/dmn/regras-gerais">
+  <decision id="rco_geral_cpt" name="Regras gerais: cobertura parcial temporária (OMNI-GERAL-CAR-0004)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-GERAL-CAR-0004: com CPT vigente, PAC, cirurgia ou leito de alta tecnologia com CID idêntico ao da doença declarada e atendimento eletivo recebe recomendação de negativa (Tab. 38: 3173, ANS-RN-558 art. 2º, II), com decisão da auditoria médica. CID só na mesma categoria de três caracteres da doença declarada pede o relatório do médico assistente sobre a relação (exigir_documento), sem recomendação de negativa. Urgência ou caráter ausente vai à regulação; dado ausente vai ao cadastro ou à auditoria médica.</description>
+    <decisionTable id="dt_geral_cpt" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_caraterAtendimento" label="caraterAtendimento ← TISS caraterAtendimento (TUSS 23: 1 eletivo, 2 urgência/emergência)">
+        <inputExpression id="ie_caraterAtendimento" typeRef="string"><text>caraterAtendimento</text></inputExpression>
+      </input>
+      <input id="in_cptVigente" label="cptVigente ← cadastro do beneficiário: cobertura parcial temporária contratada e dentro do prazo na data do atendimento">
+        <inputExpression id="ie_cptVigente" typeRef="boolean"><text>cptVigente</text></inputExpression>
+      </input>
+      <input id="in_procedimentoAlcancadoCpt" label="procedimentoAlcancadoCpt ← TISS codigoProcedimento (TUSS 22) classificado como PAC no Rol (fontes/derivados/rol-correlacao-tuss.csv), cirúrgico (TUSS 22, grupo 3) ou diária de leito de alta tecnologia (TUSS 18)">
+        <inputExpression id="ie_procedimentoAlcancadoCpt" typeRef="boolean"><text>procedimentoAlcancadoCpt</text></inputExpression>
+      </input>
+      <input id="in_cidNaDlpDeclarada" label="cidNaDlpDeclarada ← TISS diagnosticoPrincipal (CID-10) na mesma categoria de três caracteres de doença declarada com CPT no cadastro do beneficiário">
+        <inputExpression id="ie_cidNaDlpDeclarada" typeRef="boolean"><text>cidNaDlpDeclarada</text></inputExpression>
+      </input>
+      <input id="in_cidIgualDlpDeclarada" label="cidIgualDlpDeclarada ← TISS diagnosticoPrincipal (CID-10) igual, em todos os caracteres, a CID de doença declarada com CPT no cadastro do beneficiário (false = só a categoria de três caracteres coincide)">
+        <inputExpression id="ie_cidIgualDlpDeclarada" typeRef="boolean"><text>cidIgualDlpDeclarada</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="p_pre">
+        <description>Fora da vigência (antes de 2026-11-03)</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sem_cpt">
+        <description>OMNI-GERAL-CAR-0004: sem CPT vigente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_cpt_nulo">
+        <description>OMNI-GERAL-CAR-0004: situação de CPT ausente no cadastro</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_nao_alcancado">
+        <description>OMNI-GERAL-CAR-0004: procedimento não alcançado pela CPT (consulta, exame simples, demais)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_alc_nulo">
+        <description>OMNI-GERAL-CAR-0004: classificação do procedimento ausente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_cid_fora">
+        <description>OMNI-GERAL-CAR-0004: CID fora das categorias declaradas</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_cid_nulo">
+        <description>OMNI-GERAL-CAR-0004: CID ausente</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_eletivo">
+        <description>OMNI-GERAL-CAR-0004: eletivo alcançado pela CPT com CID idêntico ao declarado: recomendação de negativa (Tab. 38: 3173); a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"3173"</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="p_eletivo_categoria">
+        <description>OMNI-GERAL-CAR-0004: eletivo alcançado pela CPT com CID só na mesma categoria da doença declarada: pede o relatório do médico assistente sobre a relação; item pendente, sem recomendação de negativa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"exigir_documento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_eletivo_igual_nulo">
+        <description>OMNI-GERAL-CAR-0004: eletivo alcançado pela CPT com a igualdade do CID ausente: auditoria médica confere, sem recomendação de negativa</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_urgencia">
+        <description>OMNI-GERAL-CAR-0004: urgência ou caráter ausente alcançado pela CPT: regulação (linha final, nunca nega)</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sem_data">
+        <description>OMNI-GERAL-CAR-0004: data ausente (linha final, nunca nega)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-GERAL-CAR-0004"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

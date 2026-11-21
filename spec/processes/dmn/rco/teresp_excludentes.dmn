@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_teresp_excludentes" name="Terapias multiprofissionais e TEA: par de procedimentos na mesma guia em revisão humana" namespace="https://omni-saude/dmn/terapias-multiprofissionais-tea">
+  <decision id="rco_teresp_excludentes" name="Terapias multiprofissionais e TEA: par de procedimentos na mesma guia em revisão humana" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TERESP-MEX-0001. Hit policy UNIQUE; nenhuma linha glosa (o TISS não tem campo do eletrodo): o par 20103646 e 20203020 na mesma guia e data vai à revisão do faturamento, com exceção quando há registro do eletrodo no prontuário; data ausente vai à revisão humana.</description>
+    <decisionTable id="dt_teresp_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoPrincipal" label="codigoPrincipal ← TISS codigoProcedimento de uma linha da guia (TUSS 22 ou TUSS 20)">
+        <inputExpression id="ie_1_codigoPrincipal" typeRef="string"><text>codigoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento de outra linha da mesma guia e dataExecucao (TUSS 22 ou TUSS 20)">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_registroEletrodoProntuario" label="registroEletrodoProntuario ← anexo: registro do eletrodo anal ou vaginal no prontuário do prestador (sem campo TISS)">
+        <inputExpression id="ie_3_registroEletrodoProntuario" typeRef="boolean"><text>registroEletrodoProntuario</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="t_pre">
+        <description>OMNI-TERESP-MEX-0001 — antes da vigência (06/12/2026): liberar, sem efeito</description>
+        <inputEntry><text>&lt; "2026-12-06"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x01">
+        <description>OMNI-TERESP-MEX-0001 — par 20103646 e 20203020 na mesma guia e data, com registro do eletrodo no prontuário: exceção, liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"20103646"</text></inputEntry>
+        <inputEntry><text>"20203020"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x02">
+        <description>OMNI-TERESP-MEX-0001 — par 20103646 e 20203020 na mesma guia e data, sem registro do eletrodo: revisão do faturamento, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"20103646"</text></inputEntry>
+        <inputEntry><text>"20203020"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x03">
+        <description>OMNI-TERESP-MEX-0001 — par 20203020 e 20103646 na mesma guia e data, com registro do eletrodo no prontuário: exceção, liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"20203020"</text></inputEntry>
+        <inputEntry><text>"20103646"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x04">
+        <description>OMNI-TERESP-MEX-0001 — par 20203020 e 20103646 na mesma guia e data, sem registro do eletrodo: revisão do faturamento, nunca glosa</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"20203020"</text></inputEntry>
+        <inputEntry><text>"20103646"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x05">
+        <description>OMNI-TERESP-MEX-0001 — reabilitação perineal com biofeedback sem a eletroestimulação na guia: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"20103646"</text></inputEntry>
+        <inputEntry><text>not("20203020")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x06">
+        <description>OMNI-TERESP-MEX-0001 — eletroestimulação do assoalho pélvico sem a reabilitação perineal na guia: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>"20203020"</text></inputEntry>
+        <inputEntry><text>not("20103646")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x07">
+        <description>OMNI-TERESP-MEX-0001 — demais códigos principais: sem par excludente no domínio</description>
+        <inputEntry><text>&gt;= "2026-12-06"</text></inputEntry>
+        <inputEntry><text>not("20103646", "20203020")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="t_sem_data">
+        <description>OMNI-TERESP-MEX-0001 — data do atendimento ausente: revisão humana, nunca negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TERESP-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

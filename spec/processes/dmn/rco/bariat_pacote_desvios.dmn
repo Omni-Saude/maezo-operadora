@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_bariat_pacote_desvios" name="Desvios do pacote de gastroplastia: permanência, UTI, complicação e reinternação (OMNI-BARIAT-PAC-0002)" namespace="https://omni-saude/dmn/cirurgia-bariatrica">
+  <decision id="rco_bariat_pacote_desvios" name="Desvios do pacote de gastroplastia: permanência, UTI, complicação e reinternação (OMNI-BARIAT-PAC-0002)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-BARIAT-PAC-0002. Limiar de permanência provisório de 3 dias (LIT-COHEN-2021, a calibrar no backtest; L-faseD-d6-bariat-03). Nenhum desvio nega cobertura: só muda a forma de pagar o prestador.</description>
+    <decisionTable id="dt_bariat_pacote_desvios" hitPolicy="UNIQUE">
+      <input id="in_0_codigoPacote" label="codigoPacote ← TISS codigoProcedimento do pacote (Tabela 98) cobrado na guia de resumo de internação">
+        <inputExpression id="ie_0_codigoPacote" typeRef="string"><text>codigoPacote</text></inputExpression>
+      </input>
+      <input id="in_1_reinternacaoMesmaCausa" label="reinternacaoMesmaCausa ← TISS guias de internação: nova internação no mesmo prestador até 30 dias da alta, com mesma categoria de CID principal ou mesmo procedimento principal">
+        <inputExpression id="ie_1_reinternacaoMesmaCausa" typeRef="boolean"><text>reinternacaoMesmaCausa</text></inputExpression>
+      </input>
+      <input id="in_2_complicacaoCidSecundario" label="complicacaoCidSecundario ← TISS diagnosticoCID secundário da guia na lista de complicação do pacote (lista LACUNA: enviar null)">
+        <inputExpression id="ie_2_complicacaoCidSecundario" typeRef="boolean"><text>complicacaoCidSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_utiNaoPrevista" label="utiNaoPrevista ← TISS diária de UTI (TUSS 49: 51) cobrada sem previsão na autorização">
+        <inputExpression id="ie_3_utiNaoPrevista" typeRef="boolean"><text>utiNaoPrevista</text></inputExpression>
+      </input>
+      <input id="in_4_diasInternacao" label="diasInternacao ← TISS resumo de internação: data da alta menos data da internação, em dias">
+        <inputExpression id="ie_4_diasInternacao" typeRef="integer"><text>diasInternacao</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <output id="out_4_acaoPagamento" name="acaoPagamento" typeRef="string"/>
+      <rule id="d_reint">
+        <description>OMNI-BARIAT-PAC-0002: reinternação pela mesma causa em 30 dias: sem novo pacote; diárias além do limiar pagas (glosa 1711 do novo pacote)</description>
+        <inputEntry><text>"OMNI-PAC-BARIAT-0001"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"1711"</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+        <outputEntry><text>"sem_novo_pacote_diarias_adicionais"</text></outputEntry>
+      </rule>
+      <rule id="d_compl">
+        <description>OMNI-BARIAT-PAC-0002: complicação por CID secundário: auditoria médica, sem suspender o pagamento</description>
+        <inputEntry><text>"OMNI-PAC-BARIAT-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"revisao_complicacao"</text></outputEntry>
+      </rule>
+      <rule id="d_uti">
+        <description>OMNI-BARIAT-PAC-0002: UTI não prevista: diária de UTI paga à parte</description>
+        <inputEntry><text>"OMNI-PAC-BARIAT-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pagar_diaria_uti_a_parte"</text></outputEntry>
+      </rule>
+      <rule id="d_ate">
+        <description>OMNI-BARIAT-PAC-0002: permanência até 3 dias: pacote integral</description>
+        <inputEntry><text>"OMNI-PAC-BARIAT-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>[0..3]</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pacote_integral"</text></outputEntry>
+      </rule>
+      <rule id="d_acima">
+        <description>OMNI-BARIAT-PAC-0002: permanência acima de 3 dias: pacote mais diária adicional (nunca corta a internação)</description>
+        <inputEntry><text>"OMNI-PAC-BARIAT-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>&gt; 3</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"pagar_adicional_diario"</text></outputEntry>
+      </rule>
+      <rule id="d_dias_nulo">
+        <description>OMNI-BARIAT-PAC-0002: dias de internação ausentes ou inválidos: faturamento confere</description>
+        <inputEntry><text>"OMNI-PAC-BARIAT-0001"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>null, &lt; 0</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="d_fora">
+        <description>Fechamento (OMNI-BARIAT-PAC-0002): guia sem o pacote bariátrico</description>
+        <inputEntry><text>not("OMNI-PAC-BARIAT-0001")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"conta_aberta"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

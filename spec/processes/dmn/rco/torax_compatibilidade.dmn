@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_torax_compatibilidade" name="Tórax: troca de via, técnica × código e troca de prótese tráqueo-esofágica (conta)" namespace="https://omni-saude/dmn/torax-pneumologia">
+  <decision id="rco_torax_compatibilidade" name="Tórax: troca de via, técnica × código e troca de prótese tráqueo-esofágica (conta)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-TORAX-AUT-0008, OMNI-TORAX-CMP-0001 e OMNI-TORAX-CMP-0002. Hit policy UNIQUE; nenhuma linha nega ou glosa: o que não combina vai à auditoria. Troca de via após a autorização tem precedência sobre a técnica (a auditoria confere as duas). Técnica nula não dispara crítica. Listas em regras/torax-pneumologia/dominio.yaml (pares_via).</description>
+    <decisionTable id="dt_torax_compatibilidade" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_1_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_2_viaAlteradaAposAutorizacao" label="viaAlteradaAposAutorizacao ← cadastro da autorização (senha) e TISS codigoProcedimento: código executado é o par de via do autorizado (pares_via do dominio.yaml)">
+        <inputExpression id="ie_2_viaAlteradaAposAutorizacao" typeRef="boolean"><text>viaAlteradaAposAutorizacao</text></inputExpression>
+      </input>
+      <input id="in_3_tecnicaUtilizada" label="tecnicaUtilizada ← TISS tecnicaUtilizada (TUSS 48: 1 convencional, 2 vídeo, 3 robótica)">
+        <inputExpression id="ie_3_tecnicaUtilizada" typeRef="string"><text>tecnicaUtilizada</text></inputExpression>
+      </input>
+      <input id="in_4_opmeNaGuia" label="opmeNaGuia ← TISS guia (há item de OPME de prótese na guia do procedimento)">
+        <inputExpression id="ie_4_opmeNaGuia" typeRef="boolean"><text>opmeNaGuia</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="p_pre">
+        <description>OMNI-TORAX-CMP-0001 — antes da vigência (2026-12-03)</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_via">
+        <description>OMNI-TORAX-AUT-0008 — código executado é o par de via do autorizado: aceito sem nova autorização, auditoria na conta</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801060", "30801087", "30801168", "30801176", "30802016", "30802024", "30802040", "30802059", "30803012", "30803020", "30803047", "30803055", "30803080", "30803098", "30803152", "30803179", "30803187", "30803195", "30803209", "30803217", "30803225", "30803233", "30804027", "30804035", "30804043", "30804051", "30804108", "30804124", "30804140", "30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213", "30805031", "30805040", "30805074", "30805082", "30805090", "30805104", "30805120", "30805139", "30805147", "30805155", "30805163", "30805180", "30805198", "30805201", "30805210", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805287", "30806038", "30806054", "30806062", "30806070"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-AUT-0008"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_conv_video">
+        <description>OMNI-TORAX-CMP-0001 — código de via aberta específica com técnica por vídeo ou robótica: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803012", "30803055", "30803080"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"2", "3"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_conv_ok">
+        <description>OMNI-TORAX-CMP-0001 — código de via aberta com técnica convencional, outra ou não informada: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803012", "30803055", "30803080"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("2", "3")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_video_conv">
+        <description>OMNI-TORAX-CMP-0001 — código por videotoracoscopia com técnica convencional: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179", "30803187", "30803195", "30803209", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>"1"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_video_ok">
+        <description>OMNI-TORAX-CMP-0001 — código por videotoracoscopia com técnica por vídeo, robótica ou não informada: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30803179", "30803187", "30803195", "30803209", "30803217", "30803225", "30803233"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>not("1")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_par_ok">
+        <description>OMNI-TORAX-AUT-0008 — código de par de via fora da família PULMÃO, sem troca após a autorização: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801060", "30801087", "30801168", "30801176", "30802016", "30802024", "30802040", "30802059", "30803020", "30803047", "30803098", "30803152", "30804027", "30804035", "30804043", "30804051", "30804108", "30804124", "30804140", "30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213", "30805031", "30805040", "30805074", "30805082", "30805090", "30805104", "30805120", "30805139", "30805147", "30805155", "30805163", "30805180", "30805198", "30805201", "30805210", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805287", "30806038", "30806054", "30806062", "30806070"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-AUT-0008"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_protese_sem">
+        <description>OMNI-TORAX-CMP-0002 — troca de prótese tráqueo-esofágica sem prótese na guia: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801150"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_protese_com">
+        <description>OMNI-TORAX-CMP-0002 — troca de prótese tráqueo-esofágica com prótese na guia: liberar</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801150"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-CMP-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_protese_nulo">
+        <description>OMNI-TORAX-CMP-0002 — OPME da guia não informada: faturamento, sem glosa</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"30801150"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-CMP-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_resto">
+        <description>OMNI-TORAX-CMP-0001 — código fora das listas da tabela: segue as demais regras</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("30801060", "30801087", "30801168", "30801176", "30802016", "30802024", "30802040", "30802059", "30803012", "30803020", "30803047", "30803055", "30803080", "30803098", "30803152", "30803179", "30803187", "30803195", "30803209", "30803217", "30803225", "30803233", "30804027", "30804035", "30804043", "30804051", "30804108", "30804124", "30804140", "30804159", "30804167", "30804175", "30804183", "30804191", "30804205", "30804213", "30805031", "30805040", "30805074", "30805082", "30805090", "30805104", "30805120", "30805139", "30805147", "30805155", "30805163", "30805180", "30805198", "30805201", "30805210", "30805228", "30805236", "30805244", "30805252", "30805260", "30805279", "30805287", "30806038", "30806054", "30806062", "30806070", "30801150")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-CMP-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="p_sem_data">
+        <description>OMNI-TORAX-CMP-0001 — data ausente: faturamento (fechamento, nunca negativa)</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-TORAX-CMP-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

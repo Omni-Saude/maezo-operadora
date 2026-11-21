@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_dut_implante_coclear_orl" name="ORL: implante coclear na DUT 33 (OMNI-ORL-DUT-0001)" namespace="https://omni-saude/dmn/otorrino-cabeca-pescoco">
+  <decision id="rco_dut_implante_coclear_orl" name="ORL: implante coclear na DUT 33 (OMNI-ORL-DUT-0001)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-ORL-DUT-0001: DUT 33 do Anexo II da RN 465/2021 atualizado até a RN 681/2026 (p. 33-35). Só o reconhecimento de sentenças acima de 50% na perda neurossensorial a partir de 4 anos é dado objetivo que afasta todos os itens aplicáveis (3 a 6 e 9): recomendação de negativa (Tab. 38 3288), com decisão da auditoria médica. O resto vai à auditoria médica (PROG-COORD-03).</description>
+    <decisionTable id="dt_dut_implante_coclear_orl" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao, AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_idadeBeneficiario" label="idadeBeneficiario ← cadastro (anos completos na data da solicitação)">
+        <inputExpression id="ie_1_idadeBeneficiario" typeRef="integer"><text>idadeBeneficiario</text></inputExpression>
+      </input>
+      <input id="in_2_tipoPerdaAuditiva" label="tipoPerdaAuditiva ← solicitação (anexo do pedido: laudo audiológico): neurossensorial | neuropatia_auditiva | condutiva | mista">
+        <inputExpression id="ie_2_tipoPerdaAuditiva" typeRef="string"><text>tipoPerdaAuditiva</text></inputExpression>
+      </input>
+      <input id="in_3_reconhecimentoSentencasPct" label="reconhecimentoSentencasPct ← solicitação (anexo do pedido: laudo de percepção de fala): % de reconhecimento de sentenças em conjunto aberto com AASI na orelha a implantar">
+        <inputExpression id="ie_3_reconhecimentoSentencasPct" typeRef="double"><text>reconhecimentoSentencasPct</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="c_pre">
+        <description>OMNI-ORL-DUT-0001 — fora da vigência (antes de 02/12/2026): a DUT 33 é conferida pela auditoria médica</description>
+        <inputEntry><text>&lt; "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_falha">
+        <description>OMNI-ORL-DUT-0001 — DUT 33, itens 3 a 6 e 9: a partir de 4 anos, reconhecimento de sentenças acima de 50% não atende nenhum item: recomendação de negativa (Tab. 38 3288); a auditoria médica decide</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>&gt;= 4</text></inputEntry>
+        <inputEntry><text>"neurossensorial"</text></inputEntry>
+        <inputEntry><text>&gt; 50</text></inputEntry>
+        <outputEntry><text>"recomendar_negativa"</text></outputEntry>
+        <outputEntry><text>"3288"</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>"clinico"</text></outputEntry>
+      </rule>
+      <rule id="c_ok">
+        <description>OMNI-ORL-DUT-0001 — DUT 33, itens 3 a 6 e 9: reconhecimento até 50%; demais critérios (grau, lateralidade, linguagem, adequação) vão à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>&gt;= 4</text></inputEntry>
+        <inputEntry><text>"neurossensorial"</text></inputEntry>
+        <inputEntry><text>&lt;= 50</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_rec_nulo">
+        <description>OMNI-ORL-DUT-0001 — reconhecimento de sentenças não informado: a regulação pede o laudo</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>&gt;= 4</text></inputEntry>
+        <inputEntry><text>"neurossensorial"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_menor4">
+        <description>OMNI-ORL-DUT-0001 — DUT 33, item 2 (menor de 4 anos): critérios clínicos e audiológicos à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>&lt; 4</text></inputEntry>
+        <inputEntry><text>"neurossensorial"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_sem_idade">
+        <description>OMNI-ORL-DUT-0001 — idade ausente no cadastro</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"neurossensorial"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"cadastro"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_outro">
+        <description>OMNI-ORL-DUT-0001 — neuropatia auditiva (itens 7 e 8), outro tipo de perda ou tipo não informado: auditoria médica, nunca negativa automática</description>
+        <inputEntry><text>&gt;= "2026-12-02"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("neurossensorial")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="c_sem_data">
+        <description>OMNI-ORL-DUT-0001 — data ausente</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-ORL-DUT-0001"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

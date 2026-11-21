@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_lab_limite_quantidade" name="Laboratório: repetição, intervalo e quantidade" namespace="https://omni-saude/dmn/laboratorio">
+  <decision id="rco_lab_limite_quantidade" name="Laboratório: repetição, intervalo e quantidade" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-LAB-LIM-0001 a OMNI-LAB-LIM-0005. Domínio laboratorio. Hit policy UNIQUE; nenhuma linha nega ou glosa; excedente vai à auditoria médica posterior; dado nulo libera; data ausente vai à regulação.</description>
+    <decisionTable id="dt_lab_limite_quantidade" hitPolicy="UNIQUE">
+      <input id="in_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_codigoProcedimento" label="codigoProcedimento ← TISS codigoProcedimento (TUSS 22)">
+        <inputExpression id="ie_codigoProcedimento" typeRef="string"><text>codigoProcedimento</text></inputExpression>
+      </input>
+      <input id="in_execucoesEmOutraGuiaNoDia" label="execucoesEmOutraGuiaNoDia ← fluxo Camunda (histórico de contas do beneficiário): execuções do mesmo código na mesma data em outras guias (inteiro ou ausente)">
+        <inputExpression id="ie_execucoesEmOutraGuiaNoDia" typeRef="integer"><text>execucoesEmOutraGuiaNoDia</text></inputExpression>
+      </input>
+      <input id="in_execucoesAnteriores" label="execucoesAnteriores ← fluxo Camunda (histórico de contas do beneficiário): execuções do mesmo código no intervalo (inteiro ou ausente)">
+        <inputExpression id="ie_execucoesAnteriores" typeRef="integer"><text>execucoesAnteriores</text></inputExpression>
+      </input>
+      <input id="in_quantidade" label="quantidade ← TISS quantidadeExecutada do item somada por pedido (inteiro ou ausente)">
+        <inputExpression id="ie_quantidade" typeRef="integer"><text>quantidade</text></inputExpression>
+      </input>
+      <input id="in_justificativaReteste" label="justificativaReteste ← solicitação (formulário do pedido): reteste justificado (true, false ou ausente)">
+        <inputExpression id="ie_justificativaReteste" typeRef="boolean"><text>justificativaReteste</text></inputExpression>
+      </input>
+      <input id="in_justificativaRepeticao" label="justificativaRepeticao ← solicitação (formulário do pedido): repetição no dia justificada (true, false ou ausente)">
+        <inputExpression id="ie_justificativaRepeticao" typeRef="boolean"><text>justificativaRepeticao</text></inputExpression>
+      </input>
+      <input id="in_relatorioIndicacaoAtual" label="relatorioIndicacaoAtual ← anexo da conta: relatório com a indicação clínica atual (true, false ou ausente)">
+        <inputExpression id="ie_relatorioIndicacaoAtual" typeRef="boolean"><text>relatorioIndicacaoAtual</text></inputExpression>
+      </input>
+      <input id="in_relatorioHistoriaClinica" label="relatorioHistoriaClinica ← anexo do pedido: relatório de correlação com a história clínica (true, false ou ausente)">
+        <inputExpression id="ie_relatorioHistoriaClinica" typeRef="boolean"><text>relatorioHistoriaClinica</text></inputExpression>
+      </input>
+      <output id="out_decisao" name="decisao" typeRef="string"/>
+      <output id="out_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="pre">
+        <description>OMNI-LAB-LIM-0003 — antes do início da vigência (03/12/2026): a regra não se aplica</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_rev">
+        <description>OMNI-LAB-LIM-0001 — hepatite B e C por PCR, acima do limite sem justificativa: auditoria médica posterior</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40314081", "40314090", "40314103"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0001"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_just">
+        <description>OMNI-LAB-LIM-0001 — hepatite B e C por PCR, acima do limite com justificativa: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40314081", "40314090", "40314103"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l1_ok">
+        <description>OMNI-LAB-LIM-0001 — hepatite B e C por PCR, dentro do limite ou sem dado: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40314081", "40314090", "40314103"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_rev">
+        <description>OMNI-LAB-LIM-0002 — genética molecular, acima do limite sem justificativa: auditoria médica posterior</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40304973", "40308235", "40312020", "40314049", "40314057", "40314065", "40314235", "40314260", "40314286", "40319326", "40323552"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_just">
+        <description>OMNI-LAB-LIM-0002 — genética molecular, acima do limite com justificativa: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40304973", "40308235", "40312020", "40314049", "40314057", "40314065", "40314235", "40314260", "40314286", "40319326", "40323552"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l2_ok">
+        <description>OMNI-LAB-LIM-0002 — genética molecular, dentro do limite ou sem dado: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40304973", "40308235", "40312020", "40314049", "40314057", "40314065", "40314235", "40314260", "40314286", "40319326", "40323552"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l4_rev">
+        <description>OMNI-LAB-LIM-0004 — dímero-D, acima do limite sem justificativa: auditoria médica posterior</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40304906"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0004"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l4_just">
+        <description>OMNI-LAB-LIM-0004 — dímero-D, acima do limite com justificativa: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40304906"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&gt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l4_ok">
+        <description>OMNI-LAB-LIM-0004 — dímero-D, dentro do limite ou sem dado: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40304906"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0004"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l5_rev">
+        <description>OMNI-LAB-LIM-0005 — IgE específica, acima do limite sem justificativa: auditoria médica posterior</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40307255", "40307263"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 6</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0005"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l5_just">
+        <description>OMNI-LAB-LIM-0005 — IgE específica, acima do limite com justificativa: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40307255", "40307263"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt; 6</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l5_ok">
+        <description>OMNI-LAB-LIM-0005 — IgE específica, dentro do limite ou sem dado: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"40307255", "40307263"</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&lt;= 6, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0005"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l3_rev">
+        <description>OMNI-LAB-LIM-0003 — mesmo código na mesma data em outra guia, sem justificativa: auditoria médica posterior</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0003"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="l3_just">
+        <description>OMNI-LAB-LIM-0003 — mesmo código na mesma data em outra guia, com justificativa: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>&gt;= 1</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="resto">
+        <description>OMNI-LAB-LIM-0003 — demais códigos sem repetição em outra guia: libera</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>not("40314081", "40314090", "40314103", "40304973", "40308235", "40312020", "40314049", "40314057", "40314065", "40314235", "40314260", "40314286", "40319326", "40323552", "40304906", "40307255", "40307263")</text></inputEntry>
+        <inputEntry><text>&lt; 1, null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0003"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="fim">
+        <description>OMNI-LAB-LIM-0003 — data ausente: regulação, sem negativa</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-LAB-LIM-0003"</text></outputEntry>
+        <outputEntry><text>"regulacao"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

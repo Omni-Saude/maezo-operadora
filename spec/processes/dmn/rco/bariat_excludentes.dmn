@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_bariat_excludentes" name="Gastroplastia: procedimentos já incluídos no ato (OMNI-BARIAT-MEX-0001, OMNI-BARIAT-MEX-0002)" namespace="https://omni-saude/dmn/cirurgia-bariatrica">
+  <decision id="rco_bariat_excludentes" name="Gastroplastia: procedimentos já incluídos no ato (OMNI-BARIAT-MEX-0001, OMNI-BARIAT-MEX-0002)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-BARIAT-MEX-0001; OMNI-BARIAT-MEX-0002. Glosa 3202 só do código secundário, ao prestador, quando ele é parte do principal; pares condicionados vão à auditoria; o beneficiário nunca paga diferença.</description>
+    <decisionTable id="dt_bariat_excludentes" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_codigoPrincipal" label="codigoPrincipal ← TISS codigoProcedimento da gastroplastia na guia (TUSS 22)">
+        <inputExpression id="ie_1_codigoPrincipal" typeRef="string"><text>codigoPrincipal</text></inputExpression>
+      </input>
+      <input id="in_2_codigoSecundario" label="codigoSecundario ← TISS codigoProcedimento do outro procedimento na mesma guia e ato (TUSS 22)">
+        <inputExpression id="ie_2_codigoSecundario" typeRef="string"><text>codigoSecundario</text></inputExpression>
+      </input>
+      <input id="in_3_cirurgiaRevisional" label="cirurgiaRevisional ← TISS: a mesma guia traz 31002048 (degastrogastrectomia sem vagotomia) com a gastroplastia, codificação da cirurgia revisional">
+        <inputExpression id="ie_3_cirurgiaRevisional" typeRef="boolean"><text>cirurgiaRevisional</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="x_pre">
+        <description>Antes da vigência: pares pagos como cobrados</description>
+        <inputEntry><text>&lt; "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_sem_data">
+        <description>OMNI-BARIAT-MEX-0001: data ausente: faturamento confere</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_bio">
+        <description>OMNI-BARIAT-MEX-0001: biópsia hepática já está paga na gastroplastia, feita ou não: glosa 3202 do código secundário</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>"31005063", "31005675"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="x_deg">
+        <description>OMNI-BARIAT-MEX-0002: degastrogastrectomia sem vagotomia com gastroplastia é a codificação da cirurgia revisional: paga</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002390"</text></inputEntry>
+        <inputEntry><text>"31002048"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xv_sempre">
+        <description>OMNI-BARIAT-MEX-0002: com gastroplastia por vídeo, técnica aberta, anastomoses e enterectomia são parte do ato: glosa 3202</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"31002218", "31002137", "31002358", "31003672", "31003680"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="xv_rev">
+        <description>OMNI-BARIAT-MEX-0002: na revisional por vídeo, gastrectomia parcial, hiato, transição esôfago-gástrica, laparotomia e degastrogastrectomia com vagotomia são parte do ato: glosa 3202</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"31001360", "31001319", "31002307", "31002315", "31002323", "31009352", "31002030"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="xv_prim_paga">
+        <description>OMNI-BARIAT-MEX-0002: na gastroplastia primária por vídeo, hiato e transição esôfago-gástrica podem ser pagos</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"31001360", "31001319"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xv_prim_rev">
+        <description>OMNI-BARIAT-MEX-0002: na gastroplastia primária por vídeo, gastrectomia parcial, laparotomia ou degastrogastrectomia com vagotomia no mesmo ato: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"31002307", "31002315", "31002323", "31009352", "31002030"</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xv_nulo">
+        <description>OMNI-BARIAT-MEX-0002: par que depende de ser revisional, sem o dado: auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>"31001360", "31001319", "31002307", "31002315", "31002323", "31009352", "31002030"</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xv_outro">
+        <description>Fechamento (OMNI-BARIAT-MEX-0002): outro código com gastroplastia por vídeo é pago pelas regras gerais</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002390"</text></inputEntry>
+        <inputEntry><text>not("31005063", "31005675", "31002218", "31002137", "31002358", "31003672", "31003680", "31001360", "31001319", "31002307", "31002315", "31002323", "31009352", "31002030", "31002048")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xa_sempre">
+        <description>OMNI-BARIAT-MEX-0002: com gastroplastia aberta, técnica por vídeo e gastrectomia parcial são parte do ato: glosa 3202</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218"</text></inputEntry>
+        <inputEntry><text>"31002390", "31002072", "31002080"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="xa_rev">
+        <description>OMNI-BARIAT-MEX-0002: na revisional aberta, anastomoses, enterectomia, gastrectomia, gastrorrafia, hiato, transição, laparotomia e degastrogastrectomia com vagotomia são parte do ato: glosa 3202</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218"</text></inputEntry>
+        <inputEntry><text>"31002137", "31003290", "31003281", "31002064", "31002145", "31001262", "31001149", "31009174", "31002030"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"glosar"</text></outputEntry>
+        <outputEntry><text>"3202"</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>"contas"</text></outputEntry>
+      </rule>
+      <rule id="xa_prim">
+        <description>OMNI-BARIAT-MEX-0002: na gastroplastia primária aberta, esses pares vão à auditoria médica</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218"</text></inputEntry>
+        <inputEntry><text>"31002137", "31003290", "31003281", "31002064", "31002145", "31001262", "31001149", "31009174", "31002030"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>"auditoria_medica"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="xa_outro">
+        <description>Fechamento (OMNI-BARIAT-MEX-0002): outro código com gastroplastia aberta é pago pelas regras gerais</description>
+        <inputEntry><text>&gt;= "2026-11-03"</text></inputEntry>
+        <inputEntry><text>"31002218"</text></inputEntry>
+        <inputEntry><text>not("31005063", "31005675", "31002390", "31002072", "31002080", "31002137", "31003290", "31003281", "31002064", "31002145", "31001262", "31001149", "31009174", "31002030", "31002048")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="x_fora">
+        <description>Fechamento (OMNI-BARIAT-MEX-0001): principal não é gastroplastia</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("31002218", "31002390")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"liberar"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-BARIAT-MEX-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

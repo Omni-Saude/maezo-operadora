@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:camunda="http://camunda.org/schema/1.0/dmn" id="def_consult_pacote" name="Consulta paga por ato: itens incluídos e adicional de horário (OMNI-CONSULT-PAC-0001, OMNI-CONSULT-PAC-0002)" namespace="https://omni-saude/dmn/consultas-telemedicina">
+  <decision id="rco_consult_pacote" name="Consulta paga por ato: itens incluídos e adicional de horário (OMNI-CONSULT-PAC-0001, OMNI-CONSULT-PAC-0002)" camunda:historyTimeToLive="P3650D">
+    <description>OMNI-CONSULT-PAC-0001; OMNI-CONSULT-PAC-0002. Item incluído cobrado à parte e adicionais somados vão ao faturamento; nunca glosa automática.</description>
+    <decisionTable id="dt_consult_pacote" hitPolicy="UNIQUE">
+      <input id="in_0_dataAtendimento" label="dataAtendimento ← TISS dataSolicitacao (pedido) ou dataExecucao (conta), AAAA-MM-DD">
+        <inputExpression id="ie_0_dataAtendimento" typeRef="string"><text>dataAtendimento</text></inputExpression>
+      </input>
+      <input id="in_1_classeConsulta" label="classeConsulta ← TISS codigoProcedimento (TUSS 22) pela lista classes de regras/consultas-telemedicina/dominio.yaml">
+        <inputExpression id="ie_1_classeConsulta" typeRef="string"><text>classeConsulta</text></inputExpression>
+      </input>
+      <input id="in_2_itemIncluidoConsulta" label="itemIncluidoConsulta ← TISS conta do prestador: item cobrado à parte que integra o ato da consulta">
+        <inputExpression id="ie_2_itemIncluidoConsulta" typeRef="boolean"><text>itemIncluidoConsulta</text></inputExpression>
+      </input>
+      <input id="in_3_adicionaisHorario" label="adicionaisHorario ← TISS reducaoAcrescimo: número de acréscimos de horário na linha da consulta">
+        <inputExpression id="ie_3_adicionaisHorario" typeRef="integer"><text>adicionaisHorario</text></inputExpression>
+      </input>
+      <output id="out_0_decisao" name="decisao" typeRef="string"/>
+      <output id="out_1_motivoTab38" name="motivoTab38" typeRef="string"/>
+      <output id="out_2_idRegra" name="idRegra" typeRef="string"/>
+      <output id="out_3_fila" name="fila" typeRef="string"/>
+      <output id="out_classeAdverso" name="classeAdverso" typeRef="string"/>
+      <rule id="k_pre">
+        <description>Antes da vigência: pago como cobrado</description>
+        <inputEntry><text>&lt; "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "recem_nascido"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_sem_data">
+        <description>Data ausente: faturamento confere</description>
+        <inputEntry><text>null</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "recem_nascido"</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_item">
+        <description>Item incluído na consulta cobrado à parte: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "recem_nascido"</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_adic_mais">
+        <description>Mais de um adicional de horário na consulta: faturamento confere</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "recem_nascido"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>&gt; 1</text></inputEntry>
+        <outputEntry><text>"revisao_humana"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-PAC-0002"</text></outputEntry>
+        <outputEntry><text>"faturamento"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_adic_ok">
+        <description>Até um adicional de horário: consulta paga pelo contrato</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "recem_nascido"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-PAC-0002"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_ok">
+        <description>Sem adicional informado: consulta paga por ato</description>
+        <inputEntry><text>&gt;= "2026-12-03"</text></inputEntry>
+        <inputEntry><text>"consulta_ambulatorial", "consulta_pronto_socorro", "recem_nascido"</text></inputEntry>
+        <inputEntry><text>false, null</text></inputEntry>
+        <inputEntry><text>null</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+      <rule id="k_fora">
+        <description>Fechamento: classe sem composição definida aqui</description>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>not("consulta_ambulatorial", "consulta_pronto_socorro", "recem_nascido")</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"pagar_pacote"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>"OMNI-CONSULT-PAC-0001"</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+        <outputEntry><text>""</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
