@@ -37,7 +37,8 @@ r._run_pytest=lambda *_:{'return_code':0}
 def teardown(checkout,args,**kwargs):
     assert args==['down','-v','--remove-orphans']
     (out/'state-before-teardown.json').write_bytes((out/'run-state.json').read_bytes())
-    code=("import os,pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); "
+    code=("import os,pathlib,sys,time; p=pathlib.Path(sys.argv[1]); t=p.with_name(p.name+'.tmp'); "
+          "t.write_text(str(os.getpid())); os.replace(t,p); "
           "print('synthetic teardown child',flush=True); ")
     code+= 'time.sleep(60)' if mode in ('signal','timeout') else ('sys.exit(9)' if mode=='error' else 'pass')
     return r._checked([sys.executable,'-c',code,str(out/'child.pid')],cwd=root,
@@ -111,7 +112,7 @@ def test_teardown_is_non_green_until_completion_and_interruptions_are_durable(
     child = None
     try:
         deadline = time.monotonic() + 10
-        while not (tmp_path / "child.pid").exists():
+        while not ((tmp_path / "child.pid").exists() and (tmp_path / "child.pid").read_text().strip()):
             assert process.poll() is None and time.monotonic() < deadline
             time.sleep(0.01)
         child = int((tmp_path / "child.pid").read_text())

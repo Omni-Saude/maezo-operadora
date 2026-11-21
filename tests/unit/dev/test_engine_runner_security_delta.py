@@ -29,7 +29,8 @@ r.discover=lambda *_args,**_kw:{'execution_manifest':[{'suite':'core',
  'test_file':'synthetic.py','expected_count':1,'dependencies':{'engine_required':False}}]}
 real_killpg=os.killpg
 child=("import pathlib,os,signal,sys,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
-       "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); "
+       "p=pathlib.Path(sys.argv[1]); t=p.with_name(p.name+'.tmp'); "
+       "t.write_text(str(os.getpid())); os.replace(t,p); "
        "print('postgresql://probe:SYNTHETIC_EIR_DELTA_NOT_SECRET@127.0.0.1:9/probe',flush=True); "
        "time.sleep(60)")
 def context_probe(*_):
