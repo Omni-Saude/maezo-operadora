@@ -11,8 +11,7 @@ Contrato: `docs/processes/contracts/SP-OP-SUPP-001.md` (DRAFT). BPMN:
 `spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn`. DMN:
 `spec/processes/dmn/suppression_routing.dmn`.
 
-Dados sintéticos apenas: tenant `amh`, sujeito `subj-teste-0001`, canal `chan-teste-A`. Nunca telefone,
-nome ou documento real.
+Dados sintéticos apenas. Nunca telefone, nome ou documento real.
 
 ## 1. Estado fechado (unitário — já executável)
 
