@@ -40,6 +40,14 @@ continua existindo, o acesso nao.
 **Nenhum dado pessoal.** O acesso ao HAPI do dev (PHI) nao faz parte deste set. Se for concedido, vai num set e
 grupo proprios, com o aval do DPO registrado. Nunca entra neste set, cujo nome e' a promessa "sem PHI".
 
+### CEIA: Gold de confirmacao de agendamento (com dado pessoal)
+
+`LeituraCeiaAgendamentoPHI` (`permission-set-leitura-ceia-agendamento.tf`), grupo `leitura-ceia-confirmacao-agendamento`,
+so' na conta de dev. Athena no workgroup `amh-leitura-ceia-dev` e S3 so' nos prefixos de
+`amh_{austa_hospital,imc}_gold.confirmacao_agendamento_pendente` (nome e telefone do paciente para o WhatsApp).
+Aval do DPO confirmado pelo Leonardo em 20/11/2026. O SELECT no Lake Formation fica no amh-data-platform
+(`infrastructure/envs/dev-sa-east-1/leitura_ceia.tf`), aplicado DEPOIS deste set (a role precisa existir).
+
 ### Revogar
 
 Remover a pessoa do grupo basta: a atribuicao liga o grupo ao set, e o grupo vazio nao concede nada.
