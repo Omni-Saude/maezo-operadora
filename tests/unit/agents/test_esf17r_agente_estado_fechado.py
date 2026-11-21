@@ -73,10 +73,23 @@ def test_envio_ao_prospect_fora_do_catalogo_de_efeitos() -> None:
 # --- (ii) ninguém em src importa o agente comercial --------------------------------------------------
 
 
-def _fonte_importa_comercial(fonte: str) -> bool:
+def _pacote_de(path: Path) -> str:
+    partes = path.resolve().relative_to(_SRC.parent).with_suffix("").parts
+    return ".".join(partes[:-1])
+
+
+def _fonte_importa_comercial(fonte: str, pacote: str = "") -> bool:
+    """Import estático do agente comercial, absoluto OU relativo (resolvido contra `pacote`).
+
+    Limite declarado: import dinâmico (`importlib.import_module`) não é visto por uma cerca de AST.
+    """
     for n in ast.walk(ast.parse(fonte)):
         if isinstance(n, ast.ImportFrom):
             modulo = n.module or ""
+            if n.level:
+                base = pacote.split(".") if pacote else []
+                base = base[: len(base) - (n.level - 1)] if n.level > 1 else base
+                modulo = ".".join([*base, *([modulo] if modulo else [])])
             if modulo == "maezo.agents.comercial" or modulo.startswith("maezo.agents.comercial."):
                 return True
             if modulo == "maezo.agents" and any(a.name == "comercial" for a in n.names):
@@ -94,7 +107,7 @@ def test_nenhum_modulo_de_src_importa_o_agente_comercial() -> None:
     importadores = {
         p.relative_to(_REPO).as_posix()
         for p in sorted(_SRC.rglob("*.py"))
-        if _PACOTE not in p.parents and _fonte_importa_comercial(p.read_text(encoding="utf-8"))
+        if _PACOTE not in p.parents and _fonte_importa_comercial(p.read_text(encoding="utf-8"), _pacote_de(p))
     }
     assert importadores == set()
     # Controle: o detector acha as formas de importar.
@@ -102,6 +115,11 @@ def test_nenhum_modulo_de_src_importa_o_agente_comercial() -> None:
     assert _fonte_importa_comercial("from maezo.agents import comercial")
     assert _fonte_importa_comercial("import maezo.agents.comercial.graph")
     assert not _fonte_importa_comercial("from maezo.agents.helena import graph")
+    # Relativos, como se escritos em `maezo.agents` ou num agente vizinho.
+    assert _fonte_importa_comercial("from . import comercial", "maezo.agents")
+    assert _fonte_importa_comercial("from .comercial.graph import build", "maezo.agents")
+    assert _fonte_importa_comercial("from ..comercial import graph", "maezo.agents.helena")
+    assert not _fonte_importa_comercial("from . import graph", "maezo.agents.helena")
 
 
 # --- (iii) o grafo não envia; a ação de envio é só dado -------------------------------------------------
