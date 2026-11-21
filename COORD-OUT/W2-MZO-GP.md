@@ -996,3 +996,17 @@ Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos 
   - Worktree removida sem `--force`.
 - **6 merges atrás** (#1342–#1347), sem arquivo em comum, não trazidos (CD-155).
 - **Próximo PR**, depois do merge deste: E-SF-11 (21a; ramo no remoto).
+
+## 2026-11-21 ~03:10Z — #1348 mesclado (main `7ae9092b`); LIMPEZA #1348; PR #1351 (E-SF-11) aberto
+
+- #1348 (E-SF-RT-02) mesclado; a main `7ae9092b` contém o head `34b28033`.
+- **LIMPEZA #1348 (CD-149):**
+  - **Ramo para o dono apagar:** `sf-w2/mzo-gp/rt02` @ `34b2803376126783802a184f3e852bbd7c26a0e6`, no remoto. O ramo local fica só registrado.
+  - Ramos locais nunca enviados: nenhum novo.
+  - PR órfão: nenhum.
+  - Título e corpo do #1348 fiéis.
+  - **Disco:** worktree `rt02` removida sem `--force`; check-in cancelado; clone principal em `main` `7ae9092b`.
+- **PR #1351 (E-SF-11 / EP-REG-21a)** aberto: head `73aedfaee5bb942f9d74dc405af4f64b9fb7a0f0`, só o arquivo de teste novo.
+  - 7 merges atrás (#1342–#1348), sem arquivo em comum, não trazidos (CD-155).
+  - Aguardo o CI.
+- Fila: 35 por último.
