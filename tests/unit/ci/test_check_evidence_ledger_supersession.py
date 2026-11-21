@@ -523,7 +523,8 @@ def test_release_floor_timeout_reaps_the_pytest_descendant_group(
     (tmp_path / "pytest.py").write_text(
         "import os, pathlib, subprocess, sys, time\n"
         "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
-        "pathlib.Path('owned-pgid').write_text(str(os.getpgrp()))\n"
+        # Atomico: o marcador e' lido depois do kill do timeout; `write_text` interrompido deixaria ''.
+        "t = pathlib.Path('owned-pgid.tmp'); t.write_text(str(os.getpgrp())); os.replace(t, 'owned-pgid')\n"
         "time.sleep(30)\n"
     )
     # The budget must exceed the payload tree's startup (parent exec+init, its

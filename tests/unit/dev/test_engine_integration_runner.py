@@ -111,10 +111,12 @@ def baseline_discovery(tmp_path_factory: pytest.TempPathFactory) -> dict[str, An
     return payload
 
 
-def _wait_for(path: Path, *, timeout: float = 10.0) -> None:
+def _wait_for(path: Path, *, timeout: float = 10.0, conteudo: bool = False) -> None:
+    """Espera o arquivo; com `conteudo=True`, espera ele ter conteudo (um marcador escrito por outro
+    processo pode existir vazio entre a criacao e a escrita)."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if path.exists():
+        if path.exists() and (not conteudo or path.read_text().strip()):
             return
         time.sleep(0.05)
     pytest.fail(f"timed out waiting for {path}")
@@ -147,7 +149,11 @@ import sys
 import time
 
 directory = Path(sys.argv[1])
-directory.joinpath("parent.pid").write_text(str(os.getpid()))
+def gravar(nome, texto):  # atomico: quem le nunca ve o arquivo vazio entre criar e escrever
+    tmp = directory.joinpath(nome + ".tmp")
+    tmp.write_text(texto)
+    os.replace(tmp, directory.joinpath(nome))
+gravar("parent.pid", str(os.getpid()))
 grandchild = '''
 import os
 from pathlib import Path
@@ -157,10 +163,14 @@ import time
 
 directory = Path(sys.argv[1])
 signal.signal(signal.SIGTERM, signal.SIG_IGN)
-directory.joinpath("grandchild.pid").write_text(str(os.getpid()))
+def gravar(nome, texto):
+    tmp = directory.joinpath(nome + ".tmp")
+    tmp.write_text(texto)
+    os.replace(tmp, directory.joinpath(nome))
+gravar("grandchild.pid", str(os.getpid()))
 print("grandchild-started", flush=True)
 while True:
-    directory.joinpath("heartbeat").write_text(str(time.time_ns()))
+    gravar("heartbeat", str(time.time_ns()))
     time.sleep(0.02)
 '''
 subprocess.Popen([sys.executable, "-c", grandchild, str(directory)])
@@ -249,7 +259,7 @@ raise SystemExit(return_code)
     grandchild_pid = 0
     parent_pid = 0
     try:
-        _wait_for(tmp_path / "grandchild.pid")
+        _wait_for(tmp_path / "grandchild.pid", conteudo=True)
         grandchild_pid = int((tmp_path / "grandchild.pid").read_text())
         parent_pid = int((tmp_path / "parent.pid").read_text())
         supervisor.send_signal(interrupt_signal)
@@ -299,7 +309,7 @@ def test_lock_contention_never_grants_cleanup_and_owner_releases_on_interrupt(tm
         _wait_for(lock_dir / "owner.json")
         initial_owner = json.loads((lock_dir / "owner.json").read_bytes())
         assert initial_owner["pid"] == owner.pid
-        _wait_for(child_pid_file)
+        _wait_for(child_pid_file, conteudo=True)
         _wait_for(child_log)
         child_pid = int(child_pid_file.read_text())
         # child.pid can precede the supervisor's post-Popen ownership update.

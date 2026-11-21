@@ -57,7 +57,11 @@ def test_measurement_reaps_spawned_group_on_early_interrupt(
 
 def test_real_sigterm_reaps_measurement_group(tmp_path: Path) -> None:
     (tmp_path / "pytest.py").write_text(
-        "import os,pathlib,time\npathlib.Path('child-pgid').write_text(str(os.getpgrp()))\ntime.sleep(30)\n"
+        # Escrita ATOMICA (temporario + os.replace): `write_text` cria o arquivo vazio antes de escrever, e
+        # quem espera por `exists()` pode ler '' no meio (falha de 21/11/2026, run 44869673159).
+        "import os,pathlib,time\n"
+        "t=pathlib.Path('child-pgid.tmp'); t.write_text(str(os.getpgrp())); os.replace(t, 'child-pgid')\n"
+        "time.sleep(30)\n"
     )
     code = (
         "import pathlib,sys\n"
@@ -74,7 +78,7 @@ def test_real_sigterm_reaps_measurement_group(tmp_path: Path) -> None:
     try:
         deadline = time.monotonic() + 10
         marker = tmp_path / "child-pgid"
-        while not marker.exists():
+        while not (marker.exists() and marker.read_text().strip()):  # conteudo, nao so' existencia
             assert parent.poll() is None
             assert time.monotonic() < deadline
             time.sleep(0.01)
