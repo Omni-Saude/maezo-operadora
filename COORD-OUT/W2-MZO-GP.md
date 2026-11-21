@@ -1401,3 +1401,10 @@ Ordem: ADD01-03 (PR quando a revisão der PASS) → RT-03 → 17r, um PR por vez
 - Worktree da simulação de merge e /tmp/pytest-of-root já removidas; check-in do PR cancelado.
 - Branch remota que o dono pode apagar: sf-w2/mzo-gp/rt03 = b1ac060ed5845bad206dc07ce7a7e1be02e87ce3.
 - Ficam: sf-w2/mzo-gp/coord (registro) e sf-w2/mzo-gp/esf17r (próximo PR).
+
+## 2026-11-21T14:08Z — PRONTO 17r #1369 head ccb378f65cfcfe435b91435848bad0253c31a786 (para a ROOT sucessora, CD-281)
+- Checks: 39 runs, todos success (2 skipped por desenho: agentes (trilha) matriz, evals-nightly); mergeable_state clean; base main b2be8990.
+- [live-pytest] PASS recurso-nip passed=181 xfailed_executed=3 inactive_companion=2; cancel-contas passed=138; cred-ans passed=129; restante passed=965 xfailed_executed=2.
+- Revisão que cobre o head: independente, PASS sobre ccb378f6 (após reparos f903a88d→871f406f→ccb378f6 pelo autor, revisados).
+- Simulação de merge sobre b2be8990: tests/unit/agents 9071 passed; worktree removida.
+- Sem push novo enquanto a ROOT sucessora não tiver escrita no repositório.
