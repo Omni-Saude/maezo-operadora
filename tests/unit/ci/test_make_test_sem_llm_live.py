@@ -82,6 +82,24 @@ def test_make_evals_the_nightly_and_the_manual_run_still_select_the_live_cases(t
     assert sorted(manual_vivos) == sorted(tier_b)
 
 
+#: O teste unitario ao vivo (chamada real Anthropic, `llm_live`, pulo proprio por chave): fora do `make test`,
+#: roda so' por selecao explicita; o job `unit` do CI chama o pytest direto e segue selecionando-o.
+_VIVO_UNITARIO = "tests/unit/runtime/test_inference_live.py"
+
+
+def test_make_test_also_leaves_out_the_live_unit_test() -> None:
+    _, expressao = _selecao_do_alvo("test")
+    assert _vivos_coletados([_VIVO_UNITARIO], "not integration")  # e' llm_live (o teste nao e' vazio)
+    assert _vivos_coletados([_VIVO_UNITARIO], expressao) == []
+
+
+def test_the_ci_unit_job_still_selects_the_live_unit_test() -> None:
+    # Nenhum job do CI dependia do `make test`: o `unit` roda `pytest <alvo> -m "not integration"` direto.
+    linha = re.search(r'pytest \$\{\{ matrix\.alvo \}\} -q -m "([^"]+)"', _CI.read_text(encoding="utf-8"))
+    assert linha and linha.group(1) == "not integration", linha
+    assert _vivos_coletados([_VIVO_UNITARIO], linha.group(1))
+
+
 def test_the_selection_parser_reads_the_real_recipes() -> None:
     assert _selecao_do_alvo("test") == (["tests/"], "not integration and not llm_live")
     assert _selecao_do_alvo("evals") == (["tests/evals"], "eval")
