@@ -188,6 +188,8 @@ _ACTION_NOT_TOOL_SHAPED: Final[frozenset[str]] = frozenset(
         # despachante como dado (rota + acao de envio); nenhuma chamada de tool no grafo.
         "triage_and_routing",
         "send_prospect_message",
+        # E-SF-ADD01-03: o rascunho do copiloto (L1) volta ao despachante como dado; sem tool.
+        "staff_assist_draft",
         "ans_official_submission",
         "nip_response",
         # Lucas: leitura dos fatos de cobranca/identidade pelo contrato da AMH. Nao ha' tool MCP:
