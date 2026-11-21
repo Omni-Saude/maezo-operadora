@@ -239,6 +239,37 @@ def test_o_recorte_e_local_e_nao_passa_pelo_renderizador_de_prompt() -> None:
     assert not [m for m in modulos if m.startswith("maezo.runtime")]
 
 
+def _chamadas_ao_renderizador_com_agente_literal(arvore: ast.AST) -> list[str]:
+    """Literais `agente=` das chamadas a `render_fatos_para_prompt` no fonte (vazio se não chama)."""
+    return [
+        k.value.value
+        for n in ast.walk(arvore)
+        if isinstance(n, ast.Call)
+        and (getattr(n.func, "id", "") or getattr(n.func, "attr", "")) == "render_fatos_para_prompt"
+        for k in n.keywords
+        if k.arg == "agente" and isinstance(k.value, ast.Constant) and isinstance(k.value.value, str)
+    ]
+
+
+def test_lista_de_campos_so_cresce_passando_pelo_renderizador_com_agente() -> None:
+    """Trava contra herdar o atalho: o recorte local só vale com a lista VAZIA. Se um campo entrar,
+    o caminho tem de passar por `render_fatos_para_prompt` com `agente=` literal do vocabulário
+    fechado de agentes (cerca da DL-0191), o que só existe na unidade que montar o copiloto."""
+    from maezo.platform.observability import PROMPT_FATOS_AGENTES
+
+    agentes = _chamadas_ao_renderizador_com_agente_literal(_arvore())
+    if CAMPOS_DO_RASCUNHO_RETENCAO:
+        assert agentes, "lista de campos não vazia sem passar pelo renderizador de prompt"
+        assert set(agentes) <= PROMPT_FATOS_AGENTES, agentes
+    else:
+        assert agentes == []
+    # Controle: o detector acha a chamada com literal e ignora a sem literal.
+    plantado = ast.parse(
+        'render_fatos_para_prompt(f, booleanos={}, permitidos=p, agente="lucas")\nx(agente="y")'
+    )
+    assert _chamadas_ao_renderizador_com_agente_literal(plantado) == ["lucas"]
+
+
 async def test_o_rascunho_e_so_dado_sem_texto_gerado() -> None:
     pedido = pedir_rascunho(await _item(), {})
     assert pedido.acao == ACAO_RASCUNHO_RETENCAO
