@@ -1555,10 +1555,15 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "direct identifier), replacing the earlier listing recommendation taken under 'in "
                     "doubt, list'. Criterion applied: flag de presença de documento sem conteúdo (não "
                     "carrega o laudo nem o resultado). The value does not by itself reveal a health state "
-                    "and is not a direct identifier. Counter-evidence the DPO must weigh: the flag says "
-                    "tissue of one identified beneficiary was analysed. The Disposition stays (the name is "
-                    "PHI-shaped and this fence has no downgrade path), so the question stays open for the "
-                    "DPO. K1 runs in shadow only (`efeito_k1_habilitado` off). No DPO review happened."
+                    "and is not a direct identifier. Counter-evidence the DPO must weigh: "
+                    "plast_compatibilidade.dmn:16 reads it only for Mohs surgery (30101123), so a true "
+                    "value says the pathology report that confirms the skin cancer Mohs treats is "
+                    "attached. It stays NOT PHI because the value carries neither the report nor its "
+                    "result (the table releases on true and sends false/null to medical audit without "
+                    "reading the content) and the Mohs procedure code beside it, CLEAN in this fence, "
+                    "already names that care. The Disposition stays (the name is PHI-shaped and this fence "
+                    "has no downgrade path), so the question stays open for the DPO. K1 runs in shadow "
+                    "only (`efeito_k1_habilitado` off). No DPO review happened."
                 ),
             ),
             Disposition(
@@ -1786,10 +1791,12 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "direct identifier), replacing the earlier listing recommendation taken under 'in "
                     "doubt, list'. Criterion applied: flag de presença de documento sem conteúdo. The "
                     "value does not by itself reveal a health state and is not a direct identifier. "
-                    "Counter-evidence the DPO must weigh: the flag is about intimate care of one "
-                    "identified beneficiary. The Disposition stays (the name is PHI-shaped and this fence "
-                    "has no downgrade path), so the question stays open for the DPO. K1 runs in shadow "
-                    "only (`efeito_k1_habilitado` off). No DPO review happened."
+                    "Counter-evidence the DPO must weigh: teresp_excludentes.dmn:16 reads the record of an "
+                    "anal or vaginal electrode in the provider's chart, that is pelvic-floor therapy "
+                    "(intimate care of one identified beneficiary); the value says only that the record "
+                    "exists. The Disposition stays (the name is PHI-shaped and this fence has no downgrade "
+                    "path), so the question stays open for the DPO. K1 runs in shadow only "
+                    "(`efeito_k1_habilitado` off). No DPO review happened."
                 ),
             ),
             Disposition(
@@ -1841,6 +1848,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
             ),
             # K1 #1365: nomes que a heuristica deixa CLEAN, elevados por Disposition e MANTIDOS na revisao por
             # definicao (decisao do dono PROG-COORD-47: LIST so estado de saude explicito ou identificador).
+            # Revisao independente: +13 restaurados (4 piso clinico, 9 na AMOSTRA de fronteira).
             Disposition(
                 name="abdomeAventalPerdaPonderalDocumentado",
                 evidence=(
@@ -1886,6 +1894,66 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "weigh: the procedure code beside it, CLEAN in this fence, already says which care. "
                     "Cost of listing: none for the decision (engine-side evaluation, ADR-0028). K1 runs in "
                     "shadow only (`efeito_k1_habilitado` off). No DPO review happened."
+                ),
+            ),
+            Disposition(
+                name="cirurgiaBariatricaPrevia",
+                evidence=(
+                    "spec/processes/dmn/rco/bariat_dut_gastroplastia.dmn:13 (dmn_input_expression, "
+                    'typeRef="boolean"); spec/processes/dmn/rco/bariat_pacote_enquadramento.dmn:19 '
+                    '(dmn_input_expression, typeRef="boolean") — K1 pin b8444f52 (manifesto 2.3.0), '
+                    "dictionary 1.6.0 (config/integrations/rco/k1/entradas.json): tipo boolean, dominio "
+                    "'{true, false}', origem fora_tiss; de_onde: 'solicitação fora da TISS'. DMN label: "
+                    "bariat_dut_gastroplastia.dmn:12 label 'cirurgiaBariatricaPrevia ← TISS histórico de "
+                    "guias OMNI do beneficiário (codigoProcedimento 31002218, 31002390, 31002013 ou "
+                    "31002285 já realizado) ou solicitação (declaração no relatório)'; "
+                    "bariat_pacote_enquadramento.dmn:18 label 'cirurgiaBariatricaPrevia ← TISS histórico "
+                    "de guias OMNI do beneficiário (codigoProcedimento 31002218, 31002390, 31002013 ou "
+                    "31002285 já realizado) ou solicitação (declaração no relatório)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: cirurgia bariátrica anterior (histórico de "
+                    "guias ou declaração no relatório). Criterion applied: histórico de procedimento, mas "
+                    "true revela cirurgia bariátrica anterior, isto é, obesidade já tratada (mesma classe "
+                    "de partoInicialNaGuia). BORDERLINE (a reasonable DPO could go either way): histórico "
+                    "de procedimento, mas true revela cirurgia bariátrica anterior, isto é, obesidade já "
+                    "tratada (mesma classe de partoInicialNaGuia); this name is in the sample the owner "
+                    "takes to the DPO. Counter-evidence the DPO must weigh: the procedure code beside it, "
+                    "CLEAN in this fence, already says which care. Cost of listing: none for the decision "
+                    "(engine-side evaluation, ADR-0028). K1 runs in shadow only (`efeito_k1_habilitado` "
+                    "off). No DPO review happened."
+                ),
+            ),
+            Disposition(
+                name="classeAlergeno",
+                evidence=(
+                    "spec/processes/dmn/rco/imunob_cobertura.dmn:25 (dmn_input_expression, "
+                    'typeRef="string") — K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 '
+                    "(config/integrations/rco/k1/entradas.json): tipo string, dominio '{inalante, "
+                    "veneno_de_inseto, alimentar, contato}', origem fora_tiss; de_onde: 'solicitação fora "
+                    "da TISS'. DMN label: imunob_cobertura.dmn:24 label 'classeAlergeno ← solicitação "
+                    "(classe do alérgeno da imunoterapia)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: classe do alérgeno da imunoterapia (inalante, "
+                    "veneno de inseto, alimentar, contato): a alergia da pessoa. Criterion applied: piso: "
+                    "diagnóstico (classe do alérgeno da imunoterapia: aquilo a que a pessoa é alérgica). "
+                    "Counter-evidence the DPO must weigh: the procedure code beside it, CLEAN in this "
+                    "fence, already says which care. Cost of listing: none for the decision (engine-side "
+                    "evaluation, ADR-0028). K1 runs in shadow only (`efeito_k1_habilitado` off). No DPO "
+                    "review happened."
                 ),
             ),
             Disposition(
@@ -2097,6 +2165,35 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                 ),
             ),
             Disposition(
+                name="criteriosDutAtendidos",
+                evidence=(
+                    'spec/processes/dmn/rco/imunob_dut.dmn:19 (dmn_input_expression, typeRef="boolean") '
+                    "— K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 "
+                    "(config/integrations/rco/k1/entradas.json): tipo boolean, dominio '{true, false}', "
+                    "origem fora_tiss; de_onde: 'solicitação fora da TISS'. DMN label: imunob_dut.dmn:18 "
+                    "label 'criteriosDutAtendidos ← solicitação (médico declara os critérios do subitem "
+                    "atendidos)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: o médico declara atendidos os critérios do "
+                    "subitem da DUT de imunobiológicos. Criterion applied: booleano 'o médico declara "
+                    "atendidos os critérios do subitem da DUT': afirma uma condição clínica sem nomeá-la "
+                    "(mesma classe de contraindicacaoDut). BORDERLINE (a reasonable DPO could go either "
+                    "way): booleano 'o médico declara atendidos os critérios do subitem da DUT': afirma "
+                    "uma condição clínica sem nomeá-la (mesma classe de contraindicacaoDut); this name is "
+                    "in the sample the owner takes to the DPO. Counter-evidence the DPO must weigh: the "
+                    "procedure code beside it, CLEAN in this fence, already says which care. Cost of "
+                    "listing: none for the decision (engine-side evaluation, ADR-0028). K1 runs in shadow "
+                    "only (`efeito_k1_habilitado` off). No DPO review happened."
+                ),
+            ),
+            Disposition(
                 name="deficienciaCadastro",
                 evidence=(
                     "spec/processes/dmn/rco/diaria_cobertura.dmn:16 (dmn_input_expression, "
@@ -2142,6 +2239,89 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                 ),
             ),
             Disposition(
+                name="enquadramentoDut110",
+                evidence=(
+                    "spec/processes/dmn/rco/genet_autorizacao.dmn:16 (dmn_input_expression, "
+                    'typeRef="string") — K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 '
+                    "(config/integrations/rco/k1/entradas.json): tipo string, dominio '{subitem_listado, "
+                    "condicao_nao_listada}', origem cadastro; de_onde: 'cadastro'. DMN label: "
+                    "genet_autorizacao.dmn:15 label 'enquadramentoDut110 ← solicitação (formulário do "
+                    "pedido): subitem_listado ou condicao_nao_listada'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: enquadramento do pedido genético na DUT 110 "
+                    "(subitem listado ou condição não listada). Criterion applied: subitem_listado ou "
+                    "condicao_nao_listada: diz se a condição genética está na lista da DUT 110, sem "
+                    "nomeá-la (mesma classe de criterioGrupoII). BORDERLINE (a reasonable DPO could go "
+                    "either way): subitem_listado ou condicao_nao_listada: diz se a condição genética está "
+                    "na lista da DUT 110, sem nomeá-la (mesma classe de criterioGrupoII); this name is in "
+                    "the sample the owner takes to the DPO. Counter-evidence the DPO must weigh: the "
+                    "procedure code beside it, CLEAN in this fence, already says which care. Cost of "
+                    "listing: none for the decision (engine-side evaluation, ADR-0028). K1 runs in shadow "
+                    "only (`efeito_k1_habilitado` off). No DPO review happened."
+                ),
+            ),
+            Disposition(
+                name="enquadramentoDut118",
+                evidence=(
+                    'spec/processes/dmn/rco/mednuc_dut.dmn:22 (dmn_input_expression, typeRef="boolean") '
+                    "— K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 "
+                    "(config/integrations/rco/k1/entradas.json): tipo boolean, dominio '{true, false}', "
+                    "origem fora_tiss; de_onde: 'solicitação fora da TISS'. DMN label: mednuc_dut.dmn:21 "
+                    "label 'enquadramentoDut118 ← solicitação: tremor sem diferenciação clínica após "
+                    "avaliação neurológica (true = sim, false = não)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: achado clínico: tremor sem diferenciação "
+                    "clínica após avaliação neurológica. Criterion applied: piso: achado clínico explícito "
+                    "(tremor sem diferenciação clínica após avaliação neurológica). Counter-evidence the "
+                    "DPO must weigh: the procedure code beside it, CLEAN in this fence, already says which "
+                    "care. Cost of listing: none for the decision (engine-side evaluation, ADR-0028). K1 "
+                    "runs in shadow only (`efeito_k1_habilitado` off). No DPO review happened."
+                ),
+            ),
+            Disposition(
+                name="enquadramentoDut24",
+                evidence=(
+                    "spec/processes/dmn/rco/anestdor_autorizacao.dmn:25 (dmn_input_expression, "
+                    'typeRef="boolean") — K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 '
+                    "(config/integrations/rco/k1/entradas.json): tipo boolean, dominio '{true, false}', "
+                    "origem fora_tiss; de_onde: 'solicitação fora da TISS'. DMN label: "
+                    "anestdor_autorizacao.dmn:24 label 'enquadramentoDut24 ← solicitação: relatório "
+                    "informa pelo menos um critério do grupo I da DUT 24 (campo fora da TISS)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: o relatório informa ao menos um critério do "
+                    "grupo I da DUT 24. Criterion applied: booleano 'o relatório informa um critério do "
+                    "grupo I da DUT 24': afirma uma condição clínica sem nomeá-la (gêmeo de "
+                    "contraindicacaoDut24, já na AMOSTRA). BORDERLINE (a reasonable DPO could go either "
+                    "way): booleano 'o relatório informa um critério do grupo I da DUT 24': afirma uma "
+                    "condição clínica sem nomeá-la (gêmeo de contraindicacaoDut24, já na AMOSTRA); this "
+                    "name is in the sample the owner takes to the DPO. Counter-evidence the DPO must "
+                    "weigh: the procedure code beside it, CLEAN in this fence, already says which care. "
+                    "Cost of listing: none for the decision (engine-side evaluation, ADR-0028). K1 runs in "
+                    "shadow only (`efeito_k1_habilitado` off). No DPO review happened."
+                ),
+            ),
+            Disposition(
                 name="enquadramentoLegal",
                 evidence=(
                     "spec/processes/dmn/rco/urg_enquadramento.dmn:26 (dmn_output_name, "
@@ -2157,6 +2337,65 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "heuristic does not match the name, so the question is asked by hand. Engineering "
                     "reading: saída revela urgência gestacional ou por acidente. Criterion applied: piso: "
                     "saída com valor que revela gestação (urgencia_gestacional), derivada do CID. "
+                    "Counter-evidence the DPO must weigh: the procedure code beside it, CLEAN in this "
+                    "fence, already says which care. Cost of listing: none for the decision (engine-side "
+                    "evaluation, ADR-0028). K1 runs in shadow only (`efeito_k1_habilitado` off). No DPO "
+                    "review happened."
+                ),
+            ),
+            Disposition(
+                name="finalidadeCateter",
+                evidence=(
+                    "spec/processes/dmn/rco/nefro_compatibilidade.dmn:16 (dmn_input_expression, "
+                    'typeRef="string") — K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 '
+                    "(config/integrations/rco/k1/entradas.json): tipo string, dominio '{hemodepuracao, "
+                    "nutricao_parenteral, quimioterapia, infusao}', origem fora_tiss; de_onde: "
+                    "'solicitação fora da TISS'. DMN label: nefro_compatibilidade.dmn:15 label "
+                    "'finalidadeCateter ← solicitação e cadastro: finalidade do cateter (hemodepuracao, "
+                    "nutricao_parenteral, quimioterapia, infusao; nulo se não informada)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: finalidade do cateter (hemodepuração, nutrição "
+                    "parenteral, quimioterapia, infusão). Criterion applied: finalidade do procedimento, "
+                    "mas os valores hemodepuracao e quimioterapia revelam doença renal ou câncer em "
+                    "tratamento (mesma classe de grupoCarencia). BORDERLINE (a reasonable DPO could go "
+                    "either way): finalidade do procedimento, mas os valores hemodepuracao e quimioterapia "
+                    "revelam doença renal ou câncer em tratamento (mesma classe de grupoCarencia); this "
+                    "name is in the sample the owner takes to the DPO. Counter-evidence the DPO must "
+                    "weigh: the procedure code beside it, CLEAN in this fence, already says which care. "
+                    "Cost of listing: none for the decision (engine-side evaluation, ADR-0028). K1 runs in "
+                    "shadow only (`efeito_k1_habilitado` off). No DPO review happened."
+                ),
+            ),
+            Disposition(
+                name="finalidadeNtrk",
+                evidence=(
+                    'spec/processes/dmn/rco/anatpat_dut.dmn:16 (dmn_input_expression, typeRef="boolean") '
+                    "— K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 "
+                    "(config/integrations/rco/k1/entradas.json): tipo boolean, dominio '{true, false}', "
+                    "origem fora_tiss; de_onde: 'solicitação fora da TISS'. DMN label: anatpat_dut.dmn:15 "
+                    "label 'finalidadeNtrk ← solicitação (formulário do pedido): pesquisa de NTRK "
+                    "declarada pelo médico (true, false ou ausente)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: pesquisa de NTRK declarada pelo médico no "
+                    "pedido anatomopatológico. Criterion applied: finalidade do exame pedido, mas true "
+                    "revela pesquisa de fusão NTRK, feita em tumor sólido (mesma classe de grupoCarencia). "
+                    "BORDERLINE (a reasonable DPO could go either way): finalidade do exame pedido, mas "
+                    "true revela pesquisa de fusão NTRK, feita em tumor sólido (mesma classe de "
+                    "grupoCarencia); this name is in the sample the owner takes to the DPO. "
                     "Counter-evidence the DPO must weigh: the procedure code beside it, CLEAN in this "
                     "fence, already says which care. Cost of listing: none for the decision (engine-side "
                     "evaluation, ADR-0028). K1 runs in shadow only (`efeito_k1_habilitado` off). No DPO "
@@ -2182,6 +2421,65 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "exame (audiometria). Counter-evidence the DPO must weigh: the procedure code beside "
                     "it, CLEAN in this fence, already says which care. Cost of listing: none for the "
                     "decision (engine-side evaluation, ADR-0028). K1 runs in shadow only "
+                    "(`efeito_k1_habilitado` off). No DPO review happened."
+                ),
+            ),
+            Disposition(
+                name="gastrostomiaEndoscopicaPrevia",
+                evidence=(
+                    "spec/processes/dmn/rco/endosc_compatibilidade.dmn:13 (dmn_input_expression, "
+                    'typeRef="boolean") — K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 '
+                    "(config/integrations/rco/k1/entradas.json): tipo boolean, dominio '{true, false}', "
+                    "origem cadastro; de_onde: 'cadastro'. DMN label: endosc_compatibilidade.dmn:12 label "
+                    "'gastrostomiaEndoscopicaPrevia ← cadastro: histórico de guias OMNI do beneficiário "
+                    "com 40202283 (booleano)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: gastrostomia endoscópica anterior no histórico "
+                    "de guias do beneficiário. Criterion applied: histórico de procedimento (40202283), "
+                    "mas true revela gastrostomia já feita, isto é, alimentação por sonda (mesma classe de "
+                    "partoInicialNaGuia). BORDERLINE (a reasonable DPO could go either way): histórico de "
+                    "procedimento (40202283), mas true revela gastrostomia já feita, isto é, alimentação "
+                    "por sonda (mesma classe de partoInicialNaGuia); this name is in the sample the owner "
+                    "takes to the DPO. Counter-evidence the DPO must weigh: the procedure code beside it, "
+                    "CLEAN in this fence, already says which care. Cost of listing: none for the decision "
+                    "(engine-side evaluation, ADR-0028). K1 runs in shadow only (`efeito_k1_habilitado` "
+                    "off). No DPO review happened."
+                ),
+            ),
+            Disposition(
+                name="gatilhoClinicoRevisao",
+                evidence=(
+                    "spec/processes/dmn/rco/autorizacao_orl.dmn:25 (dmn_input_expression, "
+                    'typeRef="boolean") — K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 '
+                    "(config/integrations/rco/k1/entradas.json): tipo boolean, dominio '{true, false}', "
+                    "origem fora_tiss; de_onde: 'solicitação fora da TISS'. DMN label: "
+                    "autorizacao_orl.dmn:24 label 'gatilhoClinicoRevisao ← solicitação: formulário "
+                    "estruturado marca um gatilho objetivo de dominio.yaml gatilhos_revisao_clinica "
+                    "(booleano)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: o formulário estruturado marca um gatilho "
+                    "clínico objetivo de revisão. Criterion applied: booleano: o formulário marca um "
+                    "gatilho clínico objetivo de revisão; afirma um achado clínico sem nomeá-lo (mesma "
+                    "classe de contraindicacaoDut). BORDERLINE (a reasonable DPO could go either way): "
+                    "booleano: o formulário marca um gatilho clínico objetivo de revisão; afirma um achado "
+                    "clínico sem nomeá-lo (mesma classe de contraindicacaoDut); this name is in the sample "
+                    "the owner takes to the DPO. Counter-evidence the DPO must weigh: the procedure code "
+                    "beside it, CLEAN in this fence, already says which care. Cost of listing: none for "
+                    "the decision (engine-side evaluation, ADR-0028). K1 runs in shadow only "
                     "(`efeito_k1_habilitado` off). No DPO review happened."
                 ),
             ),
@@ -2367,6 +2665,31 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "heuristic does not match the name, so the question is asked by hand. Engineering "
                     "reading: derivado do CID principal (hérnia discal). Criterion applied: piso: derivado "
                     "do CID (diagnóstico) (hérnia discal). Counter-evidence the DPO must weigh: the "
+                    "procedure code beside it, CLEAN in this fence, already says which care. Cost of "
+                    "listing: none for the decision (engine-side evaluation, ADR-0028). K1 runs in shadow "
+                    "only (`efeito_k1_habilitado` off). No DPO review happened."
+                ),
+            ),
+            Disposition(
+                name="indicacaoSmf",
+                evidence=(
+                    "spec/processes/dmn/rco/anestdor_cobertura.dmn:22 (dmn_input_expression, "
+                    'typeRef="boolean") — K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 '
+                    "(config/integrations/rco/k1/entradas.json): tipo boolean, dominio '{true, false}', "
+                    "origem fora_tiss; de_onde: 'solicitação fora da TISS'. DMN label: "
+                    "anestdor_cobertura.dmn:21 label 'indicacaoSmf ← solicitação: relatório do médico "
+                    "assistente declara síndrome miofascial (campo fora da TISS)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: o relatório do médico assistente declara "
+                    "síndrome miofascial (diagnóstico). Criterion applied: piso: diagnóstico explícito (o "
+                    "rótulo do DMN declara síndrome miofascial). Counter-evidence the DPO must weigh: the "
                     "procedure code beside it, CLEAN in this fence, already says which care. Cost of "
                     "listing: none for the decision (engine-side evaluation, ADR-0028). K1 runs in shadow "
                     "only (`efeito_k1_habilitado` off). No DPO review happened."
@@ -2702,6 +3025,35 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                 ),
             ),
             Disposition(
+                name="temaImunob",
+                evidence=(
+                    "spec/processes/dmn/rco/imunob_cobertura.dmn:19 (dmn_input_expression, "
+                    'typeRef="string") — K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 '
+                    "(config/integrations/rco/k1/entradas.json): tipo string, dominio '{reposicao, "
+                    "indicacao_em_bula, fora_da_bula_com_evidencia, fora_da_bula_sem_evidencia}', origem "
+                    "fora_tiss; de_onde: 'solicitação fora da TISS'. DMN label: imunob_cobertura.dmn:18 "
+                    "label 'temaImunob ← solicitação (finalidade declarada do uso da imunoglobulina)'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: finalidade declarada do uso da imunoglobulina "
+                    "(reposição, em bula, fora da bula). Criterion applied: finalidade declarada do uso da "
+                    "imunoglobulina; o valor reposicao revela imunodeficiência (mesma classe de "
+                    "grupoCarencia). BORDERLINE (a reasonable DPO could go either way): finalidade "
+                    "declarada do uso da imunoglobulina; o valor reposicao revela imunodeficiência (mesma "
+                    "classe de grupoCarencia); this name is in the sample the owner takes to the DPO. "
+                    "Counter-evidence the DPO must weigh: the procedure code beside it, CLEAN in this "
+                    "fence, already says which care. Cost of listing: none for the decision (engine-side "
+                    "evaluation, ADR-0028). K1 runs in shadow only (`efeito_k1_habilitado` off). No DPO "
+                    "review happened."
+                ),
+            ),
+            Disposition(
                 name="tempoObesidadeMeses",
                 evidence=(
                     "spec/processes/dmn/rco/bariat_dut_banda.dmn:22 (dmn_input_expression, "
@@ -2721,6 +3073,36 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "in this fence, already says which care. Cost of listing: none for the decision "
                     "(engine-side evaluation, ADR-0028). K1 runs in shadow only (`efeito_k1_habilitado` "
                     "off). No DPO review happened."
+                ),
+            ),
+            Disposition(
+                name="tempoTratamentoClinicoMeses",
+                evidence=(
+                    "spec/processes/dmn/rco/bariat_dut_banda.dmn:19 (dmn_input_expression, "
+                    'typeRef="integer"); spec/processes/dmn/rco/bariat_dut_gastroplastia.dmn:22 '
+                    '(dmn_input_expression, typeRef="integer") — K1 pin b8444f52 (manifesto 2.3.0), '
+                    "dictionary 1.6.0 (config/integrations/rco/k1/entradas.json): tipo integer, dominio "
+                    "'faixa 0..None', origem fora_tiss; de_onde: 'solicitação fora da TISS'. DMN label: "
+                    "bariat_dut_banda.dmn:18 label 'tempoTratamentoClinicoMeses ← solicitação (relatório "
+                    "médico do pedido): meses de tratamento clínico da obesidade documentado, campo fora "
+                    "do TISS'; bariat_dut_gastroplastia.dmn:21 label 'tempoTratamentoClinicoMeses ← "
+                    "solicitação (relatório médico do pedido): meses de tratamento clínico da obesidade "
+                    "documentado, campo fora do TISS'."
+                ),
+                recommendation=(
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "the first re-review and RESTORED on the independent review by definition (owner "
+                    "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
+                    "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
+                    "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
+                    "direct identifier). The PHI-shape heuristic does not match the name, so the question "
+                    "is asked by hand. Engineering reading: meses de tratamento clínico da obesidade "
+                    "documentado (o rótulo nomeia a doença). Criterion applied: piso: duração do "
+                    "tratamento de uma doença nomeada (obesidade); o irmão tempoObesidadeMeses já é LIST. "
+                    "Counter-evidence the DPO must weigh: the procedure code beside it, CLEAN in this "
+                    "fence, already says which care. Cost of listing: none for the decision (engine-side "
+                    "evaluation, ADR-0028). K1 runs in shadow only (`efeito_k1_habilitado` off). No DPO "
+                    "review happened."
                 ),
             ),
             Disposition(

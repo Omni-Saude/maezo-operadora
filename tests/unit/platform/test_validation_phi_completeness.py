@@ -3803,10 +3803,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=2,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`cirurgiaBariatricaPrevia` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 2 tabelas "
-            "de spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `cirurgiaBariatricaPrevia` do dicionario 1.6.0 (tipo "
+            "boolean, origem fora_tiss) em 2 tabelas de spec/processes/dmn/rco/ (+2 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -3855,10 +3856,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`classeAlergeno` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
-            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `classeAlergeno` do dicionario 1.6.0 (tipo string, origem "
+            "fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -4360,10 +4362,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`criteriosDutAtendidos` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
-            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `criteriosDutAtendidos` do dicionario 1.6.0 (tipo "
+            "boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -4779,10 +4782,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`enquadramentoDut110` do dicionario 1.6.0 (tipo string, origem cadastro) em 1 tabela de "
-            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `enquadramentoDut110` do dicionario 1.6.0 (tipo string, "
+            "origem cadastro) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -4792,10 +4796,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`enquadramentoDut118` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
-            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `enquadramentoDut118` do dicionario 1.6.0 (tipo boolean, "
+            "origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -4805,10 +4810,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`enquadramentoDut24` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
-            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `enquadramentoDut24` do dicionario 1.6.0 (tipo boolean, "
+            "origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -5221,10 +5227,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`finalidadeCateter` do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de "
-            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `finalidadeCateter` do dicionario 1.6.0 (tipo string, "
+            "origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -5286,10 +5293,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`finalidadeNtrk` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
-            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `finalidadeNtrk` do dicionario 1.6.0 (tipo boolean, "
+            "origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -5326,10 +5334,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`gastrostomiaEndoscopicaPrevia` do dicionario 1.6.0 (tipo boolean, origem cadastro) em 1 "
-            "tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `gastrostomiaEndoscopicaPrevia` do dicionario 1.6.0 (tipo "
+            "boolean, origem cadastro) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -5339,10 +5348,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`gatilhoClinicoRevisao` do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de "
-            "spec/processes/dmn/rco/ (+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `gatilhoClinicoRevisao` do dicionario 1.6.0 (tipo "
+            "boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -5658,10 +5668,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `indicacaoSmf` "
-            "do dicionario 1.6.0 (tipo boolean, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ "
-            "(+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `indicacaoSmf` do dicionario 1.6.0 (tipo boolean, origem "
+            "fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -7710,10 +7721,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=1,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada `temaImunob` "
-            "do dicionario 1.6.0 (tipo string, origem fora_tiss) em 1 tabela de spec/processes/dmn/rco/ "
-            "(+1 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `temaImunob` do dicionario 1.6.0 (tipo string, origem "
+            "fora_tiss) em 1 tabela de spec/processes/dmn/rco/ (+1 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -7750,10 +7762,11 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name_delta=1,
         occurrence_delta=2,
         reason=(
-            "CLEAN pela cerca (nenhum radical de SHAPE_TOKENS e nenhum campo de texto livre): bucket da "
-            "heuristica, nao juizo do DPO. K1 b8444f52, primeiro pin real (sombra): entrada "
-            "`tempoTratamentoClinicoMeses` do dicionario 1.6.0 (tipo integer, origem fora_tiss) em 2 "
-            "tabelas de spec/processes/dmn/rco/ (+2 dmn_input_expression)."
+            "ELEVADO de CLEAN a SHAPE-SUSPECT por Disposition DRAFT/verify (DPO), desfeito na primeira "
+            "revisao e RESTAURADO na revisao independente por definicao (decisao do dono PROG-COORD-47: "
+            "LIST so estado de saude explicito ou identificador; NAO houve revisao do DPO). K1 b8444f52, "
+            "primeiro pin real (sombra): entrada `tempoTratamentoClinicoMeses` do dicionario 1.6.0 (tipo "
+            "integer, origem fora_tiss) em 2 tabelas de spec/processes/dmn/rco/ (+2 dmn_input_expression)."
         ),
     ),
     CorpusDelta(
@@ -8038,9 +8051,11 @@ class TestBuckets:
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
-        expected_clean = expected_names - 6 - 92  # #1365: SHAPE 15 -> 53 -> 214 -> 92 (39 elevados ficam)
+        expected_clean = (
+            expected_names - 6 - 105
+        )  # #1365: SHAPE 15 -> 53 -> 214 -> 92 -> 105 (52 elevados ficam)
         assert (
-            expected_clean == 704  # K1 b8444f52 (#1365): +362 nomes (+285 CLEAN, +77 SHAPE) / +2312 ocorr.
+            expected_clean == 691  # K1 b8444f52 (#1365): +362 nomes (+272 CLEAN, +90 SHAPE) / +2312 ocorr.
             # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # R-076 faixa B dormente (#1149): +16 CLEAN (fatos da faixa, origem_*, R-058)
@@ -8061,7 +8076,7 @@ class TestBuckets:
         #   classeAdverso, fila)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
-            SHAPE_SUSPECT: 92,  # #1365: +38 do K1 + 39 elevados (PROG-COORD-47), todos DRAFT/verify (DPO)
+            SHAPE_SUSPECT: 105,  # #1365: +38 do K1 + 52 elevados (PROG-COORD-47), todos DRAFT/verify (DPO)
             CLEAN: expected_clean,
         }
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
@@ -8193,6 +8208,8 @@ class TestBuckets:
             "cidNeoplasia",
             "cidPrincipal",
             "cidSecundarioInformado",
+            "cirurgiaBariatricaPrevia",
+            "classeAlergeno",
             "classeChildPugh",
             "clausulaExameAdicional",
             "complicacaoCidSecundario",
@@ -8204,6 +8221,7 @@ class TestBuckets:
             "criterioDutInformado",
             "criterioGrupoI",
             "criterioGrupoII",
+            "criteriosDutAtendidos",
             "deficienciaCadastro",
             "detalhes_requisicao",
             "diagnosticoCLN2Confirmado",
@@ -8212,13 +8230,20 @@ class TestBuckets:
             "diariaSoParaExame",
             "diasDesdeUltimoExame",
             "doencaRestritaFigado",
+            "enquadramentoDut110",
+            "enquadramentoDut118",
+            "enquadramentoDut24",
             "enquadramentoLegal",
             "exameBaseNaGuia",
             "examesNoPeriodo",
             "exames_convencionais_inconclusivos",
+            "finalidadeCateter",
+            "finalidadeNtrk",
             "fundamentacao_contratual",
             "fundamentacao_legal",
             "gapMedioDb",
+            "gastrostomiaEndoscopicaPrevia",
+            "gatilhoClinicoRevisao",
             "graduacaoWagner",
             "grauQueimadura",
             "grauWagner",
@@ -8229,6 +8254,7 @@ class TestBuckets:
             "indicacaoAblacao",
             "indicacaoAguda",
             "indicacaoHerniaDiscal",
+            "indicacaoSmf",
             "info_solicitada",
             "internacaoObstetricaComAcompanhante",
             "itemDut10",
@@ -8268,7 +8294,9 @@ class TestBuckets:
             "subitemDut65",
             "substanciaMedicamento",
             "taxaSemExame",
+            "temaImunob",
             "tempoObesidadeMeses",
+            "tempoTratamentoClinicoMeses",
             "texto_ao_beneficiario",
             "tipoPerdaAuditiva",
         )
@@ -8471,6 +8499,13 @@ class TestBuckets:
             "causaExterna": [
                 "urg_enquadramento.dmn:19 (dmn_input_expression)",
             ],
+            "cirurgiaBariatricaPrevia": [
+                "bariat_dut_gastroplastia.dmn:13 (dmn_input_expression)",
+                "bariat_pacote_enquadramento.dmn:19 (dmn_input_expression)",
+            ],
+            "classeAlergeno": [
+                "imunob_cobertura.dmn:25 (dmn_input_expression)",
+            ],
             "classeChildPugh": [
                 "cirger_dut_ablacao_hepatica.dmn:16 (dmn_input_expression)",
             ],
@@ -8498,17 +8533,41 @@ class TestBuckets:
             "criterioGrupoII": [
                 "exfunc_dut.dmn:25 (dmn_input_expression)",
             ],
+            "criteriosDutAtendidos": [
+                "imunob_dut.dmn:19 (dmn_input_expression)",
+            ],
             "deficienciaCadastro": [
                 "diaria_cobertura.dmn:16 (dmn_input_expression)",
             ],
             "doencaRestritaFigado": [
                 "cirger_dut_ablacao_hepatica.dmn:19 (dmn_input_expression)",
             ],
+            "enquadramentoDut110": [
+                "genet_autorizacao.dmn:16 (dmn_input_expression)",
+            ],
+            "enquadramentoDut118": [
+                "mednuc_dut.dmn:22 (dmn_input_expression)",
+            ],
+            "enquadramentoDut24": [
+                "anestdor_autorizacao.dmn:25 (dmn_input_expression)",
+            ],
             "enquadramentoLegal": [
                 "urg_enquadramento.dmn:26 (dmn_output_name)",
             ],
+            "finalidadeCateter": [
+                "nefro_compatibilidade.dmn:16 (dmn_input_expression)",
+            ],
+            "finalidadeNtrk": [
+                "anatpat_dut.dmn:16 (dmn_input_expression)",
+            ],
             "gapMedioDb": [
                 "dut_protese_ancorada_orl.dmn:13 (dmn_input_expression)",
+            ],
+            "gastrostomiaEndoscopicaPrevia": [
+                "endosc_compatibilidade.dmn:13 (dmn_input_expression)",
+            ],
+            "gatilhoClinicoRevisao": [
+                "autorizacao_orl.dmn:25 (dmn_input_expression)",
             ],
             "graduacaoWagner": [
                 "clin_dut.dmn:25 (dmn_input_expression)",
@@ -8534,6 +8593,9 @@ class TestBuckets:
             ],
             "indicacaoHerniaDiscal": [
                 "coluna_endoscopica.dmn:16 (dmn_input_expression)",
+            ],
+            "indicacaoSmf": [
+                "anestdor_cobertura.dmn:22 (dmn_input_expression)",
             ],
             "internacaoObstetricaComAcompanhante": [
                 "diaria_cobertura.dmn:19 (dmn_input_expression)",
@@ -8577,8 +8639,15 @@ class TestBuckets:
             "subitemDut65": [
                 "imunob_dut.dmn:13 (dmn_input_expression)",
             ],
+            "temaImunob": [
+                "imunob_cobertura.dmn:19 (dmn_input_expression)",
+            ],
             "tempoObesidadeMeses": [
                 "bariat_dut_banda.dmn:22 (dmn_input_expression)",
+            ],
+            "tempoTratamentoClinicoMeses": [
+                "bariat_dut_banda.dmn:19 (dmn_input_expression)",
+                "bariat_dut_gastroplastia.dmn:22 (dmn_input_expression)",
             ],
             "tipoPerdaAuditiva": [
                 "dut_implante_coclear_orl.dmn:13 (dmn_input_expression)",
@@ -8601,11 +8670,11 @@ class TestBuckets:
     def test_render_buckets_shows_all_three_with_provenance(self, live_sweep: Sweep) -> None:
         rendered = render_buckets(live_sweep)
         assert f"## {LISTED} (6)" in rendered
-        assert f"## {SHAPE_SUSPECT} (92)" in rendered  # #1365: +38 (K1) + 39 elevados
+        assert f"## {SHAPE_SUSPECT} (105)" in rendered  # #1365: +38 (K1) + 52 elevados
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (704)"  # K1 b8444f52 (#1365): +362 nomes (+285 CLEAN, +77 SHAPE) / +2312 ocorr.
+            f"## {CLEAN} (691)"  # K1 b8444f52 (#1365): +362 nomes (+272 CLEAN, +90 SHAPE) / +2312 ocorr.
             in rendered  # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
             # ADR-0075 / exemplo sintetico rco (#1223): +4
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
@@ -8623,8 +8692,8 @@ class TestBuckets:
         # would stay green after an edit that renamed the constant's VALUE to
         # "RATIFICADO pelo DPO", which is exactly the laundering this asserts
         # against.
-        # DL-0163: +5 perguntas dos textos do reembolso; #1365: +38 perguntas do K1 + 39 elevadas
-        assert rendered.count("DRAFT/verify (DPO)") == 92
+        # DL-0163: +5 perguntas dos textos do reembolso; #1365: +38 perguntas do K1 + 52 elevadas
+        assert rendered.count("DRAFT/verify (DPO)") == 105
 
 
 # ---------------------------------------------------------------------------
