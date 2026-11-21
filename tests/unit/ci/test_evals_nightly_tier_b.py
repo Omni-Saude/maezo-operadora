@@ -762,3 +762,23 @@ def test_phi_zone_line_points_to_an_existing_readme_section() -> None:
     ]
     ancoras = {re.sub(r"[^a-z0-9 -]", "", t.lower()).replace(" ", "-") for t in titulos}
     assert ancora in ancoras, sorted(ancoras)
+
+
+@pytest.mark.parametrize(("provedor", "conta"), [("bedrock", True), ("br_resident", True), ("noop", False)])
+def test_a_named_real_cloud_provider_is_a_credential_a_test_double_is_not(
+    monkeypatch: pytest.MonkeyPatch, provedor: str, conta: bool
+) -> None:
+    # 2a revisao: `bedrock` (zona geral, nao phi_capable) sem chave RODA e falha visivel
+    # (LIVE CALL FAILED: PhiZoneRoutingError), em vez de "NAO RODOU"; um `noop` de `.env` local segue pulado.
+    for nome in ("MAEZO_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(nome, raising=False)
+    monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", provedor)
+    assert _vivo.credencial_viva_presente() is conta and tb.chave_presente() is conta
+
+
+def test_manual_run_drops_inherited_python_and_pytest_variables(tmp_path: Path) -> None:
+    env = manual.ambiente_da_execucao(
+        {"PYTEST_ADDOPTS": "-rA -s", "PYTHONPATH": "/x", "PYTHONSTARTUP": "/y", "HOME": "/h"},
+        tmp_path / "r.md",
+    )
+    assert not any(k.startswith(("PYTHON", "PYTEST_")) for k in env) and env["HOME"] == "/h"

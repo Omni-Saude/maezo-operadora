@@ -304,7 +304,9 @@ vermelho, sem medir nada. As 7 noites de observacao do Tier B ficam suspensas at
 .venv/bin/python scripts/dev/tier_b_manual.py   # resumo em $TMPDIR/tier-b-manual-<UTC>/resumo.md
 ```
 
-O roteiro confere o ambiente (sem imprimir valores), fixa `MAEZO_INFERENCE_PROVIDER=bedrock_br`, roda o
+O roteiro confere o ambiente (a conferencia nao imprime valores; no terminal, os logs INFO do provedor
+mostram o id do modelo e o host do endpoint, nunca o DPA ref), descarta `PYTHON*`/`PYTEST_*` herdados (as
+mesmas opcoes do noturno), fixa `MAEZO_INFERENCE_PROVIDER=bedrock_br`, roda o
 MESMO preflight do noturno (`scripts/ci/tier_b_preflight.py`, `phi=True`), so' o Tier B
 (`-m "eval and llm_live"`) e o MESMO resumo (`scripts/ci/tier_b_resumo.py`). Todo teste vivo passa pelo
 gravador de chamadas: se a chamada nao aconteceu ou falhou, o caso sai `LIVE CALL FAILED: <Classe>` antes de

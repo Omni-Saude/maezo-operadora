@@ -48,11 +48,14 @@ def provedor_configurado() -> str:
 
 
 def credencial_viva_presente() -> bool:
-    """Ha' como um eval vivo chamar um modelo real: chave Anthropic, ou provedor da zona PHI nomeado
-    (cujas credenciais sao a sessao AWS do dev e os portoes `MAEZO_PHI_*`, verificados pelo proprio
-    provedor ao construir)."""
+    """Ha' como um eval vivo chamar um modelo real: chave Anthropic, ou provedor real nomeado alem do
+    padrao (credenciais da nuvem — sessao AWS do dev e, na zona PHI, os portoes `MAEZO_PHI_*`,
+    verificados pelo proprio provedor ao construir)."""
     chave = os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-    return bool(chave) or provedor_configurado() in PROVEDORES_ZONA_PHI
+    # Um provedor REAL nomeado alem do padrao (bedrock, bedrock_br, br_resident) usa credencial da nuvem,
+    # nao chave de API: conta como credencial, e o caso roda (e falha visivel se nao for phi_capable).
+    # Um provedor de teste nomeado (ex.: `noop` num `.env` local) NAO conta: o caso segue pulado.
+    return bool(chave) or provedor_configurado() in PROVEDORES_VIVOS - {PROVEDOR_PADRAO}
 
 
 def configuracao_viva() -> InferenceSettings:

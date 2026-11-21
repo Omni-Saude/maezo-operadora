@@ -83,8 +83,12 @@ def chave_presente() -> bool:
     except Exception:
         # O resumo SEMPRE reporta: se o import do provedor dos evals quebrar, a mesma regra so' pelo ambiente.
         chave = os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-        zona_phi = os.environ.get("MAEZO_INFERENCE_PROVIDER", "").strip() in {"bedrock_br", "br_resident"}
-        return bool(chave) or zona_phi
+        nuvem = os.environ.get("MAEZO_INFERENCE_PROVIDER", "").strip() in {
+            "bedrock",
+            "bedrock_br",
+            "br_resident",
+        }
+        return bool(chave) or nuvem
     return credencial_viva_presente()
 
 

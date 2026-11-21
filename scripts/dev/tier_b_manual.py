@@ -10,13 +10,14 @@ Roteiro completo: tests/evals/README.md, secao "Tier B: execucao manual na zona 
 
 O que faz
 ---------
-1. Confere o ambiente (sem imprimir valor nenhum): `MAEZO_INFERENCE_PROVIDER` vazio ou `bedrock_br`; os tres
-   portoes que o dono preenche no tfvars do dev (`MAEZO_PHI_ENDPOINT_URL`, `MAEZO_PHI_VENDOR_DPA_REF`,
-   `MAEZO_INFERENCE_MODEL`); credencial AWS resolvivel pelo boto3.
+1. Confere o ambiente (a CONFERENCIA nao imprime valor nenhum): `MAEZO_INFERENCE_PROVIDER` vazio ou
+   `bedrock_br`; os tres portoes que o dono preenche no tfvars do dev (`MAEZO_PHI_ENDPOINT_URL`,
+   `MAEZO_PHI_VENDOR_DPA_REF`, `MAEZO_INFERENCE_MODEL`); credencial AWS resolvivel pelo boto3.
 2. Roda o MESMO preflight do noturno (`scripts/ci/tier_b_preflight.py`, phi=True), so' o Tier B
    (`pytest tests/evals -m "eval and llm_live"`) e o MESMO resumo (`scripts/ci/tier_b_resumo.py`).
 3. Grava SO' o resumo (ids e resultados; nenhuma saida de modelo) em `<saida>/resumo.md`. O junit fica num
-   diretorio temporario e e' apagado.
+   diretorio temporario e e' apagado. No TERMINAL, os logs INFO do provedor mostram o id do modelo e o host
+   do endpoint (nunca o DPA ref); nada disso vai para o resumo.
 
 Uso: `.venv/bin/python scripts/dev/tier_b_manual.py [--saida DIR]` (padrao: `$TMPDIR/tier-b-manual-<UTC>`).
 """
@@ -87,7 +88,9 @@ def comandos(junit: Path) -> list[list[str]]:
 
 
 def ambiente_da_execucao(env: Mapping[str, str], resumo: Path) -> dict[str, str]:
-    novo = dict(env)
+    # As MESMAS opcoes do noturno: o job recusa PYTHON*/PYTEST_* herdados; aqui eles sao descartados (um
+    # `PYTEST_ADDOPTS=-rA` ou `-s` mudaria as opcoes e imprimiria saida capturada; `PYTHONPATH`, o import).
+    novo = {k: v for k, v in env.items() if not k.startswith(("PYTHON", "PYTEST_"))}
     novo.update(
         MAEZO_INFERENCE_PROVIDER=PROVEDOR,
         NIGHTLY_EVAL="1",
