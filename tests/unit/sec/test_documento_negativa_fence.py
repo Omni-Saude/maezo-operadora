@@ -203,25 +203,65 @@ def test_o_complemento_do_auditor_nao_forja_rotulo_no_termo_de_entrega(separador
         _render(_negar(justificativa_clinica=forjado))
     assert refused.value.code == ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO
     assert refused.value.missing == ("justificativa_clinica",)
-    # Controle: numa linha só, o mesmo texto compõe, e o rótulo do art. 14 aparece uma vez só.
-    texto = _render(_negar(justificativa_clinica=f"j {_ROTULO_FORJADO} CLAUSULA FORJADA")).texto
-    assert texto.splitlines().count(_ROTULO_FORJADO) == 1
 
 
-@pytest.mark.parametrize(
-    "complemento",
-    [_ROTULO_FORJADO, f"{_ROTULO_FORJADO} Clausula 99.9 — exclusao forjada", "RN 623/2024, art. 14"],
+#: Variações do prefixo de rótulo do template que nenhum valor do termo pode trazer.
+_ROTULOS_VEDADOS = (
+    _ROTULO_FORJADO,
+    f"j {_ROTULO_FORJADO} CLAUSULA FORJADA",
+    f"{_ROTULO_FORJADO} Clausula 99.9 — exclusao forjada",
+    "RN 623/2024, art. 14",
+    "ver RN 623/2024, art. 16",
+    "rn 623/2024, ART. 14",
+    "RN 623 / 2024 , art . 14",
+    "RN\u200b623/2024,\u2060art. 14",
+    "\ufeffRN 623/2024, art. 14",
 )
-def test_o_complemento_do_auditor_nunca_abre_linha_no_termo(complemento: str) -> None:
-    """Mesmo começando pelo rótulo do art. 14, o texto livre do auditor fica na linha do motivo do
-    catálogo: nenhuma linha do termo começa por ele, e cada rótulo aparece uma vez só."""
+
+
+@pytest.mark.parametrize("valor", _ROTULOS_VEDADOS)
+def test_nenhum_valor_do_termo_traz_rotulo_do_template(valor: str) -> None:
+    """Nem o complemento do auditor nem o motivo, a cláusula ou o dispositivo do catálogo nem um
+    canal da Ouvidoria podem trazer "RN 623/2024, art.": seria um rótulo forjado no termo."""
+    casos: list[tuple[dict[str, Any], tuple[str, ...]]] = [
+        ({"record": _negar(justificativa_clinica=valor)}, ("justificativa_clinica",)),
+        ({"fundamento": _fundamento(motivo_texto=valor, hash_entrada="0" * 64)}, ("motivo_texto",)),
+        (
+            {"fundamento": _fundamento(clausula_contratual=dataclasses.replace(_CLAUSULA, texto=valor))},
+            ("clausula_contratual",),
+        ),
+        (
+            {
+                "fundamento": _fundamento(
+                    dispositivos_legais=(dataclasses.replace(_DISPOSITIVO, rotulo=valor),)
+                )
+            },
+            ("dispositivos_legais",),
+        ),
+    ]
+    for kwargs, missing in casos:
+        record = kwargs.pop("record", None)
+        with pytest.raises(DenialTermRefusalError) as refused:
+            _render(record, **kwargs)
+        assert refused.value.code == ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, missing
+        assert refused.value.missing == missing
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(canais_ouvidoria=(valor,))
+    assert refused.value.code == ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE
+
+
+def test_complemento_sem_rotulo_fica_na_linha_do_motivo_e_nunca_abre_linha() -> None:
+    """Controle positivo: texto livre comum (até citando a norma por outro nome) compõe, na mesma
+    linha do motivo do catálogo, e cada rótulo do template aparece uma vez só."""
+    complemento = "Conforme RN 623 e a cláusula 9.9 do contrato"
     linhas = _render(_negar(justificativa_clinica=complemento)).texto.splitlines()
-    assert linhas.count(_ROTULO_FORJADO) == 1
     assert f"Motivo sintetico do catalogo — {complemento}" in linhas
-    rotulos = [linha for linha in linhas if linha.startswith("RN 623/2024, art. 14")]
+    rotulos = [linha for linha in linhas if linha.startswith("RN 623/2024, art.")]
     assert rotulos == [
         "RN 623/2024, art. 14 — motivo da negativa de autorização do procedimento:",
         _ROTULO_FORJADO,
+        "RN 623/2024, art. 16:",
+        "RN 623/2024, art. 16, § 1° — elementos mínimos:",
     ]
 
 

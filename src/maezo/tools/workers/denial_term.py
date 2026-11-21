@@ -58,7 +58,7 @@ from pathlib import Path
 from string import Template
 from typing import Any
 
-from maezo.gateway.required_text import is_blank
+from maezo.gateway.required_text import ZERO_WIDTH_TRANSLATION, is_blank
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN
 
 __all__ = [
@@ -106,6 +106,10 @@ _COMPLEMENTO_DO_MOTIVO = "justificativa_clinica"
 CATALOGO_DE_FUNDAMENTOS_SHA256: str | None = None
 
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+#: Prefixo de todo rótulo do template ("RN 623/2024, art. ..."), tolerante a espaço e a caixa.
+#: Nenhum valor que entra no termo pode trazê-lo: seria um rótulo forjado no meio do termo.
+_ROTULO_DO_TERMO = re.compile(r"rn\s*623\s*/\s*2024\s*,\s*art\s*\.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,8 +170,11 @@ class RenderedDenialTerm:
 
 def _linha_valida(value: Any) -> bool:
     """Uma linha só, de `str` exato: sem nenhum separador de linha (os de `str.splitlines`, como
-    U+2028) e sem surrogate solto, para que nenhum valor forje rótulos ou itens no termo."""
+    U+2028), sem surrogate solto e sem rótulo do template ("RN 623/2024, art.", mesmo com
+    caracteres de largura zero no meio), para que nenhum valor forje rótulos ou itens no termo."""
     if type(value) is not str or is_blank(value) or value.splitlines() != [value]:
+        return False
+    if _ROTULO_DO_TERMO.search(value.translate(ZERO_WIDTH_TRANSLATION).casefold()):
         return False
     try:
         value.encode("utf-8")
