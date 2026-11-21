@@ -1010,3 +1010,40 @@ Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos 
   - 7 merges atrás (#1342–#1348), sem arquivo em comum, não trazidos (CD-155).
   - Aguardo o CI.
 - Fila: 35 por último.
+
+## 2026-11-21 ~03:35Z — CAMINHO E-SF-24b (parcial, CD-231)
+
+Ramo `sf-w2/mzo-gp/esf24b`, a partir da main. O PR só abre depois do merge do #1351 (um PR por vez). Toca `spec/policies/ans/templates/` (CODEOWNERS), então o `flip-path-review-gate` deve ficar vermelho, como no #1343.
+
+**(A) Template v1**
+- Arquivo novo `spec/policies/ans/templates/termo-negativa.v1.txt`; o v0 fica byte-idêntico.
+- O v1 mantém os rótulos do v0, todos tirados da própria norma, e acrescenta um bloco próprio com título: "RN 623/2024, art. 16, § 1° — elementos mínimos:".
+- O bloco traz os incisos I, II e III verbatim. Logo abaixo do II vêm os canais da Ouvidoria, e logo abaixo do III o prazo, que são dados da operadora.
+- Leio o pedido como "o § 1º, I, e com ele os três incisos". O I é o único elemento que faltava no v0.
+- Nenhuma prosa própria. As linhas `# ` de metadado continuam, agora dizendo que o fundamento vem do catálogo e que o parecer jurídico está pendente.
+- Teste novo de igualdade byte a byte: extrai do texto-base versionado (`docs/compliance/legal/textos-base/RN-623-2024.md`) as linhas "I - …", "II - …" e "III - …" do art. 16, § 1°, e exige cada uma idêntica no v1. Também exige o caput do art. 16 idêntico.
+- `DENIAL_TERM_TEMPLATE` passa a ser v1 com o sha256 fixado, e a composição recusa o v0 (`…_TEMPLATE_NAO_VERSIONADO`).
+- O registro da negativa (`SendDenialNoticeWorker`) continua levando só a versão e o sha256 do template, agora os do v1.
+- A flag `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` continua desligada, e o teste que fixa o desligado fica intacto.
+
+**(B) Porta do fundamento**
+- Novo `FundamentoDoTermo` (dataclass fechada e frozen) com os campos `id_regra`, `versao_regra`, `motivo_texto`, `clausula_contratual`, `dispositivo_legal` e `hash_do_catalogo`.
+  - `id_regra`, `versao_regra`, `motivo_texto` e `hash_do_catalogo` são obrigatórios e não podem ser vazios.
+  - Pelo menos um de `clausula_contratual` e `dispositivo_legal` é obrigatório, porque o art. 14 diz "a cláusula contratual ou o dispositivo legal".
+  - Nenhum campo aceita quebra de linha.
+- O pino do catálogo, `CATALOGO_DE_FUNDAMENTOS_SHA256`, é `None` hoje: o catálogo não existe e vai vir do repositório de regras.
+- `render_denial_term` ganha o parâmetro obrigatório `fundamento: FundamentoDoTermo`. A recusa é tipada:
+  - `ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO` enquanto o pino é `None`;
+  - `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO` para tipo errado, campo vazio ou hash diferente do pino.
+- `fundamentacao_dut` deixa de ser lida pela composição. Mesmo preenchida, não substitui o fundamento: há teste para isso.
+- O motivo no termo é `motivo_texto` seguido da `justificativa_clinica` do auditor como complemento, sem rótulo próprio. A justificativa continua obrigatória porque a negativa é humana.
+- Testes:
+  - a porta está fechada por construção: com o pino `None`, qualquer `FundamentoDoTermo`, mesmo perfeito, é recusado;
+  - com um pino sintético só no teste (monkeypatch), o caminho positivo compõe o v1 e as recusas por campo valem.
+- `_human_denial` e `ERR_DENIAL_NOT_HUMAN` não mudam, nem a decisão de negar.
+
+**Também**
+- `test_documento_negativa_fence.py` passa a usar o v1 e o fundamento.
+- `SP-OP-AUTH-001.md` ganha a seção v1 e porta.
+- Nada de dados do repositório de regras; nada ligado.
+- Fica fora desta entrega e continua na pré-condição de ligar: o parecer jurídico e o catálogo revisado.
