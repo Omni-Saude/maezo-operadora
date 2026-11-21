@@ -131,7 +131,9 @@ def test_staff_assist_refuses_clinical_input(campo: str) -> None:
         new_comercial_state({"modo": "staff_assist", campo: "Paciente com diagnóstico de diabetes, CID E11"})
     assert campo not in INPUT_FIELDS
     # O próprio `receive` revalida: um campo clínico plantado no estado não chega ao `decide`.
-    reset = ComercialGraph().receive({"modo": "staff_assist"})
+    plantado: Any = {"modo": "staff_assist", campo: "Paciente com diagnóstico de diabetes, CID E11"}
+    reset = ComercialGraph().receive(plantado)
+    assert reset == dict(NEUTRAL_OUTPUTS)
     assert campo not in reset
 
 
@@ -237,3 +239,10 @@ def test_nenhuma_rota_do_console_ligada() -> None:
         *(a.name for n in ast.walk(arvore) if isinstance(n, ast.ImportFrom | ast.Import) for a in n.names),
     }
     assert not [m for m in importados if "specialist_console" in m or "comercial" in m]
+    from maezo.portal.api import specialist_console
+
+    modulo = ast.parse(Path(specialist_console.__file__).read_text(encoding="utf-8"))
+    nomes = {n.id for n in ast.walk(modulo) if isinstance(n, ast.Name)} | {
+        n.attr for n in ast.walk(modulo) if isinstance(n, ast.Attribute)
+    }
+    assert "APIRouter" not in nomes and "FastAPI" not in nomes
