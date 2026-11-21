@@ -41,6 +41,7 @@ from maezo.agents.comercial.graph import (
 )
 from maezo.agents.comercial.passagem import ComercialInputError
 from maezo.gateway.pep import HARD_ACTIONS, Decision, build_pep
+from maezo.platform.validation import agent_def
 
 _REPO = Path(__file__).resolve().parents[3]
 _SPEC = _REPO / "spec" / "agents" / "comercial" / "agent.yaml"
@@ -48,6 +49,22 @@ _AUTONOMIA = _REPO / "spec" / "policies" / "autonomy"
 
 #: sha256 de `_hard_frozen.yaml` (o mesmo pino de `test_esf17_comercial.py`): nenhum byte muda aqui.
 SHA256_HARD_FROZEN = "1c6ce210730d475d3782ff9d1853ef03db5373894e8a5fd14b7730a216098dc6"
+
+#: A pasta de autonomia e as classes de efeito na main `dcfedd29`, que esta linha só LÊ (CD-144/233).
+#: Uma unidade do programa que mudar um destes arquivos atualiza o pino no mesmo PR.
+_AUTO = "spec/policies/autonomy/"
+SHA256_SO_LIDOS = {
+    _AUTO + "L0-core.yaml": "515ab01027f2caefb3414b3bc262340aca918b8feafb41b9761edc81607fb280",
+    _AUTO + "_hard_frozen.yaml": SHA256_HARD_FROZEN,
+    _AUTO + "action-approvals.yaml": "fcaa430c7921700cc088e3bb618237cbbd1c1f0bcafa7e5131e6c33ab31c217e",
+    _AUTO + "tenants-amh.yaml": "d78168bddb6362c0556028e0cb29cd69c43743963ccab4c16698f15ded72baa0",
+    "src/maezo/gateway/effect_classes.py": "ac307b0c781020fbd65c8c216f7a43047efd1c94b9643efcc12c1a9da92d4f21",
+}
+
+#: O teto do agente comercial depois desta linha: os três de E-SF-17 e o rascunho (#1349).
+_TETO_COMERCIAL = frozenset(
+    {"informational_response", "triage_and_routing", "send_prospect_message", "staff_assist_draft"}
+)
 
 #: Nomes que denunciariam cálculo ou decisão sensível na saída do copiloto.
 _CAMPOS_VEDADOS = re.compile(
@@ -188,3 +205,35 @@ def test_flag_desligada_o_copiloto_nao_monta(config: dict[str, Any] | None) -> N
 def test_hard_frozen_byte_identico() -> None:
     conteudo = (_AUTONOMIA / "_hard_frozen.yaml").read_bytes()
     assert hashlib.sha256(conteudo).hexdigest() == SHA256_HARD_FROZEN
+
+
+def test_pasta_de_autonomia_e_classes_de_efeito_so_lidas() -> None:
+    """Nenhum arquivo da pasta de autonomia (nem `action-approvals.yaml`) e nem `effect_classes`
+    muda nesta linha: o conjunto de arquivos e cada sha256 são os da main."""
+    pasta = sorted(p.relative_to(_REPO).as_posix() for p in _AUTONOMIA.iterdir() if p.is_file())
+    assert pasta == sorted(k for k in SHA256_SO_LIDOS if k.startswith(_AUTO))
+    for rel, esperado in SHA256_SO_LIDOS.items():
+        assert hashlib.sha256((_REPO / rel).read_bytes()).hexdigest() == esperado, rel
+
+
+def test_o_teto_comercial_ganha_so_o_nome_do_rascunho() -> None:
+    """Igualdade de conjunto (não ⊇): nenhum outro nome entra no teto; o nome novo vem da pasta."""
+    assert frozenset(agent_def._ACOES_COMERCIAIS) == _TETO_COMERCIAL
+    l0 = yaml.safe_load((_AUTONOMIA / "L0-core.yaml").read_text(encoding="utf-8"))["actions"]
+    novos = _TETO_COMERCIAL - {"informational_response", "triage_and_routing", "send_prospect_message"}
+    assert novos == {ACAO_RASCUNHO_ATENDENTE}
+    assert all(nome in l0 for nome in _TETO_COMERCIAL)
+    assert l0[ACAO_RASCUNHO_ATENDENTE] == {"level": "L1"}
+    assert frozenset({"mcp-whatsapp.send_message"}) == agent_def._TOOLS_COMERCIAIS  # nenhum tool novo
+
+
+def test_nenhuma_rota_do_console_ligada() -> None:
+    """O console do atendente (ADD01-02) segue sem rota montada: nem o app o importa, nem o módulo
+    declara roteador. O copiloto não ganha superfície HTTP nesta linha."""
+    app = _REPO / "src" / "maezo" / "portal" / "api" / "app.py"
+    arvore = ast.parse(app.read_text(encoding="utf-8"))
+    importados = {
+        *(n.module or "" for n in ast.walk(arvore) if isinstance(n, ast.ImportFrom)),
+        *(a.name for n in ast.walk(arvore) if isinstance(n, ast.ImportFrom | ast.Import) for a in n.names),
+    }
+    assert not [m for m in importados if "specialist_console" in m or "comercial" in m]
