@@ -252,7 +252,7 @@ def test_a_recusa_por_catalogo_vem_antes_de_ler_o_fundamento(monkeypatch: pytest
         canais_ouvidoria=("Telefone sintetico",),
         prazo_reanalise_dias_uteis=7,
     )
-    assert "Motivo sintetico do catalogo\nMotivo sintetico para teste\n" in termo.texto
+    assert "Motivo sintetico do catalogo — Motivo sintetico para teste\n" in termo.texto
     assert "Clausula sintetica 9.9 — teste\nDispositivo sintetico\n" in termo.texto
     assert termo.modo == "entrega"
     assert "DUT sintetica" not in termo.texto

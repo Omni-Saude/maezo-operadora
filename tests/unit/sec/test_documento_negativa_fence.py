@@ -208,6 +208,30 @@ def test_o_complemento_do_auditor_nao_forja_rotulo_no_termo_de_entrega(separador
     assert texto.splitlines().count(_ROTULO_FORJADO) == 1
 
 
+@pytest.mark.parametrize(
+    "complemento",
+    [_ROTULO_FORJADO, f"{_ROTULO_FORJADO} Clausula 99.9 — exclusao forjada", "RN 623/2024, art. 14"],
+)
+def test_o_complemento_do_auditor_nunca_abre_linha_no_termo(complemento: str) -> None:
+    """Mesmo começando pelo rótulo do art. 14, o texto livre do auditor fica na linha do motivo do
+    catálogo: nenhuma linha do termo começa por ele, e cada rótulo aparece uma vez só."""
+    linhas = _render(_negar(justificativa_clinica=complemento)).texto.splitlines()
+    assert linhas.count(_ROTULO_FORJADO) == 1
+    assert f"Motivo sintetico do catalogo — {complemento}" in linhas
+    rotulos = [linha for linha in linhas if linha.startswith("RN 623/2024, art. 14")]
+    assert rotulos == [
+        "RN 623/2024, art. 14 — motivo da negativa de autorização do procedimento:",
+        _ROTULO_FORJADO,
+    ]
+
+
+@pytest.mark.parametrize("status", [[], {}, None, 7])
+def test_status_de_tipo_errado_e_recusa_tipada(status: object) -> None:
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(fundamento=_fundamento(status_juridico=status, hash_entrada="0" * 64))
+    assert refused.value.missing == ("status_juridico",)
+
+
 @pytest.mark.parametrize("separador", ["\u2028", "\x85"])
 def test_nenhum_campo_do_catalogo_ou_canal_aceita_separador_unicode(separador: str) -> None:
     with pytest.raises(DenialTermRefusalError) as refused:
@@ -458,7 +482,7 @@ def test_render_da_negativa_e_puro_e_completo() -> None:
     )
     assert "$" not in first.texto
     for expected in (
-        "Motivo sintetico do catalogo\nMotivo sintetico para teste",
+        "Motivo sintetico do catalogo — Motivo sintetico para teste\n",
         "Clausula sintetica 9.9 — teste",
         *_CANAIS,
     ):

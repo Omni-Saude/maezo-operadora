@@ -252,7 +252,7 @@ def _campos_invalidos(fundamento: FundamentoDoTermo) -> list[str]:
     invalidos = [
         nome for nome in (*_CAMPOS_DE_TEXTO, *_HASHES) if not _linha_valida(getattr(fundamento, nome))
     ]
-    if fundamento.status_juridico not in _STATUS_JURIDICOS and "status_juridico" not in invalidos:
+    if "status_juridico" not in invalidos and fundamento.status_juridico not in _STATUS_JURIDICOS:
         invalidos.append("status_juridico")
     clausula = fundamento.clausula_contratual
     if clausula is not None and (
@@ -380,7 +380,9 @@ def render_denial_term(
         raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE, faltam)
 
     values = {
-        "motivo": f"{motivo}\n{str(complemento).strip()}",
+        # O complemento do auditor vem na MESMA linha do motivo do catálogo: nunca abre linha, e
+        # por isso nunca se passa por rótulo ou por fundamento do termo.
+        "motivo": f"{motivo} — {complemento.strip()}",
         "fundamento": fundamento_texto,
     }
     values["canais_ouvidoria"] = canais or ""

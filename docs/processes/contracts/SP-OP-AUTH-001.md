@@ -798,7 +798,8 @@ de linha, status desconhecido, nem clausula nem dispositivo, ou hash divergente 
 justificativa do auditor) aceita separador de linha, para nao forjar rotulos no termo. O hash da
 entrada e' o sha256 do JSON canonico (chaves ordenadas, UTF-8, sem espacos) de todos os campos
 menos os dois hashes; essa receita tem de ser fixada no contrato-k2. A composicao NAO le `fundamentacao_dut`, que nunca
-substitui o fundamento; a `justificativa_clinica` do auditor entra so' como complemento do motivo
+substitui o fundamento; a `justificativa_clinica` do auditor entra so' como complemento do motivo,
+na mesma linha do motivo do catalogo, e nunca abre linha no termo
 (faltando, `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE`). O guard de completude do worker continua
 exigindo os campos do registro como antes.
 
