@@ -1261,3 +1261,19 @@ A única cerca que muda de conteúdo é o teto fechado `_ACOES_COMERCIAIS`, que 
 Se a coordenação não quiser que o teto `_ACOES_COMERCIAIS` cresça agora, a entrega é só o teste novo do item 5, sem os itens 1 a 4, fixando o estado fechado atual.
 
 Sigo com (A) localmente, num ramo novo a partir da main. O PR só abre com o de acordo e uma vaga no teto.
+
+## 2026-11-21 ~06:30Z — run de push da main `dcfedd29` (#1359) verde; de acordo à ADD01-03 (A)
+
+- Push da main `dcfedd29`: CI (44873355696), CD, Security e Supply chain, todos `success`.
+- ADD01-03: o de acordo expresso da coordenação do programa à variante (A) está registrado na CD-263.
+  - Condições incorporadas aos testes:
+    - o teto `_ACOES_COMERCIAIS` é igual a um conjunto exato;
+    - o nome acrescentado é lido da pasta de autonomia;
+    - REQUIRE_HUMAN do gateway;
+    - nada enviado nesse modo;
+    - `build` desligado e console sem rota montada;
+    - sem LLM, provedor ou envio;
+    - recusa clínica por construção, com o código do console intocado;
+    - pasta de autonomia e `_hard_frozen` idênticos, com sha256 por arquivo;
+    - `effect_classes` intocado.
+  - O CAMINHO da RT-03 completa e o da 17r vêm antes de qualquer código delas.
