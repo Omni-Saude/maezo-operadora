@@ -435,7 +435,9 @@ class TestExtractResultLinesSpacedParametrizeIds:
         )
         combined = proc.stdout + proc.stderr
         result_lines = extract_result_lines(combined)
-        assert len(result_lines) == 140
+        # 140 no dossie; 146 desde o pin real do K1 (DL-0198), que acrescentou 6 testes ao arquivo (cerca que
+        # so eleva por disposicao). O que este teste prova e que a extracao recupera TODAS as linhas.
+        assert len(result_lines) == 146
         assert any("RATIFICADO pelo DPO" in line for line in result_lines)
 
 

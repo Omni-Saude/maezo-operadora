@@ -4349,9 +4349,10 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                 evidence=(
                     "spec/processes/dmn/rco/geral_carencia.dmn:22 (dmn_input_expression, "
                     'typeRef="string") — K1 pin b8444f52 (manifesto 2.3.0), dictionary 1.6.0 '
-                    "(config/integrations/rco/k1/entradas.json): tipo string, dominio '{nenhuma, "
-                    "portabilidade, dispensa_contratual, coletivo_ingresso_30_dias, "
-                    "recem_nascido_30_dias}', origem derivado; de_onde: 'cálculo do worker: "
+                    "(config/integrations/rco/k1/entradas.json): tipo string, dominio fechado de 5 valores "
+                    "(ver a entrada no entradas.json; inclui `nenhuma`, `dispensa_contratual`, "
+                    "`coletivo_ingresso_30_dias` e `recem_nascido_30_dias`), origem derivado; "
+                    "de_onde: 'cálculo do worker: "
                     "Isenção de carência que vale para o atendimento, com a base de cada valor. "
                     "Urgência e emergência NÃO geram valor aqui: a urgência em carên[...]'."
                 ),
