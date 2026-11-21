@@ -15,9 +15,11 @@ O que faz
    `MAEZO_PHI_VENDOR_DPA_REF`, `MAEZO_INFERENCE_MODEL`); credencial AWS resolvivel pelo boto3.
 2. Roda o MESMO preflight do noturno (`scripts/ci/tier_b_preflight.py`, phi=True), so' o Tier B
    (`pytest tests/evals -m "eval and llm_live"`) e o MESMO resumo (`scripts/ci/tier_b_resumo.py`).
-3. Grava SO' o resumo (ids e resultados; nenhuma saida de modelo) em `<saida>/resumo.md`. O junit fica num
-   diretorio temporario e e' apagado. No TERMINAL, os logs INFO do provedor mostram o id do modelo e o host
-   do endpoint (nunca o DPA ref); nada disso vai para o resumo.
+3. Grava SO' o resumo (ids e resultados; nenhuma saida de modelo) em `<saida>/resumo.md`, que comeca pela
+   REGIAO efetiva da zona PHI (sa-east-1; us-east-1 so' com a excecao regional do DPO ligada em
+   `MAEZO_PHI_EXCECAO_REGIONAL`). `--saida` dentro do repositorio e' recusada (o resumo nunca e' commitado).
+   O junit fica num diretorio temporario e e' apagado. No TERMINAL, os logs INFO do provedor mostram o id do
+   modelo e o host do endpoint (nunca o DPA ref); nada disso vai para o resumo.
 
 Uso: `.venv/bin/python scripts/dev/tier_b_manual.py [--saida DIR]` (padrao: `$TMPDIR/tier-b-manual-<UTC>`).
 """
@@ -58,6 +60,27 @@ def problemas_do_ambiente(env: Mapping[str, str], *, credencial_aws: bool) -> li
     return problemas
 
 
+def saida_recusada(saida: Path) -> str | None:
+    """O resumo vai para FORA do repositorio (entregue a ROOT, nunca commitado)."""
+    alvo = saida.expanduser().resolve()
+    if alvo == RAIZ or RAIZ in alvo.parents:
+        return f"--saida dentro do repositorio ({RAIZ}) e' recusada: use um diretorio fora dele"
+    return None
+
+
+def regiao_efetiva() -> str:
+    """A regiao que o `bedrock_br` vai usar, pela MESMA regra do runtime (`excecao_regional`)."""
+    from maezo.runtime.inference.excecao_regional import (
+        ENV_PHI_EXCECAO_REGIONAL,
+        REGIAO_EXCECAO,
+        excecao_ativa,
+    )
+
+    if excecao_ativa():
+        return f"{REGIAO_EXCECAO} (EXCECAO REGIONAL do DPO ligada em {ENV_PHI_EXCECAO_REGIONAL})"
+    return "sa-east-1"
+
+
 def _credencial_aws() -> bool:
     try:
         import boto3  # type: ignore[import-untyped]  # extra [bedrock], como em br_regional.py
@@ -88,9 +111,10 @@ def comandos(junit: Path) -> list[list[str]]:
 
 
 def ambiente_da_execucao(env: Mapping[str, str], resumo: Path) -> dict[str, str]:
-    # As MESMAS opcoes do noturno: o job recusa PYTHON*/PYTEST_* herdados; aqui eles sao descartados (um
-    # `PYTEST_ADDOPTS=-rA` ou `-s` mudaria as opcoes e imprimiria saida capturada; `PYTHONPATH`, o import).
-    novo = {k: v for k, v in env.items() if not k.startswith(("PYTHON", "PYTEST_"))}
+    # As MESMAS opcoes do noturno: o job recusa PYTHON*/PYTEST_*/UV_* herdados; aqui eles sao descartados (um
+    # `PYTEST_ADDOPTS=-rA` ou `-s` mudaria as opcoes e imprimiria saida capturada; `PYTHONPATH`, o import;
+    # `UV_*`, o interpretador/ambiente resolvido).
+    novo = {k: v for k, v in env.items() if not k.startswith(("PYTHON", "PYTEST_", "UV_"))}
     novo.update(
         MAEZO_INFERENCE_PROVIDER=PROVEDOR,
         NIGHTLY_EVAL="1",
@@ -108,6 +132,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--saida", type=Path, default=Path(tempfile.gettempdir()) / f"tier-b-manual-{carimbo}")
     a = p.parse_args(argv)
     problemas = problemas_do_ambiente(os.environ, credencial_aws=_credencial_aws())
+    recusa = saida_recusada(a.saida)
+    if recusa:
+        problemas.append(recusa)
     if problemas:
         for item in problemas:
             print(f"tier_b_manual: {item}", file=sys.stderr)
@@ -115,6 +142,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     a.saida.mkdir(parents=True, exist_ok=True)
     resumo = (a.saida / "resumo.md").resolve()
     env = ambiente_da_execucao(os.environ, resumo)
+    resumo.write_text(f"## Tier B — execucao manual — regiao efetiva da zona PHI: {regiao_efetiva()}\n\n")
     with tempfile.TemporaryDirectory(prefix="tier-b-") as tmp:
         junit = Path(tmp) / "junit.xml"
         preflight, suite, veredito = comandos(junit)

@@ -3,10 +3,12 @@
 
 Por que
 -------
-O Tier B (`-m "eval and llm_live"`) so' roda com `MAEZO_ANTHROPIC_API_KEY`; sem ela cada caso e' pulado pelo
-`live_key_skip` de `tests/evals/conftest.py`. Ate' 21/11/2026 o job passava outro nome de segredo e o Tier B
-nunca rodou. Nas primeiras noites com a chave, um caso abaixo do limiar NAO pode virar job vermelho (o
-`red-main-alarm.yml` le o noturno) — decisao da ROOT: observar 7 noites antes de bloquear.
+O Tier B (`-m "eval and llm_live"`) so' roda com opt-in de execucao (`TIER_B_EXECUCAO` = noturno | manual) e
+credencial pretendida (`tests/evals/_regra_viva.py`); senao cada caso e' pulado pelo `live_key_skip`. Os
+grafos chamam o modelo com `phi=True`: so' um provedor da zona PHI responde, e o CI nao tem um — no estado
+normal o noturno diz "NAO RODOU: nao roda no CI" e aponta a execucao manual. Um caso abaixo do limiar NAO pode
+virar job vermelho nas noites de observacao (o `red-main-alarm.yml` le o noturno), suspensas ate' existir
+provedor na zona PHI no CI.
 
 Contrato (nunca "verde por pular")
 ----------------------------------
@@ -16,14 +18,17 @@ O resumo SEMPRE diz se o Tier B rodou, quantos casos rodaram de quantos coletado
 QUEBRADO (exit 1 nos DOIS modos):
   * junit ausente ou ilegivel; codigo do pytest fora de {0, 1}; zero casos coletados;
   * qualquer `<error>` no junit (fixture/setup);
-  * chave PRESENTE e nenhum caso rodou (pulo total com chave = raia quebrada, nao "nao rodou");
-  * qualquer falha que NAO seja de limiar (excecao de API, credencial, rede, vazamento, outra assercao);
+  * sem opt-in de execucao (o passo do noturno/manual tem de definir `TIER_B_EXECUCAO`);
+  * credencial PRESENTE e nenhum caso rodou (pulo total com credencial = raia quebrada, nao "nao rodou");
+  * qualquer falha que NAO seja de limiar: `LIVE CALL FAILED` (a chamada ao provedor falhou) e as OUTRAS
+    (vazamento, outra assercao) contadas e nomeadas em separado — uma nunca engole a outra;
   * 100% dos casos rodados reprovados (sinal de falha sistemica, nao de qualidade);
   * pytest exit 1 sem reprovacao no junit (inconsistente).
 Reprovacao DE LIMIAR em parte dos casos: `TIER_B_BLOQUEANTE=true` falha; `false` (observacao) sai
-`::warning::` e o passo sai 0. Sem a chave e com todos os casos pulados: "NAO RODOU", passo 0. Com a chave e
-pulo parcial: "N de M rodaram" e `::warning::`. Sem a variavel `TIER_B_BLOQUEANTE`, o modo e' bloqueante.
-Para voltar a bloquear: um PR de uma linha, `TIER_B_BLOQUEANTE: "true"` no passo.
+`::warning::` e o passo sai 0. Sem credencial e com todos os casos pulados: "NAO RODOU" (nao roda no CI;
+execucao manual), passo 0 — sem convidar a criar segredo. Com credencial e pulo parcial: "N de M rodaram" e
+`::warning::`. Sem a variavel `TIER_B_BLOQUEANTE`, o modo e' bloqueante. Para voltar a bloquear: um PR de uma
+linha, `TIER_B_BLOQUEANTE: "true"` no passo.
 """
 
 from __future__ import annotations
@@ -36,6 +41,18 @@ import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+
+_RAIZ = str(Path(__file__).resolve().parents[2])
+if _RAIZ not in sys.path:  # `python -I` nao poe o diretorio do script nem o cwd no sys.path
+    sys.path.insert(0, _RAIZ)
+
+# A REGRA (opt-in + credencial) e' importada, nunca copiada: `_regra_viva` so' usa a biblioteca padrao, entao
+# o resumo reporta mesmo com o pacote `maezo` quebrado.
+from tests.evals._regra_viva import (  # noqa: E402
+    EXECUCAO_MANUAL,
+    credencial_viva_presente,
+    execucao_viva,
+)
 
 #: Assinatura das reprovacoes DE LIMIAR, ancorada no INICIO da mensagem da falha (atributo `message` do
 #: junit): `_harness.assert_live_score` e o limiar da extracao ao vivo. Ancorar impede que uma assercao
@@ -56,40 +73,33 @@ LINHA_ZONA_PHI = (
     f"use a execucao manual ({ROTEIRO_MANUAL})"
 )
 LINHA_NOITES_NAO_CONTAM = (
-    "as 7 noites de observacao NAO contam enquanto o conserto dos evals vivos nao entrar "
+    "as noites de observacao ficam suspensas ate existir provedor na zona PHI no CI "
     "(TIER_B_NOITES_CONTAM=false)"
+)
+LINHA_EXECUCAO_MANUAL = (
+    "execucao MANUAL na zona PHI do dev (scripts/dev/tier_b_manual.py), fora do CI: "
+    "nao e' noite de observacao"
+)
+MANCHETE_NAO_RODOU_CI = (
+    f"Tier B NAO RODOU: nao roda no CI — exige provedor na zona PHI; execucao manual em {ROTEIRO_MANUAL}"
 )
 
 
-LINHA_EXECUCAO_MANUAL = "execucao MANUAL na zona PHI do dev (scripts/dev/tier_b_manual.py), fora do CI"
-
-
 def execucao_manual() -> bool:
-    return os.environ.get("TIER_B_EXECUCAO", "").strip().lower() == "manual"
+    return execucao_viva() == EXECUCAO_MANUAL
 
 
 def noites_contam() -> bool:
     return os.environ.get("TIER_B_NOITES_CONTAM", "false").strip().lower() == "true"
 
 
-def chave_presente() -> bool:
-    """Ha' credencial pretendida para um eval vivo (chave Anthropic por qualquer dos dois nomes, ou provedor
-    nomeado que nao seja `anthropic` nem de teste): a MESMA regra de
-    `tests/evals/_vivo.py::credencial_viva_presente`, nao uma copia."""
-    raiz = str(Path(__file__).resolve().parents[2])
-    if raiz not in sys.path:
-        sys.path.insert(0, raiz)
-    try:
-        from tests.evals._vivo import credencial_viva_presente
-    except Exception:
-        # O resumo SEMPRE reporta: se o import do provedor dos evals quebrar, a mesma regra so' pelo ambiente.
-        chave = os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-        nomeado = os.environ.get("MAEZO_INFERENCE_PROVIDER", "").strip()
-        return bool(chave) or nomeado not in {"", "anthropic", "noop", "phi_zone_mock"}
-    return credencial_viva_presente()
+#: Ha' credencial pretendida para um eval vivo: o MESMO objeto de `tests/evals/_regra_viva.py`.
+chave_presente = credencial_viva_presente
 
 
 APROVADO, PULADO, LIMIAR, FALHA, ERRO = "aprovado", "pulado", "abaixo do limiar", "falha", "erro"
+#: Falha `LIVE CALL FAILED: <Classe>` (a chamada ao provedor falhou): contada a parte de FALHA.
+VIVA = "LIVE CALL FAILED"
 
 
 @dataclass
@@ -114,7 +124,7 @@ def ler_junit(caminho: Path) -> Contagem:
             viva = _FALHA_VIVA.match(mensagem)
             if viva:
                 c.classes_vivas.add(viva.group(1))
-            resultado = LIMIAR if not viva and _FALHA_DE_LIMIAR.match(mensagem) else FALHA
+            resultado = VIVA if viva else LIMIAR if _FALHA_DE_LIMIAR.match(mensagem) else FALHA
         elif caso.find("skipped") is not None:
             resultado = PULADO
         else:
@@ -130,8 +140,17 @@ class Veredito:
     avisos: tuple[str, ...] = ()
 
 
-def decidir(codigo: int, contagem: Contagem | None, *, chave_presente: bool, bloqueante: bool) -> Veredito:
+def decidir(
+    codigo: int,
+    contagem: Contagem | None,
+    *,
+    chave_presente: bool,
+    bloqueante: bool,
+    execucao: str | None = "noturno",
+) -> Veredito:
     """Pura, para os testes. Ver o contrato no topo do modulo."""
+    if execucao is None:
+        return Veredito(1, "Tier B QUEBRADO: sem opt-in de execucao (TIER_B_EXECUCAO=noturno|manual ausente)")
     if contagem is None:
         return Veredito(1, f"Tier B QUEBRADO: junit ausente ou ilegivel (pytest exit {codigo})")
     total = contagem.total()
@@ -145,17 +164,21 @@ def decidir(codigo: int, contagem: Contagem | None, *, chave_presente: bool, blo
     rodados = total - contagem.total(PULADO)
     if rodados == 0:
         if chave_presente:
-            return Veredito(1, f"Tier B QUEBRADO: chave presente e nenhum dos {total} caso(s) rodou")
-        return Veredito(
-            0, f"Tier B NAO RODOU: segredo MAEZO_ANTHROPIC_API_KEY ausente ({total} caso(s) pulado(s))"
-        )
+            return Veredito(1, f"Tier B QUEBRADO: credencial presente e nenhum dos {total} caso(s) rodou")
+        if execucao == EXECUCAO_MANUAL:
+            return Veredito(
+                0, f"Tier B NAO RODOU na execucao manual: sem credencial viva ({total} pulado(s))"
+            )
+        return Veredito(0, f"{MANCHETE_NAO_RODOU_CI} ({total} caso(s) pulado(s))")
     avisos: tuple[str, ...] = ()
     if rodados < total:
         avisos = (f"pulo parcial: {rodados} de {total} caso(s) rodaram",)
-    falhas, limiar = contagem.total(FALHA), contagem.total(LIMIAR)
-    if falhas and contagem.classes_vivas:
+    vivas, falhas, limiar = contagem.total(VIVA), contagem.total(FALHA), contagem.total(LIMIAR)
+    outras = f"{falhas} caso(s) com outra falha que nao e' de limiar (vazamento, assercao)"
+    if vivas:
         classes = ", ".join(sorted(contagem.classes_vivas))
-        return Veredito(1, f"Tier B QUEBRADO: {falhas} caso(s) com LIVE CALL FAILED ({classes})", avisos)
+        manchete = f"Tier B QUEBRADO: {vivas} caso(s) com LIVE CALL FAILED ({classes})"
+        return Veredito(1, f"{manchete} e {outras}" if falhas else manchete, avisos)
     if falhas:
         return Veredito(
             1,
@@ -195,7 +218,8 @@ def _resumo(v: Veredito, contagem: Contagem | None, codigo: int, bloqueante: boo
         linhas += [
             "",
             f"coletados {contagem.total()} · rodados {rodados} · aprovados {contagem.total(APROVADO)} · "
-            f"abaixo do limiar {contagem.total(LIMIAR)} · falha {contagem.total(FALHA)} · "
+            f"abaixo do limiar {contagem.total(LIMIAR)} · live call failed {contagem.total(VIVA)} · "
+            f"falha {contagem.total(FALHA)} · "
             f"erro {contagem.total(ERRO)} · pulados {contagem.total(PULADO)}",
             "",
             "| caso | resultado |",
@@ -215,7 +239,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         contagem: Contagem | None = ler_junit(a.junit)
     except (OSError, ET.ParseError):
         contagem = None
-    v = decidir(a.codigo, contagem, chave_presente=chave_presente(), bloqueante=bloqueante)
+    v = decidir(
+        a.codigo, contagem, chave_presente=chave_presente(), bloqueante=bloqueante, execucao=execucao_viva()
+    )
     texto = _resumo(v, contagem, a.codigo, bloqueante)
     destino = os.environ.get("GITHUB_STEP_SUMMARY")
     if destino:

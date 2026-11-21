@@ -15,52 +15,46 @@ Contrato
 * `exigir_chamada_viva(...)` roda ANTES de qualquer limiar ou checagem de vazamento: falha com a
   mensagem estavel `LIVE CALL FAILED: <ClasseDoErro>` se alguma chamada ao provedor levantou, ou com
   `LIVE CALL FAILED: NenhumaChamadaAoProvedor` se nenhuma chamada aconteceu.
-* Provedor real NOMEADO alem de `anthropic` (`bedrock`, `bedrock_br`, `br_resident`) conta como credencial
-  pretendida: o caso RODA, e sem credencial utilizavel `provedor_vivo()` falha com `LIVE CALL FAILED:
-  <ClasseDoErro>` (QUEBRADO), nunca "NAO RODOU" — "NAO RODOU" e' so' sem chave E sem provedor nomeado.
+* Quando um caso vivo roda: `tests/evals/_regra_viva.py` (opt-in `TIER_B_EXECUCAO` em {noturno, manual}, e
+  credencial pretendida). Provedor real NOMEADO sem credencial utilizavel => `provedor_vivo()` falha com
+  `LIVE CALL FAILED: <ClasseDoErro>` (QUEBRADO), nunca "NAO RODOU".
 * `exigir_narrativa(...)`: os testes de nao-vazamento so' checam vazamento sobre narrativa GERADA.
 O resumo do noturno (`scripts/ci/tier_b_resumo.py`) le essas mensagens: elas nunca contam como "limiar".
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from typing import Any
 
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.inference.settings import InferenceSettings
 
+# A REGRA de roda/pula (opt-in de execucao + credencial pretendida) e' de `_regra_viva` (so' stdlib): aqui
+# so' se reexporta, nunca se copia.
+from ._regra_viva import (
+    EXECUCOES_VIVAS,
+    PROVEDOR_PADRAO,
+    PROVEDORES_DE_TESTE,
+    PROVEDORES_VIVOS,
+    PROVEDORES_ZONA_PHI,
+    VARIAVEL_EXECUCAO,
+    VARIAVEL_PROVEDOR,
+    credencial_viva_presente,
+    execucao_viva,
+    motivo_do_pulo,
+    provedor_configurado,
+)
+
 LIVE_CALL_FAILED = "LIVE CALL FAILED"
 SEM_CHAMADA = "NenhumaChamadaAoProvedor"
 NARRATIVA_AUSENTE = "NARRATIVA AUSENTE"
 #: Classe que indica que o provedor configurado nao pode receber PHI (fachada de `runtime.inference`).
 ERRO_ZONA_PHI = "PhiZoneRoutingError"
-#: A MESMA variavel que o runtime usa para escolher o provedor (`InferenceSettings`, MAEZO_INFERENCE_*).
-VARIAVEL_PROVEDOR = "MAEZO_INFERENCE_PROVIDER"
-#: Sem a variavel: o comportamento de antes (`anthropic`, nao phi_capable => LIVE CALL FAILED visivel).
-PROVEDOR_PADRAO = "anthropic"
-#: Provedores REAIS aceitos num eval vivo; os da zona PHI nao usam chave de API (SigV4/sessao do dev).
-PROVEDORES_VIVOS = frozenset({"anthropic", "bedrock", "bedrock_br", "br_resident"})
-PROVEDORES_ZONA_PHI = frozenset({"bedrock_br", "br_resident"})
-#: Provedores de TESTE do runtime (`_PROVIDER_FACTORIES`): nomeados (ex.: `noop` num `.env` local) seguem
-#: pulados; num caso que roda (com chave) sao recusados (`ProvedorNaoVivo`), nunca pontuados.
-PROVEDORES_DE_TESTE = frozenset({"noop", "phi_zone_mock"})
+
 PROVEDOR_NAO_VIVO = "ProvedorNaoVivo"
-
-
-def provedor_configurado() -> str:
-    return os.environ.get(VARIAVEL_PROVEDOR, "").strip() or PROVEDOR_PADRAO
-
-
-def credencial_viva_presente() -> bool:
-    """Ha' credencial PRETENDIDA para um eval vivo: chave Anthropic, ou qualquer provedor nomeado alem do
-    padrao que nao seja de teste. "NAO RODOU" (pulo) fica so' para sem chave E sem provedor nomeado."""
-    chave = os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-    # Quem nomeou `bedrock`/`bedrock_br`/`br_resident` quis rodar: o caso roda, e sem credencial utilizavel
-    # (sessao AWS, portoes `MAEZO_PHI_*`) falha visivel — LIVE CALL FAILED. Um nome desconhecido (ex.: erro de
-    # digitacao) tambem roda e falha (`ProvedorNaoVivo`). So' um provedor de TESTE nomeado segue pulado.
-    return bool(chave) or provedor_configurado() not in PROVEDORES_DE_TESTE | {PROVEDOR_PADRAO}
+#: `provedor_vivo()` sem o opt-in de execucao (TIER_B_EXECUCAO): recusa ANTES de construir o provedor.
+SEM_OPT_IN = "SemOptInDeExecucao"
 
 
 def configuracao_viva() -> InferenceSettings:
@@ -78,6 +72,10 @@ class GravadorDeChamadas(InferenceProvider):
     classe da excecao. Nao muda nada da chamada; so' observa — e repropaga a excecao."""
 
     def __init__(self) -> None:
+        # Defesa em profundidade: um caso vivo sem o `live_key_skip` (esquecido) e sem opt-in de execucao
+        # FALHA antes de construir o provedor — zero chamadas, nunca uma chamada paga nao pedida.
+        if execucao_viva() is None:
+            raise AssertionError(f"{LIVE_CALL_FAILED}: {SEM_OPT_IN} ({VARIAVEL_EXECUCAO} ausente)")
         configuracao = configuracao_viva()  # provedor de teste: ja' levanta LIVE CALL FAILED: ProvedorNaoVivo
         try:
             super().__init__(settings=configuracao)
@@ -107,9 +105,6 @@ class GravadorDeChamadas(InferenceProvider):
         self.chamadas.append(None)
         return resposta
 
-    def ultima_falhou(self) -> str | None:
-        return self.chamadas[-1] if self.chamadas else None
-
 
 def provedor_vivo() -> GravadorDeChamadas:
     return GravadorDeChamadas()
@@ -130,3 +125,29 @@ def exigir_narrativa(dossie: Mapping[str, Any] | None) -> None:
     narrativa = (dossie or {}).get("narrativa")
     if not isinstance(narrativa, str) or not narrativa.strip():
         raise AssertionError(f"{NARRATIVA_AUSENTE}: o dossie nao tem narrativa gerada")
+
+
+__all__ = [
+    "ERRO_ZONA_PHI",
+    "EXECUCOES_VIVAS",
+    "LIVE_CALL_FAILED",
+    "NARRATIVA_AUSENTE",
+    "PROVEDORES_DE_TESTE",
+    "PROVEDORES_VIVOS",
+    "PROVEDORES_ZONA_PHI",
+    "PROVEDOR_NAO_VIVO",
+    "PROVEDOR_PADRAO",
+    "SEM_CHAMADA",
+    "SEM_OPT_IN",
+    "VARIAVEL_EXECUCAO",
+    "VARIAVEL_PROVEDOR",
+    "GravadorDeChamadas",
+    "configuracao_viva",
+    "credencial_viva_presente",
+    "execucao_viva",
+    "exigir_chamada_viva",
+    "exigir_narrativa",
+    "motivo_do_pulo",
+    "provedor_configurado",
+    "provedor_vivo",
+]

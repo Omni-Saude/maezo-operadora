@@ -12,14 +12,17 @@ chamam. Com o provedor `anthropic` atual (nao `phi_capable`) a fachada recusa an
 Contrato
 --------
 * Sempre importa o provedor dos evals (prova, ate' sem chave, que `python -I` acha `maezo` no venv do job).
-* Sem chave (`MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY`) E sem provedor real nomeado alem de `anthropic`
-  (`MAEZO_INFERENCE_PROVIDER`): nao chama nada, sai 0 (o resumo dira' "NAO RODOU"). Provedor real nomeado
-  sem credencial utilizavel (ex.: `bedrock_br` sem os portoes): QUEBRADO, como qualquer falha de chamada.
+* Sem opt-in de execucao (`TIER_B_EXECUCAO` = noturno | manual, `tests/evals/_regra_viva.py`): nao chama nada,
+  QUEBRADO, saida 1 — o passo do noturno e o script manual a definem.
+* Sem credencial pretendida (sem chave E sem provedor nomeado alem de `anthropic` ou de teste): nao chama
+  nada, sai 0, e diz que o Tier B nao roda no CI (exige provedor na zona PHI) e onde esta' a execucao manual —
+  sem convidar a criar segredo. Provedor real nomeado sem credencial utilizavel (ex.: `bedrock_br` sem os
+  portoes): QUEBRADO, como qualquer falha de chamada.
 * Com credencial (chave ou provedor nomeado): chamada ou construcao do provedor falhou ou resposta vazia =>
   "Tier B QUEBRADO: preflight ..." no resumo, `::error::` e
   saida 1, nos dois modos; com `PhiZoneRoutingError`, tambem a linha estavel da zona PHI. So' a classe do
   erro e o status HTTP — nunca a chave, nunca o corpo da resposta nem a mensagem do provedor. O resumo
-  tambem diz, enquanto `TIER_B_NOITES_CONTAM` nao for "true", que a noite nao conta para a observacao.
+  tambem diz que as noites de observacao estao suspensas (ou, na execucao manual, que ela nao e' noite).
 """
 
 from __future__ import annotations
@@ -36,7 +39,20 @@ _RAIZ = Path(__file__).resolve().parents[2]
 if str(_RAIZ) not in sys.path:  # `python -I` nao poe o diretorio do script nem o cwd no sys.path
     sys.path.insert(0, str(_RAIZ))
 
-from scripts.ci.tier_b_resumo import LINHA_NOITES_NAO_CONTAM, LINHA_ZONA_PHI, noites_contam  # noqa: E402
+from tests.evals._regra_viva import (  # noqa: E402
+    credencial_viva_presente,
+    execucao_viva,
+    provedor_configurado,
+)
+
+from scripts.ci.tier_b_resumo import (  # noqa: E402
+    LINHA_EXECUCAO_MANUAL,
+    LINHA_NOITES_NAO_CONTAM,
+    LINHA_ZONA_PHI,
+    MANCHETE_NAO_RODOU_CI,
+    execucao_manual,
+    noites_contam,
+)
 
 PROMPT = "Responda apenas com a palavra: ok"
 _FALHA_VIVA = re.compile(r"^LIVE CALL FAILED: (\w+)")
@@ -72,13 +88,33 @@ def _escrever_resumo(linhas: list[str]) -> None:
             f.write("\n".join(linhas) + "\n")
 
 
+def _falhar(manchete: str, *, zona_phi: bool = False) -> None:
+    linhas = [f"## evals-nightly — {manchete}", ""]
+    if zona_phi:
+        linhas.append(f"- {LINHA_ZONA_PHI}")
+    if execucao_manual():
+        linhas.append(f"- {LINHA_EXECUCAO_MANUAL}")
+    elif not noites_contam():
+        linhas.append(f"- {LINHA_NOITES_NAO_CONTAM}")
+    _escrever_resumo(linhas)
+    print(f"::error::{manchete}")
+    if zona_phi:
+        print(f"::error::{LINHA_ZONA_PHI}")
+
+
 def main(argv: Sequence[str] | None = None, *, fabrica: Callable[[], Any] | None = None) -> int:
     del argv
     fabrica = fabrica or _provedor_dos_evals()
-    from tests.evals._vivo import credencial_viva_presente, provedor_configurado
-
+    if execucao_viva() is None:
+        # O passo do noturno e o script manual definem o opt-in; sem ele, NUNCA ha' chamada — e o passo quebra
+        # (um noturno que esqueceu a variavel nao pode virar "nao rodou" silencioso).
+        _falhar("Tier B QUEBRADO: preflight sem opt-in de execucao (TIER_B_EXECUCAO=noturno|manual ausente)")
+        return 1
     if not credencial_viva_presente():
-        print("preflight do Tier B: sem chave, nenhuma chamada feita")
+        if execucao_manual():
+            print("preflight do Tier B: sem credencial viva na execucao manual, nenhuma chamada feita")
+        else:
+            print(f"preflight do Tier B: {MANCHETE_NAO_RODOU_CI}; nenhuma chamada feita")
         return 0
     print(f"preflight do Tier B: provedor {provedor_configurado()}")
     zona_phi = False
@@ -95,15 +131,7 @@ def main(argv: Sequence[str] | None = None, *, fabrica: Callable[[], Any] | None
             print("preflight do Tier B: provedor respondeu")
             return 0
         manchete = "Tier B QUEBRADO: preflight sem resposta do provedor (texto vazio)"
-    linhas = [f"## evals-nightly — {manchete}", ""]
-    if zona_phi:
-        linhas.append(f"- {LINHA_ZONA_PHI}")
-    if not noites_contam():
-        linhas.append(f"- {LINHA_NOITES_NAO_CONTAM}")
-    _escrever_resumo(linhas)
-    print(f"::error::{manchete}")
-    if zona_phi:
-        print(f"::error::{LINHA_ZONA_PHI}")
+    _falhar(manchete, zona_phi=zona_phi)
     return 1
 
 

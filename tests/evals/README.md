@@ -19,7 +19,7 @@ one" / "how does CI consume this" mechanics.
 | Provider | `ReplayInferenceProvider` — scripted `recorded_llm` responses, no network, no key | the real provider from `tests/evals/_vivo.py::provedor_vivo()` (`MAEZO_INFERENCE_PROVIDER`, default `anthropic`), wrapped in a call recorder. The graphs call it with `phi=True`, so only a **PHI-zone** provider can serve Tier B — see "Tier B: execucao manual na zona PHI do dev" below |
 | Marker | `@pytest.mark.eval` | `@pytest.mark.eval` + `@pytest.mark.llm_live` + `@live_key_skip` |
 | Pass criterion | exact route / structured-field match / canary-absent (RT/SF/ABS) | threshold score >= `live.threshold` against the Tier-A baseline (TH) |
-| Runs when | always, keyless, no network — the `evals (agent-touching paths)` CI job (runs on every agent-touching PR; **not a required check in the `main-protection` ruleset today** — owner action pending to make it required) | only when `MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY` is set — nightly-only in CI, non-blocking; **loudly skips** otherwise |
+| Runs when | always, keyless, no network — the `evals (agent-touching paths)` CI job (runs on every agent-touching PR; **not a required check in the `main-protection` ruleset today** — owner action pending to make it required) | only with an **explicit execution opt-in** — `TIER_B_EXECUCAO=noturno` (set by the `evals-nightly` job) or `manual` (set by `scripts/dev/tier_b_manual.py`) — **and** an intended credential (a key, or a provider named in `MAEZO_INFERENCE_PROVIDER` other than `anthropic`/test doubles); the rule lives in `tests/evals/_regra_viva.py`. Otherwise every case **loudly skips** whatever the provider or key: a local `pytest`/`make test` never makes a real (paid, `phi=True`) call unasked. `make test` also deselects `llm_live` |
 | Cost/flakiness | zero (pure Python, deterministic) | one short LLM call per case; never gates a PR |
 
 A single golden JSON case can carry both tiers (`"tier": ["A", "B"]`) — Tier A always runs
@@ -263,19 +263,9 @@ There is nothing extra to "record" to add Tier B to a case: set `"tier": ["A", "
 `"live"` block naming which fields to compare and the pass threshold, then add a
 `test_<agent>_eval_tier_b_live` parametrized case mirroring `test_helena_eval_tier_b_live`.
 
-To exercise it locally against a real key (never commit one):
-
-```
-MAEZO_ANTHROPIC_API_KEY=sk-ant-... uv run pytest tests/evals -m "eval and llm_live" -v
-```
-
-Without a key, every Tier-B case SKIPS loudly (`live_key_skip`, mirrors
-`tests/unit/runtime/test_inference_live.py`) — this is intentional, not a bug: Tier B requires a
-reviewed `ci.yml` wiring change to ever run in CI (the pipeline currently passes
-`LLM_GENERAL_API_KEY` to the eval gate step, but `maezo.runtime.inference` reads
-`MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY` and defaults to the `noop` provider — see the T3.2
-design doc §1.2/§4-R2). That wiring edit is explicitly its own, separately-reviewed change, not
-bundled into any golden-dataset PR.
+To exercise it for real, use the manual run below (`scripts/dev/tier_b_manual.py`): it sets the
+opt-in (`TIER_B_EXECUCAO=manual`) and the PHI-zone provider. Without the opt-in every Tier-B case
+SKIPS loudly (`live_key_skip`) — intentional, not a bug.
 
 ## Tier B: execucao manual na zona PHI do dev
 
@@ -305,8 +295,9 @@ vermelho, sem medir nada. As 7 noites de observacao do Tier B ficam suspensas at
 ```
 
 O roteiro confere o ambiente (a conferencia nao imprime valores; no terminal, os logs INFO do provedor
-mostram o id do modelo e o host do endpoint, nunca o DPA ref), descarta `PYTHON*`/`PYTEST_*` herdados (as
-mesmas opcoes do noturno), fixa `MAEZO_INFERENCE_PROVIDER=bedrock_br`, roda o
+mostram o id do modelo e o host do endpoint, nunca o DPA ref), descarta `PYTHON*`/`PYTEST_*`/`UV_*` herdados
+(as mesmas opcoes do noturno), fixa `MAEZO_INFERENCE_PROVIDER=bedrock_br` e o opt-in
+`TIER_B_EXECUCAO=manual` (sem ele nenhum caso vivo roda), roda o
 MESMO preflight do noturno (`scripts/ci/tier_b_preflight.py`, `phi=True`), so' o Tier B
 (`-m "eval and llm_live"`) e o MESMO resumo (`scripts/ci/tier_b_resumo.py`). Todo teste vivo passa pelo
 gravador de chamadas: se a chamada nao aconteceu ou falhou, o caso sai `LIVE CALL FAILED: <Classe>` antes de
@@ -320,8 +311,18 @@ beneficiario pode entrar num eval.
 de US$ 2 a 5 por execucao conforme o modelo do tfvars; o valor real sai na fatura do Bedrock do dev.
 
 **Onde guardar.** O roteiro grava so' `<saida>/resumo.md` (id e resultado de cada caso, sem saida de
-modelo); o junit fica num diretorio temporario e e' apagado. Entregue o `resumo.md` a ROOT. Nunca commite o
+modelo), que comeca pela REGIAO efetiva da zona PHI (`sa-east-1`; `us-east-1` so' com a excecao regional do
+DPO ligada em `MAEZO_PHI_EXCECAO_REGIONAL`); `--saida` dentro do repositorio e' recusada. O junit fica num
+diretorio temporario e e' apagado. Entregue o `resumo.md` a ROOT. Nunca commite o
 resumo, o junit nem logs do pytest desta execucao.
+
+**Limites do que o Tier B prova** (registro, sem codigo):
+
+- O gravador de chamadas so' distingue "a chamada levantou excecao / nao aconteceu" de "a chamada
+  voltou". Uma resposta **vazia ou lixo que nao levanta excecao conta como chamada bem-sucedida**: o caso
+  segue e reprova **por limiar** (TH), nao como `LIVE CALL FAILED`.
+- `exigir_narrativa` so' confere que a narrativa existe e **nao e' vazia**; nao avalia qualidade nem
+  coerencia. O teste de nao-vazamento roda sobre essa narrativa, seja ela boa ou ruim.
 
 ## How CI consumes this (no workflow edit needed)
 
@@ -342,10 +343,11 @@ Landing this wave's `EVL-HELENA-01` (a real, collectable, `@pytest.mark.eval` te
 collected yet") is now moot for this file (it always collects >= 1 case) but stays harmless for
 any brand-new agent's `golden/<agent>/` directory that doesn't exist yet.
 
-Both CI jobs pass `LLM_GENERAL_API_KEY` as an env var today — as noted above, that does **not**
-currently reach `maezo.runtime.inference` (it reads `MAEZO_ANTHROPIC_API_KEY`/
-`ANTHROPIC_API_KEY`), so Tier B skips loudly in CI until the separate, reviewed wiring change
-lands. Tier A is completely unaffected by that gap: it injects its own provider and needs no key,
+`evals-nightly` splits that gate in two steps: Tier A (`-m "eval and not llm_live"`, blocking) and
+Tier B (`-m "eval and llm_live"`) with the opt-in `TIER_B_EXECUCAO=noturno`, a preflight and its own
+summary (`scripts/ci/tier_b_resumo.py`). The CI has no PHI-zone provider, so in the normal state every
+Tier-B case skips and the summary says "Tier B NAO RODOU: nao roda no CI — exige provedor na zona PHI"
+and points to the manual run above. Tier A is unaffected: it injects its own provider and needs no key,
 ever.
 
 ## Clarity/legibility checks (gap 10.3, WP-EVALS)

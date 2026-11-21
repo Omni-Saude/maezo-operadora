@@ -1,4 +1,4 @@
-"""`make test` nao seleciona caso `llm_live`; `make evals` e o Tier B do noturno seguem selecionando-os.
+"""`make test` nao seleciona caso `llm_live`; `make evals`, o noturno e a execucao manual seguem com os 21.
 
 Por que (21/11/2026)
 --------------------
@@ -10,8 +10,10 @@ a mesma selecao da execucao manual na zona PHI do dev).
 
 Como prova
 ----------
-As expressoes `-m` sao LIDAS do Makefile e do ci.yml (nao copiadas) e o pytest COLETA de verdade com
-`-m "(<expressao>) and llm_live"`: a coleta nao depende de chave (o pulo e' em tempo de execucao).
+As expressoes `-m` sao LIDAS do Makefile, do ci.yml e do script manual (`scripts/dev/tier_b_manual.py`,
+o comando que ele de fato roda) — nao copiadas — e o pytest COLETA de verdade com
+`-m "(<expressao>) and llm_live"`: a coleta nao depende de chave nem do opt-in (o pulo e' em tempo de
+execucao).
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+
+from scripts.dev import tier_b_manual as manual
 
 _RAIZ = Path(__file__).resolve().parents[3]
 _MAKEFILE = _RAIZ / "Makefile"
@@ -64,7 +68,7 @@ def test_make_test_selects_no_llm_live_case() -> None:
     assert _vivos_coletados(caminhos, expressao) == []
 
 
-def test_make_evals_and_the_nightly_tier_b_still_select_the_live_cases() -> None:
+def test_make_evals_the_nightly_and_the_manual_run_still_select_the_live_cases(tmp_path: Path) -> None:
     noturno = re.search(
         r'pytest tests/evals [^\n]*-m "eval and llm_live"[^\n]*', _CI.read_text(encoding="utf-8")
     )
@@ -73,6 +77,9 @@ def test_make_evals_and_the_nightly_tier_b_still_select_the_live_cases() -> None
     assert len(tier_b) >= _TIER_B_HOJE, tier_b
     evals = _vivos_coletados(*_selecao_do_alvo("evals"))
     assert sorted(evals) == sorted(tier_b)
+    _, suite, _ = manual.comandos(tmp_path / "j.xml")  # o comando pytest que a execucao manual roda
+    manual_vivos = _vivos_coletados(*_selecao(" ".join(shlex.quote(a) for a in ["python", *suite[1:]])))
+    assert sorted(manual_vivos) == sorted(tier_b)
 
 
 def test_the_selection_parser_reads_the_real_recipes() -> None:

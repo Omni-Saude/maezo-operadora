@@ -38,6 +38,8 @@ def _sem_provedor_do_ambiente(monkeypatch: pytest.MonkeyPatch) -> None:
     # `tests/evals/_vivo.py` le MAEZO_INFERENCE_PROVIDER (como o runtime): um valor herdado
     # da maquina (`.env`, sessao do dev) mudaria o desfecho ou faria chamada real; quem precisa, define.
     monkeypatch.delenv("MAEZO_INFERENCE_PROVIDER", raising=False)
+    # O opt-in de execucao do job noturno (como no ci.yml); quem testa o caminho SEM opt-in, remove.
+    monkeypatch.setenv("TIER_B_EXECUCAO", "noturno")
 
 
 def _jobs() -> dict[str, Any]:
@@ -278,11 +280,10 @@ def test_without_key_says_not_run_and_passes(
 ) -> None:
     saida, resumo, _ = _rodar(monkeypatch, tmp_path, ["pulado"] * 21, 0, chave=False, bloqueante=bloqueante)
     assert saida == 0
-    assert (
-        "NAO RODOU" in resumo
-        and "MAEZO_ANTHROPIC_API_KEY ausente" in resumo
-        and "21 caso(s) pulado(s)" in resumo
-    )
+    assert tb.MANCHETE_NAO_RODOU_CI in resumo and "21 caso(s) pulado(s)" in resumo
+    assert "nao roda no CI" in resumo and "zona PHI" in resumo and tb.ROTEIRO_MANUAL in resumo
+    # O estado normal nao convida a criar justamente o segredo que nao deve ser criado.
+    assert "segredo" not in resumo and "MAEZO_ANTHROPIC_API_KEY" not in resumo
 
 
 @pytest.mark.parametrize("bloqueante", ["false", "true"])
@@ -291,7 +292,7 @@ def test_key_present_and_nothing_ran_is_broken(
 ) -> None:
     # F1: pulo total COM chave nao e' "nao rodou" — e' raia quebrada.
     saida, resumo, _ = _rodar(monkeypatch, tmp_path, ["pulado"] * 21, 0, chave=True, bloqueante=bloqueante)
-    assert saida == 1 and "QUEBRADO" in resumo and "chave presente e nenhum dos 21" in resumo
+    assert saida == 1 and "QUEBRADO" in resumo and "credencial presente e nenhum dos 21" in resumo
 
 
 def test_with_key_all_green(
@@ -511,7 +512,8 @@ def test_preflight_imports_under_python_isolated_mode() -> None:
         check=False,
     )
     assert r.returncode == 0, r.stderr[-2000:]
-    assert "sem chave, nenhuma chamada feita" in r.stdout
+    assert "nenhuma chamada feita" in r.stdout and tb.MANCHETE_NAO_RODOU_CI in r.stdout
+    assert "segredo" not in r.stdout and "MAEZO_ANTHROPIC_API_KEY" not in r.stdout
 
 
 def test_preflight_runs_before_the_suite_and_fails_the_step() -> None:
@@ -520,17 +522,18 @@ def test_preflight_runs_before_the_suite_and_fails_the_step() -> None:
     assert run.index("set -e") < i_pf < i_set < i_pytest, "o preflight roda sob `set -e`, antes da suite"
 
 
-def test_summary_says_nights_do_not_count_until_evals_fix(
+def test_summary_says_observation_nights_are_suspended(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     assert _passo("Nightly eval run — Tier B")["env"]["TIER_B_NOITES_CONTAM"] == "false"
     monkeypatch.setenv("TIER_B_NOITES_CONTAM", "false")
     _, resumo, _ = _rodar(monkeypatch, tmp_path, ["aprovado"], 0, chave=True, bloqueante="false")
-    assert "NAO contam enquanto o conserto dos evals vivos nao entrar" in resumo
+    assert tb.LINHA_NOITES_NAO_CONTAM in resumo
+    assert "suspensas ate existir provedor na zona PHI no CI" in tb.LINHA_NOITES_NAO_CONTAM
     monkeypatch.setenv("TIER_B_NOITES_CONTAM", "true")
     (tmp_path / "summary.md").unlink()
     _, resumo, _ = _rodar(monkeypatch, tmp_path, ["aprovado"], 0, chave=True, bloqueante="false")
-    assert "NAO contam" not in resumo
+    assert tb.LINHA_NOITES_NAO_CONTAM not in resumo
 
 
 # ------------------------------------------------------------------------- gravador de chamadas (a)
@@ -643,7 +646,7 @@ def test_summary_regexes_match_the_real_pytest_junit(tmp_path: Path) -> None:
     assert resultado == {
         "test_limiar_do_harness": tb.LIMIAR,
         "test_limiar_da_extracao": tb.LIMIAR,
-        "test_chamada_viva_falhou": tb.FALHA,
+        "test_chamada_viva_falhou": tb.VIVA,
         "test_outra_assercao_com_o_texto": tb.FALHA,
     }, resultado
     assert c.classes_vivas == {"PhiZoneRoutingError"}
@@ -719,11 +722,20 @@ def test_conftest_gate_runs_tier_b_under_the_phi_zone_provider() -> None:
         for k, v in _os.environ.items()
         if "ANTHROPIC_API_KEY" not in k and k != "MAEZO_INFERENCE_PROVIDER"
     }
-    codigo = "import tests.evals.conftest as c; print(c._HAS_LLM_KEY)"
-    for provedor, esperado in (("", "False"), ("bedrock_br", "True"), ("anthropic", "False")):
+    base.pop("TIER_B_EXECUCAO", None)
+    codigo = "import tests.evals.conftest as c; print(c._MOTIVO_DO_PULO is None)"
+    for execucao, provedor, roda in (
+        ("noturno", "", "False"),
+        ("noturno", "bedrock_br", "True"),
+        ("manual", "bedrock_br", "True"),
+        ("noturno", "anthropic", "False"),
+        ("", "bedrock_br", "False"),  # sem opt-in: pula, qualquer que seja o provedor
+    ):
         env = dict(base, MAEZO_INFERENCE_PROVIDER=provedor, PYTHONPATH=str(_RAIZ))
+        if execucao:
+            env["TIER_B_EXECUCAO"] = execucao
         r = subprocess.run([sys.executable, "-c", codigo], cwd=_RAIZ, env=env, capture_output=True, text=True)
-        assert r.stdout.strip().splitlines()[-1] == esperado, (provedor, r.stderr[-1000:])
+        assert r.stdout.strip().splitlines()[-1] == roda, (execucao, provedor, r.stderr[-1000:])
 
 
 def test_manual_run_refuses_without_gates_and_never_prints_values() -> None:
@@ -948,6 +960,234 @@ def test_real_tier_b_with_named_phi_provider_without_credential_is_broken(tmp_pa
         r"Tier B QUEBRADO: \d+ caso\(s\) com LIVE CALL FAILED \(InferenceConfigError\)", texto
     ), texto
     assert "NAO RODOU" not in texto and "pulados 0" in texto
+
+
+# ------------- opt-in de execucao (ROOT, 21/11): caso vivo so' roda com TIER_B_EXECUCAO=noturno|manual
+
+#: Plugin de pytest que CONTA cada construcao e chamada de `InferenceProvider` (o gravador e' subclasse).
+_CONTADOR = """
+import os
+from maezo.runtime import inference as _inf
+
+def _anota(o):
+    with open(os.environ["CONTADOR_CHAMADAS"], "a", encoding="utf-8") as f:
+        f.write(o + "\\n")
+
+_init, _gen = _inf.InferenceProvider.__init__, _inf.InferenceProvider.generate
+
+def __init__(self, *a, **k):
+    _anota("construcao")
+    _init(self, *a, **k)
+
+async def generate(self, *a, **k):
+    _anota("chamada")
+    return await _gen(self, *a, **k)
+
+_inf.InferenceProvider.__init__ = __init__
+_inf.InferenceProvider.generate = generate
+"""
+
+
+def _suite_contada(
+    tmp_path: Path, *, execucao: str, portoes: bool
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """A selecao REAL do Tier B com `bedrock_br` e credenciais AWS SIMULADAS; conta provedores e chamadas."""
+    import os as _os
+
+    (tmp_path / "plugin").mkdir()
+    (tmp_path / "plugin" / "contador_de_chamadas.py").write_text(_CONTADOR, encoding="utf-8")
+    contador = tmp_path / "chamadas.txt"
+    env = {
+        k: v
+        for k, v in _os.environ.items()
+        if k not in _CREDENCIAIS
+        and not k.startswith(
+            ("PYTHON", "PYTEST_", "MAEZO_INFERENCE_", "MAEZO_BEDROCK_", "MAEZO_PHI_", "TIER_B_")
+        )
+    }
+    env.update(
+        PYTHONPATH=str(tmp_path / "plugin"),
+        CONTADOR_CHAMADAS=str(contador),
+        MAEZO_INFERENCE_PROVIDER="bedrock_br",
+        AWS_ACCESS_KEY_ID="AKIASIMULADA0000000",  # credenciais SIMULADAS
+        AWS_SECRET_ACCESS_KEY="segredo-simulado",
+        AWS_CONFIG_FILE=str(tmp_path / "sem-config"),
+        AWS_SHARED_CREDENTIALS_FILE=str(tmp_path / "sem-credenciais"),
+        AWS_EC2_METADATA_DISABLED="true",
+        # Rede de seguranca: se algo escapasse, iria para um proxy local inexistente, nunca para a AWS.
+        HTTPS_PROXY="http://127.0.0.1:9",
+        HTTP_PROXY="http://127.0.0.1:9",
+        NO_PROXY="",
+    )
+    if portoes:
+        env.update(
+            MAEZO_PHI_ENDPOINT_URL="https://bedrock-runtime.sa-east-1.amazonaws.com",
+            MAEZO_PHI_VENDOR_DPA_REF="dpa-simulado",
+            MAEZO_INFERENCE_MODEL="modelo-simulado",
+        )
+    if execucao:
+        env["TIER_B_EXECUCAO"] = execucao
+    r = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/evals", "-q", "-rs", "--tb=no", "-p", "no:cacheprovider",
+         "-p", "contador_de_chamadas", "-m", "eval and llm_live"],
+        cwd=_RAIZ, env=env, capture_output=True, text=True, check=False, timeout=300,
+    )  # fmt: skip
+    eventos = contador.read_text(encoding="utf-8").split() if contador.exists() else []
+    return r, eventos
+
+
+def test_without_opt_in_bedrock_br_with_simulated_credentials_makes_zero_provider_calls(
+    tmp_path: Path,
+) -> None:
+    r, eventos = _suite_contada(tmp_path, execucao="", portoes=True)
+    assert eventos == [], eventos  # nenhum provedor construido, nenhuma chamada
+    assert r.returncode == 0, r.stdout[-3000:]
+    assert re.search(r"\b21 skipped\b", r.stdout), r.stdout[-2000:]
+    assert "Tier B so' roda no noturno ou na execucao manual" in r.stdout
+
+
+def test_with_opt_in_the_same_counter_sees_the_provider(tmp_path: Path) -> None:
+    # Controle: o contador funciona — com opt-in, o provedor e' construido (e falha sem os portoes, sem rede).
+    r, eventos = _suite_contada(tmp_path, execucao="noturno", portoes=False)
+    assert eventos and set(eventos) == {"construcao"}, eventos
+    assert re.search(r"\b21 failed\b", r.stdout), r.stdout[-2000:]
+
+
+def test_live_provider_refuses_before_construction_without_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    from maezo.runtime.inference import InferenceProvider
+
+    construcoes: list[object] = []
+    original = InferenceProvider.__init__
+
+    def _contar(self: InferenceProvider, *a: Any, **k: Any) -> None:
+        construcoes.append(self)
+        original(self, *a, **k)
+
+    monkeypatch.setattr(InferenceProvider, "__init__", _contar)
+    monkeypatch.delenv("TIER_B_EXECUCAO")
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", "bedrock_br")
+    with pytest.raises(AssertionError, match=r"^LIVE CALL FAILED: SemOptInDeExecucao"):
+        _vivo.provedor_vivo()
+    assert construcoes == []
+
+
+@pytest.mark.parametrize("execucao", ["", "outro", "NOTURNO-NAO"])
+def test_skip_reason_without_opt_in_is_stable_whatever_provider_or_key(
+    monkeypatch: pytest.MonkeyPatch, execucao: str
+) -> None:
+    from tests.evals import _regra_viva
+
+    monkeypatch.setenv("TIER_B_EXECUCAO", execucao)
+    for chave, provedor in (("", ""), ("chave-de-teste", "anthropic"), ("", "bedrock_br")):
+        monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", chave)
+        monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", provedor)
+        assert _regra_viva.motivo_do_pulo() == _regra_viva.MOTIVO_SEM_OPT_IN
+
+
+def test_ci_nightly_tier_b_step_declares_the_opt_in() -> None:
+    assert _passo("Nightly eval run — Tier B")["env"]["TIER_B_EXECUCAO"] == "noturno"
+    assert "TIER_B_EXECUCAO" not in (_passo("Nightly eval run — Tier A").get("env") or {})
+
+
+def test_preflight_without_opt_in_is_broken_and_calls_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("TIER_B_EXECUCAO")
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "s.md"))
+    p = _Provedor()
+    assert pf.main([], fabrica=lambda: p) == 1 and p.chamadas == 0
+    saida = capsys.readouterr().out + (tmp_path / "s.md").read_text(encoding="utf-8")
+    assert "QUEBRADO: preflight sem opt-in de execucao" in saida
+
+
+def test_summary_without_opt_in_is_broken(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Um noturno que esqueceu TIER_B_EXECUCAO nao pode virar "NAO RODOU" verde.
+    monkeypatch.delenv("TIER_B_EXECUCAO")
+    saida, resumo, _ = _rodar(monkeypatch, tmp_path, ["pulado"] * 21, 0, chave=False, bloqueante="false")
+    assert saida == 1 and "QUEBRADO: sem opt-in de execucao" in resumo and "NAO RODOU" not in resumo
+
+
+def test_manual_not_run_headline_is_coherent() -> None:
+    c = tb.Contagem(casos=[("t::c", tb.PULADO)])
+    v = tb.decidir(0, c, chave_presente=False, bloqueante=False, execucao="manual")
+    assert v.saida == 0 and v.manchete.startswith("Tier B NAO RODOU na execucao manual")
+    assert "nao roda no CI" not in v.manchete
+
+
+def test_live_call_failures_do_not_swallow_other_failures(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    junit = tmp_path / "j.xml"
+    casos = (
+        "".join(
+            f'<testcase classname="t" name="vivo{i}"><failure message="AssertionError: LIVE CALL FAILED: '
+            f'InferenceConfigError"/></testcase>'
+            for i in range(2)
+        )
+        + '<testcase classname="t" name="vazou">'
+        + '<failure message="AssertionError: vazou CPF na narrativa"/></testcase>'
+    )
+    junit.write_text(f"<testsuites><testsuite>{casos}</testsuite></testsuites>", encoding="utf-8")
+    assert tb.main(["--junit", str(junit), "--codigo", "1"]) == 1
+    resumo = (tmp_path / "summary.md").read_text(encoding="utf-8")
+    assert (
+        "QUEBRADO: 2 caso(s) com LIVE CALL FAILED (InferenceConfigError) e 1 caso(s) com outra falha"
+        in resumo
+    )
+    assert "| `t::vazou` | falha |" in resumo and "| `t::vivo0` | LIVE CALL FAILED |" in resumo
+    assert "live call failed 2 · falha 1" in resumo
+
+
+def test_summary_rule_is_imported_not_copied_and_needs_no_maezo() -> None:
+    from tests.evals import _regra_viva
+
+    assert tb.chave_presente is _regra_viva.credencial_viva_presente
+    assert _vivo.credencial_viva_presente is _regra_viva.credencial_viva_presente
+    assert "PROVEDORES_DE_TESTE" not in (_RAIZ / "scripts/ci/tier_b_resumo.py").read_text(encoding="utf-8")
+    codigo = (
+        f"import sys; sys.path.insert(0, {str(_RAIZ)!r}); sys.modules['maezo'] = None; "
+        "import scripts.ci.tier_b_resumo as t; print(t.chave_presente() in (True, False))"
+    )
+    r = subprocess.run(
+        [sys.executable, "-I", "-c", codigo], cwd=_RAIZ, capture_output=True, text=True, timeout=60
+    )
+    assert r.returncode == 0 and r.stdout.strip() == "True", r.stderr[-2000:]
+
+
+def test_manual_run_refuses_an_output_inside_the_repository(tmp_path: Path) -> None:
+    assert manual.saida_recusada(_RAIZ / "saida-tier-b") is not None
+    assert manual.saida_recusada(_RAIZ) is not None
+    assert manual.saida_recusada(tmp_path / "fora") is None
+
+
+def test_manual_run_drops_inherited_uv_variables(tmp_path: Path) -> None:
+    env = manual.ambiente_da_execucao(
+        {"UV_PROJECT_ENVIRONMENT": "/x", "UV_INDEX_URL": "y", "HOME": "/h"}, tmp_path
+    )
+    assert not [k for k in env if k.startswith("UV_")] and env["HOME"] == "/h"
+    assert env["TIER_B_EXECUCAO"] == "manual"
+
+
+def test_manual_run_states_the_effective_region(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from maezo.runtime.inference.excecao_regional import ENV_PHI_EXCECAO_REGIONAL, ROTA_EXCECAO_US
+
+    monkeypatch.delenv(ENV_PHI_EXCECAO_REGIONAL, raising=False)
+    assert manual.regiao_efetiva() == "sa-east-1"
+    monkeypatch.setenv(ENV_PHI_EXCECAO_REGIONAL, ROTA_EXCECAO_US)
+    assert manual.regiao_efetiva().startswith("us-east-1 (EXCECAO REGIONAL")
+
+    class _Feito:
+        returncode = 0
+
+    monkeypatch.setattr(manual, "problemas_do_ambiente", lambda env, *, credencial_aws: [])
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Feito())
+    assert manual.main(["--saida", str(tmp_path / "saida")]) == 0
+    resumo = (tmp_path / "saida" / "resumo.md").read_text(encoding="utf-8")
+    assert resumo.startswith("## Tier B — execucao manual — regiao efetiva da zona PHI: us-east-1 (EXCECAO")
 
 
 def test_manual_run_drops_inherited_python_and_pytest_variables(tmp_path: Path) -> None:

@@ -2722,8 +2722,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # O alvo `make evals` (`-m eval`) partido em dois passos, sem perder caso: Tier A (replay) bloqueia como
-      # antes; Tier B (ao vivo, `llm_live`) roda com MAEZO_ANTHROPIC_API_KEY e tem resultado proprio no
-      # resumo. A uniao das duas selecoes e' provada igual a do `make evals` lido do Makefile por
+      # antes; Tier B (ao vivo, `llm_live`) so' roda com o opt-in TIER_B_EXECUCAO deste job e credencial, e tem
+      # resultado proprio no resumo. A uniao das duas selecoes e' provada igual a do `make evals` lido do Makefile por
       # tests/unit/ci/test_evals_nightly_tier_b.py.
       - name: Nightly eval run — Tier A (replay, bloqueante)
         id: tier_a
@@ -2744,7 +2744,9 @@ jobs:
           LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
           NIGHTLY_EVAL: "1"
 
-      # Tier B (ao vivo). Sem o segredo, todo caso e' pulado e o resumo diz "NAO RODOU". Com
+      # Tier B (ao vivo). Opt-in de execucao: TIER_B_EXECUCAO=noturno (sem ela, todo caso vivo e' pulado e o
+      # preflight/resumo QUEBRAM). Os grafos chamam com phi=True e o CI nao tem provedor na zona PHI: no
+      # estado normal todo caso e' pulado e o resumo diz "NAO RODOU: nao roda no CI" + execucao manual. Com
       # TIER_B_BLOQUEANTE "false" (observacao das primeiras noites com chave), reprovacao DE LIMIAR em parte
       # dos casos vira `::warning::` e nao deixa o job vermelho; erro de coleta/fixture, falha que nao e' de
       # limiar (API, credencial), 100% reprovado ou chave presente sem nenhum caso rodado falham SEMPRE
@@ -2774,9 +2776,11 @@ jobs:
         env:
           MAEZO_ANTHROPIC_API_KEY: ${{ secrets.MAEZO_ANTHROPIC_API_KEY }}
           NIGHTLY_EVAL: "1"
+          # Opt-in explicito: so' este job e o script manual (scripts/dev/tier_b_manual.py) rodam casos llm_live.
+          TIER_B_EXECUCAO: "noturno"
           TIER_B_BLOQUEANTE: "false"
-          # "false" ate' o conserto dos evals vivos (falha de chamada com mensagem propria) entrar: o resumo
-          # avisa que a noite NAO conta para as 7 de observacao. Vira "true" no PR do conserto.
+          # "false": as noites de observacao ficam suspensas ate' existir provedor na zona PHI no CI (o resumo
+          # diz isso em toda noite).
           TIER_B_NOITES_CONTAM: "false"
 
       # Tier A vermelho => o passo B nao roda (sucesso() falso). Fica dito no resumo, para a noite nao ser
