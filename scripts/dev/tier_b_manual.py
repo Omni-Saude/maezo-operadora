@@ -142,7 +142,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     a.saida.mkdir(parents=True, exist_ok=True)
     resumo = (a.saida / "resumo.md").resolve()
     env = ambiente_da_execucao(os.environ, resumo)
-    resumo.write_text(f"## Tier B — execucao manual — regiao efetiva da zona PHI: {regiao_efetiva()}\n\n")
+    resumo.write_text(
+        f"## Tier B — execucao manual — regiao efetiva da zona PHI: {regiao_efetiva()}\n\n", encoding="utf-8"
+    )
     with tempfile.TemporaryDirectory(prefix="tier-b-") as tmp:
         junit = Path(tmp) / "junit.xml"
         preflight, suite, veredito = comandos(junit)

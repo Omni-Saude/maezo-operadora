@@ -211,6 +211,9 @@ def test_tier_a_failure_is_reported_as_tier_b_not_run() -> None:
         aviso["if"] == "failure() && steps.guard.outputs.run == 'true' && steps.tier_a.outcome == 'failure'"
     )
     assert "GITHUB_STEP_SUMMARY" in aviso["run"] and "nao conta" in aviso["run"]
+    assert (
+        "suspensas ate existir provedor na zona PHI no CI" in aviso["run"] and "7 noites" not in aviso["run"]
+    )
     nomes = [str(s.get("name", "")) for s in _jobs()["evals-nightly"]["steps"]]
     assert nomes.index("Nightly eval run — Tier B (ao vivo)") < nomes.index(aviso["name"])
 
@@ -1004,6 +1007,8 @@ def _suite_contada(
         and not k.startswith(
             ("PYTHON", "PYTEST_", "MAEZO_INFERENCE_", "MAEZO_BEDROCK_", "MAEZO_PHI_", "TIER_B_")
         )
+        and not k.lower().endswith("_proxy")  # minusculas tem precedencia no urllib/botocore
+        and k != "AWS_CA_BUNDLE"
     }
     env.update(
         PYTHONPATH=str(tmp_path / "plugin"),
@@ -1016,8 +1021,11 @@ def _suite_contada(
         AWS_EC2_METADATA_DISABLED="true",
         # Rede de seguranca: se algo escapasse, iria para um proxy local inexistente, nunca para a AWS.
         HTTPS_PROXY="http://127.0.0.1:9",
+        https_proxy="http://127.0.0.1:9",
         HTTP_PROXY="http://127.0.0.1:9",
+        http_proxy="http://127.0.0.1:9",
         NO_PROXY="",
+        no_proxy="",
     )
     if portoes:
         env.update(
@@ -1184,6 +1192,7 @@ def test_manual_run_states_the_effective_region(monkeypatch: pytest.MonkeyPatch,
         returncode = 0
 
     monkeypatch.setattr(manual, "problemas_do_ambiente", lambda env, *, credencial_aws: [])
+    monkeypatch.setattr(manual, "_credencial_aws", lambda: True)  # sem cadeia de credenciais (nem rede)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Feito())
     assert manual.main(["--saida", str(tmp_path / "saida")]) == 0
     resumo = (tmp_path / "saida" / "resumo.md").read_text(encoding="utf-8")
