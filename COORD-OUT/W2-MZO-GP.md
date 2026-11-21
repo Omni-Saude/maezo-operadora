@@ -1198,3 +1198,66 @@ Nenhuma DL foi pedida nem é necessária nesta fila: todas as linhas saíram sem
   - o teste do ponto único não vigia `texto`.
 - Ambiente local (iguais na main, nada dos PRs): sem `helm`, clone raso, `uv` offline, processo root (`test_audit_anchor`). Uma worktree com a `.venv` editável do clone principal resolve `maezo` para o `src` dele e precisa de `PYTHONPATH` com o `src` da worktree na frente.
 - Processo: na 24b, um commit (`1dc614a1`) entrou com o mypy vermelho por encadear comandos com `;`. Foi corrigido no commit seguinte, sem amend; nada saiu para o remoto antes do verde.
+
+## 2026-11-21 ~06:20Z — NOVA FILA (CD-259); CAMINHO E-SF-ADD01-03
+
+Fila: ADD01-03 → RT-03 completa → parte de agente da 17r; depois as prévias 37r, 09r, 04r e 33r (só arquivo novo e disjunto). A 29-3 segue esperando o aviso do pin.
+
+### Deriva do head (main `dcfedd29`)
+- A parte construível da ADD01-03 já está quase toda na main:
+  - o modo `staff_assist` do agente `comercial` (E-SF-17, #1279) devolve só a rota de nota interna, com `envio_pelo_humano=True`, sem texto gerado e sem ação de envio;
+  - sem LLM: `prompt_versions: {}`, e nenhum texto é gerado enquanto o SC-03.D1 não tiver resposta;
+  - o `build()` recusa sem `comercial_ligado`;
+  - `INPUT_FIELDS` é fechado: não há campo de entrada para texto nem para o snapshot do prospect;
+  - a ação `staff_assist_draft` está em L1, sem parâmetros, sem tool e sem ser hard (#1349);
+  - o console da ADD01-02 (#1303) já projeta a jornada sem campo clínico (`PHI_IN_COMMERCIAL_INPUT`).
+- Ninguém em `src/` usa a ação ainda. O `agent.yaml` do `comercial` não a declara, e o teto fechado `_ACOES_COMERCIAIS` (`agent_def.py:341`) a recusaria.
+- Dos três testes que o plano nomeia, só o equivalente de "nunca envia" existe (`test_staff_assist_nunca_envia_ao_prospect`).
+- **O que o plano pede e fica fora:**
+  - `L0-core.yaml`: a ação já existe, e a janela nunca edita `spec/policies/autonomy/` (CD-144/233);
+  - `runtime/inference/`: sem provedor nem região (E38), sem resposta do DPO ao SC-03.D1, e a saída de LLM sem nome de autonomia instalado. O copiloto segue sem conteúdo gerado e determinístico.
+
+### Proposta (A, padrão): ligar a ação como DADO, sem LLM, flag desligada
+1. `src/maezo/agents/comercial/graph.py`:
+   - constante `ACAO_RASCUNHO_ATENDENTE = "staff_assist_draft"`;
+   - no modo `staff_assist`, o resultado ganha o campo de saída `acao_de_rascunho = ACAO_RASCUNHO_ATENDENTE`, e `acao_de_envio` continua `None`.
+   O agente não avalia o PEP, porque não pode importar o gateway (ADR-0067). Ele devolve o nome da ação como dado, como já faz com `ACAO_ENVIO_PROSPECT`. Quem avalia é o gateway: L1 dá `REQUIRE_HUMAN`.
+2. `spec/agents/comercial/agent.yaml`: `autonomy_actions` ganha `staff_assist_draft` (L1, só preparar).
+3. `src/maezo/platform/validation/agent_def.py`: o teto fechado `_ACOES_COMERCIAIS` cresce em UM nome, `staff_assist_draft`. A ação não é hard, não é PHI e não tem tool. O resto do teto e as recusas (`COMMERCIAL_ACTION_NOT_ALLOWED`, `COMMERCIAL_PHI_ACTION_FORBIDDEN`) não mudam.
+4. `tests/unit/platform/test_agent_yaml_tools_wired.py`: `staff_assist_draft` é classificado em `_ACTION_NOT_TOOL_SHAPED`, a lista fechada de ações sem tool.
+5. Teste novo `tests/unit/agents/test_add01_03_staff_assist.py`:
+   - `test_staff_assist_never_sends_without_human_click`: sem ação de envio, `envio_pelo_humano=True`, rota de nota interna, e nenhum tool chamado pelo grafo;
+   - `test_staff_assist_output_has_no_price_or_commission_computation`: nenhuma saída numérica ou monetária, nem campo de preço, comissão, elegibilidade, legitimidade ou ranking, por varredura de chaves e valores;
+   - `test_staff_assist_refuses_clinical_input`: a entrada é fechada, e qualquer campo fora de `INPUT_FIELDS` é recusa tipada, inclusive um texto clínico.
+     - **Deriva:** o plano cita o código `PHI_IN_COMMERCIAL_INPUT`. O agente não pode importar o detector do gateway (ADR-0067), então a recusa é por construção. O código `PHI_IN_COMMERCIAL_INPUT` continua sendo o da projeção do console (ADD01-02), e o teste fixa as duas pontas.
+   - também: o PEP real resolve `staff_assist_draft` como `REQUIRE_HUMAN`; o `build` desligado recusa; `_hard_frozen.yaml` fica byte-idêntico; nenhuma saída de LLM (`prompt_versions` vazio).
+
+### Cercas lidas e declaração
+O ramo foi lido contra estas cercas, e **nenhuma é contrariada nem contornada**:
+- `test_esf17_comercial.py`:
+  - o teto e o hash CD-13: a ação nova já está no conjunto excluído, e o hash das antigas não muda;
+  - o sha256 do `_hard_frozen` e `test_staff_assist_nunca_envia_ao_prospect`.
+- `test_l1_staff_assist_draft_policy.py`.
+- `test_agent_yaml_tools_wired.py`: é a classificação do item 4.
+- `test_agent_fleet_autonomy_fences.py`: nenhuma ação hard.
+- `test_pep_policy_unification.py`.
+- `test_l0_canonical_action_naming.py`: nenhuma saída de LLM.
+- `check_fronteira_agentes.py`: só `MODULOS_DO_SDK`, sem importar o gateway.
+- `test_turn_telemetry_comercial_fechada.py` e `test_terminal_nodes_emit_desfecho.py`: o vocabulário fechado não muda.
+- `test_llm_sdk_only_in_runtime_inference.py`.
+- `test_add01_02_specialist_console.py`.
+
+A única cerca que muda de conteúdo é o teto fechado `_ACOES_COMERCIAIS`, que ganha um nome. Ele continua fechado e com teste, e por isso a mudança fica declarada aqui.
+
+### Fronteira
+- Nada é enviado pelo agente; nenhuma mensagem a beneficiário ou prospect.
+- Nenhum dado de saúde como entrada.
+- Nada decide rescisão, negativa ou valor.
+- Sem DMN, migração, DL ou CODEOWNERS; sem edição de `spec/policies/autonomy/` nem de `_hard_frozen.yaml`.
+- A flag fica desligada.
+- Ativar depende do SC-03.D1 (DPO) e do SC-03.O1 (deploy do dono).
+
+### Alternativa (B)
+Se a coordenação não quiser que o teto `_ACOES_COMERCIAIS` cresça agora, a entrega é só o teste novo do item 5, sem os itens 1 a 4, fixando o estado fechado atual.
+
+Sigo com (A) localmente, num ramo novo a partir da main. O PR só abre com o de acordo e uma vaga no teto.
