@@ -19,12 +19,14 @@ import ast
 import dataclasses
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
 
 from maezo.platform.rco_entradas import DicionarioEntradasK1
 from maezo.tools.workers import rco_montador as mt
+from maezo.tools.workers import rco_pin
 from tests.unit.tools.workers import rco_recorte
 
 PIN_SEM_K3 = (1, 15)
@@ -354,8 +356,12 @@ def test_datas_ate_a_tolerancia_com_contrato_de_30(
     assert set(montadas.derivacoes) == {DIAS_ALEM}
 
 
-def test_sem_pin_a_tolerancia_e_zero(dic: DicionarioEntradasK1, decisoes: dict[str, Any]) -> None:
-    """Com a configuracao real e o pin real (`sem_pacote`, tabela fora do pin): a guarda zera a folga."""
+def test_sem_pin_a_tolerancia_e_zero(
+    dic: DicionarioEntradasK1, decisoes: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Com a configuracao real e um pin sem a tabela de prazos (`sem_pacote`): a guarda zera a folga."""
+    vazio = rco_pin.RcoRulesPin(estado="sem_pacote", tables=MappingProxyType({}))
+    monkeypatch.setattr(rco_pin, "rco_rules_pin", lambda: vazio)
     fatos = _fatos(
         tiss={"data_final_faturamento": ALTA}, fora_tiss={"data_recebimento_lote": _mais(ALTA, 45)}
     )
@@ -366,6 +372,27 @@ def test_sem_pin_a_tolerancia_e_zero(dic: DicionarioEntradasK1, decisoes: dict[s
         "toleranciaAplicada": 0,
         "valorEntregue": 15,
         "motivoTolerancia": "dmn_nao_verificado",
+    }
+
+
+def test_pin_real_a_tabela_esta_pinada_e_a_tolerancia_configurada_vale(
+    dic: DicionarioEntradasK1, decisoes: dict[str, Any]
+) -> None:
+    """Pin real `fixado` (K1 b8444f52): a tabela de prazos de conta esta no pin e o DMN nao tolera (o gate
+    recusaria o pin), entao a tolerancia da configuracao real (30 dias) vale — so na sombra do montador."""
+    tabela = rco_pin.rco_rules_pin().tables[mt.DECISAO_PRAZOS_CONTA]
+    assert tabela.tolerancia_no_dmn == ()
+    assert mt.dmn_prazos_conta_bloqueia_tolerancia() is None
+    fatos = _fatos(
+        tiss={"data_final_faturamento": ALTA}, fora_tiss={"data_recebimento_lote": _mais(ALTA, 45)}
+    )
+    montadas = _prazos(dic, decisoes, fatos)
+    assert montadas.variaveis[DIAS_ALEM] == 0
+    assert dict(montadas.derivacoes[DIAS_ALEM]) == {
+        "diasBrutos": 15,
+        "toleranciaAplicada": 30,
+        "valorEntregue": 0,
+        "motivoTolerancia": "aplicada",
     }
 
 

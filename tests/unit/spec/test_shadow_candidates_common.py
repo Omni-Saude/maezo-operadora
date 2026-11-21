@@ -24,6 +24,7 @@ pins the properties that must hold for ALL of them at once:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -52,6 +53,8 @@ from tests.support.dmn_first_hit import (
 )
 
 #: candidate manifest filename -> the live table it proposes a correction to.
+_RCO_LOCK = Path(__file__).resolve().parents[3] / "config" / "integrations" / "rco" / "rules.lock.json"
+
 CANDIDATES: dict[str, str] = {
     "glosa-triage-shadow-candidate.yaml": "glosa_triage.dmn",
     "carencia-check-shadow-candidate.yaml": "carencia_check.dmn",
@@ -219,12 +222,16 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
     # ADR-0075 secao b: o deploy tambem publica `dmn/rco/` (pacote K1). O censo de tabelas do
-    # Maezo (primeiro nivel) fica separado do censo do rco, que hoje e' so' o exemplo sintetico.
+    # Maezo (primeiro nivel) fica separado do censo do rco: as 236 tabelas do pin real (K1 b8444f52,
+    # `fixado`, lidas do lock) + o exemplo sintetico.
     all_dmns = [p for p in artifacts if p.suffix == ".dmn"]
     dmns = {p.name for p in all_dmns if p.parent.name != "rco"}
     rco = {p.relative_to(DMN_DIR).as_posix() for p in all_dmns if p.parent.name == "rco"}
     assert len(dmns) == 71
-    assert rco == {"rco/rco_exemplo_sintetico.dmn"}
+    lock = json.loads(_RCO_LOCK.read_text(encoding="utf-8"))
+    pinados = {f"rco/{Path(item['path']).name}" for item in lock["artifacts"]}
+    assert len(pinados) == 236
+    assert rco == pinados | {"rco/rco_exemplo_sintetico.dmn"}
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"

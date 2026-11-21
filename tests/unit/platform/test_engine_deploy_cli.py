@@ -274,7 +274,8 @@ class TestMainEndToEnd:
         # DEC-31 D31-2: +pagto_comite_coordenacao.dmn (assuncao do comite pela coordenacao) -> 70 DMN.
         # ADR-0075 secao b: o pacote K1 (`dmn/rco/`) sai numa contagem propria — hoje so' o exemplo.
         # E-SF-08: +funnel_deadline_catalog.dmn (catalogo DRAFT, sem consumidor) -> 71 DMN.
-        assert "17 BPMN, 71 DMN, 1 DMN rco" in out  # VW4/GP11; DL-0104: +helena_triage_admissibility
+        # K1 b8444f52 (primeiro pin real, sombra): rco = 236 tabelas do pin + o exemplo sintetico = 237.
+        assert "17 BPMN, 71 DMN, 237 DMN rco" in out  # VW4/GP11; DL-0104: +helena_triage_admissibility
 
     def test_deploy_mode_engine_rejection_is_nonzero_exit(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

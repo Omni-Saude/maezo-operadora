@@ -34,14 +34,17 @@ segue só biblioteca padrão.
 §1; mesma notação do K2, HEL-3a). O hex cru dispara o detector de segredos (gitleaks) e é recusado
 pelo gate e pelo runtime. `lock_format.version` `2.0.0` marca essa notação.
 
-## Estado `sem_pacote` (o estado comitado hoje)
+## Estado `sem_pacote`
 
 - `provenance.rco_commit_sha` = `null`, `manifest_pin` = `null`, `artifacts` = `[]`.
 - `spec/processes/dmn/rco/` pode estar ausente ou conter só `README.md` e os arquivos listados em
   `exemplos_sinteticos`, cada um com o sha256 certo; `config/integrations/rco/k1/` ausente ou vazia.
 - Qualquer outro arquivo nas pastas (um `.dmn` "de verdade" solto, por exemplo) reprova.
 
-## Estado `fixado`
+## Estado `fixado` (o estado comitado hoje)
+
+Pin real: K1 do rco no commit `b8444f52` (manifesto 2.3.0, pacote 5.0.1, dicionário 1.6.0), 236 decisões, em
+sombra (`efeito_k1_habilitado` desligado). O exemplo sintético do Maezo segue em `exemplos_sinteticos`.
 
 O gate e o runtime (`rco_pin.load_rco_rules_pin`) recusam o pin inteiro quando:
 

@@ -9,8 +9,8 @@ gerado do rco no commit fe1dc8975c0a486da0699f0fd6a0279e4b70f9af), que essas ent
 quando o K3 traz saldo positivo (o nulo nao e um acaso da tabela: sao o pin e a lacuna do saldo que
 seguram a negativa).
 
-A tabela e FIXTURE DE TESTE, nunca de `spec/` (o pin do rco segue `sem_pacote`). Sem motor
-alcancavel, o pacote inteiro PULA com motivo explicito (`tests/integration/conftest.py`).
+A tabela e FIXTURE DE TESTE, nunca de `spec/` (nao e uma das tabelas pinadas em `spec/processes/dmn/rco/`).
+Sem motor alcancavel, o pacote inteiro PULA com motivo explicito (`tests/integration/conftest.py`).
 """
 
 from __future__ import annotations

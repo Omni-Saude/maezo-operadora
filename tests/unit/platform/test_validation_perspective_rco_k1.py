@@ -6,8 +6,10 @@ tabelas do rco em b8444f52 davam 2 hits, ambos R2-CTX X2 em `geral_prazos_conta.
 extensao e EXATA (`perspective.RECEBIMENTO_PELO_PAGADOR`): so absolve o X2 cujo trecho casado esta dentro
 de uma das duas frases, sem janela; qualquer outra redacao continua reprovando.
 
-A varredura das 236 tabelas reais roda quando `MAEZO_RCO_CHECKOUT` aponta um clone do rco com o commit
-(leitura por `git show`, sem alterar o clone); sem ele, so a tabela vendorizada e conferida.
+Desde o primeiro pin real (b8444f52, estado `fixado`), as 236 tabelas estao na arvore, em
+`spec/processes/dmn/rco/`, e a varredura delas roda SEMPRE, sem skip (0 acerto). A conferencia contra um
+clone do rco (leitura por `git show`, sem alterar o clone) segue a parte e so roda quando
+`MAEZO_RCO_CHECKOUT` aponta o clone.
 """
 
 from __future__ import annotations
@@ -28,6 +30,8 @@ from maezo.platform.validation.result import Report
 FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "rco" / "perspectiva-b8444f52"
 TABELA = FIXTURE / "geral_prazos_conta.dmn"
 COMMIT_RCO = "b8444f52e33eda556b5d2dab7837b046d5bd769e"
+REPO = Path(__file__).resolve().parents[3]
+LOCK = REPO / "config" / "integrations" / "rco" / "rules.lock.json"
 
 _DMN = """<?xml version="1.0" encoding="UTF-8"?>
 <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" id="d" name="d" namespace="http://x.invalid">
@@ -78,6 +82,25 @@ def test_sem_a_extensao_a_tabela_real_da_exatamente_os_dois_hits_x2() -> None:
     assert achados == {4: [("R2-CTX", "X2", "recebido")], 15: [("R2-CTX", "X2", "recebimento")]}
     for frase in perspective.RECEBIMENTO_PELO_PAGADOR:
         assert sum(frase in perspective.fold(linha) for linha in linhas) == 1, frase
+
+
+def _tabelas_pinadas() -> list[Path]:
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    assert lock["estado"] == "fixado"
+    assert lock["provenance"]["rco_commit_sha"] == COMMIT_RCO
+    return [REPO / item["path"] for item in lock["artifacts"]]
+
+
+def test_as_236_tabelas_pinadas_na_arvore_passam_com_zero_hits() -> None:
+    """Sem skip: a cerca D7 sobre as tabelas do pin, como estao em `spec/processes/dmn/rco/`."""
+    tabelas = _tabelas_pinadas()
+    assert len(tabelas) == 236
+    assert all(t.parent == REPO / "spec" / "processes" / "dmn" / "rco" for t in tabelas)
+    report = Report()
+    hits = []
+    for tabela in tabelas:
+        hits.extend(scan_xml_file(tabela, report))
+    assert hits == [] and report.ok
 
 
 @pytest.mark.skipif(not os.environ.get("MAEZO_RCO_CHECKOUT"), reason="sem clone do rco (MAEZO_RCO_CHECKOUT)")

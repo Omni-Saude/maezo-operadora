@@ -9190,12 +9190,29 @@ class TestJuelExtraction:
         assert blank_entities(text) == "a       b      c"
 
     def test_only_three_entities_are_used_in_the_corpus(self) -> None:
-        """The blanking-not-decoding shortcut is exact only while this holds."""
+        """The blanking-not-decoding shortcut is exact only while this holds.
+
+        K1 b8444f52 (#1365) brought the corpus its first `&quot;`, in ONE place: the `label` attribute
+        of `criterioDutInformado` in `rco/clin_dut.dmn`, prose outside any `${...}` body. Blanking only
+        matters INSIDE a JUEL body (a decoded `"` there would open a string literal), so the fourth
+        entity is pinned to that one location and to "never inside `${...}`", file by file; the other
+        three stay the only entities anywhere.
+        """
         found: set[str] = set()
+        quot: list[str] = []
         for path in sorted(_SPEC_PROCESSES.rglob("*")):
             if path.suffix in {".bpmn", ".dmn"}:
-                found |= set(re.findall(r"&[a-zA-Z#0-9]+;", path.read_text(encoding="utf-8")))
-        assert found == {"&amp;", "&gt;", "&lt;"}
+                text = path.read_text(encoding="utf-8")
+                found |= set(re.findall(r"&[a-zA-Z#0-9]+;", text))
+                quot.extend(
+                    f"{path.relative_to(_SPEC_PROCESSES).as_posix()}:{n}"
+                    for n, line in enumerate(text.splitlines(), start=1)
+                    if "&quot;" in line
+                )
+                for block in fence._JUEL_BLOCK.finditer(text):
+                    assert "&quot;" not in block.group("body"), path
+        assert found == {"&amp;", "&gt;", "&lt;", "&quot;"}
+        assert quot == ["dmn/rco/clin_dut.dmn:18"]
 
 
 class TestXmlSurfaces:

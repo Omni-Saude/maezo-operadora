@@ -21,6 +21,7 @@ ADR-0040 D7. Three groups of tests carry the load:
 from __future__ import annotations
 
 import ast
+import json
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -1677,8 +1678,14 @@ class TestEntryPoints:
         assert "provider-perspective vocabulary" in report.findings[0].message
 
     def test_the_live_rco_folder_is_read_and_clean(self) -> None:
+        """Sem skip: as 236 tabelas do pin real (K1 b8444f52, `fixado`) + o exemplo sintetico, 0 acerto."""
         rco = sorted((_SPEC / "processes" / "dmn" / "rco").glob("*.dmn"))
-        assert [p.name for p in rco] == ["rco_exemplo_sintetico.dmn"]
+        lock = json.loads(
+            (_REPO_ROOT / "config/integrations/rco/rules.lock.json").read_text(encoding="utf-8")
+        )
+        pinados = {Path(item["path"]).name for item in lock["artifacts"]}
+        assert len(pinados) == 236
+        assert {p.name for p in rco} == pinados | {"rco_exemplo_sintetico.dmn"}
         assert _measure(rco, scan_xml_file) == {}
 
     def test_check_yaml_defs_covers_agents_and_policies(self, tmp_path: Path) -> None:

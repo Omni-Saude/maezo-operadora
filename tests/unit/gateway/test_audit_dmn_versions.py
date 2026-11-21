@@ -185,7 +185,7 @@ def test_rco_table_entry_carries_sha_from_the_pin() -> None:
     fake.register(_SINTETICO, [{"decisao": "liberar", "classeAdverso": None, "fila": None}], version=1)
     with collect_dmn_versions() as collected:
         evaluate_sync(fake, _SINTETICO, {"rco_exemplo_tipo": "A", "rco_exemplo_quantidade": 3})
-    # estado `sem_pacote`: no K1 manifest -> no versaoRegra; the synthetic table has no idRegra output.
+    # the synthetic example has no K1 manifest entry (any pin state): no versaoRegra, no idRegra output.
     assert collected[_SINTETICO] == {
         "version": 1,
         "id": f"{_SINTETICO}:1:test",
@@ -246,6 +246,12 @@ def _write_pin(tmp_path: Path, *, sha: str, estado: str = "sem_pacote") -> tuple
     (rules_dir / "rco_exemplo_sintetico.dmn").write_bytes((_REPO / _SINTETICO_REL).read_bytes())
     lock = json.loads((_REPO / RCO_RULES_PIN_RELATIVE_PATH).read_text(encoding="utf-8"))
     lock["estado"] = estado
+    if estado == "sem_pacote":
+        # The committed lock is `fixado` since the first K1 pin (b8444f52); a `sem_pacote` lock carries no
+        # package at all (README: provenance null, manifest_pin null, artifacts []).
+        lock["provenance"] = {"rco_commit_sha": None, "rco_repo": None, "status": "NAO_PUBLICADO"}
+        lock["manifest_pin"] = None
+        lock["artifacts"] = []
     lock["exemplos_sinteticos"] = [{"path": _SINTETICO_REL, "sha256": sha}]
     lock_path = tmp_path / "rules.lock.json"
     lock_path.write_text(json.dumps(lock), encoding="utf-8")

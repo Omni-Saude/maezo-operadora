@@ -1,7 +1,7 @@
 # Recortes dos dicionarios de entradas K1 1.5.1 e 1.6.0 do rco
 
 Copia SOMENTE LEITURA, so do dicionario de entradas (`k1/entradas.json`): nenhum DMN, manifesto ou anexo do
-pacote K1 esta aqui, e nada daqui entra no pin (`config/integrations/rco/rules.lock.json` segue `sem_pacote`).
+pacote K1 esta aqui, e nada daqui entra no pin (o pin real, `fixado` em `b8444f52`, le `config/integrations/rco/k1/entradas.json`).
 Origem: `Omni-Saude/regras-contratos-operadora`, commits de `main` em `ORIGEM.json` (1.5.1: `1c5a2f2d`, PR #187;
 1.6.0: `b8444f52`, PR #189). Como os arquivos foram gerados esta em `ORIGEM.json` (`gerador`); o `sha256_conteudo`
 de cada recorte e o do dicionario COMPLETO (353 entradas) daquele commit, e o sha256 do `entradas.json` inteiro esta

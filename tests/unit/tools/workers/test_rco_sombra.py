@@ -7,7 +7,7 @@ Prova, sem motor (o `FakeDmnTransport` registra o que recebeu) e sem Postgres:
   `entradasNulas`) entra na entrada `rco_` de `dmn_versions` — no coletor e no `AuditRecord` do harness;
 - NADA produz efeito: as variaveis de saida do intake de SP-OP-CONTAS-001 sao identicas com e sem a
   sombra, a sombra devolve `None` e engole toda falha, e o indicador do K1 segue desligado;
-- inerte hoje: com o pin real (`sem_pacote`) nada e avaliado;
+- com o pin real (`fixado`, K1 b8444f52) a tabela pinada e avaliada so em sombra, efeito desligado;
 - a data de hoje que o intake poe em `data_recebimento_lote` quando o lote nao a traz nunca chega ao
   montador.
 
@@ -157,11 +157,18 @@ def test_tabela_maezo_nunca_recebe_as_chaves_do_montador() -> None:
 # --- inerte hoje e fail-open ---------------------------------------------------------------------------
 
 
-def test_pin_real_sem_pacote_nao_avalia() -> None:
+def test_pin_real_fixado_avalia_so_em_sombra(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin real (K1 b8444f52, `fixado`): a tabela pinada e avaliada em SOMBRA, com o `shaDmn` do manifesto
+    na auditoria, e o indicador de efeito do K1 segue desligado (nenhum ambiente liga a chave)."""
+    monkeypatch.delenv(at.CHAVE_EFEITO_K1, raising=False)
+    pin = rco_pin.rco_rules_pin()
+    assert pin.estado == "fixado"
     dmn = _dmn()
-    assert rco_pin.rco_rules_pin().estado == "sem_pacote"
-    assert rco_sombra.avaliar(dmn, CHAVE, _fatos_com_datas(45)) == rco_sombra.SEM_PACOTE
-    assert dmn.calls == []
+    with collect_dmn_versions() as versoes, collect_rco_avaliacoes():
+        assert rco_sombra.avaliar(dmn, CHAVE, _fatos_com_datas(45)) == rco_sombra.AVALIADA
+    assert [chave for chave, _ in dmn.calls] == [CHAVE]
+    assert versoes[CHAVE]["shaDmn"] == pin.tables[CHAVE].sha_dmn
+    assert at.efeito_k1_habilitado() is False
 
 
 def test_sem_transporte_nao_avalia(pin_com_prazos: rco_pin.RcoRulesPin) -> None:
@@ -387,11 +394,17 @@ def test_data_de_hoje_do_intake_nunca_chega_ao_montador(pin_com_prazos: rco_pin.
     assert hoje not in repr(contas.fatos_prazo_conta_rco(entrada)((1, 15)))
 
 
-def test_intake_com_pin_real_nao_chama_o_motor() -> None:
+def test_intake_com_pin_real_avalia_so_em_sombra_e_nao_muda_a_saida(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin real `fixado` (K1 b8444f52): o intake avalia SO a tabela de prazos de conta, em sombra; sem
+    produtor dos fatos hoje, toda entrada vai nula (nulo nunca nega), e a saida e identica a sem sombra."""
+    monkeypatch.delenv(at.CHAVE_EFEITO_K1, raising=False)
     dmn = _dmn()
     out = contas.identify_glosa_entry(_variaveis_contas(), dmn=dmn)
-    assert dmn.calls == []
+    [(chave, variaveis)] = dmn.calls
+    assert chave == CHAVE
+    assert variaveis and all(valor is None for valor in variaveis.values()), variaveis
     assert out == contas.identify_glosa_entry(_variaveis_contas())
+    assert at.efeito_k1_habilitado() is False
 
 
 async def test_harness_grava_a_auditoria_do_montador_e_completa_igual(
