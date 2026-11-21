@@ -267,7 +267,7 @@ jobs:
 
   unit:
     name: unit (${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 60
     needs: [trilha]
     if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'
@@ -497,7 +497,7 @@ jobs:
   quality:
     # O check obrigatorio `lint / type / unit` e' o `portao` (acima); este e' o da trilha plataforma.
     name: lint / type / unit (plataforma)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     needs: [unit]
     timeout-minutes: 30
     steps:
@@ -676,7 +676,7 @@ jobs:
 
   portal-web:
     name: portal-web
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 15
     needs: [trilha]
     if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
@@ -1227,7 +1227,7 @@ jobs:
   # measurement.
   release-floor:
     name: release-capability-floor (audit §5)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     # O JOB DEIXOU DE MEDIR A SUITE POR CONTA PROPRIA (22/09/2026). O gate so precisava de UM
     # numero da suite unitaria — quantos testes passam — e rodava `pytest tests/ -q` inteiro, em
     # SERIE, para obte-lo: ~50 min de runner por push (22 min ja queimados quando a run
@@ -1397,7 +1397,7 @@ jobs:
 
   validate-terraform:
     name: terraform validate
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 15
     needs: [trilha]
     if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
@@ -1531,7 +1531,7 @@ jobs:
 
   validate-helm:
     name: helm lint + egress NetworkPolicy CI
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 15
     needs: [trilha]
     if: needs.trilha.outputs.plataforma == 'true' && needs.trilha.outputs.verificado != 'true'  # ADR-0067: so' na trilha plataforma
