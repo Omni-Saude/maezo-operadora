@@ -1047,3 +1047,18 @@ Ramo `sf-w2/mzo-gp/esf24b`, a partir da main. O PR só abre depois do merge do #
 - `SP-OP-AUTH-001.md` ganha a seção v1 e porta.
 - Nada de dados do repositório de regras; nada ligado.
 - Fica fora desta entrega e continua na pré-condição de ligar: o parecer jurídico e o catálogo revisado.
+
+## 2026-11-21 ~04:00Z — PRONTO #1351 (E-SF-11 / EP-REG-21a)
+
+- **PRONTO:** #1351, head `73aedfaee5bb942f9d74dc405af4f64b9fb7a0f0`; `mergeable_state` = clean.
+  - 37 checks verdes e 2 skipped, nenhum vermelho.
+  - `live-pytest] PASS`: recurso-nip passed=181; cancel-contas passed=138; cred-ans passed=129; restante passed=965.
+- **Simulação de merge real** numa worktree destacada no sha da main `90e7a841dcb707c35db953015f8d1c5819e07469`:
+  - Merge sem conflito. `make lint type validate-artifacts` rc=0, com link temporário da `.venv`, removido.
+  - `tests/unit/portal`: 3228 passed, 10 skipped.
+  - Worktree removida sem `--force`.
+- **9 merges atrás** (#1342–#1350), sem arquivo em comum, não trazidos (CD-155).
+- **Próximo PR**, depois do merge deste: E-SF-24b (CD-231).
+  - O ramo `sf-w2/mzo-gp/esf24b` vai ao remoto quando o `tests/unit` completo × main terminar.
+  - Revisão independente: PASS na terceira rodada. As duas primeiras deram FAIL e foram corrigidas: o complemento do auditor podia forjar rótulo do art. 14.
+  - Mutação: 17/17 e depois 7/7 + 2/2, todas mortas.
