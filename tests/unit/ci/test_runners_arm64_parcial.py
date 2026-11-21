@@ -7,6 +7,7 @@ todo o `security.yml` ficam em x64. Mudar isso exige decisao nova, nao um ajuste
 
 from __future__ import annotations
 
+import copy
 import re
 from pathlib import Path
 from typing import Any
@@ -34,49 +35,92 @@ def test_exactly_the_six_decided_jobs_use_the_event_conditional_runner() -> None
 
 
 _TERNARIO = re.compile(r"^\$\{\{ github\.event_name == '(\w+)' && '([^']+)' \|\| '([^']+)' \}\}$")
+_EVENTOS = ("schedule", "pull_request", "push", "workflow_dispatch")
 
 
-def _avaliar_runs_on(valor: str, evento: str) -> str:
-    """Avalia o `runs-on` como o Actions faria para `evento`: literal, ou o ternario `a && 'x' || 'y'`.
-    Qualquer outra expressao e' recusada (nao da' para provar o runner sem rodar)."""
+def _avaliar_runs_on(valor: object, evento: str) -> str | None:
+    """Avalia o `runs-on` como o Actions faria para `evento`: rotulo literal, ou o ternario `a && 'x' || 'y'`.
+    Qualquer outra forma (expressao com matrix/vars/inputs, lista, mapa) devolve None: nao da' para provar
+    o runner sem rodar."""
+    if not isinstance(valor, str):
+        return None
     if "${{" not in valor:
         return valor
     m = _TERNARIO.match(valor)
-    assert m, f"runs-on com expressao nao suportada pela cerca: {valor!r}"
+    if not m:
+        return None
     alvo, se_sim, se_nao = m.groups()
     return se_sim if evento == alvo else se_nao
 
 
-@pytest.mark.parametrize(
-    ("evento", "esperado"),
-    [
-        ("schedule", "ubuntu-latest"),
-        ("pull_request", "ubuntu-24.04-arm"),
-        ("push", "ubuntu-24.04-arm"),
-        ("workflow_dispatch", "ubuntu-24.04-arm"),
-    ],
-)
-def test_the_runner_each_migrated_job_gets_per_event(evento: str, esperado: str) -> None:
-    # Avalia o valor LIDO do ci.yml: o noturno (matriz inteira) cai em x64; todo o resto, em arm64.
-    jobs = _jobs("ci.yml")
-    for nome in _JOBS_ARM:
-        assert _avaliar_runs_on(jobs[nome]["runs-on"], evento) == esperado, (nome, evento)
-    for nome in _JOBS_X64_FIXOS:
-        assert _avaliar_runs_on(jobs[nome]["runs-on"], evento) == "ubuntu-latest", (nome, evento)
+def _violacoes_por_evento(ci_jobs: dict[str, Any]) -> list[str]:
+    """O noturno (matriz inteira) cai em x64; todo o resto, em arm64 — nos 6 jobs; os fixos, sempre x64."""
+    erros = []
+    for evento in _EVENTOS:
+        esperado_arm = "ubuntu-latest" if evento == "schedule" else "ubuntu-24.04-arm"
+        for nome in sorted(_JOBS_ARM):
+            obtido = _avaliar_runs_on(ci_jobs[nome].get("runs-on"), evento)
+            if obtido != esperado_arm:
+                erros.append(f"{nome}@{evento}: {obtido!r} != {esperado_arm!r}")
+        for nome in sorted(_JOBS_X64_FIXOS):
+            obtido = _avaliar_runs_on(ci_jobs[nome].get("runs-on"), evento)
+            if obtido != "ubuntu-latest":
+                erros.append(f"{nome}@{evento}: {obtido!r} != 'ubuntu-latest'")
+    return erros
 
 
-def test_no_indirect_runner_anywhere() -> None:
-    # `matrix.os`, `vars.*`, `inputs.*` ou lista/rotulo de grupo esconderiam o runner da cerca.
-    for caminho in sorted(_WF.glob("*.y*ml")):
-        for nome, job in (yaml.safe_load(caminho.read_text(encoding="utf-8")).get("jobs") or {}).items():
+def _violacoes_indiretas(workflows: dict[str, dict[str, Any]]) -> list[str]:
+    """`matrix.os`, `vars.*`, `inputs.*`, lista ou mapa esconderiam o runner da cerca."""
+    erros = []
+    for arquivo, jobs in sorted(workflows.items()):
+        for nome, job in jobs.items():
             if "uses" in job and "runs-on" not in job:
                 continue  # job que chama workflow reutilizavel: o runner vem do arquivo chamado
             valor = job.get("runs-on")
-            assert isinstance(valor, str), f"{caminho.name}:{nome}: runs-on nao e' um rotulo unico"
-            permitido = caminho.name == "ci.yml" and nome in _JOBS_ARM and valor == _EXPR_ARM_PARCIAL
-            assert "${{" not in valor or permitido, f"{caminho.name}:{nome}: runs-on indireto {valor!r}"
-            for evento in ("schedule", "pull_request", "push"):
-                _avaliar_runs_on(valor, evento)
+            permitido = arquivo == "ci.yml" and nome in _JOBS_ARM and valor == _EXPR_ARM_PARCIAL
+            if not isinstance(valor, str) or ("${{" in valor and not permitido):
+                erros.append(f"{arquivo}:{nome}: runs-on indireto {valor!r}")
+            elif any(_avaliar_runs_on(valor, e) is None for e in _EVENTOS):
+                erros.append(f"{arquivo}:{nome}: runs-on nao avaliavel {valor!r}")
+    return erros
+
+
+def _todos_os_workflows() -> dict[str, dict[str, Any]]:
+    return {
+        c.name: yaml.safe_load(c.read_text(encoding="utf-8")).get("jobs") or {}
+        for c in sorted(_WF.glob("*.y*ml"))
+    }
+
+
+def test_the_runner_each_migrated_job_gets_per_event() -> None:
+    # Avalia o valor LIDO do ci.yml para cada evento, nao a constante do teste.
+    assert _violacoes_por_evento(_jobs("ci.yml")) == []
+
+
+def test_no_indirect_runner_anywhere() -> None:
+    assert _violacoes_indiretas(_todos_os_workflows()) == []
+
+
+@pytest.mark.parametrize(
+    ("job", "valor", "cerca"),
+    [
+        ("java-plugin", "${{ matrix.os }}", "indireto"),
+        ("integration", "${{ vars.RUNNER }}", "indireto"),
+        ("java-plugin", ["self-hosted", "linux"], "indireto"),
+        ("integration", "${{ inputs.runner || 'ubuntu-latest' }}", "indireto"),
+        ("unit", "${{ github.event_name == 'schedule' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}", "evento"),
+        ("quality", "ubuntu-24.04-arm", "evento"),
+        ("java-plugin", "ubuntu-24.04-arm", "evento"),
+    ],
+)
+def test_fences_catch_mutated_workflows(job: str, valor: object, cerca: str) -> None:
+    # Provas negativas como teste: a mesma cerca, sobre o ci.yml real com UM job mutado.
+    workflows = copy.deepcopy(_todos_os_workflows())
+    workflows["ci.yml"][job]["runs-on"] = valor
+    erros = (
+        _violacoes_indiretas(workflows) if cerca == "indireto" else _violacoes_por_evento(workflows["ci.yml"])
+    )
+    assert any(job in e for e in erros), erros
 
 
 def test_no_other_job_in_any_workflow_mentions_an_arm_runner() -> None:

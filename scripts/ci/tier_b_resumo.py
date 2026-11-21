@@ -10,13 +10,19 @@ nunca rodou. Nas primeiras noites com a chave, um caso abaixo do limiar NAO pode
 
 Contrato (nunca "verde por pular")
 ----------------------------------
-* O resumo do passo SEMPRE diz se o Tier B rodou, quantos casos foram coletados/rodados/aprovados/reprovados/
-  pulados, e lista cada caso com o resultado.
-* Erro de coleta ou interno do pytest (exit 2, 3, 4), nenhum caso coletado (exit 5 ou junit vazio) ou junit
-  ilegivel: o passo FALHA nos dois modos. Uma raia quebrada nunca vira verde.
-* Caso reprovado (exit 1): com `TIER_B_BLOQUEANTE=true` o passo falha; com `false` (observacao) sai um
-  `::warning::` e o passo sai 0.
-* Sem a chave: os casos aparecem como pulados e o resumo diz "NAO RODOU"; o passo sai 0, como antes.
+O resumo SEMPRE diz se o Tier B rodou, quantos casos rodaram de quantos coletados, e o resultado de cada um
+(so' o id do caso — nenhuma mensagem de falha, entrada ou saida do modelo vai para o resumo).
+
+QUEBRADO (exit 1 nos DOIS modos):
+  * junit ausente ou ilegivel; codigo do pytest fora de {0, 1}; zero casos coletados;
+  * qualquer `<error>` no junit (fixture/setup);
+  * chave PRESENTE e nenhum caso rodou (pulo total com chave = raia quebrada, nao "nao rodou");
+  * qualquer falha que NAO seja de limiar (excecao de API, credencial, rede, vazamento, outra assercao);
+  * 100% dos casos rodados reprovados (sinal de falha sistemica, nao de qualidade);
+  * pytest exit 1 sem reprovacao no junit (inconsistente).
+Reprovacao DE LIMIAR em parte dos casos: `TIER_B_BLOQUEANTE=true` falha; `false` (observacao) sai
+`::warning::` e o passo sai 0. Sem a chave e com todos os casos pulados: "NAO RODOU", passo 0. Com a chave e
+pulo parcial: "N de M rodaram" e `::warning::`. Sem a variavel `TIER_B_BLOQUEANTE`, o modo e' bloqueante.
 Para voltar a bloquear: um PR de uma linha, `TIER_B_BLOQUEANTE: "true"` no passo.
 """
 
@@ -24,21 +30,25 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_ERROS_DO_PYTEST = {2, 3, 4, 5}
+#: Assinatura das reprovacoes DE LIMIAR (`_harness.assert_live_score` e o limiar da extracao ao vivo).
+_FALHA_DE_LIMIAR = re.compile(r"TH violation: live score|abaixo do limiar")
+
+APROVADO, PULADO, LIMIAR, FALHA, ERRO = "aprovado", "pulado", "abaixo do limiar", "falha", "erro"
 
 
 @dataclass
 class Contagem:
     casos: list[tuple[str, str]] = field(default_factory=list)  # (id, resultado)
 
-    def total(self, resultado: str | None = None) -> int:
-        return sum(1 for _, r in self.casos if resultado is None or r == resultado)
+    def total(self, *resultados: str) -> int:
+        return sum(1 for _, r in self.casos if not resultados or r in resultados)
 
 
 def ler_junit(caminho: Path) -> Contagem:
@@ -46,46 +56,85 @@ def ler_junit(caminho: Path) -> Contagem:
     c = Contagem()
     for caso in raiz.iter("testcase"):
         ident = f"{caso.get('classname', '')}::{caso.get('name', '')}"
-        if caso.find("failure") is not None or caso.find("error") is not None:
-            resultado = "reprovado"
+        falha = caso.find("failure")
+        if caso.find("error") is not None:
+            resultado = ERRO
+        elif falha is not None:
+            texto = f"{falha.get('message', '')}\n{falha.text or ''}"
+            resultado = LIMIAR if _FALHA_DE_LIMIAR.search(texto) else FALHA
         elif caso.find("skipped") is not None:
-            resultado = "pulado"
+            resultado = PULADO
         else:
-            resultado = "aprovado"
+            resultado = APROVADO
         c.casos.append((ident, resultado))
     return c
 
 
-def decidir(
-    codigo: int, contagem: Contagem | None, *, chave_presente: bool, bloqueante: bool
-) -> tuple[int, str]:
-    """Devolve (exit code do passo, manchete). Pura, para os testes."""
+@dataclass(frozen=True)
+class Veredito:
+    saida: int
+    manchete: str
+    avisos: tuple[str, ...] = ()
+
+
+def decidir(codigo: int, contagem: Contagem | None, *, chave_presente: bool, bloqueante: bool) -> Veredito:
+    """Pura, para os testes. Ver o contrato no topo do modulo."""
     if contagem is None:
-        return 1, f"Tier B QUEBRADO: junit ausente ou ilegivel (pytest exit {codigo})"
-    if codigo in _ERROS_DO_PYTEST or contagem.total() == 0:
-        return 1, f"Tier B QUEBRADO: pytest exit {codigo}, {contagem.total()} caso(s) coletado(s)"
-    rodados = contagem.total() - contagem.total("pulado")
-    reprovados = contagem.total("reprovado")
+        return Veredito(1, f"Tier B QUEBRADO: junit ausente ou ilegivel (pytest exit {codigo})")
+    total = contagem.total()
+    if codigo not in (0, 1):
+        return Veredito(1, f"Tier B QUEBRADO: pytest exit {codigo} ({total} caso(s) no junit)")
+    if total == 0:
+        return Veredito(1, f"Tier B QUEBRADO: nenhum caso coletado (pytest exit {codigo})")
+    erros = contagem.total(ERRO)
+    if erros:
+        return Veredito(1, f"Tier B QUEBRADO: {erros} caso(s) com erro de fixture/setup")
+    rodados = total - contagem.total(PULADO)
     if rodados == 0:
-        motivo = "segredo MAEZO_ANTHROPIC_API_KEY ausente" if not chave_presente else "todos os casos pulados"
-        return 0, f"Tier B NAO RODOU: {motivo} ({contagem.total()} caso(s) pulado(s))"
-    if codigo == 0 and reprovados == 0:
-        return 0, f"Tier B RODOU: {rodados} caso(s), todos aprovados"
+        if chave_presente:
+            return Veredito(1, f"Tier B QUEBRADO: chave presente e nenhum dos {total} caso(s) rodou")
+        return Veredito(
+            0, f"Tier B NAO RODOU: segredo MAEZO_ANTHROPIC_API_KEY ausente ({total} caso(s) pulado(s))"
+        )
+    avisos: tuple[str, ...] = ()
+    if rodados < total:
+        avisos = (f"pulo parcial: {rodados} de {total} caso(s) rodaram",)
+    falhas, limiar = contagem.total(FALHA), contagem.total(LIMIAR)
+    if falhas:
+        return Veredito(
+            1,
+            f"Tier B QUEBRADO: {falhas} caso(s) com falha que nao e' de limiar (API, credencial, assercao)",
+            avisos,
+        )
+    if limiar == rodados:
+        return Veredito(
+            1, f"Tier B QUEBRADO: todos os {rodados} caso(s) rodados reprovaram (falha sistemica)", avisos
+        )
+    if codigo == 1 and limiar == 0:
+        return Veredito(1, "Tier B QUEBRADO: pytest exit 1 sem reprovacao no junit", avisos)
+    rodaram = f"{rodados} de {total} rodaram"
+    if limiar == 0:
+        return Veredito(0, f"Tier B RODOU: {rodaram}, todos aprovados", avisos)
     if bloqueante:
-        return 1, f"Tier B RODOU: {reprovados} de {rodados} caso(s) abaixo do limiar — BLOQUEANTE"
-    return 0, f"Tier B RODOU: {reprovados} de {rodados} caso(s) abaixo do limiar — observacao, nao bloqueia"
+        return Veredito(1, f"Tier B RODOU: {rodaram}, {limiar} abaixo do limiar — BLOQUEANTE", avisos)
+    return Veredito(
+        0,
+        f"Tier B RODOU: {rodaram}, {limiar} abaixo do limiar — observacao, nao bloqueia",
+        (*avisos, f"{limiar} caso(s) abaixo do limiar (modo observacao)"),
+    )
 
 
-def _resumo(manchete: str, contagem: Contagem | None, codigo: int, bloqueante: bool) -> str:
-    linhas = [f"## evals-nightly — {manchete}", ""]
+def _resumo(v: Veredito, contagem: Contagem | None, codigo: int, bloqueante: bool) -> str:
     modo = "bloqueante" if bloqueante else "observacao (TIER_B_BLOQUEANTE=false)"
-    linhas.append(f"modo: {modo}; pytest exit {codigo}")
+    linhas = [f"## evals-nightly — {v.manchete}", "", f"modo: {modo}; pytest exit {codigo}"]
+    linhas += [f"- aviso: {a}" for a in v.avisos]
     if contagem is not None:
+        rodados = contagem.total() - contagem.total(PULADO)
         linhas += [
             "",
-            f"coletados {contagem.total()} · rodados {contagem.total() - contagem.total('pulado')} · "
-            f"aprovados {contagem.total('aprovado')} · reprovados {contagem.total('reprovado')} · "
-            f"pulados {contagem.total('pulado')}",
+            f"coletados {contagem.total()} · rodados {rodados} · aprovados {contagem.total(APROVADO)} · "
+            f"abaixo do limiar {contagem.total(LIMIAR)} · falha {contagem.total(FALHA)} · "
+            f"erro {contagem.total(ERRO)} · pulados {contagem.total(PULADO)}",
             "",
             "| caso | resultado |",
             "|---|---|",
@@ -105,20 +154,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         contagem: Contagem | None = ler_junit(a.junit)
     except (OSError, ET.ParseError):
         contagem = None
-    saida, manchete = decidir(a.codigo, contagem, chave_presente=chave_presente, bloqueante=bloqueante)
-    texto = _resumo(manchete, contagem, a.codigo, bloqueante)
+    v = decidir(a.codigo, contagem, chave_presente=chave_presente, bloqueante=bloqueante)
+    texto = _resumo(v, contagem, a.codigo, bloqueante)
     destino = os.environ.get("GITHUB_STEP_SUMMARY")
     if destino:
         with open(destino, "a", encoding="utf-8") as f:
             f.write(texto)
     print(texto)
-    if saida != 0:
-        print(f"::error::{manchete}")
-    elif "abaixo do limiar" in manchete:
-        print(f"::warning::{manchete}")
-    else:
-        print(f"::notice::{manchete}")
-    return saida
+    for aviso in v.avisos:
+        print(f"::warning::Tier B: {aviso}")
+    print(f"::{'error' if v.saida else 'notice'}::{v.manchete}")
+    return v.saida
 
 
 if __name__ == "__main__":
