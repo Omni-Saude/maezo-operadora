@@ -13,9 +13,9 @@ O que esta linha fixa, cada cerca com controle positivo do detector e caso sem f
       por AST, relativo resolvido contra o pacote do arquivo, `from X import Y` lido como `X.Y`.
 (iii) O contrato ADMITE `value_type: "document"` em `IntakeField`; com o codec padrão (lista de
       finalidades vazia, `CommercialWire` sem `intake_purpose_allowlist`) um descritor de
-      `prospect` com campo `document` é recusado, e `prospect.save` com valor é recusado. Hoje a
-      recusa vem SÓ da lista vazia: com a lista sintética o mesmo campo passa (controle que
-      registra a dependência, e não uma regra própria contra documento).
+      `prospect` com campo `document` é recusado, e `prospect.save` com valor é recusado. Desde a
+      E-SF-37r (b) a cerca do descritor tem regra PRÓPRIA contra `document` no `prospect`: com a
+      lista sintética o campo `document` segue recusado, e um campo `choice` vizinho passa.
 (iv)  `IntakeValue` no contrato pinado não tem `origin` (`additionalProperties: false`). Este teste
       TEM de ficar vermelho quando um contrato sucessor acrescentar o campo: aí a REG-28b passa a
       ser representável e exige linha nova de plano; hoje não é representável.
@@ -335,15 +335,33 @@ def test_descritor_de_prospect_com_campo_document_recusado_no_padrao(schema_byte
         {"stage": "prospect"},
         {"kind": "intake_descriptor", "descriptor": doc},
     )
-    # Controle (dependência registrada): com a lista sintética o MESMO descritor passa, na cerca e
-    # no wire; logo a recusa de hoje vem só da lista vazia, sem regra própria contra `document`.
-    validate_intake_descriptor(doc, purpose_allowlist=PURPOSES)
+    # Regra própria (E-SF-37r (b)): com a lista sintética publicada o campo `document` SEGUE
+    # recusado, na cerca e no wire; a recusa não depende mais só da lista vazia.
+    refused(lambda: validate_intake_descriptor(doc, purpose_allowlist=PURPOSES))
     admitido = CommercialWire(schema_bytes, intake_purpose_allowlist=PURPOSES)
+    wire_refuses_result(
+        admitido,
+        "intake.describe",
+        {"stage": "prospect"},
+        {"kind": "intake_descriptor", "descriptor": doc},
+    )
+    # Sem falso positivo: o mesmo campo como `choice` passa com a lista sintética.
+    vizinho = descriptor("prospect", [_campo_documento() | {"value_type": "choice", "choices": ["SYN-A"]}])
+    validate_intake_descriptor(vizinho, purpose_allowlist=PURPOSES)
     parse(
         admitido,
         envelope("intake.describe", {"stage": "prospect"}),
-        {"kind": "intake_descriptor", "descriptor": doc},
+        {"kind": "intake_descriptor", "descriptor": vizinho},
     )
+
+
+def test_document_fora_do_prospect_nao_e_afetado_pela_regra_do_prospect() -> None:
+    """A regra (b) é só do estágio `prospect`; os demais estágios pré-DS seguem a lista."""
+    from maezo.adapters.amh.commercial_fences import PRE_DS_STAGES
+
+    outros = sorted(s for s in PRE_DS_STAGES if s != "prospect")
+    for estagio in outros:
+        validate_intake_descriptor(descriptor(estagio, [_campo_documento()]), purpose_allowlist=PURPOSES)
 
 
 def test_prospect_save_com_valor_de_documento_recusado_no_padrao(schema_bytes: bytes) -> None:

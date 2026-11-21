@@ -256,6 +256,10 @@ def validate_intake_descriptor(descriptor: Mapping[str, Any], *, purpose_allowli
     modalidade, composição do grupo, contato com permissão — TB-03 (1)); its tokens are
     source/DPO-published (GAP), so it is a required argument with no default and an empty
     set refuses every field. Order: health denylist, prospect shape, purpose allowlist.
+
+    E-SF-37r (b): no `prospect` stage there is no document/CPF entry (E1), so a field with
+    `value_type: "document"` refuses on its own, before and independently of the purpose
+    allowlist (the collapsed `PHI_IN_COMMERCIAL_INPUT` code: no new refusal member).
     """
     stage = descriptor.get("stage")
     fields = descriptor.get("fields")
@@ -277,6 +281,8 @@ def validate_intake_descriptor(descriptor: Mapping[str, Any], *, purpose_allowli
             _refuse(CommercialFenceRefusal.PROSPECT_FIELD_LIMIT)
         if any(field.get("value_type") == "text" for field in fields):
             _refuse(CommercialFenceRefusal.PROSPECT_FREE_TEXT)
+        if any(field.get("value_type") == "document" for field in fields):
+            _refuse()
     if any(field.get("purpose_ref") not in purpose_allowlist for field in fields):
         _refuse()
 
