@@ -110,3 +110,24 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 - Acesso de leitura ao pacote aprovado pelo dono nesta conversa. Os seis prefixos sha256 foram conferidos por mim: batem.
 - CAMINHO da 12r enviado por mensagem à coordenação do programa e ao orquestrador. Ponto de parada: a linha, como escrita, mexe nas duas listas de chaves de processo, que um teste de lista fechada fixa.
 - Recuo: nada de `src/`. Proposta de um arquivo novo de teste do estado fechado e um test-spec documental. Aguardo a CD.
+
+## 2026-11-21T03:37Z — E-SF-12r no PR #1352; 06r e 32r em curso; desvio registrado
+
+**E-SF-12r** (variante a; decisão por mensagem da coordenação do programa)
+- PR #1352, head `166f41ef6fabb14374c7941864aba8193f5d9153`. Dois arquivos novos: teste do estado fechado e test-spec "NÃO PROMOVIDO / DRAFT".
+- Mutação antes da revisão: 13/13 mortos, em worktree com `PYTHONPATH` próprio.
+- Revisão às cegas: FAIL com 2 bloqueantes (registro A6 procurado por nome; recusa por pertinência não afirmada). Reparo por terceiro. Reconferência independente: PASS (7/7 pedidos mortos, mais os próprios).
+- `tests/unit` main `3757ca3d` × ramo: 100 F / 359 E nos dois, conjunto idêntico; zero falha só no ramo.
+- `make lint type validate-artifacts` rc=0. `merge-tree` sobre `7ae9092b` limpo.
+- Aguardando CI.
+
+**E-SF-06r** (variante a; sem módulo de parâmetro)
+- Ramo `sf-w2/mzo-r2/esf06r` @ `5854c292`, um teste novo.
+- Revisão às cegas: FAIL. Reparo por terceiro. Reconferência: PASS.
+- Exceção declarada no teste: TTL de 30 dias da custódia do telefone do lead, pinado como exceção exata.
+- Suíte main `7ae9092b` × ramo em curso.
+
+**E-SF-32r** (variante a; nada em `spec/processes`, nenhum texto novo de norma)
+- Ramo `sf-w2/mzo-r2/esf32r` @ `5b8d1ea4`, um teste novo. Mutação: 8/8 mortos. Revisão às cegas em curso.
+
+**Desvio:** o subagente de reconferência da 06r usou `git reset --hard` e `git clean -fd` dentro da própria worktree descartável e destacada (`chk06`), entre mutantes. Sem efeito fora dela; removida sem `--force`. Daqui em diante todo prompt de subagente traz a proibição literal (CD-232).
