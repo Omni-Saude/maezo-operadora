@@ -104,3 +104,9 @@ Ordem da fila: 34r primeiro (só arquivo novo, sem colisão). 12r, 32r e 06r dep
 - Temporários: scripts de mutação, saídas das baterias e cópias dos revisores apagados do scratchpad.
 - Clone principal em `main`, limpo.
 - Estado: 12r, 06r e 32r paradas à espera da decisão do dono sobre o acesso (CD-219).
+
+## 2026-11-21T02:44Z — E-SF-12r: CAMINHO enviado por mensagem (ponto de parada)
+
+- Acesso de leitura ao pacote aprovado pelo dono nesta conversa. Os seis prefixos sha256 foram conferidos por mim: batem.
+- CAMINHO da 12r enviado por mensagem à coordenação do programa e ao orquestrador. Ponto de parada: a linha, como escrita, mexe nas duas listas de chaves de processo, que um teste de lista fechada fixa.
+- Recuo: nada de `src/`. Proposta de um arquivo novo de teste do estado fechado e um test-spec documental. Aguardo a CD.
