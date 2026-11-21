@@ -142,13 +142,8 @@ def _validate_processes_root(path: Path, report: Report) -> None:
     # is a BLOCKING `report.error` — the module has no severity a caller could downgrade and no
     # per-file exception mechanism. Wired HERE, and only from PR-4, because the fence could not be
     # switched on while the two chains were still dirty: it exists (PR-1) before it gates (PR-4).
-    # `dmn_files` includes `rco/`; only the K1 tables of a `fixado` pin that matches its manifesto leave this
-    # corpus (adendo ao ADR-0040, Proposed; `tabelas_k1_pinadas`): `sem_pacote` = every `rco/` file is read.
-    from .tabelas_k1_pinadas import LOCK_RELPATH, tabelas_k1_pinadas  # local: keeps the cited line anchors
-
-    pinadas = tabelas_k1_pinadas(dmn_dir, _find_repo_root(path) / LOCK_RELPATH).caminhos
-    corpus = [p for p in dmn_files if p not in pinadas]
-    perspective.check_processes(bpmn_files, corpus, sorted(dmn_dir.glob("*.yaml")), report)
+    # `dmn_files` includes `rco/`: the D7 vocabulary applies to the K1 tables as well (no exemption).
+    perspective.check_processes(bpmn_files, dmn_files, sorted(dmn_dir.glob("*.yaml")), report)
 
     # MZO-1b: vocabulario de saida. (a) tabela do Maezo nao emite valor adverso (ADR-0018 parte 2,
     # emendado por ADR-0040 D4); (b) tabela sob `rco/` segue o vocabulario fechado do K1
