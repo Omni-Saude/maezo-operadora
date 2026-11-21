@@ -29,8 +29,8 @@ lint:
 type:
 	.venv/bin/mypy
 
-test:             ## unit + invariantes de arquitetura (rapido, sem engine)
-	.venv/bin/python -m pytest tests/ -q -m "not integration" || { rc=$$?; $(AMBIENT_ENV_HINT); exit $$rc; }
+test:             ## unit + invariantes de arquitetura (rapido, sem engine, sem chamada real de LLM: llm_live fica no make evals)
+	.venv/bin/python -m pytest tests/ -q -m "not integration and not llm_live" || { rc=$$?; $(AMBIENT_ENV_HINT); exit $$rc; }
 
 test-integration: ## contra engine real (docker compose up antes)
 	.venv/bin/python -m pytest tests/ -q -m "integration and not chaos"
