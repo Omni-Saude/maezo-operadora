@@ -23,9 +23,9 @@ ficam todos no bloco "Mapeamento provisório do contrato-k2" abaixo, e só nele.
 - O template mora em `spec/policies/ans/templates/` (diretório com dono no CODEOWNERS) e é
   aceito só se o sha256 dos bytes bater com o pino de `DENIAL_TERM_TEMPLATE` (versão + sha256).
   Qualquer outro texto é recusado com `ERR_AUTH_DENIAL_TERM_TEMPLATE_NAO_VERSIONADO`. O template
-  não tem prosa própria: só rótulos tirados da própria norma, os campos do registro humano e o
-  art. 16, caput, verbatim. Linhas que começam com `# ` são metadados do template (entram no
-  sha256, não entram no termo); a primeira diz que o mapeamento não está confirmado.
+  não tem prosa própria: só rótulos tirados da própria norma, os slots da composição, o art. 16,
+  caput, e os incisos I a III do § 1º, verbatim. Linhas que começam com `# ` são metadados do
+  template (entram no sha256, não entram no termo).
 - A negativa é decisão humana (item `hard` `authorization_denial`). O render não decide, não lê
   nem escreve `decisao_auditor` para produzir nada: só compõe o termo de uma NEGAR já registrada
   com proveniência humana (`auditor_id` não vazio ou `human_approved is True`); sem isso, recusa
@@ -157,6 +157,24 @@ class RenderedDenialTerm:
     modo: str
     marca: str | None
 
+    def __post_init__(self) -> None:
+        # Invariante: só dois modos, e a marca existe se e só se for rascunho.
+        esperado = {MODO_ENTREGA: None, MODO_RASCUNHO: MARCA_RASCUNHO}
+        if self.modo not in esperado or self.marca != esperado[self.modo]:
+            raise ValueError(f"RenderedDenialTerm inconsistente: modo={self.modo!r}, marca={self.marca!r}")
+
+
+def _linha_valida(value: Any) -> bool:
+    """Uma linha só, de `str` exato: sem nenhum separador de linha (os de `str.splitlines`, como
+    U+2028) e sem surrogate solto, para que nenhum valor forje rótulos ou itens no termo."""
+    if type(value) is not str or is_blank(value) or value.splitlines() != [value]:
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
 
 # --- Mapeamento provisório do contrato-k2 -----------------------------------------------------
 # ÚNICO ponto que conhece a forma da entrada do catálogo de fundamentos (bloco k2/termo-negativa
@@ -238,13 +256,13 @@ def _campos_invalidos(fundamento: FundamentoDoTermo) -> list[str]:
         invalidos.append("status_juridico")
     clausula = fundamento.clausula_contratual
     if clausula is not None and (
-        not isinstance(clausula, ClausulaContratual)
+        type(clausula) is not ClausulaContratual
         or not all(_linha_valida(getattr(clausula, f.name)) for f in fields(ClausulaContratual))
     ):
         invalidos.append("clausula_contratual")
     dispositivos = fundamento.dispositivos_legais
-    if not isinstance(dispositivos, tuple) or not all(
-        isinstance(d, DispositivoLegal)
+    if type(dispositivos) is not tuple or not all(
+        type(d) is DispositivoLegal
         and all(_linha_valida(getattr(d, f.name)) for f in fields(DispositivoLegal))
         for d in dispositivos
     ):
@@ -254,23 +272,23 @@ def _campos_invalidos(fundamento: FundamentoDoTermo) -> list[str]:
     return invalidos
 
 
-def _linha_valida(value: Any) -> bool:
-    return isinstance(value, str) and not is_blank(value) and "\n" not in value and "\r" not in value
-
-
 def _fundamento(value: Any) -> tuple[str, str, str]:
     """Confere a porta e devolve (motivo, fundamento, modo); recusa tipada em qualquer falha."""
     pino = CATALOGO_DE_FUNDAMENTOS_SHA256
     if pino is None:
         raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_CATALOGO_NAO_PINADO)
-    if not isinstance(value, FundamentoDoTermo):
+    if type(value) is not FundamentoDoTermo:
         raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, ("fundamento",))
     invalidos = _campos_invalidos(value)
     if invalidos:
         raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, invalidos)
     if not _SHA256_HEX.fullmatch(pino) or value.hash_do_catalogo != pino:
         raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, ("hash_do_catalogo",))
-    if value.hash_entrada != hash_da_entrada(value):
+    try:
+        hash_calculado = hash_da_entrada(value)
+    except (TypeError, ValueError) as exc:
+        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, ("hash_entrada",)) from exc
+    if value.hash_entrada != hash_calculado:
         raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, ("hash_entrada",))
     if value.status_juridico == STATUS_DEVOLVIDO:
         raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_DEVOLVIDO)
@@ -308,7 +326,7 @@ def _canais(value: Any) -> str | None:
     if isinstance(value, str) or not isinstance(value, Sequence):
         return None
     # Uma quebra de linha dentro de um canal forjaria itens a mais na lista do termo.
-    canais = [c.strip() for c in value if not is_blank(c) and "\n" not in c and "\r" not in c]
+    canais = [c.strip() for c in value if _linha_valida(c)]
     if not canais or len(canais) != len(value):
         return None
     return "\n".join(f"- {c}" for c in canais)
@@ -347,6 +365,9 @@ def render_denial_term(
     complemento = record.get(_COMPLEMENTO_DO_MOTIVO)
     if is_blank(complemento):
         raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE, (_COMPLEMENTO_DO_MOTIVO,))
+    # Texto livre do auditor: uma linha só, senão forjaria rótulos do art. 14 no termo de entrega.
+    if not _linha_valida(complemento):
+        raise DenialTermRefusalError(ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO, (_COMPLEMENTO_DO_MOTIVO,))
 
     canais = _canais(canais_ouvidoria)
     prazo = _prazo(prazo_reanalise_dias_uteis)

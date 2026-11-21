@@ -57,7 +57,7 @@ def _negar() -> dict[str, Any]:
         "decisao_auditor": "NEGAR",
         "auditor_id": "auditor-sintetico-01",
         "justificativa_clinica": "Motivo sintetico para teste",
-        "fundamentacao_dut": "Clausula sintetica 9.9 — teste",
+        "fundamentacao_dut": "DUT sintetica que nunca entra no termo",
     }
 
 
@@ -255,4 +255,5 @@ def test_a_recusa_por_catalogo_vem_antes_de_ler_o_fundamento(monkeypatch: pytest
     assert "Motivo sintetico do catalogo\nMotivo sintetico para teste\n" in termo.texto
     assert "Clausula sintetica 9.9 — teste\nDispositivo sintetico\n" in termo.texto
     assert termo.modo == "entrega"
+    assert "DUT sintetica" not in termo.texto
     assert _TITULO_DO_BLOCO in termo.texto

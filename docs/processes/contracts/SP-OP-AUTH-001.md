@@ -782,8 +782,8 @@ dispositivo legal do art. 14 vem so' de um `FundamentoDoTermo` de um catalogo pi
 repositorio de regras vai publicar (chave `id_regra` + versao x modelo de contrato) e que ainda
 nao existe (`CATALOGO_DE_FUNDAMENTOS_SHA256 = None`). Campos: `id_regra`, `versao_regra`,
 `modelo_contrato`, `motivo_texto`, `clausula_contratual` (opcional: `ancora`, `secao`, `texto`,
-`versao_contrato`), `dispositivos_legais` (lista, cada um com `id_fonte`, `localizador`,
-`rotulo`), `status_juridico` (`pendente` | `aprovado_juridico` | `devolvido`),
+`versao_contrato`), `dispositivos_legais` (lista imutavel, `tuple`, cada um com `id_fonte`,
+`localizador`, `rotulo`), `status_juridico` (`pendente` | `aprovado_juridico` | `devolvido`),
 `hash_do_catalogo` e `hash_entrada`. Pelo menos uma clausula ou um dispositivo. **Os nomes sao
 provisorios** ate o contrato-k2 do repositorio de regras sair, e ficam todos num unico bloco de
 `denial_term.py` ("Mapeamento provisorio do contrato-k2"), cercado por teste.
@@ -794,7 +794,10 @@ ENTREGA; `pendente` compoe so' um RASCUNHO para quem entrega a mao, com a marca 
 revisão jurídica" fora do texto (nunca no texto ao beneficiario) e sem registrar termo entregue;
 `devolvido` e' `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_DEVOLVIDO`. Tipo errado, campo vazio ou com quebra
 de linha, status desconhecido, nem clausula nem dispositivo, ou hash divergente e'
-`ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO`. A composicao NAO le `fundamentacao_dut`, que nunca
+`ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO`. So' tipos exatos passam e nenhum valor (nem a
+justificativa do auditor) aceita separador de linha, para nao forjar rotulos no termo. O hash da
+entrada e' o sha256 do JSON canonico (chaves ordenadas, UTF-8, sem espacos) de todos os campos
+menos os dois hashes; essa receita tem de ser fixada no contrato-k2. A composicao NAO le `fundamentacao_dut`, que nunca
 substitui o fundamento; a `justificativa_clinica` do auditor entra so' como complemento do motivo
 (faltando, `ERR_AUTH_DENIAL_TERM_FUNDAMENTO_AUSENTE`). O guard de completude do worker continua
 exigindo os campos do registro como antes.

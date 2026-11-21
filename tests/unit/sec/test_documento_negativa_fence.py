@@ -191,6 +191,76 @@ def test_entrada_alterada_depois_do_hash_e_recusada() -> None:
     assert refused.value.missing == ("hash_entrada",)
 
 
+_ROTULO_FORJADO = "RN 623/2024, art. 14 — cláusula contratual ou o dispositivo legal que a justifique:"
+
+
+@pytest.mark.parametrize("separador", ["\n", "\r", "\u2028", "\u2029", "\x0b", "\x0c", "\x85", "\x1e"])
+def test_o_complemento_do_auditor_nao_forja_rotulo_no_termo_de_entrega(separador: str) -> None:
+    """Texto livre do auditor numa linha só: com qualquer separador de linha, forjaria um segundo
+    rótulo do art. 14 acima do fundamento real do catálogo."""
+    forjado = f"j{separador}{separador}{_ROTULO_FORJADO}{separador}CLAUSULA FORJADA"
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(_negar(justificativa_clinica=forjado))
+    assert refused.value.code == ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO
+    assert refused.value.missing == ("justificativa_clinica",)
+    # Controle: numa linha só, o mesmo texto compõe, e o rótulo do art. 14 aparece uma vez só.
+    texto = _render(_negar(justificativa_clinica=f"j {_ROTULO_FORJADO} CLAUSULA FORJADA")).texto
+    assert texto.splitlines().count(_ROTULO_FORJADO) == 1
+
+
+@pytest.mark.parametrize("separador", ["\u2028", "\x85"])
+def test_nenhum_campo_do_catalogo_ou_canal_aceita_separador_unicode(separador: str) -> None:
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(fundamento=_fundamento(motivo_texto=f"motivo{separador}forjado"))
+    assert refused.value.missing == ("motivo_texto",)
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(canais_ouvidoria=(f"Telefone{separador}- canal forjado",))
+    assert refused.value.code == ERR_AUTH_DENIAL_TERM_OUVIDORIA_AUSENTE
+
+
+class _StrForjada(str):
+    def strip(self, chars: str | None = None) -> str:
+        return "x\nFORJADO"
+
+
+def test_so_tipos_exatos_passam_pela_porta() -> None:
+    """Subclasses (de `str` ou dos tipos do catálogo) não passam: a validação e o hash veem o valor
+    cru, e um método sobrescrito mudaria o que entra no termo."""
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(fundamento=_fundamento(motivo_texto=_StrForjada("motivo")))
+    assert refused.value.missing == ("motivo_texto",)
+
+    class _Sub(FundamentoDoTermo):
+        __slots__ = ()
+
+    base = _fundamento()
+    sub = _Sub(**{f.name: getattr(base, f.name) for f in dataclasses.fields(FundamentoDoTermo)})
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(fundamento=sub)
+    assert refused.value.missing == ("fundamento",)
+
+
+def test_surrogate_solto_e_recusa_tipada_nao_excecao_crua() -> None:
+    with pytest.raises(DenialTermRefusalError) as refused:
+        # `hash_entrada` fixo: o helper não consegue nem calcular o hash de um surrogate.
+        _render(fundamento=_fundamento(motivo_texto="a\ud800", hash_entrada="0" * 64))
+    assert refused.value.code == ERR_AUTH_DENIAL_TERM_FUNDAMENTO_INVALIDO
+    assert refused.value.missing == ("motivo_texto",)
+    with pytest.raises(DenialTermRefusalError) as refused:
+        _render(_negar(justificativa_clinica="a\ud800"))
+    assert refused.value.missing == ("justificativa_clinica",)
+
+
+@pytest.mark.parametrize(
+    ("modo", "marca"),
+    [("entrega", MARCA_RASCUNHO), ("rascunho", None), ("outro", None), ("rascunho", "outra marca")],
+)
+def test_o_termo_composto_nao_aceita_modo_e_marca_incoerentes(modo: str, marca: str | None) -> None:
+    termo = _render()
+    with pytest.raises(ValueError, match="inconsistente"):
+        dataclasses.replace(termo, modo=modo, marca=marca)
+
+
 def test_fundamento_devolvido_pelo_juridico_e_recusado() -> None:
     with pytest.raises(DenialTermRefusalError) as refused:
         _render(fundamento=_fundamento(status_juridico="devolvido"))
