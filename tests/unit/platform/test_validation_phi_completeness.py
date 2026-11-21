@@ -8727,6 +8727,96 @@ class TestDispositionTable:
             assert name in queue, f"{name} has no row in docs/review-queue.md"
 
 
+_RANK = {CLEAN: 0, SHAPE_SUSPECT: 1, LISTED: 2}
+
+
+class TestDispositionOnlyRaises:
+    """An explicit disposition RAISES a CLEAN name into the DPO-question bucket — never lowers.
+
+    Owner decision (K1, #1365): no health or personal datum is counted CLEAN, not even in
+    shadow, so a name the heuristic misses can be raised by writing its question down. The
+    door is one-way by construction (`classify`, `dispositioned`), and these tests are the
+    NEGATIVE half: no disposition, whatever its recommendation says, moves a `LISTED` name
+    out of `LISTED` or a shape/free-text name out of `SHAPE_SUSPECT`.
+    """
+
+    _LISTED = sorted(PHI_PROCESS_VARS)[0]
+
+    def test_classify_raises_clean_and_leaves_the_rest(self) -> None:
+        assert classify("roteamento") == CLEAN
+        assert classify("roteamento", dispositioned=True) == SHAPE_SUSPECT
+        assert classify("cid10", dispositioned=True) == SHAPE_SUSPECT
+        assert classify("roteamento", free_text=True, dispositioned=True) == SHAPE_SUSPECT
+        assert classify(self._LISTED, dispositioned=True) == LISTED
+        assert classify(self._LISTED, free_text=True, dispositioned=True) == LISTED
+
+    def test_no_argument_combination_lowers_a_bucket(self) -> None:
+        for name in ("roteamento", "cid10", self._LISTED):
+            for free_text in (False, True):
+                base = classify(name, free_text=free_text)
+                assert _RANK[classify(name, free_text=free_text, dispositioned=True)] >= _RANK[base]
+
+    def test_a_disposition_cannot_downgrade_a_listed_or_shape_suspect_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """End to end: dispositions that RECOMMEND not-PHI for a listed and a shape name change nothing."""
+        listed, shape, clean = self._LISTED, "cid10", "roteamento"
+        _bpmn(
+            tmp_path,
+            f'<bpmn:serviceTask id="ST_A" camunda:resultVariable="{listed}"/>'
+            f'<bpmn:serviceTask id="ST_B" camunda:resultVariable="{shape}"/>'
+            f'<bpmn:serviceTask id="ST_C" camunda:resultVariable="{clean}"/>',
+        )
+        not_phi = "RECOMMEND recording it as NOT PHI " + "x" * 120
+        extra = {
+            name: Disposition(name=name, evidence="fixture.bpmn:1", recommendation=not_phi)
+            for name in (listed, shape, clean)
+        }
+        monkeypatch.setattr(fence, "DISPOSITIONS", {**DISPOSITIONS, **extra})
+        sweep = sweep_processes_root(tmp_path, Report())
+        assert sweep.bucket(listed) == LISTED
+        assert sweep.bucket(shape) == SHAPE_SUSPECT
+        assert sweep.bucket(clean) == SHAPE_SUSPECT
+        assert sweep.by_bucket() == {LISTED: (listed,), SHAPE_SUSPECT: (shape, clean), CLEAN: ()}
+
+    def test_removing_the_disposition_of_a_shape_suspect_still_reddens(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The raise is additive: the shape arm still fails closed without a disposition."""
+        monkeypatch.setattr(fence, "DISPOSITIONS", {k: v for k, v in DISPOSITIONS.items() if k != "cid10"})
+        _bpmn(tmp_path, '<bpmn:serviceTask id="ST_A" camunda:resultVariable="cid10"/>')
+        report = Report()
+        sweep = sweep_processes_root(tmp_path, report)
+        assert sweep.bucket("cid10") == SHAPE_SUSPECT
+        fence._check_shape_suspects(sweep, report)
+        assert not report.ok
+        assert "'cid10'" in report.findings[0].message
+
+    def test_a_raised_name_is_green_and_still_in_no_phi_set(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Raising records a question; it lists nothing and changes no runtime redaction."""
+        raised = Disposition(
+            name="roteamento", evidence="fixture.bpmn:1", recommendation="RECOMMEND " + "x" * 120
+        )
+        monkeypatch.setattr(fence, "DISPOSITIONS", {**DISPOSITIONS, "roteamento": raised})
+        _bpmn(tmp_path, '<bpmn:serviceTask id="ST_A" camunda:resultVariable="roteamento"/>')
+        report = Report()
+        sweep = sweep_processes_root(tmp_path, report)
+        assert sweep.bucket("roteamento") == SHAPE_SUSPECT
+        fence._check_shape_suspects(sweep, report)
+        assert report.ok, [finding.render() for finding in report.findings]
+        assert "roteamento" not in PHI_LISTED_NAMES
+
+    def test_on_the_live_corpus_no_name_is_ranked_below_the_heuristic(self, live_sweep: Sweep) -> None:
+        free_text = live_sweep.free_text_names
+        for name in live_sweep.names:
+            heuristic = classify(name, free_text=name in free_text)
+            assert _RANK[live_sweep.bucket(name)] >= _RANK[heuristic], name
+            if name in DISPOSITIONS:
+                assert live_sweep.bucket(name) in (SHAPE_SUSPECT, LISTED), name
+
+
 # ---------------------------------------------------------------------------
 # 4. The heuristic and the extraction paths, unit by unit
 # ---------------------------------------------------------------------------

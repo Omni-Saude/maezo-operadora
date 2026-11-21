@@ -29,7 +29,11 @@ What this module does
      heuristic (`SHAPE_TOKENS`, every token sourced from this repo's own
      vocabulary) or one of its occurrences carries the STRUCTURAL free-text
      signal, which does not read the name at all (see below);
-   * `CLEAN` — neither.
+   * `CLEAN` — neither, AND no `DISPOSITIONS` entry: an explicit disposition raises a
+     name the heuristic would leave CLEAN into the `SHAPE_SUSPECT` (DPO-question)
+     bucket, never the other way (`classify`, `dispositioned`). Since K1 (#1365) the
+     `SHAPE_SUSPECT` bucket therefore holds every OPEN DPO question, shape-matched or
+     raised by hand; the bucket keeps its name so no pin or report changes meaning.
 3. **Fails closed** on any `SHAPE_SUSPECT` name that has no entry in
    `DISPOSITIONS`. A new PHI-shaped variable added to any BPMN/DMN/manifest
    turns the build red until a human writes its disposition down.
@@ -438,17 +442,29 @@ def matches_phi_shape(name: str) -> bool:
     return False
 
 
-def classify(name: str, *, free_text: bool = False) -> str:
+def classify(name: str, *, free_text: bool = False, dispositioned: bool = False) -> str:
     """`LISTED`, `SHAPE_SUSPECT` or `CLEAN` for one process-variable name.
 
     `free_text` is the STRUCTURAL signal (`VarRef.free_text`): pass True when the
     artifact itself declares one of this name's occurrences an unbounded free-text
     field. It makes the name SHAPE-SUSPECT without the name being read at all,
     which is the only arm of this classification a rename cannot evade.
+
+    `dispositioned` is the EXPLICIT signal: pass True when the name has an entry in
+    `DISPOSITIONS` (`Sweep.bucket`/`Sweep.by_bucket` do). It RAISES a name the
+    heuristic would leave CLEAN into the DPO-question bucket — a written question
+    about a health or personal datum is never counted CLEAN (owner decision, K1
+    #1365: no health or personal data counted CLEAN, not even in shadow). It acts
+    in the RESTRICTIVE direction only, by construction: it is consulted AFTER the
+    `LISTED` check and only as one more way INTO `SHAPE_SUSPECT`, so it can never
+    move a `LISTED` name out of `LISTED` nor a shape/free-text name out of
+    `SHAPE_SUSPECT` (`TestDispositionOnlyRaises` pins both). The default stays
+    False, so a caller that asks about the NAME alone (`retention_signals`, the
+    recall battery) gets the heuristic's answer unchanged.
     """
     if name in PHI_LISTED_NAMES:
         return LISTED
-    if free_text or matches_phi_shape(name):
+    if free_text or dispositioned or matches_phi_shape(name):
         return SHAPE_SUSPECT
     return CLEAN
 
@@ -2443,13 +2459,13 @@ class Sweep:
         return frozenset(ref.name for ref in self.refs if ref.free_text)
 
     def bucket(self, name: str) -> str:
-        return classify(name, free_text=name in self.free_text_names)
+        return classify(name, free_text=name in self.free_text_names, dispositioned=name in DISPOSITIONS)
 
     def by_bucket(self) -> dict[str, tuple[str, ...]]:
         free_text = self.free_text_names
         out: dict[str, list[str]] = {LISTED: [], SHAPE_SUSPECT: [], CLEAN: []}
         for name in self.names:
-            out[classify(name, free_text=name in free_text)].append(name)
+            out[classify(name, free_text=name in free_text, dispositioned=name in DISPOSITIONS)].append(name)
         return {key: tuple(value) for key, value in out.items()}
 
     def provenance(self, name: str) -> tuple[VarRef, ...]:
