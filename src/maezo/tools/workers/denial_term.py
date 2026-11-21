@@ -382,7 +382,7 @@ def render_denial_term(
     values = {
         # O complemento do auditor vem na MESMA linha do motivo do catálogo: nunca abre linha, e
         # por isso nunca se passa por rótulo ou por fundamento do termo.
-        "motivo": f"{motivo} — {complemento.strip()}",
+        "motivo": f"{motivo} — {str(complemento).strip()}",
         "fundamento": fundamento_texto,
     }
     values["canais_ouvidoria"] = canais or ""
