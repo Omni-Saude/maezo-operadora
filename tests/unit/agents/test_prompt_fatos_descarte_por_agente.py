@@ -255,8 +255,9 @@ def _fatos_do_resultado(resultado: Any) -> dict[str, Any] | None:
 
 
 async def _rodar(
-    sitio: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    sitio: dict[str, Any], monkeypatch: pytest.MonkeyPatch, llm: _CapturaPrompt | None = None
 ) -> tuple[list[tuple[set[str], frozenset[str]]], dict[str, Any] | None]:
+    """`llm`: quem quiser ler o prompt passa o seu `_CapturaPrompt` e le' `llm.prompts`."""
     import importlib
 
     modulo = importlib.import_module(f"maezo.agents.{sitio['agente']}.graph")
@@ -269,7 +270,8 @@ async def _rodar(
         return original(facts, **kw)
 
     monkeypatch.setattr(modulo, atributo, _espia)
-    llm = _CapturaPrompt()
+    if llm is None:
+        llm = _CapturaPrompt()
     resultado = await sitio["monta"](sitio["constroi"](llm), dict(sitio["state"]))
     return chamadas, _fatos_do_resultado(resultado)
 
@@ -374,25 +376,29 @@ async def test_chave_nova_num_montador_chega_ao_renderizador_e_e_contada(
 
     modulo = importlib.import_module(f"maezo.agents.{sitio['agente']}.graph")
     original = modulo.sem_chaves_retiradas
+    sentinela = f"FICT-SENTINELA-{sitio['sitio']}"
 
     def _com_chave_nova(facts: Any, retiradas: Any) -> dict[str, Any]:
-        com_nova: dict[str, Any] = original(
-            {**facts, "chave_nova_sintetica": "SENTINELA-NOVA-0001"}, retiradas
-        )
+        com_nova: dict[str, Any] = original({**facts, "chave_nova_sintetica": sentinela}, retiradas)
         return com_nova
 
     monkeypatch.setattr(modulo, "sem_chaves_retiradas", _com_chave_nova)
     antes = _descartes(sitio["agente"])
+    llm = _CapturaPrompt()
 
     with structlog.testing.capture_logs() as logs:
-        chamadas, _ = await _rodar(sitio, monkeypatch)
+        chamadas, _ = await _rodar(sitio, monkeypatch, llm)
 
     chaves, permitidos = chamadas[0]
     assert "chave_nova_sintetica" in chaves - permitidos  # chega ao renderizador...
     assert _descartes(sitio["agente"]) == antes + 1  # ...e' contada...
     eventos = [e for e in logs if e["event"] == "prompt_fatos_chaves_fora_da_lista_descartadas"]
     assert [e["chaves"] for e in eventos] == [["chave_nova_sintetica"]]  # ...e registrada pelo nome
-    assert "SENTINELA-NOVA-0001" not in repr(logs)
+    assert sentinela not in repr(logs)
+    # ...e nem o nome nem o VALOR chegam ao modelo (o prompt existe: sem ele o teste seria vazio).
+    assert len(llm.prompts) == 1, f"{sitio['sitio']}: esperado 1 prompt, vieram {len(llm.prompts)}"
+    assert sentinela not in llm.prompts[0], f"{sitio['sitio']}: o valor da chave nova chegou ao prompt"
+    assert "chave_nova_sintetica" not in llm.prompts[0]
 
 
 async def test_chave_nova_num_montador_e_acusada(monkeypatch: pytest.MonkeyPatch) -> None:

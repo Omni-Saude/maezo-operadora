@@ -253,3 +253,18 @@ def test_o_recorte_nao_muta_o_dicionario_do_dossie() -> None:
 
     assert recorte == {"sla_analise": "P5D"}
     assert fatos["cid10"] == CID_SINTETICO and fatos["numero_guia_tiss"] == GUIA_SINTETICA
+
+
+async def test_os_bytes_do_prompt_sao_os_do_recorte_pela_lista(monkeypatch: pytest.MonkeyPatch) -> None:
+    """U1c trocou o recorte pela lista (`_CHAVES_FATOS_PROMPT`, que fixava a ordem) pelo recorte so'
+    das retiradas (ordem do montador) SEM mudar a versao do prompt. Isso so' vale enquanto os bytes
+    forem os mesmos: o prompt de hoje tem de ser o que o recorte de antes da U1c produziria. Se a
+    ordem do literal de `fatos` em `_build_dossier` mudar, este teste falha e a versao do prompt do
+    Rafael tem de subir (bytes de prompt entram na proveniencia de auditoria)."""
+    dossie, prompt, _ = await _dossie_e_prompt(_estado(), monkeypatch)
+    fatos = dossie["fatos"]
+    recorte_pela_lista = {chave: fatos[chave] for chave in CHAVES_ESPERADAS if chave in fatos}
+
+    bloco = rafael_graph.render_fatos_para_prompt(recorte_pela_lista)
+    assert rafael_graph.render_fatos_para_prompt(fatos_para_prompt(fatos)) == bloco
+    assert prompt.endswith(f"\n{bloco}")
