@@ -253,7 +253,7 @@ disposicoes:
     rotulo: "recomendação — pendente de assinatura do DPO"
 
 
-  # K1 do rco, primeiro pin real (b8444f52, dicionario 1.6.0, sombra; #1365): os 38 nomes PHI-shape
+  # K1 do rco, primeiro pin real (b8444f52, dicionario 1.6.0, sombra; #1367): os 38 nomes PHI-shape
   # das tabelas de spec/processes/dmn/rco/. As perguntas integrais e a recomendacao da engenharia vivem em
   # `phi_completeness.py::DISPOSITIONS` (DRAFT/verify (DPO)). NAO houve revisao do DPO: toda linha nasce
   # com disposicao e ratificacao vazias.

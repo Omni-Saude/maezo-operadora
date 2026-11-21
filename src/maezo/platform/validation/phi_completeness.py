@@ -31,7 +31,7 @@ What this module does
      signal, which does not read the name at all (see below);
    * `CLEAN` — neither, AND no `DISPOSITIONS` entry: an explicit disposition raises a
      name the heuristic would leave CLEAN into the `SHAPE_SUSPECT` (DPO-question)
-     bucket, never the other way (`classify`, `dispositioned`). Since K1 (#1365) the
+     bucket, never the other way (`classify`, `dispositioned`). Since K1 (#1367) the
      `SHAPE_SUSPECT` bucket therefore holds every OPEN DPO question, shape-matched or
      raised by hand; the bucket keeps its name so no pin or report changes meaning.
 3. **Fails closed** on any `SHAPE_SUSPECT` name that has no entry in
@@ -135,7 +135,7 @@ Declared limits (measured, not assumed)
   is invisible here, exactly as it is invisible to `redact_phi_vars`. Named,
   measured residue from the adversarial battery: `descricao_procedimento`,
   `sexo` and `gestante` stay CLEAN by name today. Where such a name is LIVE, the
-  answer since K1 (#1365) is an explicit `Disposition`, which raises it out of
+  answer since K1 (#1367) is an explicit `Disposition`, which raises it out of
   CLEAN without widening the heuristic (`cptVigente`, `deficienciaCadastro` and the
   other explicit health-state names of the K1 pin; see `classify`). Age and sex
   used only as compatibility parameters stay CLEAN (owner decision PROG-COORD-47). `idade` is left out
@@ -457,7 +457,7 @@ def classify(name: str, *, free_text: bool = False, dispositioned: bool = False)
     `dispositioned` is the EXPLICIT signal: pass True when the name has an entry in
     `DISPOSITIONS` (`Sweep.bucket`/`Sweep.by_bucket` do). It RAISES a name the
     heuristic would leave CLEAN into the DPO-question bucket — a written question
-    about a health datum is never counted CLEAN (K1 #1365; since owner decision
+    about a health datum is never counted CLEAN (K1 #1367; since owner decision
     PROG-COORD-47 a name is raised only when its value reveals an explicit health
     state or is a direct identifier). It acts
     in the RESTRICTIVE direction only, by construction: it is consulted AFTER the
@@ -903,7 +903,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "the point — nothing structurally stops a reviewer typing a name into it."
                 ),
             ),
-            # K1 do rco, primeiro pin real (b8444f52, dicionario 1.6.0, sombra; #1365): os 38 nomes PHI-shape
+            # K1 do rco, primeiro pin real (b8444f52, dicionario 1.6.0, sombra; #1367): os 38 nomes PHI-shape
             # do pacote. Recomendacao da ENGENHARIA, DRAFT/verify (DPO); NAO houve revisao do DPO.
             Disposition(
                 name="cidDut109",
@@ -1287,7 +1287,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "'faixa 0..None', origem cadastro; de_onde: 'cadastro'."
                 ),
                 recommendation=(
-                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1365; owner "
+                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1367; owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
                     "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
@@ -1333,7 +1333,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1365; owner "
+                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1367; owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
                     "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
@@ -1406,7 +1406,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1365; owner "
+                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1367; owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
                     "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
@@ -1526,7 +1526,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1365; owner "
+                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1367; owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
                     "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
@@ -1548,7 +1548,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1365; owner "
+                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1367; owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
                     "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
@@ -1600,7 +1600,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "tetracosactideo, outro}', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1365; owner "
+                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1367; owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
                     "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
@@ -1625,7 +1625,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "campo vai [...]'."
                 ),
                 recommendation=(
-                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1365; owner "
+                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1367; owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
                     "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
@@ -1651,7 +1651,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "permite saber. [...]'."
                 ),
                 recommendation=(
-                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1365; owner "
+                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1367; owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
                     "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
@@ -1784,7 +1784,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1365; owner "
+                    "RECOMMEND recording it as NOT PHI — re-reviewed by definition (K1, #1367; owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
                     "comorbidity, exam result, pregnancy, disability, CPT/pre-existing disease — or is a "
@@ -1846,7 +1846,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     " any effect exists."
                 ),
             ),
-            # K1 #1365: nomes que a heuristica deixa CLEAN, elevados por Disposition e MANTIDOS na revisao por
+            # K1 #1367: nomes que a heuristica deixa CLEAN, elevados por Disposition e MANTIDOS na revisao por
             # definicao (decisao do dono PROG-COORD-47: LIST so estado de saude explicito ou identificador).
             # Revisao independente: +13 restaurados (4 piso clinico, 9 na AMOSTRA de fronteira).
             Disposition(
@@ -1858,7 +1858,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "false}', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -1883,7 +1883,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "acidente é 0 (trabalho), 1 (trânsito) ou 2 (o[...]'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -1912,7 +1912,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "31002285 já realizado) ou solicitação (declaração no relatório)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -1941,7 +1941,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "(classe do alérgeno da imunoterapia)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -1966,7 +1966,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -1988,7 +1988,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "false}', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2012,7 +2012,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "false}', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2036,7 +2036,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "false}', origem cadastro; de_onde: 'cadastro'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2058,7 +2058,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "false}', origem cadastro; de_onde: 'cadastro'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2080,7 +2080,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "d, 0}', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2103,7 +2103,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "^.+$', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2126,7 +2126,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "d, e, f}', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2148,7 +2148,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "false}', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2175,7 +2175,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "atendidos)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -2202,7 +2202,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "false}', origem cadastro; de_onde: 'cadastro'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2225,7 +2225,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2249,7 +2249,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "pedido): subitem_listado ou condicao_nao_listada'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -2278,7 +2278,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "avaliação neurológica (true = sim, false = não)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -2303,7 +2303,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "informa pelo menos um critério do grupo I da DUT 24 (campo fora da TISS)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -2329,7 +2329,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "dictionary 1.6.0 (config/integrations/rco/k1/entradas.json): a table OUTPUT."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2355,7 +2355,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "nutricao_parenteral, quimioterapia, infusao; nulo se não informada)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -2384,7 +2384,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "declarada pelo médico (true, false ou ausente)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -2411,7 +2411,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "0..150', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2435,7 +2435,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "com 40202283 (booleano)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -2465,7 +2465,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "(booleano)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -2492,7 +2492,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "0..5', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2514,7 +2514,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "0..None', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2536,7 +2536,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "0..5', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2558,7 +2558,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "'{parto_a_termo, demais}', origem cadastro; de_onde: 'cadastro'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2585,7 +2585,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "provisória por bl[...]'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2610,7 +2610,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2633,7 +2633,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2657,7 +2657,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "tissGuiasV4_03_00.xsd#ctm_internacaoSolicitacaoGuia/hipotesesDiagnostica[...]'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2681,7 +2681,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "assistente declara síndrome miofascial (campo fora da TISS)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -2706,7 +2706,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "acompanhante escolhido pela mulher; false quando a intern[...]'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2730,7 +2730,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "^.+$', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2755,7 +2755,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2779,7 +2779,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2801,7 +2801,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "0..13', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2823,7 +2823,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "-10..150', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2847,7 +2847,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "localizacao_imrt de regras/radioterapia/dominio.yaml em rol[...]'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2870,7 +2870,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2894,7 +2894,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "tem. [elementos TISS: tissComplexTypesV4_03_[...]'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2921,7 +2921,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "diária de[...]'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2943,7 +2943,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "0..100', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2965,7 +2965,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "0..100', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -2988,7 +2988,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -3011,7 +3011,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -3035,7 +3035,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "label 'temaImunob ← solicitação (finalidade declarada do uso da imunoglobulina)'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -3062,7 +3062,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "0..None', origem fora_tiss; de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "
@@ -3090,7 +3090,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "documentado, campo fora do TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365), dropped on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367), dropped on "
                     "the first re-review and RESTORED on the independent review by definition (owner "
                     "decision PROG-COORD-47: LIST only when the value, in an identified request, by itself "
                     "reveals the person's health state — diagnosis/CID, staging, clinical grade or score, "
@@ -3115,7 +3115,7 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
                     "de_onde: 'solicitação fora da TISS'."
                 ),
                 recommendation=(
-                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1365) and KEPT on "
+                    "RECOMMEND listing — raised from CLEAN by explicit Disposition (K1, #1367) and KEPT on "
                     "the re-review by definition (owner decision PROG-COORD-47: LIST only when the value, "
                     "in an identified request, by itself reveals the person's health state — "
                     "diagnosis/CID, staging, clinical grade or score, comorbidity, exam result, pregnancy, "

@@ -152,7 +152,7 @@ class TestNonVacuity:
         rco_touched = {p.name for p in dmn_touched if p.parent.name == "rco"}
         # 70 -> 71 com `funnel_deadline_catalog.dmn` (E-SF-08) — ver o CORPUS_DELTA_LOG.
         assert len(dmn_touched) - len(rco_touched) == 71  # VW4/GP11: +suppression_routing
-        # K1 b8444f52 (primeiro pin real, #1365): as 236 tabelas do pin + o exemplo sintetico, que
+        # K1 b8444f52 (primeiro pin real, #1367): as 236 tabelas do pin + o exemplo sintetico, que
         # segue em exemplos_sinteticos. Os nomes vem do lock, nao de uma lista copiada.
         lock_path = _REPO_ROOT / "config/integrations/rco/rules.lock.json"
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
@@ -3224,7 +3224,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="classeAdverso",
         name_delta=0,
         occurrence_delta=236,
@@ -3237,7 +3237,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="decisao",
         name_delta=0,
         occurrence_delta=236,
@@ -3250,7 +3250,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="fila",
         name_delta=0,
         occurrence_delta=236,
@@ -3263,7 +3263,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="imc",
         name_delta=0,
         occurrence_delta=2,
@@ -3275,7 +3275,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="abdomeAventalPerdaPonderalDocumentado",
         name_delta=1,
         occurrence_delta=1,
@@ -3289,7 +3289,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acaoPacote",
         name_delta=1,
         occurrence_delta=1,
@@ -3301,7 +3301,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acaoPagamento",
         name_delta=1,
         occurrence_delta=2,
@@ -3313,7 +3313,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acessoCobradoDuasVezes",
         name_delta=1,
         occurrence_delta=1,
@@ -3326,7 +3326,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acimaCalendarioPuericultura",
         name_delta=1,
         occurrence_delta=1,
@@ -3339,7 +3339,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acimaLimiteCodigo",
         name_delta=1,
         occurrence_delta=1,
@@ -3352,7 +3352,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acimaLimiteEstatistico",
         name_delta=1,
         occurrence_delta=1,
@@ -3365,7 +3365,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acimaLimiteLesoes",
         name_delta=1,
         occurrence_delta=1,
@@ -3378,7 +3378,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acimaPlanoCurso",
         name_delta=1,
         occurrence_delta=1,
@@ -3391,7 +3391,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acimaUnidadeTuss",
         name_delta=1,
         occurrence_delta=2,
@@ -3404,7 +3404,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acrescimoSemClausula",
         name_delta=1,
         occurrence_delta=1,
@@ -3417,7 +3417,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="acrescimoUrgenciaCobrado",
         name_delta=1,
         occurrence_delta=1,
@@ -3430,7 +3430,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="adicionaisHorario",
         name_delta=1,
         occurrence_delta=1,
@@ -3443,7 +3443,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="analgesiaPorCateter",
         name_delta=1,
         occurrence_delta=1,
@@ -3456,7 +3456,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="anestesistaNaEquipe",
         name_delta=1,
         occurrence_delta=1,
@@ -3469,7 +3469,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="anexoRadioterapiaCompleto",
         name_delta=1,
         occurrence_delta=1,
@@ -3482,7 +3482,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="articulacao",
         name_delta=1,
         occurrence_delta=1,
@@ -3495,7 +3495,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="atoAcimaDuracaoMinima",
         name_delta=1,
         occurrence_delta=1,
@@ -3508,7 +3508,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="autorizacaoExtemporanea",
         name_delta=1,
         occurrence_delta=1,
@@ -3521,7 +3521,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="avisoItensNaoIncluidos",
         name_delta=1,
         occurrence_delta=1,
@@ -3534,7 +3534,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="beneficiarioNeonato",
         name_delta=1,
         occurrence_delta=1,
@@ -3547,7 +3547,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="blocosHistologicos",
         name_delta=1,
         occurrence_delta=1,
@@ -3560,7 +3560,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="bulaExigeTeste",
         name_delta=1,
         occurrence_delta=1,
@@ -3573,7 +3573,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="campoConvencionalMesmoCurso",
         name_delta=1,
         occurrence_delta=1,
@@ -3586,7 +3586,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="caraterAtendimento",
         name_delta=1,
         occurrence_delta=96,
@@ -3599,7 +3599,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="carenciaContratualDias",
         name_delta=1,
         occurrence_delta=1,
@@ -3612,7 +3612,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="categoriaOpme",
         name_delta=1,
         occurrence_delta=14,
@@ -3625,7 +3625,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="causaEncaminhamento",
         name_delta=1,
         occurrence_delta=1,
@@ -3638,7 +3638,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="causaExterna",
         name_delta=1,
         occurrence_delta=1,
@@ -3652,7 +3652,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cboExecutante",
         name_delta=1,
         occurrence_delta=1,
@@ -3665,7 +3665,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cidDut109",
         name_delta=1,
         occurrence_delta=1,
@@ -3678,7 +3678,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cidEspasticidadeDut8",
         name_delta=1,
         occurrence_delta=1,
@@ -3691,7 +3691,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cidExcecaoDescompressao",
         name_delta=1,
         occurrence_delta=1,
@@ -3705,7 +3705,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cidFinalidadeEstetica",
         name_delta=1,
         occurrence_delta=1,
@@ -3719,7 +3719,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cidGrupoF84",
         name_delta=1,
         occurrence_delta=4,
@@ -3732,7 +3732,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cidIgualDlpDeclarada",
         name_delta=1,
         occurrence_delta=1,
@@ -3745,7 +3745,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cidNaDlpDeclarada",
         name_delta=1,
         occurrence_delta=1,
@@ -3758,7 +3758,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cidNeoplasia",
         name_delta=1,
         occurrence_delta=1,
@@ -3771,7 +3771,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cidPrincipal",
         name_delta=1,
         occurrence_delta=4,
@@ -3784,7 +3784,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cidSecundarioInformado",
         name_delta=1,
         occurrence_delta=1,
@@ -3798,7 +3798,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cirurgiaBariatricaPrevia",
         name_delta=1,
         occurrence_delta=2,
@@ -3812,7 +3812,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cirurgiaNaInternacao",
         name_delta=1,
         occurrence_delta=1,
@@ -3825,7 +3825,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cirurgiaNaMesmaConta",
         name_delta=1,
         occurrence_delta=1,
@@ -3838,7 +3838,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cirurgiaRevisional",
         name_delta=1,
         occurrence_delta=1,
@@ -3851,7 +3851,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="classeAlergeno",
         name_delta=1,
         occurrence_delta=1,
@@ -3865,7 +3865,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="classeChildPugh",
         name_delta=1,
         occurrence_delta=1,
@@ -3879,7 +3879,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="classeConsulta",
         name_delta=1,
         occurrence_delta=5,
@@ -3892,7 +3892,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="classeGenet",
         name_delta=1,
         occurrence_delta=2,
@@ -3905,7 +3905,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="classeItemNutricao",
         name_delta=1,
         occurrence_delta=3,
@@ -3918,7 +3918,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="classeMaterial",
         name_delta=1,
         occurrence_delta=3,
@@ -3931,7 +3931,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="classeProcedimento",
         name_delta=1,
         occurrence_delta=8,
@@ -3944,7 +3944,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="classeTerapia",
         name_delta=1,
         occurrence_delta=3,
@@ -3957,7 +3957,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="clausulaExameAdicional",
         name_delta=1,
         occurrence_delta=1,
@@ -3971,7 +3971,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="clausulaItensInclusos",
         name_delta=1,
         occurrence_delta=1,
@@ -3984,7 +3984,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cobradoAParte",
         name_delta=1,
         occurrence_delta=1,
@@ -3997,7 +3997,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cobrancaIdentica",
         name_delta=1,
         occurrence_delta=2,
@@ -4010,7 +4010,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cobrancaIncluidaSeparada",
         name_delta=1,
         occurrence_delta=1,
@@ -4023,7 +4023,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cobrancasAnteriores730d",
         name_delta=1,
         occurrence_delta=1,
@@ -4036,7 +4036,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="codigoItem",
         name_delta=1,
         occurrence_delta=2,
@@ -4049,7 +4049,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="codigoPacote",
         name_delta=1,
         occurrence_delta=4,
@@ -4062,7 +4062,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="codigoPrincipal",
         name_delta=1,
         occurrence_delta=23,
@@ -4075,7 +4075,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="codigoProcedimento",
         name_delta=1,
         occurrence_delta=134,
@@ -4088,7 +4088,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="codigoProcedimentoPrincipal",
         name_delta=1,
         occurrence_delta=7,
@@ -4101,7 +4101,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="codigoSecundario",
         name_delta=1,
         occurrence_delta=25,
@@ -4114,7 +4114,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="codigoSecundarioOutraData",
         name_delta=1,
         occurrence_delta=3,
@@ -4127,7 +4127,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="complicacaoCidSecundario",
         name_delta=1,
         occurrence_delta=2,
@@ -4141,7 +4141,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="componenteRepetidoMesmoAto",
         name_delta=1,
         occurrence_delta=2,
@@ -4154,7 +4154,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="conselhoExecutante",
         name_delta=1,
         occurrence_delta=1,
@@ -4167,7 +4167,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="conselhoProfissional",
         name_delta=1,
         occurrence_delta=1,
@@ -4180,7 +4180,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="consultaMesmaEspecialidadeOutroProfissional",
         name_delta=1,
         occurrence_delta=1,
@@ -4193,7 +4193,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="consultasNutricaoNoDia",
         name_delta=1,
         occurrence_delta=1,
@@ -4206,7 +4206,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="contagemAcimaDoParametro",
         name_delta=1,
         occurrence_delta=1,
@@ -4219,7 +4219,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="contextoTcthAlogenico",
         name_delta=1,
         occurrence_delta=1,
@@ -4232,7 +4232,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="contraindicacaoDut",
         name_delta=1,
         occurrence_delta=1,
@@ -4246,7 +4246,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="contraindicacaoDut24",
         name_delta=1,
         occurrence_delta=1,
@@ -4260,7 +4260,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cptObesidadeAtiva",
         name_delta=1,
         occurrence_delta=1,
@@ -4274,7 +4274,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cptVigente",
         name_delta=1,
         occurrence_delta=1,
@@ -4288,7 +4288,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="criterioDut69",
         name_delta=1,
         occurrence_delta=1,
@@ -4302,7 +4302,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="criterioDutInformado",
         name_delta=1,
         occurrence_delta=1,
@@ -4316,7 +4316,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="criterioGrupoI",
         name_delta=1,
         occurrence_delta=1,
@@ -4330,7 +4330,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="criterioGrupoII",
         name_delta=1,
         occurrence_delta=1,
@@ -4344,7 +4344,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="criterioRevisaoAtendido",
         name_delta=1,
         occurrence_delta=6,
@@ -4357,7 +4357,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="criteriosDutAtendidos",
         name_delta=1,
         occurrence_delta=1,
@@ -4371,7 +4371,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="cursoRegistrado",
         name_delta=1,
         occurrence_delta=2,
@@ -4384,7 +4384,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="dataAtendimento",
         name_delta=1,
         occurrence_delta=223,
@@ -4397,7 +4397,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="dataExecucao",
         name_delta=1,
         occurrence_delta=10,
@@ -4410,7 +4410,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="dataExecucaoInformada",
         name_delta=1,
         occurrence_delta=3,
@@ -4423,7 +4423,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="declaracaoCriterioDut",
         name_delta=1,
         occurrence_delta=1,
@@ -4436,7 +4436,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="declaracaoEmergencia",
         name_delta=1,
         occurrence_delta=1,
@@ -4449,7 +4449,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="deficienciaCadastro",
         name_delta=1,
         occurrence_delta=1,
@@ -4463,7 +4463,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="descricaoCirurgicaAnexada",
         name_delta=1,
         occurrence_delta=1,
@@ -4476,7 +4476,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="descricaoCitaAnuloNucleoplastia",
         name_delta=1,
         occurrence_delta=1,
@@ -4489,7 +4489,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="descricaoProgramacaoDispositivo",
         name_delta=1,
         occurrence_delta=1,
@@ -4502,7 +4502,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="destinoDiretoUti",
         name_delta=1,
         occurrence_delta=1,
@@ -4515,7 +4515,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diagnosticoCLN2Confirmado",
         name_delta=1,
         occurrence_delta=1,
@@ -4529,7 +4529,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diariaIncluiImobilizacao",
         name_delta=1,
         occurrence_delta=1,
@@ -4542,7 +4542,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diariaSoParaExame",
         name_delta=1,
         occurrence_delta=1,
@@ -4555,7 +4555,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diariaUtiMesmaData",
         name_delta=1,
         occurrence_delta=1,
@@ -4568,7 +4568,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasAlemDoPrazoContratual",
         name_delta=1,
         occurrence_delta=1,
@@ -4581,7 +4581,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasAposCirurgia",
         name_delta=1,
         occurrence_delta=1,
@@ -4594,7 +4594,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasAteApresentacao",
         name_delta=1,
         occurrence_delta=1,
@@ -4607,7 +4607,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasAteRecurso",
         name_delta=1,
         occurrence_delta=1,
@@ -4620,7 +4620,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasDesdeFimImpedimento",
         name_delta=1,
         occurrence_delta=1,
@@ -4633,7 +4633,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasDesdeUltimaColonoscopia",
         name_delta=1,
         occurrence_delta=1,
@@ -4646,7 +4646,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasDesdeUltimoExame",
         name_delta=1,
         occurrence_delta=4,
@@ -4659,7 +4659,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasDesdeUltimoMesmoCodigo",
         name_delta=1,
         occurrence_delta=1,
@@ -4672,7 +4672,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasInternacao",
         name_delta=1,
         occurrence_delta=12,
@@ -4685,7 +4685,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasUteisComunicacao",
         name_delta=1,
         occurrence_delta=2,
@@ -4698,7 +4698,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="diasUteisDesdeNotificacao",
         name_delta=1,
         occurrence_delta=1,
@@ -4711,7 +4711,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="documentacaoCompleta",
         name_delta=1,
         occurrence_delta=22,
@@ -4724,7 +4724,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="documentacaoDut",
         name_delta=1,
         occurrence_delta=1,
@@ -4737,7 +4737,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="documentacaoOpmeNaoRecebidaNoPrazo",
         name_delta=1,
         occurrence_delta=1,
@@ -4750,7 +4750,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="doencaRestritaFigado",
         name_delta=1,
         occurrence_delta=1,
@@ -4764,7 +4764,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="doseExcedeAdministrada",
         name_delta=1,
         occurrence_delta=1,
@@ -4777,7 +4777,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="enquadramentoDut110",
         name_delta=1,
         occurrence_delta=1,
@@ -4791,7 +4791,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="enquadramentoDut118",
         name_delta=1,
         occurrence_delta=1,
@@ -4805,7 +4805,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="enquadramentoDut24",
         name_delta=1,
         occurrence_delta=1,
@@ -4819,7 +4819,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="enquadramentoLegal",
         name_delta=1,
         occurrence_delta=1,
@@ -4832,7 +4832,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="episodioEmPacote",
         name_delta=1,
         occurrence_delta=1,
@@ -4845,7 +4845,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="escoreEcu",
         name_delta=1,
         occurrence_delta=1,
@@ -4858,7 +4858,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="especimeStatus",
         name_delta=1,
         occurrence_delta=1,
@@ -4871,7 +4871,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="etapa",
         name_delta=1,
         occurrence_delta=2,
@@ -4884,7 +4884,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="etiquetaRastreabilidade",
         name_delta=1,
         occurrence_delta=4,
@@ -4897,7 +4897,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="evidenciaOperadora",
         name_delta=1,
         occurrence_delta=1,
@@ -4910,7 +4910,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="exameBaseNaGuia",
         name_delta=1,
         occurrence_delta=1,
@@ -4923,7 +4923,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="examesNoPeriodo",
         name_delta=1,
         occurrence_delta=1,
@@ -4936,7 +4936,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="excedeLimiteCardio",
         name_delta=1,
         occurrence_delta=1,
@@ -4949,7 +4949,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="excedeLimiteFiltroBarreira",
         name_delta=1,
         occurrence_delta=1,
@@ -4962,7 +4962,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="excedeLimiteNefro",
         name_delta=1,
         occurrence_delta=1,
@@ -4975,7 +4975,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="excedeLimitePlast",
         name_delta=1,
         occurrence_delta=1,
@@ -4988,7 +4988,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="excedenteSobreDias",
         name_delta=1,
         occurrence_delta=1,
@@ -5001,7 +5001,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="execucoesAnteriores",
         name_delta=1,
         occurrence_delta=1,
@@ -5014,7 +5014,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="execucoesAnterioresMesmoCodigo",
         name_delta=1,
         occurrence_delta=1,
@@ -5027,7 +5027,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="execucoesEmOutraGuiaNoDia",
         name_delta=1,
         occurrence_delta=1,
@@ -5040,7 +5040,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="executanteGeneticaMedica",
         name_delta=1,
         occurrence_delta=1,
@@ -5053,7 +5053,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="extratoCobradoAParte",
         name_delta=1,
         occurrence_delta=1,
@@ -5066,7 +5066,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="familiaDiariaTaxa",
         name_delta=1,
         occurrence_delta=7,
@@ -5079,7 +5079,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="familiaImgac",
         name_delta=1,
         occurrence_delta=1,
@@ -5092,7 +5092,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="familiaImunob",
         name_delta=1,
         occurrence_delta=4,
@@ -5105,7 +5105,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="familiaMednuc",
         name_delta=1,
         occurrence_delta=3,
@@ -5118,7 +5118,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="familiaPacote",
         name_delta=1,
         occurrence_delta=1,
@@ -5131,7 +5131,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="familiaPrincipal",
         name_delta=1,
         occurrence_delta=1,
@@ -5144,7 +5144,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="familiaProcedimento",
         name_delta=1,
         occurrence_delta=4,
@@ -5157,7 +5157,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="familiaSecundario",
         name_delta=1,
         occurrence_delta=1,
@@ -5170,7 +5170,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="faseTratamentoDistinta",
         name_delta=1,
         occurrence_delta=1,
@@ -5183,7 +5183,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="fatorAcrescimoTecnica",
         name_delta=1,
         occurrence_delta=1,
@@ -5196,7 +5196,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="fatorReducao",
         name_delta=1,
         occurrence_delta=1,
@@ -5209,7 +5209,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="fichaAnestesicaCompleta",
         name_delta=1,
         occurrence_delta=1,
@@ -5222,7 +5222,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="finalidadeCateter",
         name_delta=1,
         occurrence_delta=1,
@@ -5236,7 +5236,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="finalidadeComDut",
         name_delta=1,
         occurrence_delta=1,
@@ -5249,7 +5249,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="finalidadeEsteticaDeclarada",
         name_delta=1,
         occurrence_delta=2,
@@ -5262,7 +5262,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="finalidadeImplanteDentario",
         name_delta=1,
         occurrence_delta=1,
@@ -5275,7 +5275,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="finalidadeLaser",
         name_delta=1,
         occurrence_delta=1,
@@ -5288,7 +5288,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="finalidadeNtrk",
         name_delta=1,
         occurrence_delta=1,
@@ -5302,7 +5302,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="frequenciaAcimaDoGatilho",
         name_delta=1,
         occurrence_delta=1,
@@ -5315,7 +5315,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="gapMedioDb",
         name_delta=1,
         occurrence_delta=1,
@@ -5329,7 +5329,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="gastrostomiaEndoscopicaPrevia",
         name_delta=1,
         occurrence_delta=1,
@@ -5343,7 +5343,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="gatilhoClinicoRevisao",
         name_delta=1,
         occurrence_delta=1,
@@ -5357,7 +5357,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="graduacaoWagner",
         name_delta=1,
         occurrence_delta=1,
@@ -5371,7 +5371,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="grauParticipacao",
         name_delta=1,
         occurrence_delta=2,
@@ -5384,7 +5384,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="grauQueimadura",
         name_delta=1,
         occurrence_delta=1,
@@ -5398,7 +5398,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="grauWagner",
         name_delta=1,
         occurrence_delta=1,
@@ -5412,7 +5412,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="grupoCarencia",
         name_delta=1,
         occurrence_delta=1,
@@ -5426,7 +5426,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="grupoCidPrincipal",
         name_delta=1,
         occurrence_delta=1,
@@ -5439,7 +5439,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="grupoHemocomponente",
         name_delta=1,
         occurrence_delta=1,
@@ -5452,7 +5452,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="grupoNeoplasia",
         name_delta=1,
         occurrence_delta=1,
@@ -5466,7 +5466,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="grupoRepeticaoGenet",
         name_delta=1,
         occurrence_delta=1,
@@ -5479,7 +5479,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="grupoTuss63Compativel",
         name_delta=1,
         occurrence_delta=1,
@@ -5492,7 +5492,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="habilitacaoObstetricaExecutante",
         name_delta=1,
         occurrence_delta=1,
@@ -5505,7 +5505,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="horarioCoincidente",
         name_delta=1,
         occurrence_delta=1,
@@ -5518,7 +5518,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="horasAnestesiaAcimaAssistencia",
         name_delta=1,
         occurrence_delta=1,
@@ -5531,7 +5531,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="horasRpaAcimaDoTermo",
         name_delta=1,
         occurrence_delta=1,
@@ -5544,7 +5544,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="idRegra",
         name_delta=1,
         occurrence_delta=236,
@@ -5556,7 +5556,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="idadeBeneficiario",
         name_delta=1,
         occurrence_delta=12,
@@ -5569,7 +5569,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="idadeBeneficiarioMeses",
         name_delta=1,
         occurrence_delta=1,
@@ -5582,7 +5582,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="imperativoClinicoDeclarado",
         name_delta=1,
         occurrence_delta=1,
@@ -5595,7 +5595,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="indicacaoAblacao",
         name_delta=1,
         occurrence_delta=2,
@@ -5609,7 +5609,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="indicacaoAguda",
         name_delta=1,
         occurrence_delta=1,
@@ -5623,7 +5623,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="indicacaoAmbulatorial",
         name_delta=1,
         occurrence_delta=1,
@@ -5636,7 +5636,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="indicacaoHerniaDiscal",
         name_delta=1,
         occurrence_delta=1,
@@ -5650,7 +5650,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="indicacaoMedicoAssistente",
         name_delta=1,
         occurrence_delta=2,
@@ -5663,7 +5663,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="indicacaoSmf",
         name_delta=1,
         occurrence_delta=1,
@@ -5677,7 +5677,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="inicioEsquema",
         name_delta=1,
         occurrence_delta=5,
@@ -5690,7 +5690,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="internacaoObstetricaComAcompanhante",
         name_delta=1,
         occurrence_delta=1,
@@ -5704,7 +5704,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="internacaoProgramadaOuComplicacao",
         name_delta=1,
         occurrence_delta=1,
@@ -5717,7 +5717,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="internacaoVinculada",
         name_delta=1,
         occurrence_delta=1,
@@ -5730,7 +5730,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="itemCoberturaFerida",
         name_delta=1,
         occurrence_delta=1,
@@ -5743,7 +5743,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="itemCobradoAParteGenet",
         name_delta=1,
         occurrence_delta=1,
@@ -5756,7 +5756,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="itemDut10",
         name_delta=1,
         occurrence_delta=1,
@@ -5770,7 +5770,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="itemDut44",
         name_delta=1,
         occurrence_delta=1,
@@ -5784,7 +5784,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="itemDut60",
         name_delta=1,
         occurrence_delta=1,
@@ -5798,7 +5798,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="itemDut68",
         name_delta=1,
         occurrence_delta=1,
@@ -5812,7 +5812,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="itemIncluidoConsulta",
         name_delta=1,
         occurrence_delta=1,
@@ -5825,7 +5825,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="itemInclusoCobradoAParte",
         name_delta=1,
         occurrence_delta=1,
@@ -5838,7 +5838,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="itemRotinaLeitoUti",
         name_delta=1,
         occurrence_delta=1,
@@ -5851,7 +5851,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="justificativaAnestesiologista",
         name_delta=1,
         occurrence_delta=1,
@@ -5865,7 +5865,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="justificativaHematologista",
         name_delta=1,
         occurrence_delta=1,
@@ -5879,7 +5879,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="justificativaQuantidade",
         name_delta=1,
         occurrence_delta=1,
@@ -5893,7 +5893,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="justificativaRepeticao",
         name_delta=1,
         occurrence_delta=1,
@@ -5907,7 +5907,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="justificativaReteste",
         name_delta=1,
         occurrence_delta=1,
@@ -5920,7 +5920,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="justificativaTecnicaAnexada",
         name_delta=1,
         occurrence_delta=1,
@@ -5934,7 +5934,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="justificativaTrocaCurativo",
         name_delta=1,
         occurrence_delta=1,
@@ -5948,7 +5948,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="kitAcimaDaOperacao",
         name_delta=1,
         occurrence_delta=1,
@@ -5961,7 +5961,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="laudoAnatomopatologicoAnexado",
         name_delta=1,
         occurrence_delta=1,
@@ -5975,7 +5975,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="limiarViaOsseaDb",
         name_delta=1,
         occurrence_delta=1,
@@ -5989,7 +5989,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="localizacaoImrt",
         name_delta=1,
         occurrence_delta=1,
@@ -6003,7 +6003,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="maiorLesaoMm",
         name_delta=1,
         occurrence_delta=1,
@@ -6017,7 +6017,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="medicamentoAlvo",
         name_delta=1,
         occurrence_delta=1,
@@ -6030,7 +6030,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="medicamentoEstimulo",
         name_delta=1,
         occurrence_delta=1,
@@ -6043,7 +6043,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="medicamentoNoSubitem",
         name_delta=1,
         occurrence_delta=1,
@@ -6056,7 +6056,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="medicamentoUnicoInterferon",
         name_delta=1,
         occurrence_delta=1,
@@ -6070,7 +6070,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="mesmaEspecialidadeAcimaNoDia",
         name_delta=1,
         occurrence_delta=1,
@@ -6083,7 +6083,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="mesmaHoraInicial",
         name_delta=1,
         occurrence_delta=1,
@@ -6096,7 +6096,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="mesmoExecutante",
         name_delta=1,
         occurrence_delta=2,
@@ -6109,7 +6109,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="mesmoProfissionalCirurgia",
         name_delta=1,
         occurrence_delta=1,
@@ -6122,7 +6122,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="metodoDeteccao",
         name_delta=1,
         occurrence_delta=1,
@@ -6135,7 +6135,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="metodoIndicado",
         name_delta=1,
         occurrence_delta=1,
@@ -6148,7 +6148,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="microscopioEletronico",
         name_delta=1,
         occurrence_delta=1,
@@ -6161,7 +6161,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="mieloablacao",
         name_delta=1,
         occurrence_delta=1,
@@ -6174,7 +6174,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="modalidadePagamento",
         name_delta=1,
         occurrence_delta=5,
@@ -6187,7 +6187,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="motivoAae",
         name_delta=1,
         occurrence_delta=1,
@@ -6199,7 +6199,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="motivoExtemporaneidade",
         name_delta=1,
         occurrence_delta=1,
@@ -6212,7 +6212,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="motivoIsencaoCarencia",
         name_delta=1,
         occurrence_delta=1,
@@ -6225,7 +6225,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="motivoTab38",
         name_delta=1,
         occurrence_delta=236,
@@ -6237,7 +6237,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="natIndividualNaConta",
         name_delta=1,
         occurrence_delta=1,
@@ -6250,7 +6250,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="neurologiaOuRelatorio",
         name_delta=1,
         occurrence_delta=1,
@@ -6263,7 +6263,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="notaFiscalFornecedor",
         name_delta=1,
         occurrence_delta=1,
@@ -6276,7 +6276,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="observacaoAcimaLimite",
         name_delta=1,
         occurrence_delta=1,
@@ -6290,7 +6290,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="opmeAcimaReferencia",
         name_delta=1,
         occurrence_delta=1,
@@ -6303,7 +6303,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="opmeAutorizada",
         name_delta=1,
         occurrence_delta=3,
@@ -6316,7 +6316,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="opmeNaConta",
         name_delta=1,
         occurrence_delta=2,
@@ -6329,7 +6329,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="opmeNaGuia",
         name_delta=1,
         occurrence_delta=2,
@@ -6342,7 +6342,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="opmeNaLista",
         name_delta=1,
         occurrence_delta=1,
@@ -6355,7 +6355,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="opmeSolicitada",
         name_delta=1,
         occurrence_delta=2,
@@ -6368,7 +6368,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="ordemOlho",
         name_delta=1,
         occurrence_delta=1,
@@ -6381,7 +6381,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="outroNivelRadiocirurgiaCurso",
         name_delta=1,
         occurrence_delta=1,
@@ -6394,7 +6394,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="p24NatMesmaGuia",
         name_delta=1,
         occurrence_delta=1,
@@ -6407,7 +6407,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="pacoteContratado",
         name_delta=1,
         occurrence_delta=1,
@@ -6420,7 +6420,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="painelNaConta",
         name_delta=1,
         occurrence_delta=1,
@@ -6433,7 +6433,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="parAngioTerapeutica",
         name_delta=1,
         occurrence_delta=1,
@@ -6446,7 +6446,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="parArtroRM",
         name_delta=1,
         occurrence_delta=1,
@@ -6459,7 +6459,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="parErgometricoEcg",
         name_delta=1,
         occurrence_delta=1,
@@ -6472,7 +6472,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="parEstresse",
         name_delta=1,
         occurrence_delta=1,
@@ -6485,7 +6485,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="parExameBase",
         name_delta=1,
         occurrence_delta=1,
@@ -6498,7 +6498,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="parOximetriaConsulta",
         name_delta=1,
         occurrence_delta=1,
@@ -6511,7 +6511,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="parPolissonografia",
         name_delta=1,
         occurrence_delta=1,
@@ -6524,7 +6524,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="parUltrassom",
         name_delta=1,
         occurrence_delta=1,
@@ -6537,7 +6537,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="partoInicialNaGuia",
         name_delta=1,
         occurrence_delta=1,
@@ -6551,7 +6551,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="pedidoCompleto",
         name_delta=1,
         occurrence_delta=1,
@@ -6564,7 +6564,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="pedidosExtemporaneos12mPrestador",
         name_delta=1,
         occurrence_delta=1,
@@ -6577,7 +6577,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="percentualContratualConforme",
         name_delta=1,
         occurrence_delta=1,
@@ -6590,7 +6590,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="perfusionistaNaEquipe",
         name_delta=1,
         occurrence_delta=1,
@@ -6603,7 +6603,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="planejamentoNaJanela",
         name_delta=1,
         occurrence_delta=1,
@@ -6616,7 +6616,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="planoSoAmbulatorial",
         name_delta=1,
         occurrence_delta=6,
@@ -6629,7 +6629,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="planoSoHospitalar",
         name_delta=1,
         occurrence_delta=2,
@@ -6642,7 +6642,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="plaquetasAfereseNaConta",
         name_delta=1,
         occurrence_delta=1,
@@ -6655,7 +6655,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="prazoComprovacaoUsoVencido",
         name_delta=1,
         occurrence_delta=3,
@@ -6668,7 +6668,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="prazoDocumentoVencido",
         name_delta=1,
         occurrence_delta=2,
@@ -6681,7 +6681,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="prescricaoEChecagem",
         name_delta=1,
         occurrence_delta=1,
@@ -6694,7 +6694,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="prestadorAptoMetodo",
         name_delta=1,
         occurrence_delta=1,
@@ -6707,7 +6707,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="prestadorComPacote",
         name_delta=1,
         occurrence_delta=15,
@@ -6720,7 +6720,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="procedimentoAdicional",
         name_delta=1,
         occurrence_delta=1,
@@ -6733,7 +6733,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="procedimentoAlcancadoCpt",
         name_delta=1,
         occurrence_delta=1,
@@ -6747,7 +6747,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="procedimentoCirurgicoAdicional",
         name_delta=1,
         occurrence_delta=4,
@@ -6760,7 +6760,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="procedimentoCirurgicoNaGuia",
         name_delta=1,
         occurrence_delta=1,
@@ -6773,7 +6773,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="procedimentoMesmoAto",
         name_delta=1,
         occurrence_delta=1,
@@ -6786,7 +6786,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="procedimentoOrtopedicoNaGuia",
         name_delta=1,
         occurrence_delta=1,
@@ -6799,7 +6799,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="procedimentoPrincipalNaGuia",
         name_delta=1,
         occurrence_delta=1,
@@ -6812,7 +6812,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="profissaoExecutante",
         name_delta=1,
         occurrence_delta=1,
@@ -6825,7 +6825,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidade",
         name_delta=1,
         occurrence_delta=17,
@@ -6838,7 +6838,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeAcimaAutorizada",
         name_delta=1,
         occurrence_delta=1,
@@ -6851,7 +6851,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeAcimaDasUnidades",
         name_delta=1,
         occurrence_delta=1,
@@ -6864,7 +6864,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeAcimaDoPedido",
         name_delta=1,
         occurrence_delta=1,
@@ -6877,7 +6877,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeAcimaDocumentada",
         name_delta=1,
         occurrence_delta=2,
@@ -6890,7 +6890,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeAcimaLimite",
         name_delta=1,
         occurrence_delta=1,
@@ -6903,7 +6903,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeAcimaPorPeso",
         name_delta=1,
         occurrence_delta=1,
@@ -6916,7 +6916,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeAcimaPorUnidade",
         name_delta=1,
         occurrence_delta=1,
@@ -6929,7 +6929,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeAcimaPrescrita",
         name_delta=1,
         occurrence_delta=1,
@@ -6942,7 +6942,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeDia",
         name_delta=1,
         occurrence_delta=5,
@@ -6955,7 +6955,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeEpisodio",
         name_delta=1,
         occurrence_delta=1,
@@ -6968,7 +6968,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeExamesRmSessao",
         name_delta=1,
         occurrence_delta=1,
@@ -6982,7 +6982,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeMarcasIndicadas",
         name_delta=1,
         occurrence_delta=3,
@@ -6995,7 +6995,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeNiveis",
         name_delta=1,
         occurrence_delta=4,
@@ -7008,7 +7008,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeNoAno",
         name_delta=1,
         occurrence_delta=1,
@@ -7021,7 +7021,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeProfissional",
         name_delta=1,
         occurrence_delta=1,
@@ -7034,7 +7034,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeSolicitada",
         name_delta=1,
         occurrence_delta=5,
@@ -7047,7 +7047,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeTaxaRadiofarmaco",
         name_delta=1,
         occurrence_delta=1,
@@ -7060,7 +7060,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="quantidadeVideoartroscopicos",
         name_delta=1,
         occurrence_delta=1,
@@ -7073,7 +7073,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="radiofarmacoComoMatMed",
         name_delta=1,
         occurrence_delta=1,
@@ -7086,7 +7086,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="reconhecimentoFalaPct",
         name_delta=1,
         occurrence_delta=1,
@@ -7100,7 +7100,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="reconhecimentoSentencasPct",
         name_delta=1,
         occurrence_delta=1,
@@ -7114,7 +7114,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="reducaoAcrescimoInformado",
         name_delta=1,
         occurrence_delta=1,
@@ -7127,7 +7127,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="reducaoAcrescimoMaiorQueUm",
         name_delta=1,
         occurrence_delta=1,
@@ -7140,7 +7140,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="regime",
         name_delta=1,
         occurrence_delta=24,
@@ -7153,7 +7153,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="regimeAtendimento",
         name_delta=1,
         occurrence_delta=1,
@@ -7166,7 +7166,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="regimeAtendimentoTiss",
         name_delta=1,
         occurrence_delta=2,
@@ -7179,7 +7179,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="regimeHospitalDia",
         name_delta=1,
         occurrence_delta=1,
@@ -7192,7 +7192,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="regimeTerapia",
         name_delta=1,
         occurrence_delta=1,
@@ -7205,7 +7205,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="registroAnvisaInformado",
         name_delta=1,
         occurrence_delta=1,
@@ -7218,7 +7218,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="registroAnvisaItem",
         name_delta=1,
         occurrence_delta=1,
@@ -7231,7 +7231,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="registroAnvisaMedicamento",
         name_delta=1,
         occurrence_delta=1,
@@ -7245,7 +7245,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="registroAnvisaVigente",
         name_delta=1,
         occurrence_delta=1,
@@ -7258,7 +7258,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="registroEletrodoProntuario",
         name_delta=1,
         occurrence_delta=1,
@@ -7272,7 +7272,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="registroTransfusionalCompleto",
         name_delta=1,
         occurrence_delta=1,
@@ -7285,7 +7285,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="reinternacaoJanela",
         name_delta=1,
         occurrence_delta=3,
@@ -7298,7 +7298,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="reinternacaoMesmaCausa",
         name_delta=1,
         occurrence_delta=3,
@@ -7311,7 +7311,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="relatorioHistoriaClinica",
         name_delta=1,
         occurrence_delta=1,
@@ -7324,7 +7324,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="relatorioIndicacaoAtual",
         name_delta=1,
         occurrence_delta=1,
@@ -7337,7 +7337,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="relatorioMedicoAnexado",
         name_delta=1,
         occurrence_delta=1,
@@ -7350,7 +7350,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="repeticaoDentroJanela",
         name_delta=1,
         occurrence_delta=1,
@@ -7363,7 +7363,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="repeticaoNaJanela",
         name_delta=1,
         occurrence_delta=1,
@@ -7376,7 +7376,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="requisicaoTransfusional",
         name_delta=1,
         occurrence_delta=1,
@@ -7389,7 +7389,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="retornoDentroPrazo",
         name_delta=1,
         occurrence_delta=1,
@@ -7402,7 +7402,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="riscoCirurgicoAsa",
         name_delta=1,
         occurrence_delta=1,
@@ -7416,7 +7416,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="saldoCarenciaDias",
         name_delta=1,
         occurrence_delta=1,
@@ -7429,7 +7429,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="segmentacaoCompativel",
         name_delta=1,
         occurrence_delta=3,
@@ -7442,7 +7442,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="segmentacaoOdontologica",
         name_delta=1,
         occurrence_delta=2,
@@ -7455,7 +7455,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="segmentacaoPlano",
         name_delta=1,
         occurrence_delta=1,
@@ -7468,7 +7468,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="sessoesAnoContrato",
         name_delta=1,
         occurrence_delta=1,
@@ -7481,7 +7481,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="sessoesNaJanelaAcimaDoGatilho",
         name_delta=1,
         occurrence_delta=1,
@@ -7494,7 +7494,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="sessoesNoCiclo",
         name_delta=1,
         occurrence_delta=1,
@@ -7507,7 +7507,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="sessoesSemana",
         name_delta=1,
         occurrence_delta=1,
@@ -7520,7 +7520,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="sexoBeneficiario",
         name_delta=1,
         occurrence_delta=3,
@@ -7533,7 +7533,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="sinalAuditoria",
         name_delta=1,
         occurrence_delta=1,
@@ -7545,7 +7545,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="sinalConta",
         name_delta=1,
         occurrence_delta=4,
@@ -7558,7 +7558,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="situacaoCadastral",
         name_delta=1,
         occurrence_delta=1,
@@ -7571,7 +7571,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="situacaoPedido",
         name_delta=1,
         occurrence_delta=3,
@@ -7584,7 +7584,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="solicitanteEspecialidadeDut110",
         name_delta=1,
         occurrence_delta=1,
@@ -7597,7 +7597,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="statusEspecime",
         name_delta=1,
         occurrence_delta=2,
@@ -7610,7 +7610,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="subitemDut65",
         name_delta=1,
         occurrence_delta=1,
@@ -7624,7 +7624,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="substanciaMedicamento",
         name_delta=1,
         occurrence_delta=1,
@@ -7638,7 +7638,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="substituicaoCorpoVertebralNaGuia",
         name_delta=1,
         occurrence_delta=1,
@@ -7651,7 +7651,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="taxaSemExame",
         name_delta=1,
         occurrence_delta=1,
@@ -7664,7 +7664,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tcthAutorizadoVinculado",
         name_delta=1,
         occurrence_delta=2,
@@ -7677,7 +7677,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tecnicaAssociadaNaFicha",
         name_delta=1,
         occurrence_delta=1,
@@ -7690,7 +7690,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tecnicaUtilizada",
         name_delta=1,
         occurrence_delta=1,
@@ -7703,7 +7703,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="temaComposicao",
         name_delta=1,
         occurrence_delta=1,
@@ -7716,7 +7716,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="temaImunob",
         name_delta=1,
         occurrence_delta=1,
@@ -7730,7 +7730,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="temaOncoqt",
         name_delta=1,
         occurrence_delta=7,
@@ -7743,7 +7743,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tempoObesidadeMeses",
         name_delta=1,
         occurrence_delta=1,
@@ -7757,7 +7757,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tempoTratamentoClinicoMeses",
         name_delta=1,
         occurrence_delta=2,
@@ -7771,7 +7771,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="terapiaEmCurso",
         name_delta=1,
         occurrence_delta=3,
@@ -7784,7 +7784,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tipoAnestesia",
         name_delta=1,
         occurrence_delta=1,
@@ -7797,7 +7797,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tipoCateter",
         name_delta=1,
         occurrence_delta=1,
@@ -7810,7 +7810,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tipoEspecime",
         name_delta=1,
         occurrence_delta=1,
@@ -7823,7 +7823,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tipoPerdaAuditiva",
         name_delta=1,
         occurrence_delta=1,
@@ -7837,7 +7837,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tipoTcth",
         name_delta=1,
         occurrence_delta=3,
@@ -7850,7 +7850,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tipoTransacao",
         name_delta=1,
         occurrence_delta=1,
@@ -7863,7 +7863,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="tmoProposto",
         name_delta=1,
         occurrence_delta=1,
@@ -7876,7 +7876,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="transfusaoEfetivada",
         name_delta=1,
         occurrence_delta=1,
@@ -7889,7 +7889,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="transplanteNaInternacao",
         name_delta=1,
         occurrence_delta=1,
@@ -7902,7 +7902,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="unidadesHemocomponente",
         name_delta=1,
         occurrence_delta=1,
@@ -7915,7 +7915,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="unidadesPlaquetasNoGrupo",
         name_delta=1,
         occurrence_delta=1,
@@ -7928,7 +7928,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="urgenciaAposVinteQuatroHorasCobertura",
         name_delta=1,
         occurrence_delta=1,
@@ -7941,7 +7941,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="utiNaoPrevista",
         name_delta=1,
         occurrence_delta=5,
@@ -7954,7 +7954,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="variantePacote",
         name_delta=1,
         occurrence_delta=2,
@@ -7966,7 +7966,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="viaAcessoInformada",
         name_delta=1,
         occurrence_delta=1,
@@ -7979,7 +7979,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="viaAcessoSecundario",
         name_delta=1,
         occurrence_delta=8,
@@ -7992,7 +7992,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="viaAlteradaAposAutorizacao",
         name_delta=1,
         occurrence_delta=1,
@@ -8005,7 +8005,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="visitaMesmoProfissionalDia",
         name_delta=1,
         occurrence_delta=1,
@@ -8018,7 +8018,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="visitaNaDataDaAlta",
         name_delta=1,
         occurrence_delta=1,
@@ -8031,7 +8031,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-11-21",
-        pr="#1365",
+        pr="#1367",
         name="visitaPreAnestesicaNaInternacao",
         name_delta=1,
         occurrence_delta=1,
@@ -8053,9 +8053,9 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = (
             expected_names - 6 - 105
-        )  # #1365: SHAPE 15 -> 53 -> 214 -> 92 -> 105 (52 elevados ficam)
+        )  # #1367: SHAPE 15 -> 53 -> 214 -> 92 -> 105 (52 elevados ficam)
         assert (
-            expected_clean == 691  # K1 b8444f52 (#1365): +362 nomes (+272 CLEAN, +90 SHAPE) / +2312 ocorr.
+            expected_clean == 691  # K1 b8444f52 (#1367): +362 nomes (+272 CLEAN, +90 SHAPE) / +2312 ocorr.
             # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # R-076 faixa B dormente (#1149): +16 CLEAN (fatos da faixa, origem_*, R-058)
@@ -8076,7 +8076,7 @@ class TestBuckets:
         #   classeAdverso, fila)
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
-            SHAPE_SUSPECT: 105,  # #1365: +38 do K1 + 52 elevados (PROG-COORD-47), todos DRAFT/verify (DPO)
+            SHAPE_SUSPECT: 105,  # #1367: +38 do K1 + 52 elevados (PROG-COORD-47), todos DRAFT/verify (DPO)
             CLEAN: expected_clean,
         }
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
@@ -8117,7 +8117,7 @@ class TestBuckets:
         # DEC-31 D31-2 (#1198): +6 nomes (DMN pagto_comite_coordenacao e os fatos da rodada)
         # ADR-0075 / exemplo sintetico rco (#1223): +4 nomes
         # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
-        # K1 b8444f52 (#1365): +362 nomes (+324 CLEAN, +38 SHAPE) / +2312 ocorr.
+        # K1 b8444f52 (#1367): +362 nomes (+324 CLEAN, +38 SHAPE) / +2312 ocorr.
         assert len(live_sweep.names) == expected_names == 802
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
@@ -8144,7 +8144,7 @@ class TestBuckets:
         # DEC-31 D31-2 (#1198): +17 (6 nomes novos +14, decisao_pagamento +2, quorum_comite +1); nomes: +6
         # ADR-0075 / exemplo sintetico rco (#1223): +5 (4 nomes novos +4, decisao +1); nomes: +4
         # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
-        # K1 b8444f52 (#1365): +362 nomes (+324 CLEAN, +38 SHAPE) / +2312 ocorr.
+        # K1 b8444f52 (#1367): +362 nomes (+324 CLEAN, +38 SHAPE) / +2312 ocorr.
         assert len(live_sweep.refs) == expected_refs == 4205
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
@@ -8368,7 +8368,7 @@ class TestBuckets:
                 "triage_redflag_mental_health.dmn:22 (dmn_input_expression)",
                 "triage_redflag_pediatric.dmn:22 (dmn_input_expression)",
             ],
-            # K1 b8444f52 (#1365): as 38 perguntas do pacote, uma linha por ocorrencia.
+            # K1 b8444f52 (#1367): as 38 perguntas do pacote, uma linha por ocorrencia.
             "cidDut109": [
                 "consult_dut.dmn:16 (dmn_input_expression)",
             ],
@@ -8670,11 +8670,11 @@ class TestBuckets:
     def test_render_buckets_shows_all_three_with_provenance(self, live_sweep: Sweep) -> None:
         rendered = render_buckets(live_sweep)
         assert f"## {LISTED} (6)" in rendered
-        assert f"## {SHAPE_SUSPECT} (105)" in rendered  # #1365: +38 (K1) + 52 elevados
+        assert f"## {SHAPE_SUSPECT} (105)" in rendered  # #1367: +38 (K1) + 52 elevados
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (691)"  # K1 b8444f52 (#1365): +362 nomes (+272 CLEAN, +90 SHAPE) / +2312 ocorr.
+            f"## {CLEAN} (691)"  # K1 b8444f52 (#1367): +362 nomes (+272 CLEAN, +90 SHAPE) / +2312 ocorr.
             in rendered  # E-SF-08 (funnel_deadline_catalog): +15 nomes CLEAN / +16 ocorrencias
             # ADR-0075 / exemplo sintetico rco (#1223): +4
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
@@ -8692,7 +8692,7 @@ class TestBuckets:
         # would stay green after an edit that renamed the constant's VALUE to
         # "RATIFICADO pelo DPO", which is exactly the laundering this asserts
         # against.
-        # DL-0163: +5 perguntas dos textos do reembolso; #1365: +38 perguntas do K1 + 52 elevadas
+        # DL-0163: +5 perguntas dos textos do reembolso; #1367: +38 perguntas do K1 + 52 elevadas
         assert rendered.count("DRAFT/verify (DPO)") == 105
 
 
@@ -8998,7 +8998,7 @@ _RANK = {CLEAN: 0, SHAPE_SUSPECT: 1, LISTED: 2}
 class TestDispositionOnlyRaises:
     """An explicit disposition RAISES a CLEAN name into the DPO-question bucket — never lowers.
 
-    K1 (#1365; owner decision PROG-COORD-47: LIST only an explicit health state or a direct
+    K1 (#1367; owner decision PROG-COORD-47: LIST only an explicit health state or a direct
     identifier): a name the heuristic misses can be raised by writing its question down. The
     door is one-way by construction (`classify`, `dispositioned`), and these tests are the
     NEGATIVE half: no disposition, whatever its recommendation says, moves a `LISTED` name
@@ -9547,7 +9547,7 @@ class TestJuelExtraction:
     def test_only_three_entities_are_used_in_the_corpus(self) -> None:
         """The blanking-not-decoding shortcut is exact only while this holds.
 
-        K1 b8444f52 (#1365) brought the corpus its first `&quot;`, in ONE place: the `label` attribute
+        K1 b8444f52 (#1367) brought the corpus its first `&quot;`, in ONE place: the `label` attribute
         of `criterioDutInformado` in `rco/clin_dut.dmn`, prose outside any `${...}` body. Blanking only
         matters INSIDE a JUEL body (a decoded `"` there would open a string literal), so the fourth
         entity is pinned to that one location and to "never inside `${...}`", file by file; the other
