@@ -22,9 +22,12 @@ Limites deliberados:
   fica GAP, sem número aqui. Nenhum prazo é exibido.
 - CAMPOS: os fatos que um rascunho poderia usar passam por uma lista FECHADA,
   ``CAMPOS_DO_RASCUNHO_RETENCAO``, hoje VAZIA (cédula E36: campos com default vazio, sem CPT, sem
-  inadimplência, só sintético; RT-D3 do DPO sem resposta). O recorte usa
-  ``runtime.prompt_format.render_fatos_para_prompt(permitidos=..., agente=...)``: nenhum fato chega
-  a um modelo, e texto livre de terceiro não é campo da lista.
+  inadimplência, só sintético; RT-D3 do DPO sem resposta). O recorte é feito AQUI, por chave de topo:
+  só passa chave da lista, e texto livre de terceiro não é campo dela. Nenhum fato chega a um modelo.
+  O renderizador de prompt (``runtime.prompt_format.render_fatos_para_prompt``) não é chamado: a
+  cerca dele (DL-0191) é dos sítios de prompt de AGENTE, com ``agente=`` literal do vocabulário
+  fechado de agentes; não há agente nem modelo aqui. A unidade que um dia montar o copiloto com uma
+  identidade de agente passa por ele, com o literal dessa identidade.
 - SEM MODELO: nenhum LLM, nenhum provedor, nenhum texto gerado. ``texto`` do rascunho é sempre vazio.
 - SEM OFERTA: nenhuma oferta, desconto, prazo, promessa ou condição comercial é produzida aqui.
   Nenhum texto deste módulo vai ao beneficiário nem ao Lucas.
@@ -37,13 +40,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from typing import Any, Final, Protocol
-
-from maezo.runtime.prompt_format import render_fatos_para_prompt
 
 __all__ = [
     "ACAO_RASCUNHO_RETENCAO",
-    "AGENTE_DO_RECORTE",
     "CAMPOS_DO_RASCUNHO_RETENCAO",
     "FILA_RELACIONAMENTO",
     "FonteDeProtocolo",
@@ -65,9 +66,6 @@ ACAO_RASCUNHO_RETENCAO: Final[str] = "retention_staff_assist_draft"
 
 #: Lista FECHADA dos fatos que podem chegar a um rascunho. VAZIA por default (cédula E36).
 CAMPOS_DO_RASCUNHO_RETENCAO: Final[frozenset[str]] = frozenset()
-
-#: Rótulo do recorte de fatos (vocabulário fechado do contador: fora dele, conta como `outro`).
-AGENTE_DO_RECORTE: Final[str] = "retencao_relacionamento"
 
 _PROTOCOLO_MAX: Final = 64
 _REF_MAX: Final = 256
@@ -118,7 +116,7 @@ class PedidoDeRascunho:
 
     protocolo_ref: str
     acao: str
-    fatos: str
+    fatos: Mapping[str, Any]  # só chaves de CAMPOS_DO_RASCUNHO_RETENCAO (hoje: sempre vazio)
     texto: str  # sempre vazio: nenhum texto gerado
 
 
@@ -159,9 +157,7 @@ def pedir_rascunho(item: ItemDeRelacionamento, fatos: Mapping[str, Any]) -> Pedi
         raise RetencaoRelacionamentoError("ERR_RELACIONAMENTO_ENTRADA_INVALIDA")
     if not isinstance(fatos, Mapping):
         raise RetencaoRelacionamentoError("ERR_RELACIONAMENTO_ENTRADA_INVALIDA")
-    recorte = render_fatos_para_prompt(
-        fatos, booleanos={}, permitidos=CAMPOS_DO_RASCUNHO_RETENCAO, agente=AGENTE_DO_RECORTE
-    )
+    recorte = MappingProxyType({k: v for k, v in fatos.items() if k in CAMPOS_DO_RASCUNHO_RETENCAO})
     return PedidoDeRascunho(
         protocolo_ref=item.protocolo_ref, acao=ACAO_RASCUNHO_RETENCAO, fatos=recorte, texto=""
     )

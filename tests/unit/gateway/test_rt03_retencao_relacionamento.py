@@ -17,6 +17,7 @@ import hashlib
 import typing
 from datetime import UTC, datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -175,11 +176,10 @@ async def test_assistente_retencao_sem_zona_phi() -> None:
     """Lista fechada VAZIA: nenhum fato (clínico, CPT, inadimplência, texto livre) chega ao rascunho."""
     assert frozenset() == CAMPOS_DO_RASCUNHO_RETENCAO
     pedido = pedir_rascunho(await _item(), dict(_FATOS_VEDADOS))
-    # O recorte da lista vazia é só o cabeçalho fixo do renderizador: nenhum fato.
-    assert pedido.fatos == pedir_rascunho(await _item(), {}).fatos
-    for chave, valor in _FATOS_VEDADOS.items():
-        assert chave not in pedido.fatos
-        assert str(valor) not in pedido.fatos
+    # Lista vazia: nenhum fato passa, e o recorte é imutável.
+    assert dict(pedido.fatos) == {}
+    assert not [c for c in _FATOS_VEDADOS if c in pedido.fatos]
+    assert isinstance(pedido.fatos, MappingProxyType)  # imutável: ninguém acrescenta fato depois
     # Nenhum import de módulo PHI/FHIR/clínico.
     importados = {n.module or "" for n in ast.walk(_arvore()) if isinstance(n, ast.ImportFrom)} | {
         a.name for n in ast.walk(_arvore()) if isinstance(n, ast.Import) for a in n.names
@@ -227,6 +227,16 @@ async def test_sem_protocolo_da_custodia_nada_e_aberto(registro: object) -> None
             _FonteSintetica(registro), tenant_ref="tenant-sintetico", titular_ref="titular-sintetico"
         )
     assert recusa.value.code == "ERR_PROTOCOLO_AUSENTE"
+
+
+def test_o_recorte_e_local_e_nao_passa_pelo_renderizador_de_prompt() -> None:
+    """Sem agente nem modelo, o recorte é local; o renderizador de prompt (cerca DL-0191, sítios de
+    agente) não é importado nem chamado aqui."""
+    nomes = {n.id for n in ast.walk(_arvore()) if isinstance(n, ast.Name)}
+    nomes |= {a.name for n in ast.walk(_arvore()) if isinstance(n, ast.ImportFrom) for a in n.names}
+    modulos = {n.module or "" for n in ast.walk(_arvore()) if isinstance(n, ast.ImportFrom)}
+    assert "render_fatos_para_prompt" not in nomes
+    assert not [m for m in modulos if m.startswith("maezo.runtime")]
 
 
 async def test_o_rascunho_e_so_dado_sem_texto_gerado() -> None:
