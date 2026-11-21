@@ -927,3 +927,14 @@ Gerados só com leitura, sem tocar no índice: `git diff bf9c84df` dos arquivos 
 - **PR #1345 (E-SF-29-1)** aberto: head `b15a3ecefef8b6bb720a074503089b686ec49189`, só o arquivo de teste novo; 2 merges atrás (#1342, #1343), sem arquivo em comum, não trazidos. Aguardo o CI.
 - Fila: 29-2 → RT-02 → 11 → 35, um PR por vez.
 - **Linha do evidence-ledger da E-SF-24a** (texto para quem escreve o ledger; a janela não edita): "E-SF-24a (EP-PROC-07a): termo da negativa (RN 623 art. 14/16) com template v0 versionado em `spec/policies/ans/templates/` e render puro atrás de `MAEZO_AUTH_DENIAL_WRITTEN_NOTICE` (DARK); registro só com versão e sha256 do template; mapeamento do art. 14 não confirmado pelo jurídico (pré-condição para ligar). PR #1343."
+
+## 2026-11-21 ~00:45Z — PRONTO #1345 (E-SF-29-1)
+
+- **PRONTO:** #1345, head `b15a3ecefef8b6bb720a074503089b686ec49189`.
+  - 37 checks verdes (inclusive o `flip-path-review-gate`) e 2 skipped. `integration tests (real engine)` verde.
+  - `live-pytest] PASS`: recurso-nip passed=181; cancel-contas passed=138; cred-ans passed=129; restante passed=965.
+  - Unit: ci, ci-pesado, ledger-resto, ledger-consumer, gateway-platform, dev e restante, todos verdes.
+- **Simulação de merge real** numa worktree destacada no sha da main `faea2f74660b13449266f47b80a3018a626b901f`: sem conflito; `make lint type validate-artifacts` rc=0 (link temporário da `.venv`, removido); `tests/unit/spec` 866 passed. Worktree removida sem `--force`.
+- **3 merges atrás** (#1342, #1343, #1344), sem arquivo em comum, não trazidos (CD-155).
+- **Arquivo:** `tests/unit/spec/test_sp_op_reembolso_001_prazo_legal_fence.py` (novo; único).
+- **Próximo**, depois do merge: 29-2 (ramo no remoto; condições da T-MZO-A e o digest em `aguardando_admissao`, CD-205).
