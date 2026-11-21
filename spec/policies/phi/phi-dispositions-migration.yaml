@@ -562,6 +562,1294 @@ disposicoes:
       ratificado_em: null
     rotulo: "recomendação — pendente de assinatura do DPO"
 
+  - nome: abdomeAventalPerdaPonderalDocumentado
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: acimaCalendarioPuericultura
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: acimaLimiteCodigo
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: acimaLimiteEstatistico
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: acimaLimiteLesoes
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: acimaPlanoCurso
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: acimaUnidadeTuss
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: acrescimoUrgenciaCobrado
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: analgesiaPorCateter
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: anexoRadioterapiaCompleto
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: beneficiarioNeonato
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: blocosHistologicos
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: bulaExigeTeste
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: campoConvencionalMesmoCurso
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: caraterAtendimento
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: causaExterna
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: cirurgiaBariatricaPrevia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: cirurgiaRevisional
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: classeAlergeno
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: classeChildPugh
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: cobrancaIdentica
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: cobrancasAnteriores730d
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: consultaMesmaEspecialidadeOutroProfissional
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: consultasNutricaoNoDia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: contagemAcimaDoParametro
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: contextoTcthAlogenico
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: contraindicacaoDut
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: contraindicacaoDut24
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: cptObesidadeAtiva
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: cptVigente
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: criterioDut69
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: criterioDutInformado
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: criterioGrupoI
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: criterioGrupoII
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: criterioRevisaoAtendido
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: criteriosDutAtendidos
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: declaracaoCriterioDut
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: declaracaoEmergencia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: deficienciaCadastro
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: descricaoCirurgicaAnexada
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: descricaoCitaAnuloNucleoplastia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: descricaoProgramacaoDispositivo
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: destinoDiretoUti
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: diasAposCirurgia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: diasDesdeUltimaColonoscopia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: diasDesdeUltimoMesmoCodigo
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: diasInternacao
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: documentacaoCompleta
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: documentacaoDut
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: doencaRestritaFigado
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: doseExcedeAdministrada
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: enquadramentoDut110
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: enquadramentoDut118
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: enquadramentoDut24
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: enquadramentoLegal
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: escoreEcu
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: especimeStatus
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: etiquetaRastreabilidade
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: excedeLimiteCardio
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: excedeLimiteNefro
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: excedeLimitePlast
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: execucoesAnteriores
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: execucoesAnterioresMesmoCodigo
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: execucoesEmOutraGuiaNoDia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: faseTratamentoDistinta
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: fichaAnestesicaCompleta
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: finalidadeCateter
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: finalidadeComDut
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: finalidadeEsteticaDeclarada
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: finalidadeImplanteDentario
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: finalidadeLaser
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: finalidadeNtrk
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: frequenciaAcimaDoGatilho
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: gapMedioDb
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: gastrostomiaEndoscopicaPrevia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: gatilhoClinicoRevisao
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: graduacaoWagner
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: grauQueimadura
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: grauWagner
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: grupoCarencia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: grupoNeoplasia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: idadeBeneficiario
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: idadeBeneficiarioMeses
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: imperativoClinicoDeclarado
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: indicacaoAblacao
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: indicacaoAguda
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: indicacaoAmbulatorial
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: indicacaoHerniaDiscal
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: indicacaoMedicoAssistente
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: indicacaoSmf
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: inicioEsquema
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: internacaoObstetricaComAcompanhante
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: internacaoProgramadaOuComplicacao
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: itemDut10
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: itemDut44
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: itemDut60
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: itemDut68
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: limiarViaOsseaDb
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: localizacaoImrt
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: maiorLesaoMm
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: mesmaEspecialidadeAcimaNoDia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: metodoIndicado
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: mieloablacao
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: motivoIsencaoCarencia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: neurologiaOuRelatorio
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: ordemOlho
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: outroNivelRadiocirurgiaCurso
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: partoInicialNaGuia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: pedidoCompleto
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: planejamentoNaJanela
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: prescricaoEChecagem
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: procedimentoAlcancadoCpt
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: procedimentoMesmoAto
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: quantidadeAcimaDoPedido
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: quantidadeAcimaDocumentada
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: quantidadeAcimaPorPeso
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: quantidadeAcimaPrescrita
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: quantidadeDia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: quantidadeEpisodio
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: quantidadeNiveis
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: quantidadeNoAno
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: quantidadeProfissional
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: reconhecimentoFalaPct
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: reconhecimentoSentencasPct
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: regimeAtendimento
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: registroTransfusionalCompleto
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: reinternacaoJanela
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: reinternacaoMesmaCausa
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: relatorioHistoriaClinica
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: relatorioIndicacaoAtual
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: relatorioMedicoAnexado
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: repeticaoDentroJanela
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: repeticaoNaJanela
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: requisicaoTransfusional
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: retornoDentroPrazo
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: riscoCirurgicoAsa
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: saldoCarenciaDias
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: sessoesAnoContrato
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: sessoesNaJanelaAcimaDoGatilho
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: sessoesNoCiclo
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: sessoesSemana
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: sexoBeneficiario
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: sinalConta
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: situacaoCadastral
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: situacaoPedido
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: statusEspecime
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: subitemDut65
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: tcthAutorizadoVinculado
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: tecnicaAssociadaNaFicha
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: temaImunob
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: tempoObesidadeMeses
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: tempoTratamentoClinicoMeses
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: terapiaEmCurso
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: tipoAnestesia
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: tipoPerdaAuditiva
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: tipoTcth
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: tmoProposto
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: transfusaoEfetivada
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: transplanteNaInternacao
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: urgenciaAposVinteQuatroHorasCobertura
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
+  - nome: utiNaoPrevista
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
 # ---------------------------------------------------------------------------------------------
 # evidencia — o que este arquivo muda de OBSERVAVEL hoje, dito sem exagero.
 # ---------------------------------------------------------------------------------------------
