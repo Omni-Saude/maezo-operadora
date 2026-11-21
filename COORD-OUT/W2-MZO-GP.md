@@ -1083,3 +1083,17 @@ Ramo `sf-w2/mzo-gp/esf24b`, a partir da main. O PR só abre depois do merge do #
 - **E-SF-24b:** o ramo local `sf-w2/mzo-gp/esf24b` @ `8099ca98` ainda não foi ao remoto. O PR abre depois do merge do #1355.
   - Já aplicada a recusa de rótulo do template pedida pelo ROOT.
   - Aguardo a revisão independente dessa última mudança e o `tests/unit` completo × main.
+
+## 2026-11-21 ~04:55Z — PRONTO #1355 (E-SF-35 / EP-CORE-06F)
+
+- **PRONTO:** #1355, head `290594618a5d4fb4d4353252700182bd1fb07de0`; `mergeable_state` = clean.
+  - 37 checks verdes e 2 skipped, nenhum vermelho.
+  - `live-pytest] PASS`: recurso-nip passed=181; cancel-contas passed=138; cred-ans passed=129; restante passed=965.
+- **Simulação de merge real** numa worktree destacada no sha da main `fb748b0c892de99cf4c3db2cf96dab261ddc018b`:
+  - Merge sem conflito. `make lint type validate-artifacts` rc=0, com link temporário da `.venv`, removido.
+  - Os dois arquivos A9 + `tests/unit/gateway`: 6771 passed, 1 failed. A main dá 6603 passed com a mesma falha: `test_audit_anchor.py::test_worm_store_read_only_mode_is_not_integrity_against_the_owner`, que exige processo sem privilégio, e aqui o processo roda como root (ambiente local).
+  - Worktree removida sem `--force`.
+- **12 merges atrás** (#1342–#1354), sem arquivo em comum, não trazidos (CD-155).
+- **Próximo PR**, depois do merge deste: E-SF-24b.
+  - Revisão independente PASS em `b6f176d7`, já com a recusa de rótulo do template na forma visível (NFKC, sem invisíveis).
+  - Sem arquivo em comum com a main `fb748b0c`.
