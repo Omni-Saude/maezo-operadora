@@ -73,8 +73,9 @@ def noites_contam() -> bool:
 
 
 def chave_presente() -> bool:
-    """Ha' credencial para um eval vivo (chave Anthropic por qualquer dos dois nomes, ou provedor da zona
-    PHI nomeado): a MESMA regra de `tests/evals/_vivo.py::credencial_viva_presente`, nao uma copia."""
+    """Ha' credencial pretendida para um eval vivo (chave Anthropic por qualquer dos dois nomes, ou provedor
+    nomeado que nao seja `anthropic` nem de teste): a MESMA regra de
+    `tests/evals/_vivo.py::credencial_viva_presente`, nao uma copia."""
     raiz = str(Path(__file__).resolve().parents[2])
     if raiz not in sys.path:
         sys.path.insert(0, raiz)
@@ -83,12 +84,8 @@ def chave_presente() -> bool:
     except Exception:
         # O resumo SEMPRE reporta: se o import do provedor dos evals quebrar, a mesma regra so' pelo ambiente.
         chave = os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-        nuvem = os.environ.get("MAEZO_INFERENCE_PROVIDER", "").strip() in {
-            "bedrock",
-            "bedrock_br",
-            "br_resident",
-        }
-        return bool(chave) or nuvem
+        nomeado = os.environ.get("MAEZO_INFERENCE_PROVIDER", "").strip()
+        return bool(chave) or nomeado not in {"", "anthropic", "noop", "phi_zone_mock"}
     return credencial_viva_presente()
 
 

@@ -15,7 +15,8 @@ Contrato
 * Sem chave (`MAEZO_ANTHROPIC_API_KEY`/`ANTHROPIC_API_KEY`) E sem provedor real nomeado alem de `anthropic`
   (`MAEZO_INFERENCE_PROVIDER`): nao chama nada, sai 0 (o resumo dira' "NAO RODOU"). Provedor real nomeado
   sem credencial utilizavel (ex.: `bedrock_br` sem os portoes): QUEBRADO, como qualquer falha de chamada.
-* Com chave: chamada falhou ou resposta vazia => "Tier B QUEBRADO: preflight ..." no resumo, `::error::` e
+* Com credencial (chave ou provedor nomeado): chamada ou construcao do provedor falhou ou resposta vazia =>
+  "Tier B QUEBRADO: preflight ..." no resumo, `::error::` e
   saida 1, nos dois modos; com `PhiZoneRoutingError`, tambem a linha estavel da zona PHI. So' a classe do
   erro e o status HTTP — nunca a chave, nunca o corpo da resposta nem a mensagem do provedor. O resumo
   tambem diz, enquanto `TIER_B_NOITES_CONTAM` nao for "true", que a noite nao conta para a observacao.
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -37,6 +39,7 @@ if str(_RAIZ) not in sys.path:  # `python -I` nao poe o diretorio do script nem 
 from scripts.ci.tier_b_resumo import LINHA_NOITES_NAO_CONTAM, LINHA_ZONA_PHI, noites_contam  # noqa: E402
 
 PROMPT = "Responda apenas com a palavra: ok"
+_FALHA_VIVA = re.compile(r"^LIVE CALL FAILED: (\w+)")
 ERRO_ZONA_PHI = "PhiZoneRoutingError"
 
 
@@ -49,12 +52,11 @@ def _status(erro: BaseException) -> str:
 
 
 def _classe(erro: BaseException) -> str:
-    # `provedor_vivo()` embrulha a falha de CONSTRUCAO (provedor real nomeado sem credencial utilizavel) em
-    # `AssertionError("LIVE CALL FAILED: <Classe>")` encadeada: o preflight nomeia a classe de origem.
-    causa = erro.__cause__
-    if isinstance(erro, AssertionError) and causa is not None:
-        return type(causa).__name__
-    return type(erro).__name__
+    # `provedor_vivo()` falha na CONSTRUCAO com `AssertionError("LIVE CALL FAILED: <Classe> ...")` (provedor
+    # real nomeado sem credencial utilizavel, ou `ProvedorNaoVivo`): o preflight nomeia a MESMA classe que o
+    # resumo le no junit. So' a classe — a mensagem do provedor fica na causa encadeada, nunca sai.
+    viva = _FALHA_VIVA.match(str(erro)) if isinstance(erro, AssertionError) else None
+    return viva.group(1) if viva else type(erro).__name__
 
 
 def _provedor_dos_evals() -> Callable[[], Any]:

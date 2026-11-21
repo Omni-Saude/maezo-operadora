@@ -406,7 +406,16 @@ class _Provedor:
         self.resposta, self.erro, self.chamadas = resposta, erro, 0
         self.phi: list[bool] = []
 
-    async def generate(self, prompt: str, *, phi: bool = False, agent_id: str | None = None) -> object:
+    # A assinatura inteira do Protocol real (tests/unit/runtime/test_inference_fakes_match_protocol.py).
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+        task_kind: str | None = None,
+    ) -> object:
         self.chamadas += 1
         self.phi.append(phi)
         if self.erro is not None:
@@ -764,7 +773,16 @@ def test_phi_zone_line_points_to_an_existing_readme_section() -> None:
     assert ancora in ancoras, sorted(ancoras)
 
 
-@pytest.mark.parametrize(("provedor", "conta"), [("bedrock", True), ("br_resident", True), ("noop", False)])
+@pytest.mark.parametrize(
+    ("provedor", "conta"),
+    [
+        ("bedrock", True),
+        ("br_resident", True),
+        ("bedrok_br", True),  # nome desconhecido (digitacao): quem nomeou quis rodar => roda e falha
+        ("noop", False),
+        ("phi_zone_mock", False),
+    ],
+)
 def test_a_named_real_cloud_provider_is_a_credential_a_test_double_is_not(
     monkeypatch: pytest.MonkeyPatch, provedor: str, conta: bool
 ) -> None:
@@ -789,11 +807,20 @@ _CREDENCIAIS = (
     "AWS_SESSION_TOKEN",
     "AWS_PROFILE",
     "AWS_DEFAULT_PROFILE",
+    "AWS_WEB_IDENTITY_TOKEN_FILE",
+    "AWS_ROLE_ARN",
+    "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+    "AWS_CONTAINER_CREDENTIALS_FULL_URI",
 )
 
 
 def _sem_credencial_nenhuma(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    for nome in _CREDENCIAIS:
+    import os as _os
+
+    # Tambem a configuracao do runtime herdada da maquina (ex.: MAEZO_INFERENCE_PHI_ZONE_REQUIRED=true
+    # mudaria a classe do erro); quem precisa do provedor, define depois.
+    herdadas = [k for k in _os.environ if k.startswith(("MAEZO_INFERENCE_", "MAEZO_BEDROCK_", "MAEZO_PHI_"))]
+    for nome in (*_CREDENCIAIS, *herdadas):
         monkeypatch.delenv(nome, raising=False)
     monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "sem-config"))
     monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "sem-credenciais"))
@@ -840,6 +867,39 @@ def test_preflight_with_named_phi_provider_without_gates_is_broken(
     assert "NAO RODOU" not in saida and "nenhuma chamada feita" not in saida
 
 
+@pytest.mark.parametrize(
+    ("provedor", "classe"),
+    [("bedrock_br", "InferenceConfigError"), ("bedrok_br", "ProvedorNaoVivo")],
+)
+def test_preflight_names_the_live_call_failed_class(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    provedor: str,
+    classe: str,
+) -> None:
+    # A MESMA classe que o resumo le no junit (`LIVE CALL FAILED: <Classe>`), nao "AssertionError".
+    _sem_credencial_nenhuma(monkeypatch, tmp_path)
+    monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", provedor)
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "s.md"))
+    assert pf.main([]) == 1
+    saida = capsys.readouterr().out + (tmp_path / "s.md").read_text(encoding="utf-8")
+    assert f"Tier B QUEBRADO: preflight falhou ({classe}, status sem status)" in saida, saida
+
+
+def test_preflight_with_key_and_a_test_double_provider_is_broken(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _sem_credencial_nenhuma(monkeypatch, tmp_path)
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "chave-de-teste")
+    monkeypatch.setenv("MAEZO_INFERENCE_PROVIDER", "noop")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "s.md"))
+    assert pf.main([]) == 1
+    saida = capsys.readouterr().out + (tmp_path / "s.md").read_text(encoding="utf-8")
+    assert "Tier B QUEBRADO: preflight falhou (ProvedorNaoVivo, status sem status)" in saida, saida
+    assert "chave-de-teste" not in saida
+
+
 def _tier_b_de_verdade(tmp_path: Path, provedor: str) -> tuple[int, str]:
     """A selecao REAL do noturno + o resumo REAL, sem credencial nenhuma; sem rede (falha antes)."""
     import os as _os
@@ -847,7 +907,8 @@ def _tier_b_de_verdade(tmp_path: Path, provedor: str) -> tuple[int, str]:
     env = {
         k: v
         for k, v in _os.environ.items()
-        if k not in _CREDENCIAIS and not k.startswith(("PYTHON", "PYTEST_", "MAEZO_INFERENCE_"))
+        if k not in _CREDENCIAIS
+        and not k.startswith(("PYTHON", "PYTEST_", "MAEZO_INFERENCE_", "MAEZO_BEDROCK_", "MAEZO_PHI_"))
     }
     env.update(
         AWS_CONFIG_FILE=str(tmp_path / "sem-config"),
@@ -863,12 +924,12 @@ def _tier_b_de_verdade(tmp_path: Path, provedor: str) -> tuple[int, str]:
     suite = subprocess.run(
         [sys.executable, "-m", "pytest", "tests/evals", "-q", "--tb=no", "-rN", "-p", "no:cacheprovider",
          "-m", "eval and llm_live", f"--junitxml={junit}"],
-        cwd=_RAIZ, env=env, capture_output=True, text=True, check=False,
+        cwd=_RAIZ, env=env, capture_output=True, text=True, check=False, timeout=300,
     )  # fmt: skip
     resumo = subprocess.run(
         [sys.executable, "-I", "scripts/ci/tier_b_resumo.py", "--junit", str(junit), "--codigo",
          str(suite.returncode)],
-        cwd=_RAIZ, env=env, capture_output=True, text=True, check=False,
+        cwd=_RAIZ, env=env, capture_output=True, text=True, check=False, timeout=120,
     )  # fmt: skip
     return resumo.returncode, (tmp_path / "s.md").read_text(encoding="utf-8") + suite.stdout[-2000:]
 

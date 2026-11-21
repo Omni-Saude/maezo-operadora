@@ -362,8 +362,9 @@ def load_golden(agent: str, *, root: Path | None = None) -> list[dict[str, Any]]
 # Tier B (live-LLM) skip gate — mirrors tests/unit/runtime/test_inference_live.py exactly.
 # ---------------------------------------------------------------------------
 
-# Chave Anthropic OU provedor da zona PHI nomeado em MAEZO_INFERENCE_PROVIDER (bedrock_br/br_resident:
-# credencial = sessao AWS do dev, sem chave de API) — ver `tests/evals/_vivo.py::credencial_viva_presente`
+# Chave Anthropic OU provedor nomeado em MAEZO_INFERENCE_PROVIDER que nao seja `anthropic` nem de teste
+# (bedrock/bedrock_br/br_resident: credencial = sessao AWS do dev, sem chave de API; sem ela, LIVE CALL
+# FAILED) — ver `tests/evals/_vivo.py::credencial_viva_presente`
 # e a execucao manual do Tier B em tests/evals/README.md.
 _HAS_LLM_KEY = credencial_viva_presente()
 
@@ -373,8 +374,8 @@ _HAS_LLM_KEY = credencial_viva_presente()
 live_key_skip = pytest.mark.skipif(
     not _HAS_LLM_KEY,
     reason=(
-        "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY and no PHI-zone provider "
-        "(MAEZO_INFERENCE_PROVIDER=bedrock_br|br_resident) in environment — skipping Tier-B "
+        "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY and no provider named in "
+        "MAEZO_INFERENCE_PROVIDER (other than anthropic or a test double) — skipping Tier-B "
         "live-LLM eval variant. This is a loud, explicit skip, not a silent pass (mirrors "
         "tests/unit/runtime/test_inference_live.py): Tier-A (replay) evals are the PR "
         "merge-blocking gate and are unaffected. Tier-B calls the graphs with phi=True, so it only "

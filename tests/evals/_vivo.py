@@ -43,6 +43,9 @@ PROVEDOR_PADRAO = "anthropic"
 #: Provedores REAIS aceitos num eval vivo; os da zona PHI nao usam chave de API (SigV4/sessao do dev).
 PROVEDORES_VIVOS = frozenset({"anthropic", "bedrock", "bedrock_br", "br_resident"})
 PROVEDORES_ZONA_PHI = frozenset({"bedrock_br", "br_resident"})
+#: Provedores de TESTE do runtime (`_PROVIDER_FACTORIES`): nomeados (ex.: `noop` num `.env` local) seguem
+#: pulados; num caso que roda (com chave) sao recusados (`ProvedorNaoVivo`), nunca pontuados.
+PROVEDORES_DE_TESTE = frozenset({"noop", "phi_zone_mock"})
 PROVEDOR_NAO_VIVO = "ProvedorNaoVivo"
 
 
@@ -51,14 +54,13 @@ def provedor_configurado() -> str:
 
 
 def credencial_viva_presente() -> bool:
-    """Ha' como um eval vivo chamar um modelo real: chave Anthropic, ou provedor real nomeado alem do
-    padrao (credenciais da nuvem — sessao AWS do dev e, na zona PHI, os portoes `MAEZO_PHI_*`,
-    verificados pelo proprio provedor ao construir)."""
+    """Ha' credencial PRETENDIDA para um eval vivo: chave Anthropic, ou qualquer provedor nomeado alem do
+    padrao que nao seja de teste. "NAO RODOU" (pulo) fica so' para sem chave E sem provedor nomeado."""
     chave = os.environ.get("MAEZO_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-    # Um provedor REAL nomeado alem do padrao (bedrock, bedrock_br, br_resident) usa credencial da nuvem,
-    # nao chave de API: conta como credencial, e o caso roda (e falha visivel se nao for phi_capable).
-    # Um provedor de teste nomeado (ex.: `noop` num `.env` local) NAO conta: o caso segue pulado.
-    return bool(chave) or provedor_configurado() in PROVEDORES_VIVOS - {PROVEDOR_PADRAO}
+    # Quem nomeou `bedrock`/`bedrock_br`/`br_resident` quis rodar: o caso roda, e sem credencial utilizavel
+    # (sessao AWS, portoes `MAEZO_PHI_*`) falha visivel — LIVE CALL FAILED. Um nome desconhecido (ex.: erro de
+    # digitacao) tambem roda e falha (`ProvedorNaoVivo`). So' um provedor de TESTE nomeado segue pulado.
+    return bool(chave) or provedor_configurado() not in PROVEDORES_DE_TESTE | {PROVEDOR_PADRAO}
 
 
 def configuracao_viva() -> InferenceSettings:
